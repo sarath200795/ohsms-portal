@@ -1,0 +1,375 @@
+@import "tailwindcss";
+
+/* =========================================
+   1. CORE UI & GLASSMORPHISM
+========================================= */
+.glass-panel {
+  background: rgba(30, 41, 59, 0.4);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  transition: all 0.3s;
+  cursor: pointer;
+}
+
+.glass-panel:hover {
+  border-color: rgba(59, 130, 246, 0.3);
+  transform: translateY(-2px);
+  box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.5);
+}
+
+.card-glow {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at 50% 0%, rgba(59, 130, 246, 0.1), transparent 70%);
+  opacity: 0;
+  transition: opacity 0.3s;
+  pointer-events: none;
+}
+
+.glass-panel:hover .card-glow {
+  opacity: 1;
+}
+
+/* Custom scrollbar matched to home.html */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #0f172a;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #334155;
+  border-radius: 3px;
+}
+
+/* =========================================
+   2. NATIVE DATE/TIME PICKERS (DARK MODE)
+========================================= */
+/* Forces the entire document to tell the browser it's a dark theme */
+:root {
+  color-scheme: dark;
+}
+
+input[type="date"],
+input[type="time"],
+input[type="datetime-local"] {
+  color-scheme: dark !important;
+  color: white !important;
+}
+
+::-webkit-calendar-picker-indicator {
+  cursor: pointer;
+  opacity: 0.6;
+  transition: opacity 0.2s;
+}
+
+::-webkit-calendar-picker-indicator:hover {
+  opacity: 1;
+}
+
+
+/* =========================================
+   3. FISHBONE DIAGRAM STYLES
+========================================= */
+.fishbone-container {
+  position: relative;
+  padding: 20px 0;
+  overflow-x: auto;
+  min-height: 300px;
+}
+
+.spine {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  right: 120px;
+  height: 3px;
+  background: #64748b;
+  z-index: 0;
+}
+
+.spine::after {
+  content: '';
+  position: absolute;
+  right: -20px;
+  top: -10px;
+  border-left: 20px solid #64748b;
+  border-top: 10px solid transparent;
+  border-bottom: 10px solid transparent;
+}
+
+.head {
+  position: absolute;
+  top: 50%;
+  right: 0;
+  transform: translateY(-50%);
+  width: 100px;
+  height: 80px;
+  border: 3px solid #ef4444;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #1e293b;
+  z-index: 10;
+  color: #ef4444;
+  font-weight: bold;
+  text-align: center;
+  font-size: 12px;
+}
+
+.ribs-top,
+.ribs-bottom {
+  display: flex;
+  justify-content: space-between;
+  padding-right: 120px;
+}
+
+.rib-box {
+  background: #1e293b;
+  border: 1px solid #475569;
+  padding: 8px;
+  border-radius: 6px;
+  width: 18%;
+  position: relative;
+  transition: all 0.2s;
+}
+
+.ribs-top .rib-box {
+  margin-bottom: 40px;
+}
+
+.ribs-bottom .rib-box {
+  margin-top: 40px;
+}
+
+.ribs-top .rib-box::after {
+  content: '';
+  position: absolute;
+  bottom: -40px;
+  left: 50%;
+  width: 2px;
+  height: 40px;
+  background: #64748b;
+  transform: skewX(-20deg);
+  transform-origin: top;
+}
+
+.ribs-bottom .rib-box::before {
+  content: '';
+  position: absolute;
+  top: -40px;
+  left: 50%;
+  width: 2px;
+  height: 40px;
+  background: #64748b;
+  transform: skewX(20deg);
+  transform-origin: bottom;
+}
+
+
+/* =========================================
+   4. FAULT TREE ANALYSIS STYLES
+========================================= */
+.tree ul {
+  padding-top: 20px;
+  position: relative;
+  display: flex;
+  justify-content: center;
+  transition: all 0.5s;
+}
+
+.tree li {
+  float: left;
+  text-align: center;
+  list-style-type: none;
+  position: relative;
+  padding: 20px 5px 0 5px;
+  transition: all 0.5s;
+}
+
+.tree li::before,
+.tree li::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 50%;
+  border-top: 2px solid #64748b;
+  width: 50%;
+  height: 20px;
+}
+
+.tree li::after {
+  right: auto;
+  left: 50%;
+  border-left: 2px solid #64748b;
+}
+
+.tree li:only-child::after,
+.tree li:only-child::before {
+  display: none;
+}
+
+.tree li:only-child {
+  padding-top: 0;
+}
+
+.tree li:first-child::before,
+.tree li:last-child::after {
+  border: 0 none;
+}
+
+.tree li:last-child::before {
+  border-right: 2px solid #64748b;
+  border-radius: 0 5px 0 0;
+}
+
+.tree li:first-child::after {
+  border-radius: 5px 0 0 0;
+}
+
+.tree ul ul::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 50%;
+  border-left: 2px solid #64748b;
+  width: 0;
+  height: 20px;
+}
+
+.tree-node {
+  display: inline-block;
+  padding: 10px;
+  border-radius: 8px;
+  background: #1e293b;
+  border: 1px solid #475569;
+  min-width: 140px;
+  position: relative;
+  z-index: 10;
+  transition: all 0.2s;
+}
+
+
+/* =========================================
+   5. PDF / PRINT EXPORT OVERRIDES
+========================================= */
+@media print {
+  @page {
+    size: A4;
+    margin: 15mm;
+  }
+
+  /* CRITICAL: Allows the document to scroll naturally onto page 2, 3, etc. */
+  body,
+  html,
+  #root {
+    width: 100% !important;
+    height: auto !important;
+    min-height: 100% !important;
+    background: white !important;
+    color: black !important;
+    overflow: visible !important;
+  }
+
+  /* Overrides Tailwind classes that break PDF pagination */
+  .h-screen,
+  .min-h-screen {
+    height: auto !important;
+    min-height: auto !important;
+  }
+
+  .overflow-hidden,
+  .overflow-y-auto {
+    overflow: visible !important;
+  }
+
+  /* Hide the dark UI */
+  .no-print,
+  header,
+  .app-ui,
+  .form-view-tabs {
+    display: none !important;
+  }
+
+  /* Show the print document */
+  .print-overlay {
+    display: block !important;
+    position: static !important;
+    width: 100% !important;
+    height: auto !important;
+    background: white !important;
+    color: black !important;
+    font-family: "Times New Roman", Times, serif;
+  }
+
+  /* Diagram Print Colors */
+  .fishbone-container,
+  .tree {
+    page-break-inside: avoid;
+    margin-bottom: 20px;
+  }
+
+  .fishbone-container .spine,
+  .ribs-top .rib-box::after,
+  .ribs-bottom .rib-box::before {
+    background: #000 !important;
+    border-color: #000 !important;
+  }
+
+  .rib-box,
+  .tree-node {
+    border: 1px solid #000 !important;
+    background: #fff !important;
+    color: #000 !important;
+    box-shadow: none !important;
+  }
+
+  .head {
+    border-color: #000 !important;
+    color: #000 !important;
+    background: #fff !important;
+  }
+
+  .tree li::before,
+  .tree li::after,
+  .tree ul ul::before {
+    border-color: #000 !important;
+  }
+
+  /* Tables and Page Breaks */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 20px;
+  }
+
+  th,
+  td {
+    border: 1px solid #000 !important;
+    padding: 8px;
+    color: #000 !important;
+    vertical-align: top;
+  }
+
+  th {
+    background-color: #f0f0f0 !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .page-break {
+    page-break-before: always;
+  }
+
+  .page-break-inside-avoid {
+    page-break-inside: avoid;
+  }
+}
+
+/* Ensure print overlay is hidden during normal viewing */
+.print-overlay {
+  display: none;
+}
