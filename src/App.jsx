@@ -21,7 +21,7 @@ import Improvement from './pages/Improvement';
 
 // --- Import OHS Specialized Tools ---
 import OhsTools from './pages/OhsTools';
-import PTW from './pages/Ptw';
+import PTW from './pages/ptw';
 import LOTO from './pages/LOTO';
 import Health from './pages/Health';
 import MockDrill from './pages/MockDrill';
