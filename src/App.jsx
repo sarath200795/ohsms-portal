@@ -8,6 +8,8 @@ import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import Users from './pages/Users';
 import Sites from './pages/Sites';
+import Analytics from "./pages/Analytics";
+
 
 // --- Import Enterprise Modules ---
 import Incidents from './pages/Incidents';
@@ -76,6 +78,7 @@ export default function App() {
 
                 {/* Protected Admin & Dashboard Routes */}
                 <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+                <Route path="/Analytics" element={<ProtectedRoute><Analytics /></ProtectedRoute>} />
                 <Route path="/users" element={<ProtectedRoute><Users /></ProtectedRoute>} />
                 <Route path="/sites" element={<ProtectedRoute><Sites /></ProtectedRoute>} />
 

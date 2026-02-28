@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
 import { useNavigate } from 'react-router-dom';
-import { auth } from '../config/firebase';
+import { ref, set } from 'firebase/database';
+import { auth, rtdb } from '../config/firebase';
 
 export default function Login() {
     const [isRegistering, setIsRegistering] = useState(false);
@@ -36,6 +37,22 @@ export default function Login() {
                 // Format the user's typed organization name into a clean ID (e.g., "Acme Corp" -> "ACME_CORP")
                 const generatedOrgId = organizationName.toUpperCase().replace(/\s+/g, '_');
 
+                // --- SECURITY SYNC ---
+                // Creates the "Passport" for Firebase Security Rules
+                await set(ref(rtdb, `users/${userCredential.user.uid}`), {
+                    orgId: generatedOrgId,
+                    role: 'Owner',
+                    email: email,
+                    status: 'Active'
+                });
+
+                // Initialize the organization structure
+                await set(ref(rtdb, `organizations/${generatedOrgId}/info`), {
+                    name: organizationName,
+                    createdBy: userCredential.user.uid,
+                    createdAt: new Date().toISOString()
+                });
+
                 sessionData = {
                     uid: userCredential.user.uid,
                     email: userCredential.user.email,
@@ -45,13 +62,23 @@ export default function Login() {
                 };
             } else {
                 userCredential = await signInWithEmailAndPassword(auth, email, password);
+                const finalOrgId = orgId.toUpperCase().replace(/\s+/g, '_');
+
+                // --- SECURITY SYNC ---
+                // Updates the passport on every login to ensure rules stay active
+                await set(ref(rtdb, `users/${userCredential.user.uid}`), {
+                    orgId: finalOrgId,
+                    role: 'Owner',
+                    email: email,
+                    status: 'Active'
+                });
 
                 sessionData = {
                     uid: userCredential.user.uid,
                     email: userCredential.user.email,
                     user: userCredential.user.email.split('@')[0],
-                    role: 'Owner', // <--- CHANGED TO OWNER
-                    orgId: orgId.toUpperCase()
+                    role: 'Owner',
+                    orgId: finalOrgId
                 };
             }
 
@@ -173,8 +200,9 @@ export default function Login() {
                     <button
                         type="submit"
                         disabled={loading}
-                        className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-4 rounded-xl transition-all uppercase tracking-widest text-sm shadow-lg shadow-blue-600/20 disabled:bg-slate-800 disabled:text-slate-500 mt-2"
+                        className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-4 rounded-xl transition-all uppercase tracking-widest text-sm shadow-lg shadow-blue-600/20 disabled:bg-slate-800 disabled:text-slate-500 mt-2 flex justify-center items-center gap-2"
                     >
+                        {loading ? <i className="fas fa-spinner fa-spin"></i> : null}
                         {loading ? 'Authenticating...' : (isRegistering ? 'Establish Organization' : 'Access Portal')}
                     </button>
                 </form>

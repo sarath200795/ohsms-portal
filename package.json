@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.2.1",
+    "chart.js": "^4.5.1",
     "firebase": "^12.9.0",
     "html5-qrcode": "^2.3.8",
     "jspdf": "^4.2.0",
@@ -18,6 +19,7 @@
     "leaflet": "^1.9.4",
     "qrious": "^4.0.2",
     "react": "^19.2.0",
+    "react-chartjs-2": "^5.3.1",
     "react-dom": "^19.2.0",
     "react-router-dom": "^7.13.1",
     "xlsx": "^0.18.5"

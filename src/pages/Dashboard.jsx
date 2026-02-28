@@ -39,7 +39,7 @@ export default function Dashboard() {
     const navigate = useNavigate();
 
     const MODULES = [
-        { id: 'dashboard', label: 'Dashboard', desc: 'KPIs & Stats', icon: 'fa-chart-pie', color: 'text-purple-400', path: '/dashboard' },
+        { id: 'analytics', label: 'Analytics', desc: 'KPIs & Stats', icon: 'fa-chart-pie', color: 'text-purple-400', path: '/analytics' },
         { id: 'incidents', label: 'Incidents', desc: 'Report Hazards', icon: 'fa-triangle-exclamation', color: 'text-orange-400', path: '/incidents' },
         { id: 'risk', label: 'Risk Assessment', desc: 'HIRA & JSA', icon: 'fa-shield-virus', color: 'text-red-400', path: '/risk' },
         { id: 'consultation', label: 'Participation', desc: 'Committees & MOM', icon: 'fa-comments', color: 'text-teal-400', path: '/consultation' },
