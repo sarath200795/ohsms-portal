@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { ref, get, update, push, remove } from 'firebase/database';
 import { rtdb } from '../config/firebase';
 import * as XLSX from 'xlsx';
@@ -34,6 +34,8 @@ const fileToBase64 = (file) => new Promise((resolve, reject) => {
 
 export default function Training() {
     const navigate = useNavigate();
+    const location = useLocation();
+
     const [view, setView] = useState('dashboard');
     const [session, setSession] = useState(null);
 
@@ -42,12 +44,12 @@ export default function Training() {
     const [users, setUsers] = useState([]);
     const [trainingCapas, setTrainingCapas] = useState([]);
 
-    const [canEdit, setCanEdit] = useState(true);
     const [printData, setPrintData] = useState(null);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
 
-    // Filters & View State
+    // RBAC & Filter State
+    const [permissions, setPermissions] = useState({ viewOnly: false, canDelete: false, canEditCreate: false });
     const [filterSite, setFilterSite] = useState('All');
     const [matrixSiteFilter, setMatrixSiteFilter] = useState('All');
     const [calendarSiteFilter, setCalendarSiteFilter] = useState('All');
@@ -71,46 +73,54 @@ export default function Training() {
     const [selectedUserToAdd, setSelectedUserToAdd] = useState('');
     const [externalName, setExternalName] = useState('');
 
-    // --- SMART SITE AUTO-DETECTION ---
-    const getActiveSiteFilter = () => {
-        if (view === 'dashboard' || view === 'repo') return filterSite;
-        if (view === 'matrix') return matrixSiteFilter;
-        if (view === 'calendar') return calendarSiteFilter;
-        return 'All';
-    };
-
-    const getSmartSiteDefault = (preferredSite = null) => {
-        if (preferredSite && preferredSite !== 'Global' && preferredSite !== 'GLOBAL' && preferredSite !== 'All') return preferredSite;
-        const activeFilter = getActiveSiteFilter();
-        if (activeFilter && activeFilter !== 'All') return activeFilter;
-        if (session?.assignedSite && session.assignedSite !== 'GLOBAL') return session.assignedSite;
-        if (sites.length === 1) return sites[0].code;
-        return '';
-    };
-
-    // --- LOAD DATA ---
+    // --- LOAD DATA & CHECK SECURITY ---
     useEffect(() => {
         const s = sessionStorage.getItem('isoSession');
         if (!s) { navigate('/'); return; }
         const sess = JSON.parse(s);
+
+        // 1. STRICT MODULE GUARD
+        const isGlobalAdmin = ['Global Owner', 'Global Manager', 'Owner', 'Admin'].includes(sess.role);
+        const hasModuleAccess = isGlobalAdmin || (sess.accessibleModules || []).includes('Training');
+
+        if (!hasModuleAccess) {
+            alert("Security Alert: You do not have permission to access the Training module.");
+            navigate('/dashboard');
+            return;
+        }
+
         setSession(sess);
 
-        const checkPerms = (site) => {
-            if (!site) return true;
-            if (sess.role === 'Owner') return true;
-            if (sess.assignedSite === site) return true;
-            if (sess.accessibleSites && sess.accessibleSites.includes(site)) return true;
-            return false;
-        };
+        // 2. STRICT RBAC MATRIX
+        const canDel = ['Global Owner', 'Owner', 'Admin', 'Site Owner'].includes(sess.role);
+        const canEditCr = ['Global Owner', 'Global Manager', 'Owner', 'Admin', 'Site Owner', 'Site Manager', 'User'].includes(sess.role);
 
-        if (sess.assignedSite && sess.assignedSite !== 'GLOBAL') {
-            const ctxSite = sess.assignedSite;
-            setData(d => ({ ...d, siteId: ctxSite }));
-            setFilterSite(ctxSite);
-            setMatrixSiteFilter(ctxSite);
-            setCalendarSiteFilter(ctxSite);
-            setCanEdit(checkPerms(ctxSite));
+        setPermissions({
+            viewOnly: !canEditCr,
+            canDelete: canDel,
+            canEditCreate: canEditCr
+        });
+
+        // 3. SYNCHRONIZED SITE PERSISTENCE
+        const params = new URLSearchParams(location.search);
+        const urlSite = params.get('site');
+
+        let storedSite = sessionStorage.getItem('isoCurrentSite');
+        if (storedSite === 'GLOBAL') storedSite = 'All';
+
+        let ctxSite = urlSite || storedSite || 'All';
+
+        if (!isGlobalAdmin && ctxSite === 'All') {
+            ctxSite = (sess.assignedSite && sess.assignedSite !== 'GLOBAL') ? sess.assignedSite : (sess.accessibleSites?.[0] || '');
         }
+
+        setFilterSite(ctxSite);
+        setMatrixSiteFilter(ctxSite);
+        setCalendarSiteFilter(ctxSite);
+        sessionStorage.setItem('isoCurrentSite', ctxSite === 'All' ? 'GLOBAL' : ctxSite);
+
+        setData(d => ({ ...d, siteId: ctxSite !== 'All' ? ctxSite : ((sess.assignedSite !== 'GLOBAL') ? sess.assignedSite : '') }));
+
 
         const loadDatabase = async () => {
             try {
@@ -124,12 +134,14 @@ export default function Training() {
                     }
 
                     if (orgData.sites) {
-                        const allSites = Object.values(orgData.sites).map(s => ({ code: s.code || s.name, name: s.name || s.code }));
-                        setSites(sess.role === 'Owner' ? allSites : allSites.filter(s => (sess.accessibleSites || []).includes(s.code) || sess.assignedSite === s.code));
+                        const parsedSites = Object.keys(orgData.sites).map(key => {
+                            const sVal = orgData.sites[key];
+                            return typeof sVal === 'object' ? { code: sVal.code || key, name: sVal.name || sVal.code || key } : { code: sVal, name: sVal };
+                        });
+                        setSites(parsedSites);
                     }
 
                     if (orgData.users) {
-                        // FIX: Added name fallback to email or System Owner
                         setUsers(Object.entries(orgData.users)
                             .map(([k, v]) => ({ id: k, name: v.name || v.email || 'System Owner', ...v }))
                             .filter(u => u.status !== 'Inactive' && u.status !== 'Deleted'));
@@ -222,28 +234,67 @@ export default function Training() {
 
         document.addEventListener("mousedown", handleClickOutside);
         return () => document.removeEventListener("mousedown", handleClickOutside);
-    }, [navigate]);
+    }, [navigate, location]);
 
     const handleClickOutside = (event) => {
         if (filterRef.current && !filterRef.current.contains(event.target)) setIsFilterOpen(false);
     };
 
-    // --- GLOBAL USER FILTERING LOGIC ---
+    // ==========================================
+    // 4. ROW LEVEL SECURITY (RLS) FILTERS
+    // ==========================================
+    const role = session?.role || 'User';
+    const isGlobalUser = ['Global Owner', 'Global Manager', 'Owner', 'Admin'].includes(role);
+
+    const allowedSiteCodes = useMemo(() => {
+        if (!session) return new Set();
+        const codes = new Set([session.assignedSite, ...(session.accessibleSites || [])].filter(Boolean));
+        if (!isGlobalUser) {
+            codes.delete('GLOBAL');
+            codes.delete('All');
+        }
+        return codes;
+    }, [session, isGlobalUser]);
+
+    const visibleSites = useMemo(() => {
+        if (isGlobalUser) return sites;
+        return sites.filter(s => allowedSiteCodes.has(s.code));
+    }, [sites, isGlobalUser, allowedSiteCodes]);
+
+    const getSmartSiteDefault = (preferredSite = null) => {
+        if (preferredSite && preferredSite !== 'Global' && preferredSite !== 'GLOBAL' && preferredSite !== 'All') return preferredSite;
+        if (filterSite !== 'All') return filterSite;
+        if (session?.assignedSite && session.assignedSite !== 'GLOBAL') return session.assignedSite;
+        if (!isGlobalUser && visibleSites.length > 0) return visibleSites[0].code;
+        return '';
+    };
+
+    // Dropdown Sync Handlers
+    const handleDashboardSiteChange = (e) => { setFilterSite(e.target.value); sessionStorage.setItem('isoCurrentSite', e.target.value === 'All' ? 'GLOBAL' : e.target.value); };
+    const handleMatrixSiteChange = (e) => { setMatrixSiteFilter(e.target.value); sessionStorage.setItem('isoCurrentSite', e.target.value === 'All' ? 'GLOBAL' : e.target.value); };
+    const handleCalendarSiteChange = (e) => { setCalendarSiteFilter(e.target.value); sessionStorage.setItem('isoCurrentSite', e.target.value === 'All' ? 'GLOBAL' : e.target.value); };
+
+    // Row Guards
+    const canEditForm = useMemo(() => {
+        if (!permissions.canEditCreate) return false;
+        if (isGlobalUser) return true;
+        if (!data.siteId) return true;
+        return allowedSiteCodes.has(data.siteId);
+    }, [permissions.canEditCreate, isGlobalUser, allowedSiteCodes, data.siteId]);
+
+    // Used for selecting trainees specific to the chosen site
     const siteUsers = useMemo(() => {
         return users.filter(u => {
-            const isGlobal = u.role === 'Owner' || u.role === 'Lead Auditor' || u.assignedSite === 'GLOBAL' || (u.accessibleSites && u.accessibleSites.includes('GLOBAL'));
-            const siteMatch = isGlobal || !data.siteId || u.assignedSite === data.siteId || (u.accessibleSites && u.accessibleSites.includes(data.siteId));
-            const modMatch = isGlobal || !u.accessibleModules || u.accessibleModules.includes('training');
-            return siteMatch && modMatch;
+            const isGlobalUsr = u.role === 'Owner' || u.role === 'Lead Auditor' || u.assignedSite === 'GLOBAL' || (u.accessibleSites && u.accessibleSites.includes('GLOBAL'));
+            const siteMatch = isGlobalUsr || !data.siteId || u.assignedSite === data.siteId || (u.accessibleSites && u.accessibleSites.includes(data.siteId));
+            return siteMatch;
         });
     }, [users, data.siteId]);
 
+
     // --- EXPIRY & MATRIX LOGIC ---
     const uniqueTopics = useMemo(() => [...new Set([...BASE_TOPICS, ...trainings.map(t => t.topic)])], [trainings]);
-
-    const displayedTopics = useMemo(() => {
-        return uniqueTopics.filter(t => !hiddenTopics.includes(t));
-    }, [uniqueTopics, hiddenTopics]);
+    const displayedTopics = useMemo(() => uniqueTopics.filter(t => !hiddenTopics.includes(t)), [uniqueTopics, hiddenTopics]);
 
     const certifications = useMemo(() => {
         const certs = {};
@@ -253,6 +304,9 @@ export default function Training() {
         const sortedTrainings = [...trainings].sort((a, b) => new Date(a.date) - new Date(b.date));
 
         sortedTrainings.forEach(t => {
+            // Only parse trainings we are authorized to "see" based on RLS
+            if (!isGlobalUser && !allowedSiteCodes.has(t.siteId)) return;
+
             if (t.attendees) {
                 t.attendees.forEach(att => {
                     if (att.status === 'Attended' && att.userId !== 'External') {
@@ -278,7 +332,7 @@ export default function Training() {
         });
 
         return certs;
-    }, [trainings]);
+    }, [trainings, isGlobalUser, allowedSiteCodes]);
 
     const getMatrixCell = (userObj, topic) => {
         const userName = userObj.name;
@@ -309,6 +363,9 @@ export default function Training() {
         let merged = users.map(u => ({ id: u.id, name: u.name, role: u.role, assignedSite: u.assignedSite, accessibleSites: u.accessibleSites }));
 
         trainings.forEach(t => {
+            // Apply RLS filter to external users fetched from training rosters
+            if (!isGlobalUser && !allowedSiteCodes.has(t.siteId)) return;
+
             if (t.attendees) {
                 t.attendees.forEach(a => {
                     if (a.userId === 'External' && !merged.find(u => u.name === a.name)) {
@@ -318,8 +375,12 @@ export default function Training() {
             }
         });
 
+        // Apply UI Filter
         if (matrixSiteFilter !== 'All') {
-            merged = merged.filter(u => u.assignedSite === matrixSiteFilter || (u.accessibleSites && u.accessibleSites.includes(matrixSiteFilter)) || u.id === 'External');
+            merged = merged.filter(u => u.assignedSite === matrixSiteFilter || (u.accessibleSites && u.accessibleSites.includes(matrixSiteFilter)) || (u.id === 'External' && u.assignedSite === matrixSiteFilter));
+        } else if (!isGlobalUser) {
+            // If they are on "All Sites" but aren't global, only show users from their allowed sites
+            merged = merged.filter(u => allowedSiteCodes.has(u.assignedSite) || (u.accessibleSites && u.accessibleSites.some(s => allowedSiteCodes.has(s))));
         }
 
         if (searchTerm) {
@@ -327,7 +388,7 @@ export default function Training() {
         }
 
         return merged.sort((a, b) => a.name.localeCompare(b.name));
-    }, [users, trainings, matrixSiteFilter, searchTerm]);
+    }, [users, trainings, matrixSiteFilter, searchTerm, isGlobalUser, allowedSiteCodes]);
 
     const filteredAlerts = useMemo(() => {
         const alerts = Object.values(certifications).filter(c => c.status !== 'Valid').sort((a, b) => new Date(a.expiryDate) - new Date(b.expiryDate));
@@ -339,11 +400,17 @@ export default function Training() {
     }, [certifications, filterSite, users]);
 
     const pendingTrainingCapas = useMemo(() => {
-        return trainingCapas.filter(c =>
-            c.status !== 'Closed' &&
-            (filterSite === 'All' || c.siteId === filterSite || c.source === 'Incident')
-        );
-    }, [trainingCapas, filterSite]);
+        return trainingCapas.filter(c => {
+            if (c.status === 'Closed') return false;
+            // RLS Guard
+            if (!isGlobalUser && !allowedSiteCodes.has(c.siteId) && c.siteId !== 'Global') return false;
+            // UI Filter Guard
+            if (filterSite !== 'All' && c.siteId !== filterSite && c.source !== 'Incident') return false;
+
+            return true;
+        });
+    }, [trainingCapas, filterSite, isGlobalUser, allowedSiteCodes]);
+
 
     // --- ACTIONS ---
     const toggleTopicFilter = (t) => setHiddenTopics(prev => prev.includes(t) ? prev.filter(item => item !== t) : [...prev, t]);
@@ -363,6 +430,8 @@ export default function Training() {
     };
 
     const initiateRetraining = (topic, usersToRetrain) => {
+        if (!permissions.canEditCreate) return alert("Security Error: You do not have permission to initiate training.");
+
         const defaultAttendees = usersToRetrain.map(u => ({
             userId: u.userId || u.id || 'Internal',
             name: u.userName || u.name,
@@ -393,8 +462,9 @@ export default function Training() {
     };
 
     const initiateCapaTraining = (capaItem) => {
-        const today = new Date().toISOString().split('T')[0];
+        if (!permissions.canEditCreate) return alert("Security Error: You do not have permission to initiate training.");
 
+        const today = new Date().toISOString().split('T')[0];
         let initialContent = '';
         if (capaItem.source === 'Incident') {
             initialContent = `=== CROSS-REFERENCE INCIDENT ID: ${capaItem.sourceId} ===\n\nINCIDENT EVENT DETAILS:\n${capaItem.contextDesc}\n\nTRAINING AGENDA:\n[Please detail the corrective training provided to prevent recurrence...]`;
@@ -438,6 +508,7 @@ export default function Training() {
     const removeAttendee = (index) => { setData(prev => ({ ...prev, attendees: data.attendees.filter((_, i) => i !== index) })); };
 
     const saveData = async () => {
+        if (!canEditForm) return alert("Security Error: You do not have permission to create or edit records for this site.");
         if (!data.siteId || !data.topic) return alert("Site and Topic are required.");
 
         setSaving(true);
@@ -475,6 +546,7 @@ export default function Training() {
     };
 
     const handleDelete = async (record) => {
+        if (!permissions.canDelete) return alert("Security Error: Only Site/Global Owners can permanently delete records.");
         if (window.confirm("Delete this training record permanently?")) {
             await remove(ref(rtdb, `organizations/${session.orgId}/trainings/${record.firebaseKey}`));
             setTrainings(prev => prev.filter(t => t.firebaseKey !== record.firebaseKey));
@@ -483,7 +555,7 @@ export default function Training() {
 
     const triggerPrint = (record) => { setPrintData(record); setTimeout(() => window.print(), 800); };
 
-    // --- PERFECTED CALENDAR RENDERER ---
+    // --- CALENDAR RENDERER ---
     const renderCalendar = () => {
         const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
         const firstDayIndex = new Date(currentYear, currentMonth, 1).getDay();
@@ -494,7 +566,7 @@ export default function Training() {
         for (let d = 1; d <= daysInMonth; d++) {
             const dateStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
 
-            const dayTrainings = trainings.filter(t => t.date === dateStr && (calendarSiteFilter === 'All' || t.siteId === calendarSiteFilter));
+            const dayTrainings = trainings.filter(t => t.date === dateStr && (calendarSiteFilter === 'All' || t.siteId === calendarSiteFilter) && (isGlobalUser || allowedSiteCodes.has(t.siteId)));
 
             const dayExpirations = Object.values(certifications).filter(c => c.expiryDate === dateStr);
             const dayExpirationsFiltered = dayExpirations.filter(exp => {
@@ -503,7 +575,7 @@ export default function Training() {
                 return u && (u.assignedSite === calendarSiteFilter || (u.accessibleSites && u.accessibleSites.includes(calendarSiteFilter)));
             });
 
-            const dayCapas = trainingCapas.filter(c => c.due === dateStr && c.status !== 'Closed' && (calendarSiteFilter === 'All' || c.siteId === calendarSiteFilter || c.source === 'Incident'));
+            const dayCapas = trainingCapas.filter(c => c.due === dateStr && c.status !== 'Closed' && (calendarSiteFilter === 'All' || c.siteId === calendarSiteFilter || c.source === 'Incident') && (isGlobalUser || allowedSiteCodes.has(c.siteId) || c.siteId === 'Global'));
 
             days.push(
                 <div key={d} className="p-2 border-r border-b border-slate-700 bg-slate-800 hover:bg-slate-700/80 transition min-h-[120px] flex flex-col">
@@ -539,9 +611,9 @@ export default function Training() {
                     <div className="flex items-center gap-4">
                         <div className="relative">
                             <i className="fas fa-map-marker-alt absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-500"></i>
-                            <select value={calendarSiteFilter} onChange={e => setCalendarSiteFilter(e.target.value)} className="w-40 text-xs bg-slate-900 border border-slate-700 rounded-lg shadow-inner pl-8 pr-2 py-2 appearance-none outline-none focus:border-blue-500 text-white">
-                                <option value="All">All Sites</option>
-                                {sites.map(s => <option key={s.code} value={s.code}>{s.name}</option>)}
+                            <select value={calendarSiteFilter} onChange={handleCalendarSiteChange} className="w-40 text-xs bg-slate-900 border border-slate-700 rounded-lg shadow-inner pl-8 pr-2 py-2 appearance-none outline-none focus:border-blue-500 text-white">
+                                {(isGlobalUser || visibleSites.length > 1) && <option value="All">All Sites</option>}
+                                {visibleSites.map(s => <option key={s.code} value={s.code}>{s.name}</option>)}
                             </select>
                         </div>
 
@@ -582,33 +654,30 @@ export default function Training() {
         <div className="flex flex-col h-screen bg-slate-950 text-white font-['Space_Grotesk'] overflow-hidden">
             <header className="h-16 border-b border-slate-800 flex items-center justify-between px-6 bg-slate-900/80 backdrop-blur-md print:hidden z-20 flex-shrink-0">
                 <div className="flex items-center gap-4">
-                    <button onClick={() => navigate('/dashboard')} className="text-slate-400 hover:text-white transition-colors flex items-center gap-2"><i className="fas fa-arrow-left"></i> Hub</button>
+                    <button type="button" onClick={() => navigate('/dashboard')} className="text-slate-400 hover:text-white transition-colors flex items-center gap-2"><i className="fas fa-arrow-left"></i> Hub</button>
                     <div className="h-6 w-px bg-slate-800 mx-2"></div>
                     <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center text-white font-bold shadow-lg"><i className="fas fa-graduation-cap"></i></div>
                     <h1 className="font-bold text-lg tracking-wide hidden md:block">Training & Competence</h1>
+                    <div className="ml-4 flex gap-2">
+                        <span className="text-[10px] uppercase font-bold tracking-widest bg-blue-500/10 text-blue-400 px-2 py-1 rounded border border-blue-500/20">{session?.role}</span>
+                        {permissions.viewOnly && <span className="text-[10px] uppercase font-bold tracking-widest bg-yellow-500/10 text-yellow-400 px-2 py-1 rounded border border-yellow-500/20"><i className="fas fa-eye mr-1"></i> Read Only</span>}
+                    </div>
                 </div>
                 <div className="flex gap-2 bg-slate-950 p-1.5 rounded-xl border border-slate-800 shadow-inner">
-                    <button onClick={() => setView('dashboard')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-widest transition-all ${view === 'dashboard' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}><i className="fas fa-chart-line mr-1"></i> Dashboard</button>
-                    <button onClick={() => setView('matrix')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-widest transition-all ${view === 'matrix' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}><i className="fas fa-table mr-1"></i> Matrix</button>
-                    <button onClick={() => setView('calendar')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-widest transition-all ${view === 'calendar' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}><i className="fas fa-calendar-alt mr-1"></i> Calendar</button>
-                    <button onClick={() => setView('repo')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-widest transition-all ${view === 'repo' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}><i className="fas fa-database mr-1"></i> List</button>
-                    <button onClick={() => {
-                        const today = new Date().toISOString().split('T')[0];
-                        setView('form');
-                        setData({
-                            id: '',
-                            siteId: getSmartSiteDefault(),
-                            topic: '',
-                            content: '',
-                            date: today,
-                            expiryDate: addMonths(today, 6),
-                            trainer: '',
-                            type: 'Internal Formal',
-                            duration: '1 Hour',
-                            attendees: [],
-                            linkedCapa: null
-                        });
-                    }} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-widest transition-all ${view === 'form' ? 'bg-emerald-600 text-white shadow-lg' : 'text-emerald-400 hover:text-white hover:bg-slate-800'}`}><i className="fas fa-plus mr-1"></i> New</button>
+                    <button type="button" onClick={() => setView('dashboard')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-widest transition-all ${view === 'dashboard' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}><i className="fas fa-chart-line mr-1"></i> Dashboard</button>
+                    <button type="button" onClick={() => setView('matrix')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-widest transition-all ${view === 'matrix' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}><i className="fas fa-table mr-1"></i> Matrix</button>
+                    <button type="button" onClick={() => setView('calendar')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-widest transition-all ${view === 'calendar' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}><i className="fas fa-calendar-alt mr-1"></i> Calendar</button>
+                    <button type="button" onClick={() => setView('repo')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-widest transition-all ${view === 'repo' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}><i className="fas fa-database mr-1"></i> List</button>
+                    {permissions.canEditCreate && (
+                        <button type="button" onClick={() => {
+                            const today = new Date().toISOString().split('T')[0];
+                            setView('form');
+                            setData({
+                                id: '', siteId: getSmartSiteDefault(), topic: '', content: '', date: today, expiryDate: addMonths(today, 6),
+                                trainer: '', type: 'Internal Formal', duration: '1 Hour', attendees: [], linkedCapa: null
+                            });
+                        }} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-widest transition-all ${view === 'form' ? 'bg-emerald-600 text-white shadow-lg' : 'text-emerald-400 hover:text-white hover:bg-slate-800'}`}><i className="fas fa-plus mr-1"></i> New</button>
+                    )}
                 </div>
             </header>
 
@@ -618,9 +687,9 @@ export default function Training() {
                 {view === 'dashboard' && (
                     <div className="max-w-7xl mx-auto space-y-6 animate-in fade-in duration-500">
                         <div className="flex justify-end mb-4">
-                            <select value={filterSite} onChange={e => setFilterSite(e.target.value)} className="w-48 text-xs bg-slate-950 border border-slate-700 text-white outline-none focus:border-blue-500 rounded-xl p-3 shadow-inner">
-                                <option value="All">Global Overview</option>
-                                {sites.map(s => <option key={s.code} value={s.code}>{s.name}</option>)}
+                            <select value={filterSite} onChange={handleDashboardSiteChange} className="w-48 text-xs bg-slate-950 border border-slate-700 text-white outline-none focus:border-blue-500 rounded-xl p-3 shadow-inner">
+                                {(isGlobalUser || visibleSites.length > 1) && <option value="All">All Authorized Sites</option>}
+                                {visibleSites.map(s => <option key={s.code} value={s.code}>{s.name}</option>)}
                             </select>
                         </div>
 
@@ -661,7 +730,7 @@ export default function Training() {
                                                     <td className="p-4 font-mono text-xs">{alt.expiryDate}</td>
                                                     <td className="p-4"><span className={`px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wider border border-current shadow-sm ${alt.statusClass}`}>{alt.status}</span></td>
                                                     <td className="p-4 text-right">
-                                                        {canEdit && <button onClick={() => initiateRetraining(alt.topic, [alt])} className="text-blue-400 hover:text-white bg-blue-900/20 hover:bg-blue-600 px-3 py-1.5 rounded-lg transition border border-blue-500/30 text-[10px] uppercase font-bold tracking-widest shadow-sm">Retrain</button>}
+                                                        {permissions.canEditCreate && <button type="button" onClick={() => initiateRetraining(alt.topic, [alt])} className="text-blue-400 hover:text-white bg-blue-900/20 hover:bg-blue-600 px-3 py-1.5 rounded-lg transition border border-blue-500/30 text-[10px] uppercase font-bold tracking-widest shadow-sm">Retrain</button>}
                                                     </td>
                                                 </tr>
                                             ))}
@@ -693,7 +762,7 @@ export default function Training() {
                                                     <td className="p-4 font-medium text-white leading-relaxed">{capa.desc}</td>
                                                     <td className="p-4 font-mono text-xs text-slate-400">{capa.due} {new Date(capa.due) < new Date() && <span className="text-red-500 font-bold ml-2 animate-pulse">!</span>}</td>
                                                     <td className="p-4 text-right">
-                                                        {canEdit && <button onClick={() => initiateCapaTraining(capa)} className="text-orange-400 hover:text-white bg-orange-900/20 hover:bg-orange-600 px-3 py-1.5 rounded-lg transition border border-orange-500/30 text-[10px] uppercase font-bold whitespace-nowrap tracking-widest shadow-sm">Log Session</button>}
+                                                        {permissions.canEditCreate && <button type="button" onClick={() => initiateCapaTraining(capa)} className="text-orange-400 hover:text-white bg-orange-900/20 hover:bg-orange-600 px-3 py-1.5 rounded-lg transition border border-orange-500/30 text-[10px] uppercase font-bold whitespace-nowrap tracking-widest shadow-sm">Log Session</button>}
                                                     </td>
                                                 </tr>
                                             ))}
@@ -715,9 +784,9 @@ export default function Training() {
 
                                 <div className="relative">
                                     <i className="fas fa-map-marker-alt absolute left-4 top-1/2 transform -translate-y-1/2 text-slate-500"></i>
-                                    <select value={matrixSiteFilter} onChange={e => setMatrixSiteFilter(e.target.value)} className="bg-slate-950 border border-slate-700 rounded-xl pl-10 pr-4 py-2.5 text-xs font-bold text-white outline-none focus:border-blue-500 appearance-none shadow-inner w-48">
-                                        <option value="All">All Sites</option>
-                                        {sites.map(s => <option key={s.code} value={s.code}>{s.name}</option>)}
+                                    <select value={matrixSiteFilter} onChange={handleMatrixSiteChange} className="bg-slate-950 border border-slate-700 rounded-xl pl-10 pr-4 py-2.5 text-xs font-bold text-white outline-none focus:border-blue-500 appearance-none shadow-inner w-48">
+                                        {(isGlobalUser || visibleSites.length > 1) && <option value="All">All Sites</option>}
+                                        {visibleSites.map(s => <option key={s.code} value={s.code}>{s.name}</option>)}
                                     </select>
                                 </div>
 
@@ -727,14 +796,14 @@ export default function Training() {
                                 </div>
 
                                 <div ref={filterRef} className="relative">
-                                    <button onClick={() => setIsFilterOpen(!isFilterOpen)} className="bg-slate-800 hover:bg-slate-700 text-white px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 border border-slate-600 shadow-lg transition-colors">
+                                    <button type="button" onClick={() => setIsFilterOpen(!isFilterOpen)} className="bg-slate-800 hover:bg-slate-700 text-white px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 border border-slate-600 shadow-lg transition-colors">
                                         <i className="fas fa-filter text-blue-400"></i> Columns
                                     </button>
                                     {isFilterOpen && (
                                         <div className="absolute right-0 top-12 w-64 bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl p-5 z-50">
                                             <div className="flex justify-between mb-4 border-b border-slate-800 pb-3">
-                                                <button onClick={selectAllTopics} className="text-[10px] text-blue-400 hover:text-blue-300 font-bold uppercase tracking-widest transition-colors">Select All</button>
-                                                <button onClick={clearAllTopics} className="text-[10px] text-red-400 hover:text-red-300 font-bold uppercase tracking-widest transition-colors">Clear All</button>
+                                                <button type="button" onClick={selectAllTopics} className="text-[10px] text-blue-400 hover:text-blue-300 font-bold uppercase tracking-widest transition-colors">Select All</button>
+                                                <button type="button" onClick={clearAllTopics} className="text-[10px] text-red-400 hover:text-red-300 font-bold uppercase tracking-widest transition-colors">Clear All</button>
                                             </div>
                                             <div className="space-y-3 max-h-60 overflow-y-auto custom-scroll pr-2">
                                                 {uniqueTopics.map(t => (
@@ -747,7 +816,7 @@ export default function Training() {
                                         </div>
                                     )}
                                 </div>
-                                <button onClick={downloadMatrix} className="bg-emerald-600 hover:bg-emerald-500 text-white px-5 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 shadow-lg shadow-emerald-600/20 transition-transform active:scale-95"><i className="fas fa-file-excel"></i> Export CSV</button>
+                                <button type="button" onClick={downloadMatrix} className="bg-emerald-600 hover:bg-emerald-500 text-white px-5 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 shadow-lg shadow-emerald-600/20 transition-transform active:scale-95"><i className="fas fa-file-excel"></i> Export CSV</button>
                             </div>
                         </div>
 
@@ -769,7 +838,11 @@ export default function Training() {
                                             {displayedTopics.map(t => {
                                                 const cell = getMatrixCell(u, t);
                                                 return (
-                                                    <td key={t} className="p-3 text-center border-r border-slate-800/50 relative group hover:bg-slate-800/80 cursor-pointer transition-colors" onClick={() => cell.status !== 'N/A' && cell.status !== 'Not Trained' ? initiateRetraining(t, [cell.certObj]) : initiateRetraining(t, [{ userName: u.name, userId: u.id, assignedSite: u.assignedSite }])}>
+                                                    <td key={t} className="p-3 text-center border-r border-slate-800/50 relative group hover:bg-slate-800/80 cursor-pointer transition-colors" onClick={() => {
+                                                        if (permissions.canEditCreate) {
+                                                            cell.status !== 'N/A' && cell.status !== 'Not Trained' ? initiateRetraining(t, [cell.certObj]) : initiateRetraining(t, [{ userName: u.name, userId: u.id, assignedSite: u.assignedSite }])
+                                                        }
+                                                    }}>
                                                         <div className={`px-2 py-1.5 rounded-lg text-[10px] font-bold border ${cell.color} w-full text-center shadow-sm tracking-wider uppercase`}>{cell.status}</div>
                                                         {cell.status !== 'Not Trained' && cell.status !== 'N/A' && (
                                                             <div className="text-[9px] text-slate-400 mt-2 flex flex-col gap-1 opacity-60 group-hover:opacity-100 transition-opacity font-mono">
@@ -800,7 +873,10 @@ export default function Training() {
                                 <h2 className="text-3xl font-bold text-white mb-2"><i className="fas fa-database text-blue-400 mr-3"></i> Training Master Log</h2>
                                 <p className="text-sm text-slate-400">Historical repository of all completed training sessions.</p>
                             </div>
-                            <select value={filterSite} onChange={e => setFilterSite(e.target.value)} className="w-48 text-xs bg-slate-950 border border-slate-700 text-white rounded-xl p-3 outline-none focus:border-blue-500 shadow-inner"><option value="All">Global Overview</option>{sites.map(s => <option key={s.code} value={s.code}>{s.name}</option>)}</select>
+                            <select value={filterSite} onChange={handleDashboardSiteChange} className="w-48 text-xs bg-slate-950 border border-slate-700 text-white rounded-xl p-3 outline-none focus:border-blue-500 shadow-inner">
+                                {(isGlobalUser || visibleSites.length > 1) && <option value="All">All Authorized Sites</option>}
+                                {visibleSites.map(s => <option key={s.code} value={s.code}>{s.name}</option>)}
+                            </select>
                         </div>
                         <div className="overflow-x-auto rounded-xl border border-slate-800 bg-slate-900/50 shadow-inner custom-scroll">
                             <table className="w-full text-left text-sm text-slate-300 whitespace-nowrap">
@@ -808,7 +884,7 @@ export default function Training() {
                                     <tr><th className="p-5 pl-6">Record ID</th><th className="p-5">Course / Topic</th><th className="p-5">Date Conducted</th><th className="p-5">Site</th><th className="p-5">Trainees</th><th className="p-5 pr-6 text-right">Actions</th></tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-800/80 bg-slate-950/30">
-                                    {trainings.filter(t => filterSite === 'All' || t.siteId === filterSite || (t.sourceCapaRef && t.sourceCapaRef.startsWith('Incident'))).sort((a, b) => new Date(b.date) - new Date(a.date)).map(t => (
+                                    {trainings.filter(t => filterSite === 'All' ? (isGlobalUser || allowedSiteCodes.has(t.siteId)) : t.siteId === filterSite).sort((a, b) => new Date(b.date) - new Date(a.date)).map(t => (
                                         <tr key={t.firebaseKey} className="hover:bg-slate-800/60 transition-colors">
                                             <td className="p-5 pl-6 font-mono text-xs text-slate-400">{t.id}</td>
                                             <td className="p-5 font-bold text-white text-base">
@@ -819,13 +895,17 @@ export default function Training() {
                                             <td className="p-5 text-xs font-medium">{t.siteId}</td>
                                             <td className="p-5 font-bold text-emerald-400"><span className="bg-emerald-900/20 border border-emerald-500/30 px-2 py-1 rounded-lg">{t.attendees ? t.attendees.filter(a => a.status === 'Attended').length : 0} passed</span></td>
                                             <td className="p-5 pr-6 text-right flex justify-end gap-3">
-                                                <button onClick={() => triggerPrint(t)} className="text-blue-400 hover:text-white bg-blue-900/20 hover:bg-blue-600 px-3 py-1.5 rounded-lg transition-colors border border-blue-500/30" title="Print Register"><i className="fas fa-print"></i></button>
-                                                {canEdit && <button onClick={() => { setData(t); setView('form'); }} className="text-purple-400 hover:text-white bg-purple-900/20 hover:bg-purple-600 px-3 py-1.5 rounded-lg transition-colors border border-purple-500/30 font-bold text-[10px] uppercase tracking-widest" title="Edit">Edit</button>}
-                                                {canEdit && <button onClick={() => handleDelete(t)} className="text-slate-400 hover:text-white bg-slate-800 hover:bg-red-600 px-3 py-1.5 rounded-lg transition-colors" title="Delete"><i className="fas fa-trash-alt"></i></button>}
+                                                <button type="button" onClick={() => triggerPrint(t)} className="text-blue-400 hover:text-white bg-blue-900/20 hover:bg-blue-600 px-3 py-1.5 rounded-lg transition-colors border border-blue-500/30" title="Print Register"><i className="fas fa-print"></i></button>
+                                                {permissions.canEditCreate ? (
+                                                    <button type="button" onClick={() => { setData(t); setView('form'); }} className="text-purple-400 hover:text-white bg-purple-900/20 hover:bg-purple-600 px-3 py-1.5 rounded-lg transition-colors border border-purple-500/30 font-bold text-[10px] uppercase tracking-widest" title="Edit">Edit</button>
+                                                ) : (
+                                                    <button type="button" onClick={() => { setData(t); setView('form'); }} className="text-slate-400 hover:text-white bg-slate-800 hover:bg-slate-700 px-3 py-1.5 rounded-lg transition-colors border border-slate-600 font-bold text-[10px] uppercase tracking-widest" title="View">View</button>
+                                                )}
+                                                {permissions.canDelete && <button type="button" onClick={() => handleDelete(t)} className="text-slate-400 hover:text-white bg-slate-800 hover:bg-red-600 px-3 py-1.5 rounded-lg transition-colors" title="Delete"><i className="fas fa-trash-alt"></i></button>}
                                             </td>
                                         </tr>
                                     ))}
-                                    {trainings.filter(t => filterSite === 'All' || t.siteId === filterSite || (t.sourceCapaRef && t.sourceCapaRef.startsWith('Incident'))).length === 0 && <tr><td colSpan="6" className="text-center p-12 text-slate-500 italic">No records found for this location.</td></tr>}
+                                    {trainings.filter(t => filterSite === 'All' ? (isGlobalUser || allowedSiteCodes.has(t.siteId)) : t.siteId === filterSite).length === 0 && <tr><td colSpan="6" className="text-center p-12 text-slate-500 italic">No records found for this location.</td></tr>}
                                 </tbody>
                             </table>
                         </div>
@@ -838,7 +918,7 @@ export default function Training() {
                         <div className="glass-panel p-8 rounded-3xl border border-slate-700 shadow-2xl">
                             <div className="flex justify-between items-center mb-8 border-b border-slate-700 pb-4">
                                 <h2 className="text-3xl font-bold text-emerald-400 flex items-center gap-3"><i className="fas fa-chalkboard-teacher"></i> {data.firebaseKey ? 'Edit Training Session' : 'Log Training Session'}</h2>
-                                <button onClick={() => setView('dashboard')} className="text-slate-400 hover:text-white font-bold text-sm transition-colors flex items-center gap-2"><i className="fas fa-times"></i> Cancel</button>
+                                <button type="button" onClick={() => setView('dashboard')} className="text-slate-400 hover:text-white font-bold text-sm transition-colors flex items-center gap-2"><i className="fas fa-times"></i> Cancel</button>
                             </div>
 
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
@@ -852,31 +932,31 @@ export default function Training() {
                                                 <span className="text-orange-400 font-bold text-[10px] uppercase tracking-widest"><i className="fas fa-link mr-2"></i> Fulfilling CAPA Requirement</span>
                                                 <div className="text-sm font-medium text-white mt-1 leading-relaxed">{data.linkedCapa.desc} <span className="text-[10px] text-slate-400 ml-2 font-mono bg-slate-950 px-1.5 py-0.5 rounded">[{data.linkedCapa.source}]</span></div>
                                             </div>
-                                            <button onClick={() => setData({ ...data, linkedCapa: null })} className="text-red-400 hover:text-white text-xs bg-red-900/20 hover:bg-red-600 px-3 py-1.5 rounded-lg transition-colors font-bold uppercase tracking-widest ml-4 shadow-sm border border-red-500/20"><i className="fas fa-unlink mr-1"></i> Unlink</button>
+                                            {canEditForm && <button type="button" onClick={() => setData({ ...data, linkedCapa: null })} className="text-red-400 hover:text-white text-xs bg-red-900/20 hover:bg-red-600 px-3 py-1.5 rounded-lg transition-colors font-bold uppercase tracking-widest ml-4 shadow-sm border border-red-500/20"><i className="fas fa-unlink mr-1"></i> Unlink</button>}
                                         </div>
                                     )}
 
                                     <div>
                                         <label className="text-[10px] uppercase font-bold text-slate-400 block mb-2 tracking-widest ml-1">Topic / Course Name / CAPA Action</label>
-                                        <input value={data.topic} onChange={e => setData({ ...data, topic: e.target.value })} disabled={!canEdit} className="w-full text-base font-bold text-white bg-slate-950 border border-slate-700 p-3.5 rounded-xl outline-none focus:border-emerald-500 shadow-inner transition-colors" placeholder="e.g. LOTO Refresher" />
+                                        <input value={data.topic} onChange={e => setData({ ...data, topic: e.target.value })} disabled={!canEditForm} className="w-full text-base font-bold text-white bg-slate-950 border border-slate-700 p-3.5 rounded-xl outline-none focus:border-emerald-500 shadow-inner transition-colors" placeholder="e.g. LOTO Refresher" />
                                     </div>
 
                                     <div>
                                         <label className="text-[10px] uppercase font-bold text-slate-400 block mb-2 tracking-widest ml-1">Training Content / Agenda</label>
-                                        <textarea rows="4" value={data.content || ''} onChange={e => setData({ ...data, content: e.target.value })} disabled={!canEdit} className="w-full text-sm font-medium text-slate-300 bg-slate-950 border border-slate-700 p-3.5 rounded-xl outline-none focus:border-emerald-500 shadow-inner transition-colors custom-scroll resize-none" placeholder="Briefly describe the training material covered..."></textarea>
+                                        <textarea rows="4" value={data.content || ''} onChange={e => setData({ ...data, content: e.target.value })} disabled={!canEditForm} className="w-full text-sm font-medium text-slate-300 bg-slate-950 border border-slate-700 p-3.5 rounded-xl outline-none focus:border-emerald-500 shadow-inner transition-colors custom-scroll resize-none" placeholder="Briefly describe the training material covered..."></textarea>
                                     </div>
 
                                     <div className="grid grid-cols-2 gap-4">
                                         <div>
                                             <label className="text-[10px] uppercase font-bold text-slate-400 block mb-2 tracking-widest ml-1">Location / Site</label>
-                                            <select value={data.siteId} onChange={e => setData({ ...data, siteId: e.target.value })} disabled={data.firebaseKey && !canEdit} className="w-full text-sm font-bold text-white bg-slate-950 border border-slate-700 p-3 rounded-xl outline-none focus:border-emerald-500 shadow-inner transition-colors">
-                                                <option value="">Select Site...</option>
-                                                {sites.map(s => <option key={s.code} value={s.code}>{s.name}</option>)}
+                                            <select value={data.siteId} onChange={e => setData({ ...data, siteId: e.target.value })} disabled={data.firebaseKey || !canEditForm} className="w-full text-sm font-bold text-white bg-slate-950 border border-slate-700 p-3 rounded-xl outline-none focus:border-emerald-500 shadow-inner transition-colors">
+                                                {(isGlobalUser || visibleSites.length > 1) && <option value="">Select Site...</option>}
+                                                {visibleSites.map(s => <option key={s.code} value={s.code}>{s.name}</option>)}
                                             </select>
                                         </div>
                                         <div>
                                             <label className="text-[10px] uppercase font-bold text-slate-400 block mb-2 tracking-widest ml-1">Training Method</label>
-                                            <select value={data.type} onChange={e => setData({ ...data, type: e.target.value })} disabled={!canEdit} className="w-full text-sm font-bold text-blue-300 bg-slate-950 border border-slate-700 p-3 rounded-xl outline-none focus:border-emerald-500 shadow-inner transition-colors">
+                                            <select value={data.type} onChange={e => setData({ ...data, type: e.target.value })} disabled={!canEditForm} className="w-full text-sm font-bold text-blue-300 bg-slate-950 border border-slate-700 p-3 rounded-xl outline-none focus:border-emerald-500 shadow-inner transition-colors">
                                                 <option>Internal Tool Box Talk</option>
                                                 <option>Internal Formal</option>
                                                 <option>External Certified</option>
@@ -887,22 +967,22 @@ export default function Training() {
                                     <div className="grid grid-cols-2 gap-4">
                                         <div>
                                             <label className="text-[10px] uppercase font-bold text-slate-400 block mb-2 tracking-widest ml-1">Date Conducted</label>
-                                            <input type="date" value={data.date} onChange={e => setData({ ...data, date: e.target.value, expiryDate: addMonths(e.target.value, 6) })} disabled={!canEdit} className="w-full text-sm font-mono text-white bg-slate-950 border border-slate-700 p-3 rounded-xl outline-none focus:border-emerald-500 shadow-inner transition-colors" />
+                                            <input type="date" value={data.date} onChange={e => setData({ ...data, date: e.target.value, expiryDate: addMonths(e.target.value, 6) })} disabled={!canEditForm} className="w-full text-sm font-mono text-white bg-slate-950 border border-slate-700 p-3 rounded-xl outline-none focus:border-emerald-500 shadow-inner transition-colors" />
                                         </div>
                                         <div>
                                             <label className="text-[10px] uppercase font-bold text-orange-400 block mb-2 tracking-widest ml-1">Expiry Date (Auto +6 Mo)</label>
-                                            <input type="date" value={data.expiryDate} onChange={e => setData({ ...data, expiryDate: e.target.value })} disabled={!canEdit} className="w-full text-sm font-mono text-orange-300 bg-orange-950/20 border border-orange-500/30 p-3 rounded-xl outline-none focus:border-orange-500 shadow-inner transition-colors" />
+                                            <input type="date" value={data.expiryDate} onChange={e => setData({ ...data, expiryDate: e.target.value })} disabled={!canEditForm} className="w-full text-sm font-mono text-orange-300 bg-orange-950/20 border border-orange-500/30 p-3 rounded-xl outline-none focus:border-orange-500 shadow-inner transition-colors" />
                                         </div>
                                     </div>
 
                                     <div className="grid grid-cols-2 gap-4">
                                         <div>
                                             <label className="text-[10px] uppercase font-bold text-slate-400 block mb-2 tracking-widest ml-1">Trainer Name</label>
-                                            <input value={data.trainer} onChange={e => setData({ ...data, trainer: e.target.value })} disabled={!canEdit} className="w-full text-sm font-bold text-white bg-slate-950 border border-slate-700 p-3 rounded-xl outline-none focus:border-emerald-500 shadow-inner transition-colors" placeholder="Instructor Name" />
+                                            <input value={data.trainer} onChange={e => setData({ ...data, trainer: e.target.value })} disabled={!canEditForm} className="w-full text-sm font-bold text-white bg-slate-950 border border-slate-700 p-3 rounded-xl outline-none focus:border-emerald-500 shadow-inner transition-colors" placeholder="Instructor Name" />
                                         </div>
                                         <div>
                                             <label className="text-[10px] uppercase font-bold text-slate-400 block mb-2 tracking-widest ml-1">Duration</label>
-                                            <input value={data.duration} onChange={e => setData({ ...data, duration: e.target.value })} disabled={!canEdit} className="w-full text-sm font-bold text-white bg-slate-950 border border-slate-700 p-3 rounded-xl outline-none focus:border-emerald-500 shadow-inner transition-colors" placeholder="e.g. 2 Hours" />
+                                            <input value={data.duration} onChange={e => setData({ ...data, duration: e.target.value })} disabled={!canEditForm} className="w-full text-sm font-bold text-white bg-slate-950 border border-slate-700 p-3 rounded-xl outline-none focus:border-emerald-500 shadow-inner transition-colors" placeholder="e.g. 2 Hours" />
                                         </div>
                                     </div>
                                 </div>
@@ -913,7 +993,7 @@ export default function Training() {
                                         <h3 className="font-bold text-white uppercase tracking-widest text-xs flex items-center gap-2"><i className="fas fa-users text-purple-400"></i> Attendance Roster <span className="bg-purple-600 px-2 py-0.5 rounded text-[10px] ml-2">{data.attendees.length}</span></h3>
                                     </div>
 
-                                    {canEdit && (
+                                    {canEditForm && (
                                         <div className="space-y-4 mb-6">
                                             <div>
                                                 <label className="text-[10px] uppercase font-bold text-slate-500 block mb-2 ml-1 tracking-widest">Internal Staff</label>
@@ -924,14 +1004,14 @@ export default function Training() {
                                                             <option key={u.id} value={u.name}>{u.name} ({u.role})</option>
                                                         ))}
                                                     </select>
-                                                    <button onClick={() => addAttendee('internal')} className="bg-emerald-600 hover:bg-emerald-500 text-white px-5 rounded-xl font-bold shadow-lg shadow-emerald-600/20 transition-transform active:scale-95"><i className="fas fa-plus"></i></button>
+                                                    <button type="button" onClick={() => addAttendee('internal')} className="bg-emerald-600 hover:bg-emerald-500 text-white px-5 rounded-xl font-bold shadow-lg shadow-emerald-600/20 transition-transform active:scale-95"><i className="fas fa-plus"></i></button>
                                                 </div>
                                             </div>
                                             <div>
                                                 <label className="text-[10px] uppercase font-bold text-slate-500 block mb-2 ml-1 tracking-widest">External / Contractor</label>
                                                 <div className="flex gap-2">
                                                     <input value={externalName} onChange={e => setExternalName(e.target.value)} placeholder="Type Contractor Name..." className="w-full text-sm font-bold text-white bg-slate-950 border border-slate-700 rounded-xl p-3 outline-none focus:border-purple-500 shadow-inner transition-colors" />
-                                                    <button onClick={() => addAttendee('external')} className="bg-purple-600 hover:bg-purple-500 text-white px-5 rounded-xl font-bold shadow-lg shadow-purple-600/20 transition-transform active:scale-95"><i className="fas fa-plus"></i></button>
+                                                    <button type="button" onClick={() => addAttendee('external')} className="bg-purple-600 hover:bg-purple-500 text-white px-5 rounded-xl font-bold shadow-lg shadow-purple-600/20 transition-transform active:scale-95"><i className="fas fa-plus"></i></button>
                                                 </div>
                                             </div>
                                         </div>
@@ -951,11 +1031,11 @@ export default function Training() {
                                                         </td>
                                                         <td className="p-4 text-xs text-slate-400 hidden sm:table-cell">{att.role}</td>
                                                         <td className="p-4">
-                                                            <select value={att.status} onChange={e => { const newAtt = [...data.attendees]; newAtt[idx].status = e.target.value; setData({ ...data, attendees: newAtt }); }} disabled={!canEdit} className={`text-xs py-1.5 px-3 border outline-none rounded-lg font-bold cursor-pointer transition-colors shadow-sm ${att.status === 'Attended' ? 'bg-emerald-950/50 text-emerald-400 border-emerald-500/30 focus:border-emerald-500' : 'bg-red-950/50 text-red-400 border-red-500/30 focus:border-red-500'}`}>
+                                                            <select value={att.status} onChange={e => { const newAtt = [...data.attendees]; newAtt[idx].status = e.target.value; setData({ ...data, attendees: newAtt }); }} disabled={!canEditForm} className={`text-xs py-1.5 px-3 border outline-none rounded-lg font-bold cursor-pointer transition-colors shadow-sm ${att.status === 'Attended' ? 'bg-emerald-950/50 text-emerald-400 border-emerald-500/30 focus:border-emerald-500' : 'bg-red-950/50 text-red-400 border-red-500/30 focus:border-red-500'}`}>
                                                                 <option>Attended</option><option>Absent</option>
                                                             </select>
                                                         </td>
-                                                        <td className="p-4 text-center">{canEdit && <button onClick={() => removeAttendee(idx)} className="text-red-500 hover:text-white bg-red-900/20 hover:bg-red-600 w-8 h-8 rounded-lg flex items-center justify-center transition-colors"><i className="fas fa-trash-alt"></i></button>}</td>
+                                                        <td className="p-4 text-center">{canEditForm && <button type="button" onClick={() => removeAttendee(idx)} className="text-red-500 hover:text-white bg-red-900/20 hover:bg-red-600 w-8 h-8 rounded-lg flex items-center justify-center transition-colors"><i className="fas fa-trash-alt"></i></button>}</td>
                                                     </tr>
                                                 ))}
                                                 {data.attendees.length === 0 && <tr><td colSpan="4" className="p-12 text-center text-slate-500 italic text-sm">No trainees added to roster.</td></tr>}
@@ -966,8 +1046,8 @@ export default function Training() {
                             </div>
 
                             <div className="flex justify-end gap-4 border-t border-slate-700 pt-8 mt-8">
-                                {data.firebaseKey && <button onClick={() => triggerPrint(data)} className="bg-slate-800 hover:bg-slate-700 text-white px-8 py-4 rounded-xl font-bold uppercase tracking-widest text-xs transition-colors shadow-lg flex items-center gap-2"><i className="fas fa-print"></i> Print Roster</button>}
-                                {canEdit && <button onClick={saveData} disabled={saving} className="bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 text-white px-10 py-4 rounded-xl font-bold shadow-lg shadow-emerald-900/50 flex items-center gap-3 transition-transform active:scale-95 text-sm uppercase tracking-widest disabled:opacity-50">{saving ? <i className="fas fa-spinner fa-spin text-lg"></i> : <i className="fas fa-cloud-arrow-up text-lg"></i>} {data.linkedCapa ? "Save & Close CAPA" : "Save Record"}</button>}
+                                {data.firebaseKey && <button type="button" onClick={() => triggerPrint(data)} className="bg-slate-800 hover:bg-slate-700 text-white px-8 py-4 rounded-xl font-bold uppercase tracking-widest text-xs transition-colors shadow-lg flex items-center gap-2"><i className="fas fa-print"></i> Print Roster</button>}
+                                {canEditForm && <button type="button" onClick={saveData} disabled={saving} className="bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 text-white px-10 py-4 rounded-xl font-bold shadow-lg shadow-emerald-900/50 flex items-center gap-3 transition-transform active:scale-95 text-sm uppercase tracking-widest disabled:opacity-50">{saving ? <i className="fas fa-spinner fa-spin text-lg"></i> : <i className="fas fa-cloud-arrow-up text-lg"></i>} {data.linkedCapa ? "Save & Close CAPA" : "Save Record"}</button>}
                             </div>
                         </div>
                     </div>

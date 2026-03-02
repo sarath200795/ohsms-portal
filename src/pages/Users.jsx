@@ -1,456 +1,614 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ref, onValue, update, remove, set } from 'firebase/database';
-import { rtdb } from '../config/firebase';
+import { ref, get, update, push, set } from 'firebase/database';
+import { initializeApp } from 'firebase/app';
+import { getAuth, createUserWithEmailAndPassword, signOut } from 'firebase/auth';
+import { rtdb, auth } from '../config/firebase';
 
-const ROLES = ['Owner', 'Manager', 'User', 'Lead Auditor'];
-const FIREBASE_API_KEY = "AIzaSyBHqeQN4s9PA5UUDfLtAajVkoRK2BrRjwk";
+const ROLES = ['Global Owner', 'Global Manager', 'Site Owner', 'Site Manager', 'Lead Auditor', 'User'];
+const MODULES = ['Analytics', 'Incidents', 'Risk Assessment', 'Participation', 'Internal Audit', 'CAPA Manager', 'Training', 'Improvement', 'Record Emergency', 'OHS Tools', 'Sites', 'Users'];
 
-const MODULES_LIST = [
-    { id: 'incidents', label: 'Incidents & Hazards', icon: 'fa-triangle-exclamation' },
-    { id: 'risk', label: 'Risk Assessment', icon: 'fa-shield-virus' },
-    { id: 'audit', label: 'Internal Audit', icon: 'fa-clipboard-check' },
-    { id: 'capa', label: 'CAPA Manager', icon: 'fa-list-check' },
-    { id: 'training', label: 'Training & LMS', icon: 'fa-graduation-cap' },
-    { id: 'mock-drill', label: 'Mock Drills', icon: 'fa-person-running' },
-    { id: 'consultation', label: 'Consultation', icon: 'fa-comments' },
-    { id: 'improvement', label: 'Improvements', icon: 'fa-chart-line' },
-    { id: 'ohs-tools', label: 'OHS Tools (PTW)', icon: 'fa-toolbox' }
-];
-
-// ==========================================
-// 1. ADD NEW USER MODAL
-// ==========================================
-const AddUserModal = ({ sites, orgId, onClose }) => {
-    const [loading, setLoading] = useState(false);
-    const [formData, setFormData] = useState({
-        name: '', email: '', password: '', role: 'User',
-        assignedSite: 'GLOBAL', accessibleSites: [],
-        accessibleModules: MODULES_LIST.map(m => m.id)
-    });
-
-    const handleToggle = (type, val) => {
-        const list = formData[type];
-        if (list.includes(val)) setFormData({ ...formData, [type]: list.filter(item => item !== val) });
-        else setFormData({ ...formData, [type]: [...list, val] });
-    };
-
-    const handleCreateUser = async (e) => {
-        e.preventDefault();
-        setLoading(true);
-        try {
-            const authRes = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${FIREBASE_API_KEY}`, {
-                method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ email: formData.email, password: formData.password, returnSecureToken: true })
-            });
-            const authData = await authRes.json();
-            if (!authRes.ok) throw new Error(authData.error.message.replace(/_/g, ' '));
-
-            const newUid = authData.localId;
-            const updates = {};
-
-            // 1. Save in Organization Directory
-            updates[`organizations/${orgId}/users/${newUid}`] = {
-                name: formData.name, email: formData.email, role: formData.role,
-                assignedSite: formData.assignedSite, accessibleSites: formData.accessibleSites,
-                accessibleModules: formData.accessibleModules, status: 'Active',
-                createdAt: new Date().toISOString()
-            };
-
-            await update(ref(rtdb), updates);
-
-            // 2. SECURITY SYNC: Set the top-level security "passport" for Firebase Rules
-            await set(ref(rtdb, `users/${newUid}`), {
-                orgId: orgId,
-                role: formData.role,
-                email: formData.email,
-                status: 'Active'
-            });
-
-            alert(`Success! Account created for ${formData.name}.`);
-            onClose();
-        } catch (err) { alert("Registration Failed: " + err.message); }
-        finally { setLoading(false); }
-    };
-
-    return (
-        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-50 flex items-center justify-center p-4 animate-in fade-in zoom-in-95 duration-300">
-            <div className="bg-slate-900 border border-slate-700 rounded-3xl p-8 max-w-4xl w-full shadow-2xl relative flex flex-col max-h-[95vh]">
-                <div className="flex justify-between items-center border-b border-slate-800 pb-4 mb-6 flex-shrink-0">
-                    <div>
-                        <h2 className="text-2xl font-bold text-white mb-1"><i className="fas fa-user-plus text-emerald-500 mr-2"></i> Deploy Identity</h2>
-                        <p className="text-xs text-slate-400">Configure credentials, site visibility, and module access.</p>
-                    </div>
-                    <button type="button" onClick={onClose} className="text-slate-400 hover:text-white bg-slate-800 hover:bg-red-500/20 hover:text-red-400 w-8 h-8 rounded-xl flex items-center justify-center transition-colors"><i className="fas fa-times"></i></button>
-                </div>
-
-                <form id="add-user-form" onSubmit={handleCreateUser} className="flex-1 overflow-y-auto custom-scroll pr-2 grid grid-cols-1 md:grid-cols-3 gap-8">
-                    <div className="space-y-4">
-                        <h3 className="text-xs font-bold text-emerald-400 uppercase tracking-widest border-b border-slate-800 pb-2 mb-4">Credentials</h3>
-                        <div><label className="text-[10px] uppercase font-bold text-slate-400 block mb-2">Full Name</label><input required value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-sm text-white outline-none focus:border-emerald-500" placeholder="John Doe" /></div>
-                        <div><label className="text-[10px] uppercase font-bold text-slate-400 block mb-2">Email</label><input type="email" required value={formData.email} onChange={e => setFormData({ ...formData, email: e.target.value })} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-sm text-white outline-none focus:border-emerald-500" placeholder="john@company.com" /></div>
-                        <div><label className="text-[10px] uppercase font-bold text-slate-400 block mb-2">Temp Password</label><input required minLength="6" value={formData.password} onChange={e => setFormData({ ...formData, password: e.target.value })} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-sm text-white outline-none focus:border-emerald-500 font-mono" placeholder="Min 6 chars" /></div>
-                        <div>
-                            <label className="text-[10px] uppercase font-bold text-slate-400 block mb-2 mt-4">System Role</label>
-                            <select value={formData.role} onChange={e => setFormData({ ...formData, role: e.target.value })} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-sm text-emerald-400 font-bold outline-none focus:border-emerald-500">
-                                {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
-                            </select>
-                        </div>
-                    </div>
-
-                    <div className="md:col-span-2 space-y-6">
-                        {formData.role === 'Owner' || formData.role === 'Lead Auditor' ? (
-                            <div className="bg-emerald-900/10 border border-emerald-500/20 p-10 rounded-2xl text-center h-full flex flex-col items-center justify-center">
-                                <i className="fas fa-globe text-5xl text-emerald-500/50 mb-4"></i>
-                                <p className="text-emerald-400 font-bold text-lg">Unrestricted Access</p>
-                                <p className="text-sm text-slate-400 mt-2 max-w-md">Owners and Lead Auditors automatically have global visibility and full access.</p>
-                            </div>
-                        ) : (
-                            <>
-                                <div>
-                                    <h3 className="text-xs font-bold text-emerald-400 uppercase tracking-widest border-b border-slate-800 pb-2 mb-4">Site Authorization</h3>
-                                    <div className="flex gap-4 mb-4">
-                                        <div className="flex-1">
-                                            <label className="text-[10px] uppercase font-bold text-slate-400 block mb-2">Primary Site</label>
-                                            <select value={formData.assignedSite} onChange={e => setFormData({ ...formData, assignedSite: e.target.value })} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-sm text-white outline-none focus:border-emerald-500">
-                                                <option value="GLOBAL">Global / Corporate</option>
-                                                {sites.map(s => <option key={s.code} value={s.code}>{s.name}</option>)}
-                                            </select>
-                                        </div>
-                                    </div>
-                                    <label className="text-[10px] uppercase font-bold text-slate-400 block mb-2">Additional Site Visibility</label>
-                                    <div className="grid grid-cols-2 gap-2 bg-slate-950 p-4 rounded-xl border border-slate-800 shadow-inner max-h-40 overflow-y-auto custom-scroll">
-                                        {sites.map(s => (
-                                            <label key={s.code} className={`flex items-center gap-3 p-2 rounded-lg border cursor-pointer transition-colors ${formData.accessibleSites.includes(s.code) ? 'bg-emerald-900/20 border-emerald-500/50 text-white' : 'border-slate-800 bg-slate-900/50 text-slate-400 hover:bg-slate-800'}`}>
-                                                <input type="checkbox" checked={formData.accessibleSites.includes(s.code)} onChange={() => handleToggle('accessibleSites', s.code)} className="w-3.5 h-3.5 accent-emerald-500" />
-                                                <span className="text-xs font-medium truncate">{s.name}</span>
-                                            </label>
-                                        ))}
-                                    </div>
-                                </div>
-                                <div>
-                                    <h3 className="text-xs font-bold text-emerald-400 uppercase tracking-widest border-b border-slate-800 pb-2 mb-4">Module Access Control</h3>
-                                    <div className="grid grid-cols-2 gap-2 bg-slate-950 p-4 rounded-xl border border-slate-800 shadow-inner">
-                                        {MODULES_LIST.map(m => (
-                                            <label key={m.id} className={`flex items-center gap-3 p-2 rounded-lg border cursor-pointer transition-colors ${formData.accessibleModules.includes(m.id) ? 'bg-blue-900/20 border-blue-500/50 text-white' : 'border-slate-800 bg-slate-900/50 text-slate-400 hover:bg-slate-800'}`}>
-                                                <input type="checkbox" checked={formData.accessibleModules.includes(m.id)} onChange={() => handleToggle('accessibleModules', m.id)} className="w-3.5 h-3.5 accent-blue-500" />
-                                                <span className="text-xs font-medium flex items-center gap-2"><i className={`fas ${m.icon} text-[10px] opacity-50`}></i> {m.label}</span>
-                                            </label>
-                                        ))}
-                                    </div>
-                                </div>
-                            </>
-                        )}
-                    </div>
-                </form>
-
-                <div className="mt-8 flex gap-4 flex-shrink-0 border-t border-slate-800 pt-6">
-                    <button type="button" onClick={onClose} className="flex-1 bg-slate-800 hover:bg-slate-700 text-white font-bold py-3.5 rounded-xl transition-colors text-sm uppercase tracking-widest">Cancel</button>
-                    <button type="submit" form="add-user-form" disabled={loading} className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3.5 rounded-xl shadow-lg transition-transform active:scale-95 text-sm uppercase tracking-widest flex items-center justify-center gap-2 disabled:opacity-50">
-                        {loading ? <i className="fas fa-spinner fa-spin"></i> : <i className="fas fa-check-circle"></i>} Deploy
-                    </button>
-                </div>
-            </div>
-        </div>
-    );
+const ensureArray = (val) => {
+    if (!val) return [];
+    if (Array.isArray(val)) return val;
+    if (typeof val === 'object') return Object.values(val);
+    return [val];
 };
 
-// ==========================================
-// 2. EDIT PERMISSION MODAL
-// ==========================================
-const PermissionModal = ({ user, sites, onClose, onSave }) => {
-    const [role, setRole] = useState(user.role || 'User');
-    const [assignedSite, setAssignedSite] = useState(user.assignedSite || 'GLOBAL');
-    const [accessibleSites, setAccessibleSites] = useState(user.accessibleSites || []);
-    const [accessibleModules, setAccessibleModules] = useState(user.accessibleModules || MODULES_LIST.map(m => m.id));
-    const [status, setStatus] = useState(user.status || 'Active');
-
-    const handleToggle = (setter, list, val) => {
-        if (list.includes(val)) setter(list.filter(item => item !== val));
-        else setter([...list, val]);
-    };
-
-    return (
-        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-50 flex items-center justify-center p-4 animate-in fade-in zoom-in-95 duration-300">
-            <div className="bg-slate-900 border border-slate-700 rounded-3xl p-8 max-w-4xl w-full shadow-2xl relative flex flex-col max-h-[90vh]">
-                <div className="flex justify-between items-center border-b border-slate-800 pb-4 mb-6 flex-shrink-0">
-                    <div>
-                        <h2 className="text-2xl font-bold text-white mb-1"><i className="fas fa-user-shield text-blue-500 mr-2"></i> Edit Access Rights</h2>
-                        <p className="text-xs text-slate-400 font-mono">{user.email}</p>
-                    </div>
-                    <button onClick={onClose} className="text-slate-400 hover:text-white bg-slate-800 hover:bg-red-500/20 hover:text-red-400 w-8 h-8 rounded-xl flex items-center justify-center transition-colors"><i className="fas fa-times"></i></button>
-                </div>
-
-                <div className="flex-1 overflow-y-auto custom-scroll pr-2 grid grid-cols-1 md:grid-cols-3 gap-8">
-                    <div className="space-y-6">
-                        <h3 className="text-xs font-bold text-blue-400 uppercase tracking-widest border-b border-slate-800 pb-2 mb-4">Core Identity</h3>
-                        <div>
-                            <label className="text-[10px] uppercase font-bold text-slate-400 block mb-2">Account Status</label>
-                            <select value={status} onChange={e => setStatus(e.target.value)} className={`w-full bg-slate-950 border border-slate-800 rounded-xl p-3.5 text-sm outline-none font-bold ${status === 'Active' ? 'text-emerald-400 focus:border-emerald-500' : 'text-red-400 focus:border-red-500'}`}>
-                                <option value="Active">Active (Granted Access)</option>
-                                <option value="Inactive">Inactive (Revoked Access)</option>
-                            </select>
-                        </div>
-                        <div>
-                            <label className="text-[10px] uppercase font-bold text-slate-400 block mb-2">System Role</label>
-                            <select value={role} onChange={e => setRole(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3.5 text-sm text-blue-400 font-bold outline-none focus:border-blue-500">
-                                {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
-                            </select>
-                        </div>
-                        {role !== 'Owner' && role !== 'Lead Auditor' && (
-                            <div>
-                                <label className="text-[10px] uppercase font-bold text-slate-400 block mb-2">Primary Assigned Site</label>
-                                <select value={assignedSite} onChange={e => setAssignedSite(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3.5 text-sm text-white outline-none focus:border-blue-500">
-                                    <option value="GLOBAL">Global / Corporate</option>
-                                    {sites.map(s => <option key={s.code} value={s.code}>{s.name}</option>)}
-                                </select>
-                            </div>
-                        )}
-                    </div>
-
-                    <div className="md:col-span-2 space-y-6">
-                        {role === 'Owner' || role === 'Lead Auditor' ? (
-                            <div className="bg-blue-900/10 border border-blue-500/20 p-10 rounded-2xl text-center h-full flex flex-col items-center justify-center">
-                                <i className="fas fa-unlock-keyhole text-5xl text-blue-500/50 mb-4"></i>
-                                <p className="text-blue-400 font-bold text-lg">System Override Active</p>
-                                <p className="text-sm text-slate-400 mt-2 max-w-md">Global access active for this role.</p>
-                            </div>
-                        ) : (
-                            <>
-                                <div>
-                                    <h3 className="text-xs font-bold text-blue-400 uppercase tracking-widest border-b border-slate-800 pb-2 mb-4">Additional Site Visibility</h3>
-                                    <div className="grid grid-cols-2 gap-2 bg-slate-950 p-4 rounded-xl border border-slate-800 shadow-inner max-h-40 overflow-y-auto custom-scroll">
-                                        <label className={`flex items-center gap-3 p-2 rounded-lg border cursor-pointer transition-colors ${accessibleSites.includes('GLOBAL') ? 'bg-blue-900/20 border-blue-500/50 text-white' : 'border-slate-800 bg-slate-900/50 text-slate-400 hover:bg-slate-800'}`}>
-                                            <input type="checkbox" checked={accessibleSites.includes('GLOBAL')} onChange={() => handleToggle(setAccessibleSites, accessibleSites, 'GLOBAL')} className="w-3.5 h-3.5 accent-blue-500" />
-                                            <span className="text-xs font-medium">Global Overview</span>
-                                        </label>
-                                        {sites.map(s => (
-                                            <label key={s.code} className={`flex items-center gap-3 p-2 rounded-lg border cursor-pointer transition-colors ${accessibleSites.includes(s.code) ? 'bg-blue-900/20 border-blue-500/50 text-white' : 'border-slate-800 bg-slate-900/50 text-slate-400 hover:bg-slate-800'}`}>
-                                                <input type="checkbox" checked={accessibleSites.includes(s.code)} onChange={() => handleToggle(setAccessibleSites, accessibleSites, s.code)} className="w-3.5 h-3.5 accent-blue-500" />
-                                                <span className="text-xs font-medium truncate">{s.name}</span>
-                                            </label>
-                                        ))}
-                                    </div>
-                                </div>
-                                <div>
-                                    <h3 className="text-xs font-bold text-blue-400 uppercase tracking-widest border-b border-slate-800 pb-2 mb-4">Module Authorization</h3>
-                                    <div className="grid grid-cols-2 gap-2 bg-slate-950 p-4 rounded-xl border border-slate-800 shadow-inner">
-                                        {MODULES_LIST.map(m => (
-                                            <label key={m.id} className={`flex items-center gap-3 p-2 rounded-lg border cursor-pointer transition-colors ${accessibleModules.includes(m.id) ? 'bg-emerald-900/20 border-emerald-500/50 text-white' : 'border-slate-800 bg-slate-900/50 text-slate-400 hover:bg-slate-800'}`}>
-                                                <input type="checkbox" checked={accessibleModules.includes(m.id)} onChange={() => handleToggle(setAccessibleModules, accessibleModules, m.id)} className="w-3.5 h-3.5 accent-emerald-500" />
-                                                <span className="text-xs font-medium flex items-center gap-2"><i className={`fas ${m.icon} text-[10px] opacity-50`}></i> {m.label}</span>
-                                            </label>
-                                        ))}
-                                    </div>
-                                </div>
-                            </>
-                        )}
-                    </div>
-                </div>
-
-                <div className="mt-8 flex gap-4 flex-shrink-0 border-t border-slate-800 pt-6">
-                    <button onClick={onClose} className="flex-1 bg-slate-800 hover:bg-slate-700 text-white font-bold py-3.5 rounded-xl transition-colors text-sm uppercase tracking-widest">Cancel</button>
-                    <button onClick={() => onSave(user.id, { role, assignedSite, accessibleSites, accessibleModules, status })} className="flex-1 bg-blue-600 hover:bg-blue-500 text-white font-bold py-3.5 rounded-xl shadow-lg transition-transform active:scale-95 text-sm uppercase tracking-widest"><i className="fas fa-save mr-2"></i> Update Rules</button>
-                </div>
-            </div>
-        </div>
-    );
-};
-
-// ==========================================
-// 3. MAIN USERS COMPONENT
-// ==========================================
 export default function Users() {
     const navigate = useNavigate();
     const [session, setSession] = useState(null);
     const [loading, setLoading] = useState(true);
-    const [activeTab, setActiveTab] = useState('registry');
+
     const [users, setUsers] = useState([]);
     const [sites, setSites] = useState([]);
-    const [accessRequests, setAccessRequests] = useState([]);
-    const [editUser, setEditUser] = useState(null);
-    const [isAddingUser, setIsAddingUser] = useState(false);
-    const [searchQuery, setSearchQuery] = useState('');
+    const [requests, setRequests] = useState([]);
+
+    const [view, setView] = useState('users');
+
+    // Modals
+    const [editModal, setEditModal] = useState(null);
+    const [requestModal, setRequestModal] = useState(false);
+    const [createModal, setCreateModal] = useState(false);
+    const [successModal, setSuccessModal] = useState(null);
+
+    // Form States
+    const [editForm, setEditForm] = useState(null);
+    const [reqForm, setReqForm] = useState({ role: 'User', siteId: '', modules: [] });
+    const [createForm, setCreateForm] = useState({ name: '', email: '', tempPassword: '', role: 'User', assignedSite: '', accessibleSites: [], accessibleModules: [] });
 
     useEffect(() => {
         const s = sessionStorage.getItem('isoSession');
-        if (!s) { navigate('/'); return; }
+        if (!s) return navigate('/');
         const sess = JSON.parse(s);
-        if (sess.role !== 'Owner') {
-            alert("Access Denied. Only Owners can manage users.");
-            navigate('/dashboard'); return;
-        }
         setSession(sess);
 
-        const dbRef = ref(rtdb, `organizations/${sess.orgId}`);
-        const unsubscribe = onValue(dbRef, (snap) => {
-            if (snap.exists()) {
-                const data = snap.val();
-                if (data.users) {
-                    const parsedUsers = Object.keys(data.users).map(k => ({ id: k, ...data.users[k] }));
-                    setUsers(parsedUsers.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)));
+        const loadData = async () => {
+            try {
+                const snap = await get(ref(rtdb, `organizations/${sess.orgId}`));
+                if (snap.exists()) {
+                    const data = snap.val();
+                    if (data.sites) {
+                        setSites(Object.keys(data.sites).map(k => ({ code: data.sites[k].code || k, name: data.sites[k].name || k })));
+                    }
+                    if (data.users) {
+                        const uList = Object.keys(data.users).map(k => ({ firebaseKey: k, ...data.users[k] })).filter(u => u.status !== 'Deleted');
+                        setUsers(uList.sort((a, b) => (a.name || '').localeCompare(b.name || '')));
+                    }
+                    if (data.permissionRequests) {
+                        const reqList = Object.keys(data.permissionRequests).map(k => ({ firebaseKey: k, ...data.permissionRequests[k] }));
+                        setRequests(reqList.sort((a, b) => new Date(b.date) - new Date(a.date)));
+                    }
                 }
-                if (data.sites) {
-                    setSites(Object.keys(data.sites).map(key => ({ code: data.sites[key].code || key, name: data.sites[key].name || key })));
-                }
-                if (data.accessRequests) {
-                    setAccessRequests(Object.keys(data.accessRequests).map(k => ({ id: k, ...data.accessRequests[k] })));
-                } else {
-                    setAccessRequests([]);
-                }
-            }
-            setLoading(false);
-        });
-
-        return () => unsubscribe();
+            } catch (e) { console.error(e); } finally { setLoading(false); }
+        };
+        loadData();
     }, [navigate]);
 
-    const filteredUsers = useMemo(() => {
-        return users.filter(u => `${u.name} ${u.email} ${u.role}`.toLowerCase().includes(searchQuery.toLowerCase()));
-    }, [users, searchQuery]);
+    // ==========================================
+    // SECURITY HELPERS
+    // ==========================================
+    const isGlobalAdmin = ['Global Owner', 'Global Manager', 'Owner', 'Admin'].includes(session?.role);
+    const isSiteAdmin = ['Site Owner', 'Site Manager'].includes(session?.role);
 
-    const updatePermissions = async (userId, newPerms) => {
-        try {
-            // 1. Update in Organization Directory
-            await update(ref(rtdb, `organizations/${session.orgId}/users/${userId}`), newPerms);
-
-            // 2. SECURITY SYNC: Update the top-level passport for rules
-            const userRef = users.find(u => u.id === userId);
-            await set(ref(rtdb, `users/${userId}`), {
-                orgId: session.orgId,
-                role: newPerms.role,
-                email: userRef?.email,
-                status: newPerms.status
-            });
-
-            setEditUser(null);
-        } catch (e) { alert("Failed to update user: " + e.message); }
+    const canManageUser = (u) => {
+        if (isGlobalAdmin) return true;
+        if (isSiteAdmin && u.assignedSite === session?.assignedSite) return true;
+        return false;
     };
 
-    const deleteUser = async (userId, name) => {
-        if (window.confirm(`PERMANENT ACTION:\n\nRemove ${name || 'this user'}?`)) {
-            try {
-                await remove(ref(rtdb, `organizations/${session.orgId}/users/${userId}`));
-                await remove(ref(rtdb, `users/${userId}`)); // Also remove their security passport
-            }
-            catch (e) { alert("Failed to delete user: " + e.message); }
+    const canGrantRole = (r) => {
+        if (isGlobalAdmin) return true;
+        if (isSiteAdmin && ['Site Owner', 'Site Manager', 'User'].includes(r)) return true;
+        return false;
+    };
+
+    const canGrantModule = (mod) => {
+        if (isGlobalAdmin) return true;
+        if (isSiteAdmin && mod !== 'Internal Audit') return true;
+        return false;
+    };
+
+    // ==========================================
+    // CREATE NEW USER (GLOBAL ADMIN ONLY)
+    // ==========================================
+    const openCreateUser = () => {
+        if (!isGlobalAdmin) return alert("Security Error: Only Global Admins can register new users.");
+        const randomPass = Math.random().toString(36).slice(-6) + "A1!";
+        setCreateForm({ name: '', email: '', tempPassword: randomPass, role: 'User', assignedSite: '', accessibleSites: [], accessibleModules: [] });
+        setCreateModal(true);
+    };
+
+    const submitCreateUser = async () => {
+        if (!createForm.name || !createForm.email || !createForm.assignedSite || !createForm.role || !createForm.tempPassword) {
+            return alert("Name, Email, Role, Password, and Primary Site are required fields.");
         }
+
+        if (createForm.tempPassword.length < 6) return alert("Firebase requires passwords to be at least 6 characters long.");
+
+        const cleanEmail = createForm.email.toLowerCase().trim();
+        const selectedRole = createForm.role;
+
+        // Prevent exact duplicates
+        const isDuplicate = users.find(u => u.email && u.email.toLowerCase().trim() === cleanEmail);
+        if (isDuplicate) return alert("A user with this exact email already exists in the system.");
+
+        try {
+            // 1. Create Firebase Auth User via Secondary Instance to avoid logging out Admin
+            const tempAppName = "tempApp-" + Date.now();
+            const tempApp = initializeApp(auth.app.options, tempAppName);
+            const tempAuth = getAuth(tempApp);
+
+            try {
+                await createUserWithEmailAndPassword(tempAuth, cleanEmail, createForm.tempPassword);
+                await signOut(tempAuth);
+            } catch (authErr) {
+                return alert("Auth Error: " + authErr.message);
+            }
+
+            // 2. Realtime Database Entry
+            const usersRef = ref(rtdb, `organizations/${session.orgId}/users`);
+            const newRef = push(usersRef);
+
+            const { tempPassword, ...formFields } = createForm;
+
+            const payload = {
+                ...formFields,
+                email: cleanEmail,
+                role: selectedRole, // STRICT
+                status: 'Active',
+                createdBy: session?.email || 'System',
+                createdAt: new Date().toISOString(),
+                accessibleModules: createForm.accessibleModules || [],
+                accessibleSites: createForm.accessibleSites || []
+            };
+
+            await set(newRef, payload);
+
+            // 3. Update UI & Show Password
+            setUsers([{ firebaseKey: newRef.key, ...payload }, ...users].sort((a, b) => (a.name || '').localeCompare(b.name || '')));
+            setCreateModal(false);
+
+            setSuccessModal({
+                name: createForm.name,
+                email: cleanEmail,
+                password: createForm.tempPassword,
+                role: selectedRole
+            });
+
+        } catch (e) { alert("Database Error: " + e.message); }
+    };
+
+    // ==========================================
+    // EDIT & DELETE USERS
+    // ==========================================
+    const openEdit = (u) => {
+        if (!canManageUser(u)) return alert("You do not have permission to manage this user.");
+        setEditForm({ ...u, accessibleSites: ensureArray(u.accessibleSites), accessibleModules: ensureArray(u.accessibleModules) });
+        setEditModal(true);
+    };
+
+    const handleUpdateUser = async () => {
+        if (!editForm.firebaseKey) return alert("Error: User key missing.");
+        try {
+            const { firebaseKey, ...updates } = editForm;
+            await update(ref(rtdb, `organizations/${session.orgId}/users/${firebaseKey}`), updates);
+
+            setUsers(users.map(u => u.firebaseKey === firebaseKey ? { ...updates, firebaseKey } : u));
+            setEditModal(false);
+            alert("User permissions updated successfully.");
+
+            if (editForm.email === session?.email) {
+                const newSess = { ...session, ...updates };
+                sessionStorage.setItem('isoSession', JSON.stringify(newSess));
+                setSession(newSess);
+            }
+        } catch (e) { alert("Failed to update user."); }
+    };
+
+    const handleDeleteUser = async (firebaseKey) => {
+        if (!isGlobalAdmin) return alert("Security Error: Only Global Admins can delete users.");
+        if (!window.confirm("CRITICAL WARNING: Are you sure you want to completely remove this user? Their login access will be permanently revoked.")) return;
+
+        try {
+            await update(ref(rtdb, `organizations/${session.orgId}/users/${firebaseKey}`), {
+                status: 'Deleted', deletedBy: session?.email, deletedOn: new Date().toISOString()
+            });
+            setUsers(users.filter(u => u.firebaseKey !== firebaseKey));
+            alert("User successfully removed.");
+        } catch (e) { alert("Failed to delete user."); }
+    };
+
+    // ==========================================
+    // PERMISSION REQUESTS
+    // ==========================================
+    const submitRequest = async () => {
+        if (!reqForm.siteId) return alert("Please select a site to request access for.");
+        try {
+            const reqListRef = ref(rtdb, `organizations/${session.orgId}/permissionRequests`);
+            const newReqRef = push(reqListRef);
+            const payload = {
+                id: newReqRef.key, userEmail: session.email, userName: session.name || session.user || 'User',
+                requestedRole: reqForm.role, requestedSite: reqForm.siteId, requestedModules: reqForm.modules || [],
+                status: 'Pending', date: new Date().toISOString()
+            };
+            await set(newReqRef, payload);
+            setRequests([{ firebaseKey: newReqRef.key, ...payload }, ...requests]);
+            alert("Permission request submitted.");
+            setRequestModal(false);
+            setView('requests');
+        } catch (e) { alert("Failed to submit request."); }
     };
 
     const approveRequest = async (req) => {
         try {
-            const u = users.find(x => x.id === req.userId);
-            if (u) {
-                const newSites = [...new Set([...(u.accessibleSites || []), req.siteCode])];
-                await update(ref(rtdb, `organizations/${session.orgId}/users/${req.userId}`), { accessibleSites: newSites });
-            }
-            await remove(ref(rtdb, `organizations/${session.orgId}/accessRequests/${req.id}`));
-            alert(`Approved!`);
-        } catch (e) { alert("Approval failed."); }
+            const targetUser = users.find(u => u.email === req.userEmail);
+            if (!targetUser) return alert("User no longer exists in the database.");
+
+            const updates = {
+                role: req.requestedRole,
+                assignedSite: targetUser.assignedSite || req.requestedSite,
+                accessibleSites: Array.from(new Set([...ensureArray(targetUser.accessibleSites), req.requestedSite])),
+                accessibleModules: Array.from(new Set([...ensureArray(targetUser.accessibleModules), ...ensureArray(req.requestedModules)]))
+            };
+
+            await update(ref(rtdb, `organizations/${session.orgId}/users/${targetUser.firebaseKey}`), updates);
+            await update(ref(rtdb, `organizations/${session.orgId}/permissionRequests/${req.firebaseKey}`), { status: 'Approved', approvedBy: session.email });
+
+            setUsers(users.map(u => u.firebaseKey === targetUser.firebaseKey ? { ...u, ...updates } : u));
+            setRequests(requests.map(r => r.firebaseKey === req.firebaseKey ? { ...r, status: 'Approved' } : r));
+            alert("Request Approved and Applied.");
+        } catch (e) { alert("Failed to approve."); }
     };
 
-    const rejectRequest = async (reqId) => {
-        if (window.confirm("Reject request?")) {
-            await remove(ref(rtdb, `organizations/${session.orgId}/accessRequests/${reqId}`));
-        }
+    // Array Toggles
+    const toggleEditArray = (field, item) => {
+        const arr = [...ensureArray(editForm[field])];
+        if (arr.includes(item)) setEditForm({ ...editForm, [field]: arr.filter(i => i !== item) });
+        else setEditForm({ ...editForm, [field]: [...arr, item] });
     };
 
-    const getRoleColor = (role) => {
-        switch (role) {
-            case 'Owner': return 'bg-purple-900/30 text-purple-400 border-purple-500/30';
-            case 'Manager': return 'bg-blue-900/30 text-blue-400 border-blue-500/30';
-            case 'Lead Auditor': return 'bg-amber-900/30 text-amber-400 border-amber-500/30';
-            default: return 'bg-slate-800 text-slate-300 border-slate-600';
-        }
+    const toggleCreateArray = (field, item) => {
+        const arr = [...ensureArray(createForm[field])];
+        if (arr.includes(item)) setCreateForm({ ...createForm, [field]: arr.filter(i => i !== item) });
+        else setCreateForm({ ...createForm, [field]: [...arr, item] });
     };
 
-    if (loading) return <div className="h-screen flex items-center justify-center bg-slate-950 text-white"><div className="w-12 h-12 border-4 border-slate-800 border-t-blue-500 rounded-full animate-spin"></div></div>;
+    const toggleReqArray = (item) => {
+        const arr = [...ensureArray(reqForm.modules)];
+        if (arr.includes(item)) setReqForm({ ...reqForm, modules: arr.filter(i => i !== item) });
+        else setReqForm({ ...reqForm, modules: [...arr, item] });
+    };
+
+    if (loading) return <div className="h-screen flex items-center justify-center bg-slate-950 text-white font-['Space_Grotesk'] animate-pulse">Loading Directory...</div>;
 
     return (
-        <div className="flex flex-col h-screen bg-slate-950 font-['Space_Grotesk'] text-white overflow-hidden relative">
-            <header className="h-16 px-6 flex items-center justify-between border-b border-slate-800 bg-slate-900/80 backdrop-blur-md z-20 flex-shrink-0">
+        <div className="flex flex-col h-screen bg-slate-950 font-['Space_Grotesk'] text-white">
+            <header className="h-16 px-6 flex items-center justify-between border-b border-slate-800 bg-slate-900/80 z-10">
                 <div className="flex items-center gap-4">
-                    <button onClick={() => navigate('/dashboard')} className="text-slate-400 hover:text-white transition-colors flex items-center gap-2"><i className="fas fa-arrow-left"></i> Hub</button>
+                    <button onClick={() => navigate('/dashboard')} className="text-slate-400 hover:text-white transition"><i className="fas fa-arrow-left mr-2"></i> Hub</button>
                     <div className="h-6 w-px bg-slate-800 mx-2"></div>
-                    <h1 className="text-base font-bold text-white uppercase hidden md:block">Identity Manager</h1>
+                    <h1 className="text-lg font-bold"><i className="fas fa-users-gear text-blue-400 mr-2"></i> Access Management</h1>
                 </div>
-                <div className="flex bg-slate-900 border border-slate-800 p-1.5 rounded-xl shadow-inner">
-                    <button onClick={() => setActiveTab('registry')} className={`px-6 py-2 rounded-lg text-xs font-bold uppercase tracking-widest transition-all ${activeTab === 'registry' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}>Registry</button>
-                    <button onClick={() => setActiveTab('requests')} className={`px-6 py-2 rounded-lg text-xs font-bold uppercase tracking-widest transition-all flex items-center gap-2 ${activeTab === 'requests' ? 'bg-orange-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}>
-                        Requests {accessRequests.length > 0 && <span className="bg-red-500 text-white w-5 h-5 rounded-full flex items-center justify-center text-[10px]">{accessRequests.length}</span>}
-                    </button>
+                <div className="flex gap-2">
+                    <button type="button" onClick={() => setRequestModal(true)} className="bg-slate-800 hover:bg-slate-700 text-white px-4 py-1.5 rounded-lg text-xs font-bold transition shadow"><i className="fas fa-hand-paper mr-2"></i> Request Access</button>
                 </div>
             </header>
 
-            <div className="flex-1 overflow-y-auto w-full relative z-10">
-                <main className="p-8 max-w-7xl mx-auto w-full">
-                    {activeTab === 'registry' ? (
-                        <>
-                            <div className="flex flex-col md:flex-row justify-between items-start md:items-end mb-8 gap-4">
-                                <div>
-                                    <h2 className="text-3xl font-bold text-white mb-2">User Registry</h2>
-                                    <p className="text-sm text-slate-400">Manage operational roles and access.</p>
-                                </div>
-                                <div className="flex items-center gap-4 w-full md:w-auto">
-                                    <div className="relative group flex-1 md:w-64">
-                                        <i className="fas fa-search absolute left-4 top-1/2 -translate-y-1/2 text-slate-500"></i>
-                                        <input type="text" placeholder="Search..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full bg-slate-950 border border-slate-800 pl-11 pr-4 py-3 rounded-xl text-sm text-white focus:border-blue-500 outline-none" />
-                                    </div>
-                                    <button onClick={() => setIsAddingUser(true)} className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-6 py-3 rounded-xl shadow-lg transition-transform active:scale-95 text-sm uppercase tracking-widest">Deploy User</button>
-                                </div>
-                            </div>
-                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                                {filteredUsers.map(u => (
-                                    <div key={u.id} className="glass-panel p-6 rounded-3xl relative group border border-slate-800 hover:border-blue-500/30 transition-all flex flex-col justify-between h-[280px] overflow-hidden">
-                                        <div className="relative z-10">
-                                            <div className="flex justify-between items-start mb-4">
-                                                <div className="w-12 h-12 rounded-2xl bg-slate-950 border border-slate-800 flex items-center justify-center text-xl font-bold text-slate-300">{u.name?.charAt(0).toUpperCase()}</div>
-                                                <span className={`text-[9px] font-bold uppercase tracking-widest px-2 py-1 rounded border ${getRoleColor(u.role)}`}>{u.role}</span>
-                                            </div>
-                                            <h3 className="font-bold text-white text-lg truncate mb-1">{u.name}</h3>
-                                            <p className="text-[10px] text-slate-400 font-mono truncate mb-4">{u.email}</p>
-                                        </div>
-                                        <div className="mt-auto relative z-10">
-                                            <div className="flex justify-between items-end">
-                                                <div className={`bg-slate-950 border border-slate-800 p-2.5 rounded-xl flex-1 mr-3 ${u.status === 'Inactive' ? 'opacity-50' : ''}`}>
-                                                    <div className="text-[9px] uppercase text-slate-500 font-bold mb-0.5 tracking-widest">Access Site</div>
-                                                    <div className="text-xs font-bold text-emerald-400 truncate">{u.assignedSite || 'Global'}</div>
+            <div className="flex justify-between items-center px-8 pt-6 border-b border-slate-800 pb-4 z-10">
+                <div className="flex gap-4">
+                    <button onClick={() => setView('users')} className={`px-4 py-2 rounded-lg text-sm font-bold transition ${view === 'users' ? 'bg-blue-600 text-white shadow-lg' : 'bg-slate-900 text-slate-400 hover:bg-slate-800'}`}>Active Users</button>
+                    <button onClick={() => setView('requests')} className={`px-4 py-2 rounded-lg text-sm font-bold transition flex items-center gap-2 ${view === 'requests' ? 'bg-blue-600 text-white shadow-lg' : 'bg-slate-900 text-slate-400 hover:bg-slate-800'}`}>
+                        Pending Requests {requests.filter(r => r.status === 'Pending').length > 0 && <span className="bg-red-500 text-white text-[10px] px-2 py-0.5 rounded-full shadow">{requests.filter(r => r.status === 'Pending').length}</span>}
+                    </button>
+                </div>
+
+                {isGlobalAdmin && (
+                    <button onClick={openCreateUser} className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-lg text-sm font-bold shadow-lg transition flex items-center gap-2">
+                        <i className="fas fa-user-plus"></i> Register New User
+                    </button>
+                )}
+            </div>
+
+            <main className="flex-1 overflow-y-auto p-8 custom-scroll relative">
+                <div className="max-w-7xl mx-auto">
+
+                    {/* ACTIVE USERS TABLE */}
+                    {view === 'users' && (
+                        <div className="bg-slate-900/50 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
+                            <table className="w-full text-left text-sm">
+                                <thead className="bg-slate-950 text-[10px] uppercase text-slate-400 font-bold tracking-widest border-b border-slate-800">
+                                    <tr>
+                                        <th className="p-4 pl-6">User Details</th>
+                                        <th className="p-4">Role</th>
+                                        <th className="p-4">Primary Site</th>
+                                        <th className="p-4">Access Count</th>
+                                        <th className="p-4 pr-6 text-right">Admin Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-800">
+                                    {users.map(u => (
+                                        <tr key={u.firebaseKey} className="hover:bg-slate-800/50 transition">
+                                            <td className="p-4 pl-6">
+                                                <div className="font-bold text-white">{u.name || 'Unknown User'}</div>
+                                                <div className="text-xs text-slate-500">{u.email}</div>
+                                            </td>
+                                            <td className="p-4"><span className={`text-[10px] px-2 py-1 rounded font-bold uppercase tracking-wider border ${u.role?.includes('Owner') || u.role?.includes('Manager') || u.role === 'Admin' ? 'bg-amber-900/30 text-amber-400 border-amber-500/30' : u.role === 'Lead Auditor' ? 'bg-purple-900/30 text-purple-400 border-purple-500/30' : 'bg-slate-800 text-slate-300 border-slate-600'}`}>{u.role || 'User'}</span></td>
+                                            <td className="p-4 font-mono text-slate-300 font-bold">{u.assignedSite || 'UNASSIGNED'}</td>
+                                            <td className="p-4 text-xs text-slate-400">
+                                                {ensureArray(u.accessibleSites).length} Sites<br />
+                                                {ensureArray(u.accessibleModules).length} Modules
+                                            </td>
+                                            <td className="p-4 pr-6 text-right">
+                                                <div className="flex justify-end gap-2">
+                                                    {canManageUser(u) && (
+                                                        <button onClick={() => openEdit(u)} className="bg-blue-600/20 hover:bg-blue-600 text-blue-400 hover:text-white px-3 py-1.5 rounded text-xs font-bold transition border border-blue-500/30">Edit Rules</button>
+                                                    )}
+                                                    {isGlobalAdmin && (
+                                                        <button onClick={() => handleDeleteUser(u.firebaseKey)} className="bg-red-900/30 hover:bg-red-600 text-red-500 hover:text-white px-3 py-1.5 rounded text-xs font-bold transition border border-red-500/30">Remove</button>
+                                                    )}
                                                 </div>
-                                                <button onClick={() => setEditUser(u)} className="bg-slate-950 border border-slate-800 hover:border-blue-500 hover:bg-blue-600 hover:text-white text-slate-400 w-10 h-10 rounded-xl flex items-center justify-center transition-all"><i className="fas fa-user-edit"></i></button>
-                                            </div>
-                                        </div>
-                                        {u.role !== 'Owner' && <button onClick={() => deleteUser(u.id, u.name)} className="absolute top-4 left-1/2 -translate-x-1/2 -translate-y-12 opacity-0 group-hover:opacity-100 group-hover:-translate-y-0 transition-all bg-red-600 hover:bg-red-500 text-white text-[10px] font-bold uppercase tracking-widest px-4 py-2 rounded-xl">Revoke</button>}
-                                    </div>
-                                ))}
-                            </div>
-                        </>
-                    ) : (
-                        <div className="max-w-4xl mx-auto">
-                            <h2 className="text-3xl font-bold text-white mb-8">Access Requests</h2>
-                            {accessRequests.length === 0 ? (
-                                <div className="py-20 text-center border-2 border-dashed border-slate-800 rounded-3xl bg-slate-900/40">No pending requests.</div>
-                            ) : (
-                                <div className="space-y-4">
-                                    {accessRequests.map(req => (
-                                        <div key={req.id} className="bg-slate-900 border border-slate-700 p-6 rounded-2xl flex justify-between items-center shadow-lg">
-                                            <div>
-                                                <h4 className="font-bold text-white text-lg">{req.userName}</h4>
-                                                <p className="text-sm text-slate-300">Requests access to: <span className="text-emerald-400 font-bold">{req.siteName}</span></p>
-                                            </div>
-                                            <div className="flex gap-3">
-                                                <button onClick={() => rejectRequest(req.id)} className="bg-slate-800 hover:bg-red-900/50 text-slate-400 px-5 py-3 rounded-xl font-bold text-xs">Deny</button>
-                                                <button onClick={() => approveRequest(req)} className="bg-emerald-600 hover:bg-emerald-500 text-white px-6 py-3 rounded-xl font-bold text-xs uppercase tracking-widest transition-transform active:scale-95">Approve</button>
-                                            </div>
-                                        </div>
+                                            </td>
+                                        </tr>
                                     ))}
-                                </div>
+                                    {users.length === 0 && <tr><td colSpan={5} className="p-10 text-center text-slate-500 italic">No users found.</td></tr>}
+                                </tbody>
+                            </table>
+                        </div>
+                    )}
+
+                    {/* PENDING REQUESTS */}
+                    {view === 'requests' && (
+                        <div className="space-y-4">
+                            {requests.filter(r => r.status === 'Pending').length === 0 ? (
+                                <div className="text-center py-20 text-slate-500 font-bold uppercase tracking-widest border-2 border-dashed border-slate-800 rounded-2xl">No pending access requests</div>
+                            ) : (
+                                requests.filter(r => r.status === 'Pending').map(r => {
+                                    const isAuditReq = ensureArray(r.requestedModules).includes('Internal Audit') || r.requestedRole === 'Lead Auditor';
+                                    const canApprove = isGlobalAdmin || (isSiteAdmin && !isAuditReq && r.requestedSite === session?.assignedSite);
+
+                                    return (
+                                        <div key={r.firebaseKey} className="bg-slate-900 border border-slate-800 p-6 rounded-2xl flex justify-between items-center shadow-lg">
+                                            <div>
+                                                <h3 className="font-bold text-white">{r.userName} <span className="text-xs font-normal text-slate-500 ml-2">({r.userEmail})</span></h3>
+                                                <div className="text-sm mt-2 text-slate-300">
+                                                    Requested Role: <span className="font-bold text-amber-400">{r.requestedRole}</span> @ Site: <span className="font-bold font-mono text-blue-400">{r.requestedSite || 'GLOBAL'}</span>
+                                                </div>
+                                                <div className="text-xs text-slate-500 mt-2 flex gap-2 flex-wrap">
+                                                    Modules: {ensureArray(r.requestedModules).map(m => <span key={m} className="bg-slate-800 px-2 py-0.5 rounded border border-slate-700">{m}</span>)}
+                                                </div>
+                                            </div>
+                                            <div>
+                                                {canApprove ? (
+                                                    <button onClick={() => approveRequest(r)} className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-lg font-bold text-sm shadow transition flex items-center gap-2"><i className="fas fa-check"></i> Approve & Apply</button>
+                                                ) : (
+                                                    <span className="text-xs text-red-400 font-bold uppercase tracking-widest bg-red-900/20 px-3 py-1.5 rounded-lg border border-red-500/30"><i className="fas fa-lock mr-1"></i> Requires Global Clearance</span>
+                                                )}
+                                            </div>
+                                        </div>
+                                    )
+                                })
                             )}
                         </div>
                     )}
-                </main>
-            </div>
-            {isAddingUser && <AddUserModal sites={sites} orgId={session.orgId} onClose={() => setIsAddingUser(false)} />}
-            {editUser && <PermissionModal user={editUser} sites={sites} onClose={() => setEditUser(null)} onSave={updatePermissions} />}
+                </div>
+            </main>
+
+            {/* ========================================== */}
+            {/* MODAL: CREATE NEW USER (GLOBAL ADMIN ONLY) */}
+            {/* ========================================== */}
+            {createModal && (
+                <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[9999] flex items-center justify-center p-4">
+                    <div className="bg-slate-900 border border-slate-700 rounded-3xl p-8 max-w-2xl w-full shadow-2xl max-h-[90vh] overflow-y-auto custom-scroll">
+                        <div className="flex justify-between items-center mb-6 border-b border-slate-800 pb-4">
+                            <h2 className="text-xl font-bold text-white"><i className="fas fa-user-plus text-emerald-500 mr-2"></i> Register New User Account</h2>
+                            <button onClick={() => setCreateModal(false)} className="text-slate-500 hover:text-white"><i className="fas fa-times text-xl"></i></button>
+                        </div>
+
+                        <div className="space-y-6">
+                            <div className="grid grid-cols-2 gap-6">
+                                <div>
+                                    <label className="text-[10px] uppercase font-bold text-slate-400 block mb-2">Full Name</label>
+                                    <input value={createForm.name} onChange={e => setCreateForm({ ...createForm, name: e.target.value })} placeholder="e.g. Jane Doe" className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-sm text-white font-bold outline-none focus:border-emerald-500" />
+                                </div>
+                                <div>
+                                    <label className="text-[10px] uppercase font-bold text-slate-400 block mb-2">Email Address (Unique Login)</label>
+                                    <input value={createForm.email} onChange={e => setCreateForm({ ...createForm, email: e.target.value })} placeholder="jane@company.com" className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-sm text-white font-bold outline-none focus:border-emerald-500" />
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-6">
+                                <div>
+                                    <label className="text-[10px] uppercase font-bold text-emerald-500 block mb-2">Temporary Password</label>
+                                    <div className="flex items-center gap-2 w-full bg-slate-950 border border-emerald-900/50 rounded-xl p-1 pr-3 shadow-inner">
+                                        <input value={createForm.tempPassword} onChange={e => setCreateForm({ ...createForm, tempPassword: e.target.value })} className="w-full bg-transparent border-none p-2 text-sm text-emerald-400 font-mono font-bold outline-none" />
+                                        <button type="button" onClick={() => setCreateForm({ ...createForm, tempPassword: Math.random().toString(36).slice(-6) + "A1!" })} className="text-slate-500 hover:text-emerald-400 transition" title="Generate New"><i className="fas fa-sync-alt"></i></button>
+                                    </div>
+                                </div>
+                                <div>
+                                    <label className="text-[10px] uppercase font-bold text-slate-400 block mb-2">Assign Role</label>
+                                    <select value={createForm.role} onChange={e => setCreateForm({ ...createForm, role: e.target.value })} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-sm text-white font-bold outline-none focus:border-emerald-500">
+                                        {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div>
+                                <label className="text-[10px] uppercase font-bold text-slate-400 block mb-2">Primary Site</label>
+                                <select value={createForm.assignedSite} onChange={e => setCreateForm({ ...createForm, assignedSite: e.target.value })} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-sm text-white font-bold outline-none focus:border-emerald-500">
+                                    <option value="">-- Select Primary Site --</option>
+                                    <option value="GLOBAL">GLOBAL (All Sites)</option>
+                                    {sites.map(s => <option key={s.code} value={s.code}>{s.name} ({s.code})</option>)}
+                                </select>
+                            </div>
+
+                            <div>
+                                <label className="text-[10px] uppercase font-bold text-slate-400 block mb-3 border-b border-slate-800 pb-2">Additional Accessible Sites</label>
+                                <div className="flex flex-wrap gap-3">
+                                    {sites.map(s => (
+                                        <label key={s.code} className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border cursor-pointer transition ${ensureArray(createForm.accessibleSites).includes(s.code) ? 'bg-emerald-900/30 border-emerald-500 text-emerald-400' : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-600'}`}>
+                                            <input type="checkbox" checked={ensureArray(createForm.accessibleSites).includes(s.code)} onChange={() => toggleCreateArray('accessibleSites', s.code)} className="hidden" />
+                                            <span className="text-xs font-bold">{s.code}</span>
+                                        </label>
+                                    ))}
+                                </div>
+                            </div>
+
+                            <div>
+                                <label className="text-[10px] uppercase font-bold text-slate-400 block mb-3 border-b border-slate-800 pb-2">Module Access Grants</label>
+                                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                                    {MODULES.map(mod => (
+                                        <label key={mod} className={`flex items-center gap-2 p-3 rounded-xl border cursor-pointer transition ${ensureArray(createForm.accessibleModules).includes(mod) ? 'bg-emerald-900/20 border-emerald-500/50 text-emerald-400 shadow-inner' : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-600'}`}>
+                                            <input type="checkbox" checked={ensureArray(createForm.accessibleModules).includes(mod)} onChange={() => toggleCreateArray('accessibleModules', mod)} className="w-4 h-4 accent-emerald-500" />
+                                            <span className="text-xs font-bold">{mod}</span>
+                                        </label>
+                                    ))}
+                                </div>
+                            </div>
+
+                            <div className="pt-6 border-t border-slate-800 flex gap-4">
+                                <button type="button" onClick={() => setCreateModal(false)} className="flex-1 bg-slate-800 hover:bg-slate-700 text-white font-bold py-3.5 rounded-xl transition tracking-widest uppercase text-sm border border-slate-700">Cancel</button>
+                                <button type="button" onClick={submitCreateUser} className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3.5 rounded-xl shadow-lg transition tracking-widest uppercase text-sm"><i className="fas fa-check mr-2"></i> Create Profile & Auth</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ========================================== */}
+            {/* SUCCESS MODAL: SHOW TEMP PASSWORD */}
+            {/* ========================================== */}
+            {successModal && (
+                <div className="fixed inset-0 bg-slate-950/90 backdrop-blur-md z-[99999] flex items-center justify-center p-4">
+                    <div className="bg-slate-900 border-2 border-emerald-500/50 rounded-3xl p-8 max-w-md w-full shadow-2xl text-center animate-in fade-in zoom-in duration-300">
+                        <div className="w-16 h-16 bg-emerald-500/20 rounded-full flex items-center justify-center mx-auto mb-6">
+                            <i className="fas fa-check text-3xl text-emerald-500"></i>
+                        </div>
+                        <h2 className="text-2xl font-bold text-white mb-2">Account Created!</h2>
+                        <p className="text-sm text-slate-400 mb-8">Please copy these credentials and send them to the user.</p>
+
+                        <div className="bg-slate-950 border border-slate-800 p-6 rounded-xl text-left mb-8 space-y-4">
+                            <div>
+                                <label className="text-[10px] uppercase font-bold text-slate-500 tracking-widest block mb-1">Email / Login ID</label>
+                                <div className="text-base font-bold text-white font-mono">{successModal.email}</div>
+                            </div>
+                            <div className="border-t border-slate-800 pt-4">
+                                <label className="text-[10px] uppercase font-bold text-slate-500 tracking-widest block mb-1">Assigned Role</label>
+                                <div className="text-sm font-bold text-blue-400">{successModal.role}</div>
+                            </div>
+                            <div className="border-t border-slate-800 pt-4">
+                                <label className="text-[10px] uppercase font-bold text-emerald-500 tracking-widest block mb-1">Temporary Password</label>
+                                <div className="text-xl font-black text-emerald-400 font-mono tracking-widest select-all bg-emerald-900/20 p-2 rounded border border-emerald-500/30 text-center">{successModal.password}</div>
+                            </div>
+                        </div>
+
+                        <button type="button" onClick={() => setSuccessModal(null)} className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3.5 rounded-xl transition tracking-widest uppercase text-sm shadow-lg shadow-emerald-900/20">I have copied the details</button>
+                    </div>
+                </div>
+            )}
+
+            {/* ========================================== */}
+            {/* MODAL: EDIT USER PERMISSIONS */}
+            {/* ========================================== */}
+            {editModal && editForm && (
+                <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[9999] flex items-center justify-center p-4">
+                    <div className="bg-slate-900 border border-slate-700 rounded-3xl p-8 max-w-2xl w-full shadow-2xl max-h-[90vh] overflow-y-auto custom-scroll">
+                        <div className="flex justify-between items-center mb-6 border-b border-slate-800 pb-4">
+                            <h2 className="text-xl font-bold text-white">Edit Permissions: <span className="text-blue-400">{editForm.name}</span></h2>
+                            <button type="button" onClick={() => setEditModal(false)} className="text-slate-500 hover:text-white"><i className="fas fa-times text-xl"></i></button>
+                        </div>
+
+                        {/* GLOBAL ADMIN ONLY: REVOKE ALL SHORTCUT */}
+                        {isGlobalAdmin && (
+                            <div className="mb-6 flex justify-end">
+                                <button type="button" onClick={() => setEditForm({ ...editForm, accessibleSites: [], accessibleModules: [] })} className="text-[10px] bg-red-900/20 hover:bg-red-600 border border-red-500/30 text-red-400 hover:text-white font-bold px-3 py-1.5 rounded-lg transition uppercase tracking-widest shadow">
+                                    <i className="fas fa-ban mr-1"></i> Clear All Access Arrays
+                                </button>
+                            </div>
+                        )}
+
+                        <div className="space-y-6">
+                            <div className="grid grid-cols-2 gap-6">
+                                <div>
+                                    <label className="text-[10px] uppercase font-bold text-slate-400 block mb-2">Assign Role</label>
+                                    <select value={editForm.role} onChange={e => setEditForm({ ...editForm, role: e.target.value })} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-sm text-white font-bold outline-none focus:border-blue-500">
+                                        {ROLES.map(r => (
+                                            <option key={r} value={r} disabled={!canGrantRole(r)}>{r} {!canGrantRole(r) && '(Locked)'}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="text-[10px] uppercase font-bold text-slate-400 block mb-2">Primary Site</label>
+                                    <select value={editForm.assignedSite} onChange={e => setEditForm({ ...editForm, assignedSite: e.target.value })} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-sm text-white font-bold outline-none focus:border-blue-500">
+                                        {isGlobalAdmin && <option value="GLOBAL">GLOBAL (All Sites)</option>}
+                                        {sites.map(s => <option key={s.code} value={s.code} disabled={!isGlobalAdmin && s.code !== session?.assignedSite}>{s.name} ({s.code})</option>)}
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div>
+                                <label className="text-[10px] uppercase font-bold text-slate-400 block mb-3 border-b border-slate-800 pb-2">Additional Accessible Sites</label>
+                                <div className="flex flex-wrap gap-3">
+                                    {sites.map(s => {
+                                        const isLocked = !isGlobalAdmin && s.code !== session?.assignedSite;
+                                        return (
+                                            <label key={s.code} className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border cursor-pointer transition ${isLocked ? 'opacity-50' : ''} ${ensureArray(editForm.accessibleSites).includes(s.code) ? 'bg-blue-900/30 border-blue-500 text-blue-400' : 'bg-slate-950 border-slate-800 text-slate-400'}`}>
+                                                <input type="checkbox" checked={ensureArray(editForm.accessibleSites).includes(s.code)} onChange={() => !isLocked && toggleEditArray('accessibleSites', s.code)} disabled={isLocked} className="hidden" />
+                                                <span className="text-xs font-bold">{s.code}</span>
+                                            </label>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+
+                            <div>
+                                <label className="text-[10px] uppercase font-bold text-slate-400 block mb-3 border-b border-slate-800 pb-2">Module Access Grants</label>
+                                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                                    {MODULES.map(mod => {
+                                        const isLocked = !canGrantModule(mod);
+                                        return (
+                                            <label key={mod} className={`flex items-center gap-2 p-3 rounded-xl border cursor-pointer transition ${isLocked ? 'opacity-50' : ''} ${ensureArray(editForm.accessibleModules).includes(mod) ? 'bg-emerald-900/20 border-emerald-500/50 text-emerald-400 shadow-inner' : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-600'}`}>
+                                                <input type="checkbox" checked={ensureArray(editForm.accessibleModules).includes(mod)} onChange={() => !isLocked && toggleEditArray('accessibleModules', mod)} disabled={isLocked} className="w-4 h-4 accent-emerald-500" />
+                                                <span className="text-xs font-bold">{mod}</span>
+                                            </label>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+
+                            <div className="pt-6 border-t border-slate-800">
+                                <button type="button" onClick={handleUpdateUser} className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3.5 rounded-xl shadow-lg transition tracking-widest uppercase text-sm">Save Permissions</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* --- REQUEST ACCESS MODAL --- */}
+            {requestModal && (
+                <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[9999] flex items-center justify-center p-4">
+                    <div className="bg-slate-900 border border-slate-700 rounded-3xl p-8 max-w-md w-full shadow-2xl">
+                        <div className="flex justify-between items-center mb-6">
+                            <h2 className="text-xl font-bold text-white">Request System Access</h2>
+                            <button type="button" onClick={() => setRequestModal(false)} className="text-slate-500 hover:text-white"><i className="fas fa-times text-xl"></i></button>
+                        </div>
+                        <div className="space-y-4">
+                            <div>
+                                <label className="text-[10px] uppercase font-bold text-slate-400 block mb-2">Requested Role</label>
+                                <select value={reqForm.role} onChange={e => setReqForm({ ...reqForm, role: e.target.value })} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-sm text-white outline-none focus:border-amber-500">
+                                    {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
+                                </select>
+                            </div>
+                            <div>
+                                <label className="text-[10px] uppercase font-bold text-slate-400 block mb-2">Requested Site</label>
+                                <select value={reqForm.siteId} onChange={e => setReqForm({ ...reqForm, siteId: e.target.value })} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-sm text-white outline-none focus:border-amber-500">
+                                    <option value="">-- Select Site --</option>
+                                    <option value="GLOBAL">GLOBAL (All Sites)</option>
+                                    {sites.map(s => <option key={s.code} value={s.code}>{s.name}</option>)}
+                                </select>
+                            </div>
+                            <div>
+                                <label className="text-[10px] uppercase font-bold text-slate-400 block mb-2">Requested Modules</label>
+                                <div className="h-32 overflow-y-auto custom-scroll border border-slate-800 rounded-xl p-2 bg-slate-950 space-y-1 shadow-inner">
+                                    {MODULES.map(mod => (
+                                        <label key={mod} className="flex items-center gap-2 p-2 hover:bg-slate-900 rounded cursor-pointer">
+                                            <input type="checkbox" checked={ensureArray(reqForm.modules).includes(mod)} onChange={() => toggleReqArray(mod)} className="accent-amber-500" />
+                                            <span className="text-xs text-slate-300">{mod}</span>
+                                        </label>
+                                    ))}
+                                </div>
+                            </div>
+                            <button type="button" onClick={submitRequest} className="w-full bg-amber-600 hover:bg-amber-500 text-white font-bold py-3 rounded-xl shadow mt-4 tracking-widest uppercase text-sm">Submit Request</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            <style dangerouslySetInnerHTML={{
+                __html: `
+                .custom-scroll::-webkit-scrollbar { width: 6px; }
+                .custom-scroll::-webkit-scrollbar-thumb { background: #334155; border-radius: 10px; }
+            `}} />
         </div>
     );
 }

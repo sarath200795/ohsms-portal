@@ -1,83 +1,20 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { ref, get, update, push, remove } from 'firebase/database';
 import { rtdb } from '../config/firebase';
 import * as XLSX from 'xlsx';
 
 // --- ENHANCED HSE SMART KNOWLEDGE BASE ---
 const SMART_DB = {
-    "Fire & Explosion": {
-        keywords: ["fire", "burn", "smoke", "flame", "hot", "ignition", "combust", "explosion", "spark", "caught fire", "burnt"],
-        fishbone: { man: ["Lack of fire training"], machine: ["Overheated equipment", "Faulty wiring"], material: ["Flammable liquids", "Waste buildup"], method: ["Hot work permit violation"], environment: ["High temp", "Dry conditions"] },
-        root_causes: ["Failure to control ignition sources", "Inadequate housekeeping & waste management"],
-        five_whys: [{ id: 1, name: 'Ignition Source Path', whys: ["Combustible material ignited", "Sparks from hot work fell on waste", "No fire blanket used", "Hot work permit not issued", "Supervisor bypassed procedure"] }],
-        fault_tree: { id: 1, label: "Fire Outbreak", type: "AND", children: [{ id: 2, label: "Ignition Source", type: "OR", children: [{ id: 3, label: "Sparks", type: "EVENT" }, { id: 4, label: "Electrical Fault", type: "EVENT" }] }, { id: 5, label: "Fuel Present", type: "EVENT" }] },
-        capa: ["Refresher Fire Safety Training", "Install auto-suppression system", "Audit Hot Work Permits"]
-    },
-    "COSHH / Chemical Exposure": {
-        keywords: ["chemical", "spill", "leak", "acid", "fume", "toxic", "gas", "solvent", "liquid", "coshh", "inhal"],
-        fishbone: { man: ["No PPE worn", "Improper handling"], machine: ["Valve failure", "Pump leak"], material: ["Defective container", "Wrong label"], method: ["Mixing error"], environment: ["Poor ventilation"] },
-        root_causes: ["Lack of COSHH assessment", "Inadequate preventative maintenance on transfer systems"],
-        five_whys: [{ id: 1, name: 'Exposure Path', whys: ["Worker inhaled toxic fumes", "Ventilation system failed", "Extract fan motor seized", "Maintenance schedule missed", "No automated tracking system for maintenance"] }],
-        fault_tree: { id: 1, label: "Chemical Exposure", type: "AND", children: [{ id: 2, label: "Loss of Containment", type: "OR", children: [{ id: 3, label: "Seal Failure", type: "EVENT" }, { id: 4, label: "Container Drop", type: "EVENT" }] }, { id: 5, label: "Worker in Area", type: "EVENT" }] },
-        capa: ["Install secondary containment (bunding)", "COSHH Awareness Training", "Review MSDS compliance", "Upgrade LEV extraction"]
-    },
-    "Asbestos": {
-        keywords: ["asbestos", "acm", "fibre", "dust", "insulation", "lagging", "mesothelioma"],
-        fishbone: { man: ["Unaware of ACMs"], machine: ["Drilling into walls"], material: ["Old insulation"], method: ["No asbestos register check"], environment: ["Older building"] },
-        root_causes: ["Failure to consult Asbestos Register prior to maintenance work"],
-        five_whys: [{ id: 1, name: 'Disturbance Path', whys: ["Asbestos fibres released", "Worker drilled into lagging", "Did not know it contained asbestos", "Asbestos register not checked", "Permit to work process did not mandate check"] }],
-        fault_tree: { id: 1, label: "Asbestos Exposure", type: "AND", children: [{ id: 2, label: "ACM Disturbed", type: "EVENT" }, { id: 3, label: "Inhalation of Fibres", type: "OR", children: [{ id: 4, label: "No RPE used", type: "EVENT" }, { id: 5, label: "No wet method", type: "EVENT" }] }] },
-        capa: ["Conduct full Asbestos Survey", "Implement Asbestos Permit to Work", "Asbestos Awareness Training"]
-    },
-    "Work at Height": {
-        keywords: ["fall", "ladder", "scaffold", "roof", "height", "drop", "edge", "platform", "fragile"],
-        fishbone: { man: ["Unsafe act", "No harness"], machine: ["Damaged ladder", "Scaffold defect"], material: ["Fragile roof lights"], method: ["No permit to work"], environment: ["Windy", "Slippery"] },
-        root_causes: ["Failure to plan work at height safely", "Inadequate fall protection or edge protection"],
-        five_whys: [{ id: 1, name: 'Fall Path', whys: ["Worker fell from height", "Ladder slipped", "Ladder not tied off", "No tie-off point available", "Work planned without considering proper access equipment (MEWP)"] }],
-        fault_tree: { id: 1, label: "Fall from Height", type: "AND", children: [{ id: 2, label: "Unstable Access", type: "OR", children: [{ id: 3, label: "Untied Ladder", type: "EVENT" }, { id: 4, label: "Fragile Roof", type: "EVENT" }] }, { id: 5, label: "No Fall Arrest System", type: "EVENT" }] },
-        capa: ["Enforce 100% tie-off policy", "Switch to MEWPs instead of ladders", "Weekly Scaffold Inspections"]
-    },
-    "Slips, Trips & Falls": {
-        keywords: ["slip", "trip", "floor", "wet", "uneven", "cable", "obstruction", "ice", "housekeeping", "tripped", "slipped", "fell", "puddle"],
-        fishbone: { man: ["Rushing", "Distracted (phone)"], machine: ["Leaking machine"], material: ["Spilled oil/water"], method: ["Poor housekeeping routines"], environment: ["Poor lighting", "Wet floor"] },
-        root_causes: ["Floor contamination not promptly cleaned", "Walkways obstructed due to lack of storage"],
-        five_whys: [{ id: 1, name: 'Trip Path', whys: ["Employee tripped and fell", "Caught foot on trailing cable", "Cable stretched across walkway", "No floor sockets available", "Workspace design didn't account for equipment needs"] }],
-        fault_tree: { id: 1, label: "Slip/Trip Event", type: "AND", children: [{ id: 2, label: "Hazard Present", type: "OR", children: [{ id: 3, label: "Wet Floor", type: "EVENT" }, { id: 4, label: "Trailing Cable", type: "EVENT" }] }, { id: 5, label: "Hazard Not Seen", type: "EVENT" }] },
-        capa: ["Implement clean-as-you-go policy", "Install Anti-slip flooring", "Cable Management Review"]
-    },
-    "Manual Handling": {
-        keywords: ["lift", "back", "strain", "heavy", "twist", "spine", "load", "carrying", "ergonomic", "push", "pull"],
-        fishbone: { man: ["Poor lifting technique", "Fatigue"], machine: ["No trolley/hoist available"], material: ["Heavy/Bulky load"], method: ["Lifting alone", "Repetitive motion"], environment: ["Cramped space", "Uneven floor"] },
-        root_causes: ["Failure to avoid manual handling operations", "Lack of mechanical lifting aids"],
-        five_whys: [{ id: 1, name: 'Strain Path', whys: ["Employee suffered back strain", "Lifting a 25kg box", "Trolley was broken", "Not reported to maintenance", "No defect reporting culture"] }],
-        fault_tree: { id: 1, label: "Musculoskeletal Injury", type: "AND", children: [{ id: 2, label: "High Exertion Force", type: "EVENT" }, { id: 3, label: "Poor Posture", type: "OR", children: [{ id: 4, label: "Twisting", type: "EVENT" }, { id: 5, label: "Bending", type: "EVENT" }] }] },
-        capa: ["Provide Mechanical Lifting Aids", "Manual Handling Assessment (MAC Tool)", "Manual Handling Training"]
-    },
-    "Machinery & Equipment": {
-        keywords: ["guard", "cut", "crush", "entangle", "machine", "nip", "blade", "conveyor", "amputation", "loto", "tool"],
-        fishbone: { man: ["Bypassed guard", "Loose clothing"], machine: ["Missing guard", "E-stop failure"], material: ["Jammed workpiece"], method: ["Maintenance on live machine"], environment: ["Poor lighting"] },
-        root_causes: ["Inadequate machine guarding", "Failure to follow Lockout/Tagout (LOTO) procedures"],
-        five_whys: [{ id: 1, name: 'Contact Path', whys: ["Operator cut hand", "Reached into moving machine", "Interlock guard was overridden", "To clear a jam quickly", "Production pressure encouraged bypassing safety"] }],
-        fault_tree: { id: 1, label: "Contact with Moving Part", type: "AND", children: [{ id: 2, label: "Access to Danger Zone", type: "EVENT" }, { id: 3, label: "Machine Running", type: "OR", children: [{ id: 4, label: "No LOTO", type: "EVENT" }, { id: 5, label: "Interlock Failure", type: "EVENT" }] }] },
-        capa: ["Full Machine Guarding Audit", "LOTO Training & Lock Provision", "Daily Pre-start checks"]
-    },
-    "Workplace Transport / Vehicles": {
-        keywords: ["vehicle", "forklift", "truck", "flt", "reverse", "collision", "hit", "driver", "pedestrian", "crush", "run over"],
-        fishbone: { man: ["Speeding", "Blind spot", "No seatbelt"], machine: ["Brake failure", "No reverse alarm"], material: ["Unstable load blocking vision"], method: ["No pedestrian segregation"], environment: ["Busy yard", "Poor weather"] },
-        root_causes: ["Lack of pedestrian and vehicle segregation", "Inadequate traffic management plan"],
-        five_whys: [{ id: 1, name: 'Collision Path', whys: ["Forklift struck pedestrian", "Driver didn't see pedestrian", "Load was carried too high", "Driver untrained on specific load types", "Training matrix not updated"] }],
-        fault_tree: { id: 1, label: "Vehicle/Pedestrian Collision", type: "AND", children: [{ id: 2, label: "Vehicle in Area", type: "EVENT" }, { id: 3, label: "Pedestrian in Area", type: "EVENT" }, { id: 4, label: "No Segregation Barrier", type: "EVENT" }] },
-        capa: ["Install Physical Pedestrian Barriers", "Implement designated walkways", "Forklift Refresher Training"]
-    },
-    "Electrical Safety": {
-        keywords: ["electric", "shock", "wire", "cable", "voltage", "panel", "fuse", "short", "arc", "electrocution"],
-        fishbone: { man: ["Unqualified person", "Did not test for dead"], machine: ["Exposed live wire"], material: ["Water/moisture ingress"], method: ["Working live", "No isolation"], environment: ["Damp conditions"] },
-        root_causes: ["Equipment not PAT tested", "Failure to safely isolate electrical supplies"],
-        five_whys: [{ id: 1, name: 'Shock Path', whys: ["Worker received electric shock", "Touched live exposed wire", "Cable outer sheath was damaged", "Run over by forklift previously", "Cables not protected in high traffic areas"] }],
-        fault_tree: { id: 1, label: "Electric Shock", type: "AND", children: [{ id: 2, label: "Contact with Live Conductor", type: "EVENT" }, { id: 3, label: "Path to Ground", type: "OR", children: [{ id: 4, label: "No insulated mat", type: "EVENT" }, { id: 5, label: "Wet hands", type: "EVENT" }] }] },
-        capa: ["Implement routine PAT Testing", "Strict LOTO Lockout policy for electrical work", "Electrical Safety Training"]
-    }
+    "Fire & Explosion": { keywords: ["fire", "burn", "smoke", "flame", "hot", "ignition", "combust", "explosion", "spark", "caught fire", "burnt"], fishbone: { man: ["Lack of fire training"], machine: ["Overheated equipment", "Faulty wiring"], material: ["Flammable liquids", "Waste buildup"], method: ["Hot work permit violation"], environment: ["High temp", "Dry conditions"] }, root_causes: ["Failure to control ignition sources", "Inadequate housekeeping & waste management"], five_whys: [{ id: 1, name: 'Ignition Source Path', whys: ["Combustible material ignited", "Sparks from hot work fell on waste", "No fire blanket used", "Hot work permit not issued", "Supervisor bypassed procedure"] }], fault_tree: { id: 1, label: "Fire Outbreak", type: "AND", children: [{ id: 2, label: "Ignition Source", type: "OR", children: [{ id: 3, label: "Sparks", type: "EVENT" }, { id: 4, label: "Electrical Fault", type: "EVENT" }] }, { id: 5, label: "Fuel Present", type: "EVENT" }] }, capa: ["Refresher Fire Safety Training", "Install auto-suppression system", "Audit Hot Work Permits"] },
+    "COSHH / Chemical Exposure": { keywords: ["chemical", "spill", "leak", "acid", "fume", "toxic", "gas", "solvent", "liquid", "coshh", "inhal"], fishbone: { man: ["No PPE worn", "Improper handling"], machine: ["Valve failure", "Pump leak"], material: ["Defective container", "Wrong label"], method: ["Mixing error"], environment: ["Poor ventilation"] }, root_causes: ["Lack of COSHH assessment", "Inadequate preventative maintenance on transfer systems"], five_whys: [{ id: 1, name: 'Exposure Path', whys: ["Worker inhaled toxic fumes", "Ventilation system failed", "Extract fan motor seized", "Maintenance schedule missed", "No automated tracking system for maintenance"] }], fault_tree: { id: 1, label: "Chemical Exposure", type: "AND", children: [{ id: 2, label: "Loss of Containment", type: "OR", children: [{ id: 3, label: "Seal Failure", type: "EVENT" }, { id: 4, label: "Container Drop", type: "EVENT" }] }, { id: 5, label: "Worker in Area", type: "EVENT" }] }, capa: ["Install secondary containment (bunding)", "COSHH Awareness Training", "Review MSDS compliance", "Upgrade LEV extraction"] },
+    "Asbestos": { keywords: ["asbestos", "acm", "fibre", "dust", "insulation", "lagging", "mesothelioma"], fishbone: { man: ["Unaware of ACMs"], machine: ["Drilling into walls"], material: ["Old insulation"], method: ["No asbestos register check"], environment: ["Older building"] }, root_causes: ["Failure to consult Asbestos Register prior to maintenance work"], five_whys: [{ id: 1, name: 'Disturbance Path', whys: ["Asbestos fibres released", "Worker drilled into lagging", "Did not know it contained asbestos", "Asbestos register not checked", "Permit to work process did not mandate check"] }], fault_tree: { id: 1, label: "Asbestos Exposure", type: "AND", children: [{ id: 2, label: "ACM Disturbed", type: "EVENT" }, { id: 3, label: "Inhalation of Fibres", type: "OR", children: [{ id: 4, label: "No RPE used", type: "EVENT" }, { id: 5, label: "No wet method", type: "EVENT" }] }] }, capa: ["Conduct full Asbestos Survey", "Implement Asbestos Permit to Work", "Asbestos Awareness Training"] },
+    "Work at Height": { keywords: ["fall", "ladder", "scaffold", "roof", "height", "drop", "edge", "platform", "fragile"], fishbone: { man: ["Unsafe act", "No harness"], machine: ["Damaged ladder", "Scaffold defect"], material: ["Fragile roof lights"], method: ["No permit to work"], environment: ["Windy", "Slippery"] }, root_causes: ["Failure to plan work at height safely", "Inadequate fall protection or edge protection"], five_whys: [{ id: 1, name: 'Fall Path', whys: ["Worker fell from height", "Ladder slipped", "Ladder not tied off", "No tie-off point available", "Work planned without considering proper access equipment (MEWP)"] }], fault_tree: { id: 1, label: "Fall from Height", type: "AND", children: [{ id: 2, label: "Unstable Access", type: "OR", children: [{ id: 3, label: "Untied Ladder", type: "EVENT" }, { id: 4, label: "Fragile Roof", type: "EVENT" }] }, { id: 5, label: "No Fall Arrest System", type: "EVENT" }] }, capa: ["Enforce 100% tie-off policy", "Switch to MEWPs instead of ladders", "Weekly Scaffold Inspections"] },
+    "Slips, Trips & Falls": { keywords: ["slip", "trip", "floor", "wet", "uneven", "cable", "obstruction", "ice", "housekeeping", "tripped", "slipped", "fell", "puddle"], fishbone: { man: ["Rushing", "Distracted (phone)"], machine: ["Leaking machine"], material: ["Spilled oil/water"], method: ["Poor housekeeping routines"], environment: ["Poor lighting", "Wet floor"] }, root_causes: ["Floor contamination not promptly cleaned", "Walkways obstructed due to lack of storage"], five_whys: [{ id: 1, name: 'Trip Path', whys: ["Employee tripped and fell", "Caught foot on trailing cable", "Cable stretched across walkway", "No floor sockets available", "Workspace design didn't account for equipment needs"] }], fault_tree: { id: 1, label: "Slip/Trip Event", type: "AND", children: [{ id: 2, label: "Hazard Present", type: "OR", children: [{ id: 3, label: "Wet Floor", type: "EVENT" }, { id: 4, label: "Trailing Cable", type: "EVENT" }] }, { id: 5, label: "Hazard Not Seen", type: "EVENT" }] }, capa: ["Implement clean-as-you-go policy", "Install Anti-slip flooring", "Cable Management Review"] },
+    "Manual Handling": { keywords: ["lift", "back", "strain", "heavy", "twist", "spine", "load", "carrying", "ergonomic", "push", "pull"], fishbone: { man: ["Poor lifting technique", "Fatigue"], machine: ["No trolley/hoist available"], material: ["Heavy/Bulky load"], method: ["Lifting alone", "Repetitive motion"], environment: ["Cramped space", "Uneven floor"] }, root_causes: ["Failure to avoid manual handling operations", "Lack of mechanical lifting aids"], five_whys: [{ id: 1, name: 'Strain Path', whys: ["Employee suffered back strain", "Lifting a 25kg box", "Trolley was broken", "Not reported to maintenance", "No defect reporting culture"] }], fault_tree: { id: 1, label: "Musculoskeletal Injury", type: "AND", children: [{ id: 2, label: "High Exertion Force", type: "EVENT" }, { id: 3, label: "Poor Posture", type: "OR", children: [{ id: 4, label: "Twisting", type: "EVENT" }, { id: 5, label: "Bending", type: "EVENT" }] }] }, capa: ["Provide Mechanical Lifting Aids", "Manual Handling Assessment (MAC Tool)", "Manual Handling Training"] },
+    "Machinery & Equipment": { keywords: ["guard", "cut", "crush", "entangle", "machine", "nip", "blade", "conveyor", "amputation", "loto", "tool"], fishbone: { man: ["Bypassed guard", "Loose clothing"], machine: ["Missing guard", "E-stop failure"], material: ["Jammed workpiece"], method: ["Maintenance on live machine"], environment: ["Poor lighting"] }, root_causes: ["Inadequate machine guarding", "Failure to follow Lockout/Tagout (LOTO) procedures"], five_whys: [{ id: 1, name: 'Contact Path', whys: ["Operator cut hand", "Reached into moving machine", "Interlock guard was overridden", "To clear a jam quickly", "Production pressure encouraged bypassing safety"] }], fault_tree: { id: 1, label: "Contact with Moving Part", type: "AND", children: [{ id: 2, label: "Access to Danger Zone", type: "EVENT" }, { id: 3, label: "Machine Running", type: "OR", children: [{ id: 4, label: "No LOTO", type: "EVENT" }, { id: 5, label: "Interlock Failure", type: "EVENT" }] }] }, capa: ["Full Machine Guarding Audit", "LOTO Training & Lock Provision", "Daily Pre-start checks"] },
+    "Workplace Transport / Vehicles": { keywords: ["vehicle", "forklift", "truck", "flt", "reverse", "collision", "hit", "driver", "pedestrian", "crush", "run over"], fishbone: { man: ["Speeding", "Blind spot", "No seatbelt"], machine: ["Brake failure", "No reverse alarm"], material: ["Unstable load blocking vision"], method: ["No pedestrian segregation"], environment: ["Busy yard", "Poor weather"] }, root_causes: ["Lack of pedestrian and vehicle segregation", "Inadequate traffic management plan"], five_whys: [{ id: 1, name: 'Collision Path', whys: ["Forklift struck pedestrian", "Driver didn't see pedestrian", "Load was carried too high", "Driver untrained on specific load types", "Training matrix not updated"] }], fault_tree: { id: 1, label: "Vehicle/Pedestrian Collision", type: "AND", children: [{ id: 2, label: "Vehicle in Area", type: "EVENT" }, { id: 3, label: "Pedestrian in Area", type: "EVENT" }, { id: 4, label: "No Segregation Barrier", type: "EVENT" }] }, capa: ["Install Physical Pedestrian Barriers", "Implement designated walkways", "Forklift Refresher Training"] },
+    "Electrical Safety": { keywords: ["electric", "shock", "wire", "cable", "voltage", "panel", "fuse", "short", "arc", "electrocution"], fishbone: { man: ["Unqualified person", "Did not test for dead"], machine: ["Exposed live wire"], material: ["Water/moisture ingress"], method: ["Working live", "No isolation"], environment: ["Damp conditions"] }, root_causes: ["Equipment not PAT tested", "Failure to safely isolate electrical supplies"], five_whys: [{ id: 1, name: 'Shock Path', whys: ["Worker received electric shock", "Touched live exposed wire", "Cable outer sheath was damaged", "Run over by forklift previously", "Cables not protected in high traffic areas"] }], fault_tree: { id: 1, label: "Electric Shock", type: "AND", children: [{ id: 2, label: "Contact with Live Conductor", type: "EVENT" }, { id: 3, label: "Path to Ground", type: "OR", children: [{ id: 4, label: "No insulated mat", type: "EVENT" }, { id: 5, label: "Wet hands", type: "EVENT" }] }] }, capa: ["Implement routine PAT Testing", "Strict LOTO Lockout policy for electrical work", "Electrical Safety Training"] }
 };
 const SMART_CATEGORIES = Object.keys(SMART_DB);
 
@@ -89,19 +26,26 @@ const fileToBase64 = (file) => new Promise((resolve, reject) => {
     reader.onerror = error => reject(error);
 });
 
+const safeArrayParse = (data) => {
+    if (!data) return [];
+    if (Array.isArray(data)) {
+        return data.map((item, idx) => {
+            if (item && typeof item === 'object') return { ...item, firebaseKey: String(idx) };
+            return null;
+        }).filter(Boolean);
+    }
+    if (typeof data !== 'object') return [];
+    return Object.keys(data).reduce((acc, key) => {
+        if (typeof data[key] === 'object' && data[key] !== null) acc.push({ ...data[key], firebaseKey: key });
+        return acc;
+    }, []);
+};
+
 // --- SUB-COMPONENTS ---
 const UserSelect = ({ users, value, onChange, disabled, placeholder }) => (
     <select value={value} onChange={e => onChange(e.target.value)} disabled={disabled} className="w-full bg-slate-900 border border-slate-700 p-2 rounded text-white text-xs outline-none focus:border-blue-500">
         <option value="">{placeholder || 'Select User...'}</option>
-        {/* Added fallback to u.email if u.name is undefined */}
         {users.map(u => <option key={u.id} value={u.name || u.email}>{u.name || u.email} ({u.role || 'User'})</option>)}
-    </select>
-);
-
-const SiteSelect = ({ sites, value, onChange, disabled }) => (
-    <select value={value} onChange={e => onChange(e.target.value)} disabled={disabled} className="w-full bg-slate-900 border border-slate-700 p-2 rounded text-white text-xs outline-none focus:border-blue-500">
-        <option value="">Select Site...</option>
-        {sites.map(s => <option key={s.code} value={s.code}>{s.name} ({s.code})</option>)}
     </select>
 );
 
@@ -109,21 +53,21 @@ const RibBox = ({ title, cat, data, onAdd, onUpdate, onRemove, disabled }) => (
     <div className="rib-box">
         <div className="flex justify-between mb-2 border-b border-slate-600 pb-1">
             <span className="text-[9px] font-bold uppercase text-slate-400 print:text-black">{title}</span>
-            {!disabled && <button onClick={() => onAdd(cat)} className="text-[10px] text-emerald-400 hover:text-emerald-300 no-print font-bold bg-emerald-400/10 px-2 rounded">+</button>}
+            {!disabled && <button type="button" onClick={() => onAdd(cat)} className="text-[10px] text-emerald-400 hover:text-emerald-300 no-print font-bold bg-emerald-400/10 px-2 rounded">+</button>}
         </div>
-        {(data[cat] || []).map((v, i) => (
+        {((data && data[cat]) || []).map((v, i) => (
             <div key={i} className="flex group mb-1 items-center">
-                <input value={v} onChange={(e) => onUpdate(cat, i, e.target.value)} disabled={disabled} className="w-full bg-transparent text-[10px] border-b border-slate-700 mb-1 outline-none text-white print:text-black focus:border-blue-500" />
-                {!disabled && <button onClick={() => onRemove(cat, i)} className="text-red-400 bg-red-400/10 hover:bg-red-500 hover:text-white w-4 h-4 rounded-full flex items-center justify-center text-[10px] ml-1 no-print transition-colors" title="Delete">x</button>}
+                <input value={v || ''} onChange={(e) => onUpdate(cat, i, e.target.value)} disabled={disabled} className="w-full bg-transparent text-[10px] border-b border-slate-700 mb-1 outline-none text-white print:text-black focus:border-blue-500" />
+                {!disabled && <button type="button" onClick={() => onRemove(cat, i)} className="text-red-400 bg-red-400/10 hover:bg-red-500 hover:text-white w-4 h-4 rounded-full flex items-center justify-center text-[10px] ml-1 no-print transition-colors" title="Delete">x</button>}
             </div>
         ))}
     </div>
 );
 
-const Fishbone = ({ data, onChange, disabled }) => {
-    const update = (cat, i, val) => { const arr = [...data[cat]]; arr[i] = val; onChange({ ...data, [cat]: arr }); };
+const Fishbone = ({ data = {}, onChange, disabled }) => {
+    const update = (cat, i, val) => { const arr = [...(data[cat] || [])]; arr[i] = val; onChange({ ...data, [cat]: arr }); };
     const add = (cat) => onChange({ ...data, [cat]: [...(data[cat] || []), ''] });
-    const remove = (cat, i) => { const arr = [...data[cat]]; arr.splice(i, 1); onChange({ ...data, [cat]: arr }); };
+    const remove = (cat, i) => { const arr = [...(data[cat] || [])]; arr.splice(i, 1); onChange({ ...data, [cat]: arr }); };
     return (
         <div className="fishbone-container mt-8">
             <div className="spine"></div><div className="head">INCIDENT</div>
@@ -154,9 +98,9 @@ const FaultTreeNode = ({ node, onUpdate, onDelete, onAddSibling, disabled }) => 
             <div className="tree-node group">
                 {!disabled && (
                     <div className="absolute -top-4 right-0 flex gap-1 z-30 transition-opacity no-print opacity-0 group-hover:opacity-100">
-                        <button onClick={handleAddChild} className="bg-blue-600 text-white w-4 h-4 rounded-full text-[10px] flex items-center justify-center shadow hover:scale-110" title="Add Child Node">↓</button>
-                        {onAddSibling && <button onClick={onAddSibling} className="bg-purple-600 text-white w-4 h-4 rounded-full text-[10px] flex items-center justify-center shadow hover:scale-110" title="Add Parallel Node">→</button>}
-                        {onDelete && <button onClick={onDelete} className="bg-red-600 text-white w-4 h-4 rounded-full text-[10px] flex items-center justify-center shadow hover:scale-110" title="Delete Node">x</button>}
+                        <button type="button" onClick={handleAddChild} className="bg-blue-600 text-white w-4 h-4 rounded-full text-[10px] flex items-center justify-center shadow hover:scale-110" title="Add Child Node">↓</button>
+                        {onAddSibling && <button type="button" onClick={onAddSibling} className="bg-purple-600 text-white w-4 h-4 rounded-full text-[10px] flex items-center justify-center shadow hover:scale-110" title="Add Parallel Node">→</button>}
+                        {onDelete && <button type="button" onClick={onDelete} className="bg-red-600 text-white w-4 h-4 rounded-full text-[10px] flex items-center justify-center shadow hover:scale-110" title="Delete Node">x</button>}
                     </div>
                 )}
                 <input value={node.label || ''} onChange={e => onUpdate({ ...node, label: e.target.value })} disabled={disabled} className="bg-transparent text-center text-xs font-bold w-full outline-none border-b border-transparent focus:border-blue-500 pb-1" placeholder="Event..." />
@@ -183,25 +127,27 @@ const renderPrintFaultTree = (node) => {
 };
 
 // --- REPOSITORY VIEW COMPONENT ---
-const IncidentRepository = ({ incidents, onEdit, onPrint, onDelete, permissions }) => {
+const IncidentRepository = ({ incidents, onEdit, onPrint, onDelete, permissions, siteFilter, setSiteFilter, uniqueSites, isGlobalUser }) => {
     const [filterType, setFilterType] = useState('All');
     const [filterLevel, setFilterLevel] = useState('All');
-    const [filterSite, setFilterSite] = useState('All');
     const [dateFrom, setDateFrom] = useState('');
     const [dateTo, setDateTo] = useState('');
 
-    const uniqueSites = useMemo(() => ['All', ...new Set(incidents.map(i => i.siteId).filter(Boolean))], [incidents]);
+    const handleSiteFilterChange = (e) => {
+        const newSite = e.target.value;
+        setSiteFilter(newSite);
+        sessionStorage.setItem('isoCurrentSite', newSite === 'All' ? 'GLOBAL' : newSite);
+    };
 
     const filteredData = useMemo(() => {
         return incidents.filter(item => {
             const matchType = filterType === 'All' || item.type === filterType;
             const matchLevel = filterLevel === 'All' || item.severity === filterLevel;
-            const matchSite = filterSite === 'All' || item.siteId === filterSite;
             let matchDate = true;
             if (dateFrom && dateTo) { matchDate = item.date >= dateFrom && item.date <= dateTo; }
-            return matchType && matchLevel && matchDate && matchSite;
+            return matchType && matchLevel && matchDate;
         });
-    }, [incidents, filterType, filterLevel, filterSite, dateFrom, dateTo]);
+    }, [incidents, filterType, filterLevel, dateFrom, dateTo]);
 
     const stats = useMemo(() => {
         let total = 0, closed = 0, open = 0;
@@ -251,12 +197,20 @@ const IncidentRepository = ({ incidents, onEdit, onPrint, onDelete, permissions 
                         </h2>
                         <p className="text-slate-400 text-sm mt-1 ml-14">Central database of all reported incidents.</p>
                     </div>
-                    <button onClick={exportToExcel} className="bg-emerald-600 hover:bg-emerald-500 text-white px-5 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 shadow-lg transition-transform active:scale-95"><i className="fas fa-file-excel"></i> Export</button>
+                    <button type="button" onClick={exportToExcel} className="bg-emerald-600 hover:bg-emerald-500 text-white px-5 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 shadow-lg transition-transform active:scale-95"><i className="fas fa-file-excel"></i> Export</button>
                 </div>
                 <div className="flex gap-4 items-end flex-wrap">
                     <div><label className="text-[10px] text-purple-300 font-bold uppercase block mb-1">From</label><input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} className="w-32 bg-slate-950 border border-slate-700 text-xs rounded-lg p-2 text-white outline-none focus:border-purple-500" /></div>
                     <div><label className="text-[10px] text-purple-300 font-bold uppercase block mb-1">To</label><input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className="w-32 bg-slate-950 border border-slate-700 text-xs rounded-lg p-2 text-white outline-none focus:border-purple-500" /></div>
-                    <div><label className="text-[10px] text-purple-300 font-bold uppercase block mb-1">Site</label><select value={filterSite} onChange={e => setFilterSite(e.target.value)} className="w-32 bg-slate-950 border border-slate-700 text-xs rounded-lg p-2 text-white outline-none focus:border-purple-500">{uniqueSites.map(s => <option key={s} value={s}>{s}</option>)}</select></div>
+
+                    <div>
+                        <label className="text-[10px] text-purple-300 font-bold uppercase block mb-1">Site Filter</label>
+                        <select value={siteFilter} onChange={handleSiteFilterChange} className="w-32 bg-slate-950 border border-slate-700 text-xs rounded-lg p-2 text-white outline-none focus:border-purple-500">
+                            {(isGlobalUser || uniqueSites.length > 1) && <option value="All">All Sites</option>}
+                            {uniqueSites.map(s => <option key={s.code} value={s.code}>{s.name}</option>)}
+                        </select>
+                    </div>
+
                     <div><label className="text-[10px] text-purple-300 font-bold uppercase block mb-1">Type</label><select value={filterType} onChange={e => setFilterType(e.target.value)} className="w-32 bg-slate-950 border border-slate-700 text-xs rounded-lg p-2 text-white outline-none focus:border-purple-500"><option value="All">All Types</option><option>Near Miss</option><option>Property Damage</option><option>First Aid injury</option><option>Lost Time injury</option><option>Reportable Injury</option></select></div>
                     <div><label className="text-[10px] text-purple-300 font-bold uppercase block mb-1">Severity</label><select value={filterLevel} onChange={e => setFilterLevel(e.target.value)} className="w-32 bg-slate-950 border border-slate-700 text-xs rounded-lg p-2 text-white outline-none focus:border-purple-500"><option value="All">All Levels</option><option value="Level A">Level A</option><option value="Level B">Level B</option><option value="Level C">Level C</option><option value="Level D">Level D</option></select></div>
                 </div>
@@ -272,6 +226,8 @@ const IncidentRepository = ({ incidents, onEdit, onPrint, onDelete, permissions 
                             const total = inc.capa ? inc.capa.length : 0;
                             const closed = inc.capa ? inc.capa.filter(c => c.status === 'Closed').length : 0;
                             const progress = total > 0 ? (closed / total) * 100 : 0;
+
+                            const canEditRow = permissions.canEditCreate && (isGlobalUser || uniqueSites.some(s => s.code === inc.siteId));
 
                             return (
                                 <tr key={inc.id} className="hover:bg-slate-800/50 transition-colors">
@@ -289,9 +245,17 @@ const IncidentRepository = ({ incidents, onEdit, onPrint, onDelete, permissions 
                                         {inc.linkedHazards && inc.linkedHazards.length > 0 ? <span className="text-emerald-400 font-bold bg-emerald-900/20 px-2 py-1 rounded border border-emerald-500/20"><i className="fas fa-link mr-1"></i> {inc.linkedHazards.length}</span> : <span className="text-slate-600">-</span>}
                                     </td>
                                     <td className="p-4 text-right flex justify-end gap-2">
-                                        <button onClick={() => onPrint(inc)} className="text-blue-400 hover:text-white bg-blue-500/10 hover:bg-blue-600 px-3 py-1.5 rounded-lg transition" title="Print Report"><i className="fas fa-print"></i></button>
-                                        {!permissions.viewOnly && <button onClick={() => onEdit(inc)} className="text-purple-400 hover:text-white bg-purple-500/10 hover:bg-purple-600 px-3 py-1.5 rounded-lg transition font-bold text-xs uppercase tracking-widest">Edit</button>}
-                                        {permissions.canDelete && <button onClick={() => onDelete(inc)} className="text-slate-400 hover:text-white bg-slate-800 hover:bg-red-600 px-3 py-1.5 rounded-lg transition"><i className="fas fa-trash-alt"></i></button>}
+                                        <button type="button" onClick={() => onPrint(inc)} className="text-blue-400 hover:text-white bg-blue-500/10 hover:bg-blue-600 px-3 py-1.5 rounded-lg transition" title="Print Report"><i className="fas fa-print"></i></button>
+
+                                        {canEditRow ? (
+                                            <button type="button" onClick={() => onEdit(inc)} className="text-purple-400 hover:text-white bg-purple-500/10 hover:bg-purple-600 px-3 py-1.5 rounded-lg transition font-bold text-xs uppercase tracking-widest">Edit</button>
+                                        ) : (
+                                            <button type="button" onClick={() => onEdit(inc)} className="text-slate-400 hover:text-white bg-slate-800 hover:bg-slate-700 px-3 py-1.5 rounded-lg transition font-bold text-xs uppercase tracking-widest">View</button>
+                                        )}
+
+                                        {permissions.canDelete && (
+                                            <button type="button" onClick={() => onDelete(inc)} className="text-slate-400 hover:text-white bg-slate-800 hover:bg-red-600 px-3 py-1.5 rounded-lg transition"><i className="fas fa-trash-alt"></i></button>
+                                        )}
                                     </td>
                                 </tr>
                             );
@@ -309,11 +273,12 @@ const IncidentRepository = ({ incidents, onEdit, onPrint, onDelete, permissions 
 // ==========================================
 export default function Incidents() {
     const navigate = useNavigate();
+    const location = useLocation();
+
     const [fbReady, setFbReady] = useState(false);
     const [view, setView] = useState('repo');
     const [step, setStep] = useState(1);
     const [session, setSession] = useState(null);
-    const [isGlobal, setIsGlobal] = useState(false);
 
     // Database Data
     const [incidentsList, setIncidentsList] = useState([]);
@@ -323,9 +288,12 @@ export default function Incidents() {
 
     // Logic States
     const [seq, setSeq] = useState(0);
-    const [permissions, setPermissions] = useState({ viewOnly: false, canEditOwnedActions: false, canDelete: false });
+    const [permissions, setPermissions] = useState({ viewOnly: false, canEditOwnedActions: false, canDelete: false, canEditCreate: false });
     const [printData, setPrintData] = useState(null);
     const [saving, setSaving] = useState(false);
+
+    // Filter States
+    const [siteFilter, setSiteFilter] = useState('All');
 
     // HIRA Linkage States
     const [searchModalOpen, setSearchModalOpen] = useState(false);
@@ -340,6 +308,7 @@ export default function Incidents() {
     const [newCapaAct, setNewCapaAct] = useState('');
     const [newCapaOwn, setNewCapaOwn] = useState('');
     const [newCapaDue, setNewCapaDue] = useState('');
+    const [newCapaSite, setNewCapaSite] = useState('');
 
     // THE MASTER INCIDENT DATA OBJECT
     const [data, setData] = useState({
@@ -354,103 +323,159 @@ export default function Incidents() {
             rootCause: ''
         },
         capa: [], linkedHazards: [], riskUpdated: false,
+        horizontalDeployment: false, // <-- NEW FLAG
         manualOverrides: { type: false, severity: false, smartType: false }
     });
 
     useEffect(() => {
         const s = sessionStorage.getItem('isoSession');
         if (!s) { navigate('/'); return; }
+        const sess = JSON.parse(s);
 
-        let sess;
-        try { sess = JSON.parse(s); } catch (e) { navigate('/'); return; }
+        const isGlobalAdmin = ['Global Owner', 'Global Manager', 'Owner', 'Admin'].includes(sess.role);
+        const hasModuleAccess = isGlobalAdmin || (sess.accessibleModules || []).includes('Incidents');
+
+        if (!hasModuleAccess) {
+            alert("Security Alert: You do not have permission to access the Incidents module.");
+            navigate('/dashboard');
+            return;
+        }
+
         setSession(sess);
 
-        // Check assigned site
-        let ctxSite = sess.assignedSite;
-        if (!ctxSite || ctxSite === 'GLOBAL') { setIsGlobal(true); ctxSite = ''; } else { setIsGlobal(false); }
+        const canDel = ['Global Owner', 'Owner', 'Admin', 'Site Owner'].includes(sess.role);
+        const canEditCr = ['Global Owner', 'Global Manager', 'Owner', 'Admin', 'Site Owner', 'Site Manager', 'User'].includes(sess.role);
 
         setPermissions({
-            viewOnly: sess.role === 'User',
-            canEditOwnedActions: sess.role === 'Manager' || sess.role === 'Owner',
-            canDelete: sess.role === 'Owner'
+            viewOnly: !canEditCr,
+            canEditOwnedActions: true,
+            canDelete: canDel,
+            canEditCreate: canEditCr
         });
 
         const newSeq = Math.floor(100000 + Math.random() * 900000);
         setSeq(newSeq);
-        setData(prev => ({ ...prev, siteId: ctxSite }));
+
+        const params = new URLSearchParams(location.search);
+        const urlSite = params.get('site');
+
+        let storedSite = sessionStorage.getItem('isoCurrentSite');
+        if (storedSite === 'GLOBAL') storedSite = 'All';
+
+        let ctxSite = urlSite || storedSite || 'All';
+
+        if (!isGlobalAdmin && ctxSite === 'All') {
+            ctxSite = (sess.assignedSite && sess.assignedSite !== 'GLOBAL') ? sess.assignedSite : (sess.accessibleSites?.[0] || '');
+        }
+
+        setSiteFilter(ctxSite);
+        sessionStorage.setItem('isoCurrentSite', ctxSite === 'All' ? 'GLOBAL' : ctxSite);
+
+        setData(prev => ({ ...prev, siteId: ctxSite !== 'All' ? ctxSite : ((sess.assignedSite !== 'GLOBAL') ? sess.assignedSite : '') }));
 
         const loadDatabases = async () => {
             try {
                 const dbRef = ref(rtdb, `organizations/${sess.orgId}`);
                 const snap = await get(dbRef);
 
-                let fetchedUsers = []; // We will store DB users here
+                let fetchedUsers = [];
 
                 if (snap.exists()) {
                     const orgData = snap.val();
-                    if (orgData.incidents) setIncidentsList(Object.entries(orgData.incidents).map(([k, v]) => ({ firebaseKey: k, ...v })));
-                    if (orgData.riskAssessments) setRiskAssessments(Object.entries(orgData.riskAssessments).map(([k, v]) => ({ firebaseKey: k, ...v })));
+
                     if (orgData.sites) {
-                        const allSites = Object.values(orgData.sites);
-                        if (sess.role === 'Owner') setSites(allSites);
-                        else {
-                            const accessible = sess.accessibleSites || (sess.assignedSite ? [sess.assignedSite] : []);
-                            setSites(allSites.filter(s => accessible.includes(s.code)));
-                        }
+                        setSites(Object.keys(orgData.sites).map(key => ({
+                            code: orgData.sites[key].code || key,
+                            name: orgData.sites[key].name || key
+                        })));
                     }
+
+                    if (orgData.incidents) {
+                        const parsed = safeArrayParse(orgData.incidents);
+                        setIncidentsList(parsed.map(inc => ({
+                            ...inc,
+                            investigation: inc.investigation || { fiveWhys: [], fishbone: {}, faultTree: null, rootCause: '' }
+                        })));
+                    }
+                    if (orgData.riskAssessments) setRiskAssessments(Object.entries(orgData.riskAssessments).map(([k, v]) => ({ firebaseKey: k, ...v })));
+
                     if (orgData.users) {
-                        // FIXED: Removed the .filter(u => u.status === 'Active') to ensure all loaded users appear during dev/testing
-                        fetchedUsers = Object.entries(orgData.users).map(([k, v]) => ({ id: k, ...v }));
+                        fetchedUsers = Object.entries(orgData.users).map(([k, v]) => ({ id: k, ...v })).filter(u => u.status !== 'Inactive');
                     }
                 }
 
-                // FIXED: Failsafe to guarantee the dropdown is NEVER empty.
-                // If you just registered and haven't created users yet, it injects YOU into the list.
                 if (!fetchedUsers.find(u => u.email === sess.email || u.name === sess.user)) {
                     fetchedUsers.push({
-                        id: sess.uid || 'current-user',
-                        name: sess.user || sess.email?.split('@')[0] || 'Me',
-                        email: sess.email,
-                        role: sess.role || 'Owner',
-                        assignedSite: 'GLOBAL'
+                        id: sess.uid || 'current-user', name: sess.name || sess.email?.split('@')[0] || 'Me',
+                        email: sess.email, role: sess.role || 'Owner', assignedSite: 'GLOBAL'
                     });
                 }
                 setUsers(fetchedUsers);
-
                 setFbReady(true);
-            } catch (err) {
-                console.error("Error loading databases:", err);
-            }
+            } catch (err) { console.error("Error loading databases:", err); }
         };
         loadDatabases();
-    }, [navigate]);
+    }, [navigate, location]);
 
-    // FIXED: Made the site filter much more forgiving during development
+    const isGlobalUser = ['Global Owner', 'Global Manager', 'Owner', 'Admin'].includes(session?.role);
+
+    const allowedSiteCodes = useMemo(() => {
+        if (!session) return new Set();
+        const codes = new Set([session.assignedSite, ...(session.accessibleSites || [])].filter(Boolean));
+        if (!isGlobalUser) {
+            codes.delete('GLOBAL');
+            codes.delete('All');
+        }
+        return codes;
+    }, [session, isGlobalUser]);
+
+    const allowedSites = useMemo(() => {
+        if (isGlobalUser) return sites;
+        return sites.filter(s => allowedSiteCodes.has(s.code));
+    }, [sites, isGlobalUser, allowedSiteCodes]);
+
+    const visibleIncidents = useMemo(() => {
+        return incidentsList.filter(i => {
+            return isGlobalUser || allowedSiteCodes.has(i.siteId);
+        });
+    }, [incidentsList, isGlobalUser, allowedSiteCodes]);
+
     const siteUsers = useMemo(() => {
-        if (!data.siteId) return users; // If no incident site is picked, show everyone
+        return users.filter(u => {
+            const isGlobalUsr = ['Owner', 'Global Owner', 'Global Manager', 'Admin'].includes(u.role) || u.assignedSite === 'GLOBAL' || (u.accessibleSites && u.accessibleSites.includes('GLOBAL'));
+            if (data.horizontalDeployment) return true; // Can assign to anyone globally if horizontal
+            const targetSite = newCapaSite || data.siteId;
+            const siteMatch = isGlobalUsr || !targetSite || u.assignedSite === targetSite || (u.accessibleSites && u.accessibleSites.includes(targetSite));
+            return siteMatch;
+        });
+    }, [users, data.siteId, newCapaSite, data.horizontalDeployment]);
 
-        const filtered = users.filter(u =>
-            u.role === 'Owner' ||
-            u.role === 'Manager' ||
-            (u.accessibleSites && u.accessibleSites.includes(data.siteId)) ||
-            u.assignedSite === data.siteId ||
-            !u.assignedSite // Catch-all: If a user doesn't have a site assigned yet, show them anyway
-        );
-
-        // If the filter accidentally wiped out everyone, just return all users so the dropdown isn't broken
-        return filtered.length > 0 ? filtered : users;
-    }, [users, data.siteId]);
-
-    const canEdit = !permissions.viewOnly || (permissions.canEditOwnedActions && data.capa.some(c => c.own === session?.user));
+    const canEditForm = useMemo(() => {
+        if (!permissions.canEditCreate) return false;
+        if (isGlobalUser) return true;
+        if (!data.siteId) return true;
+        return allowedSiteCodes.has(data.siteId);
+    }, [permissions.canEditCreate, isGlobalUser, allowedSiteCodes, data.siteId]);
 
     const getTypeCode = (type) => {
         if (type === 'Near Miss') return 'NM';
         if (type === 'Property Damage') return 'PD';
-        if (type === 'First Aid injury') return 'FA';
-        if (type === 'Lost Time injury') return 'LTI';
-        if (type === 'Reportable Injury') return 'RI';
+        if (type === 'First Aid injury') return 'FIR';
+        if (type === 'Lost Time injury') return 'LTIR';
+        if (type === 'Reportable Injury') return 'RIR';
         return 'XX';
     };
+
+    useEffect(() => {
+        if (session && !data.firebaseKey && canEditForm) {
+            const sId = data.siteId ? data.siteId : 'GEN';
+            const typeCode = getTypeCode(data.type);
+            const matchingRecords = incidentsList.filter(i => i.siteId === sId && getTypeCode(i.type) === typeCode);
+            const srNo = String(matchingRecords.length + 1).padStart(3, '0');
+            const newId = `${sId}-${typeCode}-${srNo}`;
+            setData(prev => ({ ...prev, id: newId }));
+        }
+    }, [data.siteId, data.type, session, canEditForm, incidentsList]);
 
     const handleDescriptionBlur = () => {
         if (!data.description || data.description.trim() === '') return;
@@ -510,10 +535,7 @@ export default function Incidents() {
             if (dynamicGen.capa && dynamicGen.capa.length > 0) {
                 const existingActions = (newData.capa || []).map(c => c.act);
                 const newActions = dynamicGen.capa.filter(c => !existingActions.includes(c.action)).map(c => ({
-                    act: c.action,
-                    own: '',
-                    due: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-                    status: 'Open'
+                    act: c.action, siteId: data.siteId, own: '', due: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], status: 'Open'
                 }));
                 newData.capa = [...(data.capa || []), ...newActions];
             }
@@ -523,16 +545,6 @@ export default function Incidents() {
         }
     };
 
-    useEffect(() => {
-        if (session && !data.firebaseKey) {
-            const sId = data.siteId ? data.siteId : 'GEN';
-            const typeCode = getTypeCode(data.type);
-            const newId = `${session.orgId}-${sId}-${typeCode}-${seq}`;
-            setData(prev => ({ ...prev, id: newId }));
-        }
-    }, [data.siteId, data.type, session, seq]);
-
-    // --- TEAM MANAGEMENT LOGIC ---
     const handleAddTeamMember = (type) => {
         if (type === 'external') {
             if (!externalName.trim()) return alert("Enter external member name.");
@@ -542,9 +554,9 @@ export default function Incidents() {
             setExternalName('');
         } else {
             if (!selectedUserToAdd) return;
-            const userObj = users.find(u => u.id === selectedUserToAdd || u.name === selectedUserToAdd);
-            if ((data.investigationTeam || []).some(a => a.name === (userObj ? userObj.name : selectedUserToAdd))) return alert("Employee is already in the list.");
-            const newMember = { userId: userObj ? userObj.id : 'Internal', name: userObj ? userObj.name : selectedUserToAdd, role: userObj ? (userObj.designation || userObj.role) : 'Employee' };
+            const userObj = users.find(u => u.id === selectedUserToAdd || u.name === selectedUserToAdd || u.email === selectedUserToAdd);
+            if ((data.investigationTeam || []).some(a => a.name === (userObj ? (userObj.name || userObj.email) : selectedUserToAdd))) return alert("Employee is already in the list.");
+            const newMember = { userId: userObj ? userObj.id : 'Internal', name: userObj ? (userObj.name || userObj.email) : selectedUserToAdd, role: userObj ? (userObj.designation || userObj.role) : 'Employee' };
             setData(prev => ({ ...prev, investigationTeam: [...(prev.investigationTeam || []), newMember] }));
             setSelectedUserToAdd('');
         }
@@ -608,29 +620,51 @@ export default function Incidents() {
         return null;
     };
 
+    // --- HORIZONTAL EXPLOSION FOR INCIDENTS ---
     const saveData = async () => {
+        if (!canEditForm) return alert("Security Error: You do not have permission to create or edit incidents for this site.");
         if (!data.siteId) { alert("Please select a Site"); return; }
+
         setSaving(true);
         try {
             const cleanCapa = (data.capa || []).filter(c => c.act && c.act.trim() !== '');
+            let explodedCapa = [];
+
+            if (data.horizontalDeployment) {
+                const uniqueActionDesc = [...new Set(cleanCapa.map(a => a.act))];
+                uniqueActionDesc.forEach(desc => {
+                    const template = cleanCapa.find(a => a.act === desc);
+                    sites.forEach(site => {
+                        const existing = cleanCapa.find(a => a.act === desc && (a.siteId === site.code || (!a.siteId && data.siteId === site.code)));
+                        if (existing) {
+                            explodedCapa.push({ ...existing, siteId: site.code });
+                        } else {
+                            explodedCapa.push({ act: desc, siteId: site.code, own: 'Unassigned', due: template.due, status: 'Open' });
+                        }
+                    });
+                });
+            } else {
+                explodedCapa = cleanCapa.map(a => ({ ...a, siteId: a.siteId || data.siteId }));
+            }
+
             const cleanLinks = data.linkedHazards || [];
 
             const payload = JSON.parse(JSON.stringify({
                 ...data,
-                capa: cleanCapa,
+                capa: explodedCapa, // Saved exploded capabilities
                 linkedHazards: cleanLinks,
                 timestamp: new Date().toISOString(),
-                reportedBy: session.user
+                reportedBy: session.user || session.name || session.email
             }));
 
             if (data.firebaseKey) {
                 await update(ref(rtdb, `organizations/${session.orgId}/incidents/${data.firebaseKey}`), payload);
+                alert(data.horizontalDeployment ? "Horizontal Deployment Updated. Actions pushed globally!" : "Incident Saved Successfully!");
             } else {
                 await push(ref(rtdb, `organizations/${session.orgId}/incidents`), payload);
+                alert(data.horizontalDeployment ? "Horizontal Deployment Active. CAPAs deployed globally!" : "Incident Saved Successfully!");
             }
-            alert("Saved Successfully!");
 
-            // Reload the local state instead of doing a hard window.reload
             const dbRef = ref(rtdb, `organizations/${session.orgId}/incidents`);
             const snap = await get(dbRef);
             if (snap.exists()) {
@@ -643,7 +677,8 @@ export default function Incidents() {
         setSaving(false);
     };
 
-    const handleDelete = async (incident) => {
+    const handleDeleteRecord = async (incident) => {
+        if (!permissions.canDelete) return alert("Security Error: Only Global Owners and Site Owners can permanently delete records.");
         if (window.confirm("Permanently delete incident?")) {
             await remove(ref(rtdb, `organizations/${session.orgId}/incidents/${incident.firebaseKey}`));
             setIncidentsList(prev => prev.filter(i => i.firebaseKey !== incident.firebaseKey));
@@ -657,6 +692,7 @@ export default function Incidents() {
         }
         setData({
             ...incident,
+            horizontalDeployment: incident.horizontalDeployment || false,
             investigation: { ...incident.investigation, fiveWhys: updatedWhys },
             manualOverrides: { type: true, severity: true, smartType: true }
         });
@@ -679,7 +715,6 @@ export default function Incidents() {
         if (file) { const base64 = await fileToBase64(file); setData({ ...data, imageEvidence: base64 }); }
     };
 
-    // --- SMART HIRA LINKAGE ---
     const scanHiraDatabase = () => {
         if (!data.siteId) return alert("Please select a Site in Step 1 first.");
         if (!data.description || data.description.length < 10) return alert("Please write a detailed incident description in Step 1 to extract keywords.");
@@ -707,7 +742,7 @@ export default function Incidents() {
             });
         });
 
-        setMatchedHazards(matches.sort((a, b) => b.score - a.score).slice(0, 10)); // Top 10 matches
+        setMatchedHazards(matches.sort((a, b) => b.score - a.score).slice(0, 10));
         setSearchModalOpen(true);
     };
 
@@ -728,7 +763,7 @@ export default function Incidents() {
             const currentLogs = currentRA.changeLogs || [];
             const newLog = {
                 date: new Date().toISOString(),
-                user: session.user,
+                user: session.name || session.user || 'Admin',
                 source: 'Incident Investigation',
                 reason: `System Auto-Log: Controls modified post-incident review (Incident ID: ${data.id || 'Draft'})`
             };
@@ -770,19 +805,20 @@ export default function Incidents() {
         setSaving(false);
     };
 
-    const addFiveWhyPath = () => { const newCount = data.investigation.fiveWhys.length + 1; setData(prev => ({ ...prev, investigation: { ...prev.investigation, fiveWhys: [...prev.investigation.fiveWhys, { id: Date.now(), name: `Analysis Path ${newCount}`, whys: ['', '', '', '', ''] }] } })); };
+    const addFiveWhyPath = () => { const newCount = data.investigation?.fiveWhys?.length + 1 || 1; setData(prev => ({ ...prev, investigation: { ...prev.investigation, fiveWhys: [...(prev.investigation?.fiveWhys || []), { id: Date.now(), name: `Analysis Path ${newCount}`, whys: ['', '', '', '', ''] }] } })); };
     const updateFiveWhy = (pIdx, wIdx, val) => { const paths = [...data.investigation.fiveWhys]; paths[pIdx].whys[wIdx] = val; setData(prev => ({ ...prev, investigation: { ...prev.investigation, fiveWhys: paths } })); };
     const updatePathName = (pIdx, val) => { const paths = [...data.investigation.fiveWhys]; paths[pIdx].name = val; setData(prev => ({ ...prev, investigation: { ...prev.investigation, fiveWhys: paths } })); };
     const removeFiveWhyPath = (idx) => { setData(prev => ({ ...prev, investigation: { ...prev.investigation, fiveWhys: prev.investigation.fiveWhys.filter((_, i) => i !== idx) } })); };
 
     const addCapa = () => {
-        if (newCapaAct && newCapaOwn) {
-            setData({ ...data, capa: [...(data.capa || []), { act: newCapaAct, own: newCapaOwn, due: newCapaDue, status: 'Open' }] });
+        if (newCapaAct) {
+            setData({ ...data, capa: [...(data.capa || []), { act: newCapaAct, siteId: newCapaSite || data.siteId, own: newCapaOwn, due: newCapaDue, status: 'Open' }] });
             setNewCapaAct('');
             setNewCapaOwn('');
             setNewCapaDue('');
+            setNewCapaSite('');
         } else {
-            alert("Action Description and Owner are required to add a CAPA.");
+            alert("Action Description is required to add a CAPA.");
         }
     };
 
@@ -792,8 +828,8 @@ export default function Incidents() {
     };
 
     const canEditCapa = (row) => {
-        if (!permissions.viewOnly) return true;
-        if (permissions.canEditOwnedActions && row.own === session?.user) return true;
+        if (canEditForm) return true;
+        if (permissions.viewOnly && permissions.canEditOwnedActions && row.own === (session?.name || session?.user || session?.email)) return true;
         return false;
     };
 
@@ -810,11 +846,10 @@ export default function Incidents() {
         <div className="flex flex-col h-screen bg-slate-950 font-['Space_Grotesk'] text-slate-200 overflow-hidden relative print:h-auto print:overflow-visible">
             <div className="absolute top-0 left-0 w-[800px] h-[800px] bg-red-600/5 rounded-full blur-[120px] pointer-events-none no-print"></div>
 
-            {/* This UI wrapper hides entirely when printing */}
             <div className="app-ui flex flex-col h-full relative z-10 no-print">
                 <header className="h-20 border-b border-slate-800 flex items-center justify-between px-8 bg-slate-900/50 backdrop-blur-md shadow-md">
                     <div className="flex items-center gap-4">
-                        <button onClick={() => navigate('/dashboard')} className="text-slate-400 hover:text-white transition flex items-center gap-2"><i className="fas fa-arrow-left"></i> Hub</button>
+                        <button type="button" onClick={() => navigate('/dashboard')} className="text-slate-400 hover:text-white transition flex items-center gap-2"><i className="fas fa-arrow-left"></i> Hub</button>
                         <div className="h-6 w-px bg-slate-700 mx-2"></div>
                         <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-orange-500 to-red-600 flex items-center justify-center text-white font-bold shadow-lg shadow-red-900/50"><i className="fas fa-triangle-exclamation"></i></div>
                         <h1 className="font-bold text-white tracking-tight uppercase">Incident Management</h1>
@@ -825,23 +860,24 @@ export default function Incidents() {
                         </div>
                     </div>
                     <div className="flex bg-slate-900 border border-slate-800 p-1.5 rounded-xl shadow-inner">
-                        <button onClick={() => { setView('form'); setStep(1); setData({ id: '', siteId: session?.assignedSite || '', date: new Date().toISOString().split('T')[0], time: '', type: 'Near Miss', equipmentInvolved: '', description: '', immediateAction: '', smartType: 'Fire & Explosion', severity: 'Level A', imageEvidence: null, consultationSummary: '', investigationTeam: [], investigation: { fiveWhys: [{ id: 1, name: 'Analysis Path 1', whys: ['', '', '', '', ''] }], fishbone: { man: [], machine: [], material: [], method: [], environment: [] }, faultTree: { id: 1, label: 'Top Event', type: 'AND', children: [] }, rootCause: '' }, capa: [], linkedHazards: [], riskUpdated: false, manualOverrides: { type: false, severity: false, smartType: false } }); }} className={`px-6 py-2 rounded-lg text-xs font-bold uppercase tracking-widest transition-all ${view === 'form' ? 'bg-red-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}>New Report</button>
-                        <button onClick={() => setView('repo')} className={`px-6 py-2 rounded-lg text-xs font-bold uppercase tracking-widest transition-all ${view === 'repo' ? 'bg-red-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}>Repository</button>
+                        {permissions.canEditCreate && (
+                            <button type="button" onClick={() => { setView('form'); setStep(1); setData({ id: '', siteId: (!isGlobalUser && allowedSites.length === 1) ? allowedSites[0].code : (siteFilter !== 'All' ? siteFilter : ''), date: new Date().toISOString().split('T')[0], time: '', type: 'Near Miss', equipmentInvolved: '', description: '', immediateAction: '', smartType: 'Fire & Explosion', severity: 'Level A', imageEvidence: null, consultationSummary: '', investigationTeam: [], investigation: { fiveWhys: [{ id: 1, name: 'Analysis Path 1', whys: ['', '', '', '', ''] }], fishbone: { man: [], machine: [], material: [], method: [], environment: [] }, faultTree: { id: 1, label: 'Top Event', type: 'AND', children: [] }, rootCause: '' }, capa: [], linkedHazards: [], riskUpdated: false, horizontalDeployment: false, manualOverrides: { type: false, severity: false, smartType: false } }); }} className={`px-6 py-2 rounded-lg text-xs font-bold uppercase tracking-widest transition-all ${view === 'form' ? 'bg-red-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}>New Report</button>
+                        )}
+                        <button type="button" onClick={() => setView('repo')} className={`px-6 py-2 rounded-lg text-xs font-bold uppercase tracking-widest transition-all ${view === 'repo' ? 'bg-red-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}>Repository</button>
                     </div>
                 </header>
 
-                <div className="flex-1 overflow-y-auto p-8 w-full print:overflow-visible">
+                <div className="flex-1 overflow-y-auto p-8 w-full print:overflow-visible custom-scroll">
                     {view === 'repo' ? (
                         <div className="max-w-7xl mx-auto">
-                            <IncidentRepository incidents={incidentsList} onEdit={handleEdit} onPrint={triggerPrint} onDelete={handleDelete} permissions={permissions} />
+                            <IncidentRepository incidents={visibleIncidents} onEdit={handleEdit} onPrint={triggerPrint} onDelete={handleDeleteRecord} permissions={permissions} siteFilter={siteFilter} setSiteFilter={setSiteFilter} uniqueSites={allowedSites} isGlobalUser={isGlobalUser} />
                         </div>
                     ) : (
                         <div className="max-w-6xl mx-auto pb-20 animate-in fade-in slide-in-from-bottom-4 duration-500">
 
-                            {/* Form Wizard Navigation */}
                             <div className="flex gap-2 mb-8 form-view-tabs bg-slate-900/40 p-2 rounded-2xl border border-slate-800 backdrop-blur-sm shadow-xl">
                                 {STEPS.map((s, i) => (
-                                    <button key={s.id} onClick={() => setStep(s.id)} className={`flex-1 py-3.5 rounded-xl text-xs font-bold uppercase tracking-widest transition-all ${step === s.id ? 'bg-red-600 text-white shadow-lg shadow-red-600/20 scale-[1.02]' : 'bg-transparent text-slate-500 hover:text-slate-300 hover:bg-slate-800'}`}>
+                                    <button key={s.id} type="button" onClick={() => setStep(s.id)} className={`flex-1 py-3.5 rounded-xl text-xs font-bold uppercase tracking-widest transition-all ${step === s.id ? 'bg-red-600 text-white shadow-lg shadow-red-600/20 scale-[1.02]' : 'bg-transparent text-slate-500 hover:text-slate-300 hover:bg-slate-800'}`}>
                                         <span className="opacity-50 mr-1">{i + 1}.</span> {s.label}
                                     </button>
                                 ))}
@@ -853,17 +889,23 @@ export default function Incidents() {
                                     <h2 className="text-xl font-bold text-red-400 mb-8 flex items-center gap-3 border-b border-red-500/20 pb-4 uppercase tracking-widest"><i className="fas fa-clipboard-list text-2xl"></i> 1. Initial Report Details</h2>
 
                                     <div className="grid grid-cols-2 md:grid-cols-4 gap-6 mb-8">
-                                        <div><label className="text-[10px] uppercase font-bold text-slate-500 ml-1 mb-2 block">Site ID</label><SiteSelect sites={sites} value={data.siteId} onChange={v => setData({ ...data, siteId: v })} disabled={!canEdit || !isGlobal} /></div>
-                                        <div><label className="text-[10px] uppercase font-bold text-slate-500 ml-1 mb-2 block">Date</label><input type="date" value={data.date} onChange={e => setData({ ...data, date: e.target.value })} disabled={!canEdit} className="w-full bg-slate-950 border border-slate-700 p-2.5 rounded-lg text-white text-xs outline-none focus:border-red-500" /></div>
-                                        <div><label className="text-[10px] uppercase font-bold text-slate-500 ml-1 mb-2 block">Time</label><input type="time" value={data.time} onChange={e => setData({ ...data, time: e.target.value })} disabled={!canEdit} className="w-full bg-slate-950 border border-slate-700 p-2.5 rounded-lg text-white text-xs outline-none focus:border-red-500" /></div>
+                                        <div>
+                                            <label className="text-[10px] uppercase font-bold text-slate-500 ml-1 mb-2 block">Site ID</label>
+                                            <select value={data.siteId} onChange={e => setData({ ...data, siteId: e.target.value })} disabled={!canEditForm || (!isGlobalUser && allowedSites.length <= 1)} className="w-full bg-slate-900 border border-slate-700 p-2.5 rounded-lg text-white text-xs outline-none focus:border-red-500">
+                                                {(isGlobalUser || allowedSites.length > 1) && <option value="">Select Authorized Site...</option>}
+                                                {allowedSites.map(s => <option key={s.code} value={s.code}>{s.name} ({s.code})</option>)}
+                                            </select>
+                                        </div>
+                                        <div><label className="text-[10px] uppercase font-bold text-slate-500 ml-1 mb-2 block">Date</label><input type="date" value={data.date} onChange={e => setData({ ...data, date: e.target.value })} disabled={!canEditForm} className="w-full bg-slate-950 border border-slate-700 p-2.5 rounded-lg text-white text-xs outline-none focus:border-red-500" /></div>
+                                        <div><label className="text-[10px] uppercase font-bold text-slate-500 ml-1 mb-2 block">Time</label><input type="time" value={data.time} onChange={e => setData({ ...data, time: e.target.value })} disabled={!canEditForm} className="w-full bg-slate-950 border border-slate-700 p-2.5 rounded-lg text-white text-xs outline-none focus:border-red-500" /></div>
                                         <div><label className="text-[10px] uppercase font-bold text-slate-500 ml-1 mb-2 block">Record ID</label><input value={data.id} className="w-full bg-slate-950/50 border border-slate-800 p-2.5 rounded-lg text-slate-500 text-xs font-mono" disabled /></div>
 
-                                        <div><label className="text-[10px] uppercase font-bold text-purple-400 ml-1 mb-2 block">Smart Category (AI)</label><select value={data.smartType} onChange={e => setData({ ...data, smartType: e.target.value, manualOverrides: { ...data.manualOverrides, smartType: true } })} disabled={!canEdit} className="w-full bg-purple-900/10 border border-purple-500/30 p-2.5 rounded-lg text-purple-300 font-bold text-xs outline-none focus:border-purple-500">{SMART_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}</select></div>
+                                        <div><label className="text-[10px] uppercase font-bold text-purple-400 ml-1 mb-2 block">Smart Category (AI)</label><select value={data.smartType} onChange={e => setData({ ...data, smartType: e.target.value, manualOverrides: { ...data.manualOverrides, smartType: true } })} disabled={!canEditForm} className="w-full bg-purple-900/10 border border-purple-500/30 p-2.5 rounded-lg text-purple-300 font-bold text-xs outline-none focus:border-purple-500">{SMART_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}</select></div>
 
-                                        <div><label className="text-[10px] uppercase font-bold text-slate-500 ml-1 mb-2 block">Incident Type</label><select value={data.type} onChange={e => setData({ ...data, type: e.target.value, manualOverrides: { ...data.manualOverrides, type: true } })} disabled={!canEdit} className="w-full bg-slate-950 border border-slate-700 p-2.5 rounded-lg text-white text-xs outline-none focus:border-red-500"><option>Near Miss</option><option>Property Damage</option><option>First Aid injury</option><option>Lost Time injury</option><option>Reportable Injury</option></select></div>
-                                        <div><label className="text-[10px] uppercase font-bold text-slate-500 ml-1 mb-2 block">Severity</label><select value={data.severity} onChange={e => setData({ ...data, severity: e.target.value, manualOverrides: { ...data.manualOverrides, severity: true } })} disabled={!canEdit} className="w-full bg-slate-950 border border-slate-700 p-2.5 rounded-lg text-white text-xs outline-none focus:border-red-500"><option>Level A</option><option>Level B</option><option>Level C</option><option>Level D</option></select></div>
+                                        <div><label className="text-[10px] uppercase font-bold text-slate-500 ml-1 mb-2 block">Incident Type</label><select value={data.type} onChange={e => setData({ ...data, type: e.target.value, manualOverrides: { ...data.manualOverrides, type: true } })} disabled={!canEditForm} className="w-full bg-slate-950 border border-slate-700 p-2.5 rounded-lg text-white text-xs outline-none focus:border-red-500"><option>Near Miss</option><option>Property Damage</option><option>First Aid injury</option><option>Lost Time injury</option><option>Reportable Injury</option></select></div>
+                                        <div><label className="text-[10px] uppercase font-bold text-slate-500 ml-1 mb-2 block">Severity</label><select value={data.severity} onChange={e => setData({ ...data, severity: e.target.value, manualOverrides: { ...data.manualOverrides, severity: true } })} disabled={!canEditForm} className="w-full bg-slate-950 border border-slate-700 p-2.5 rounded-lg text-white text-xs outline-none focus:border-red-500"><option>Level A</option><option>Level B</option><option>Level C</option><option>Level D</option></select></div>
 
-                                        <div><label className="text-[10px] uppercase font-bold text-slate-500 ml-1 mb-2 block">Equipment</label><input value={data.equipmentInvolved} onChange={e => setData({ ...data, equipmentInvolved: e.target.value })} disabled={!canEdit} className="w-full bg-slate-950 border border-slate-700 p-2.5 rounded-lg text-white text-xs outline-none focus:border-red-500" placeholder="e.g., Forklift" /></div>
+                                        <div><label className="text-[10px] uppercase font-bold text-slate-500 ml-1 mb-2 block">Equipment</label><input value={data.equipmentInvolved} onChange={e => setData({ ...data, equipmentInvolved: e.target.value })} disabled={!canEditForm} className="w-full bg-slate-950 border border-slate-700 p-2.5 rounded-lg text-white text-xs outline-none focus:border-red-500" placeholder="e.g., Forklift" /></div>
                                     </div>
 
                                     <div className="mb-6">
@@ -871,11 +913,11 @@ export default function Incidents() {
                                             Description of Event
                                             {!data.manualOverrides?.smartType && <span className="text-purple-400 animate-pulse bg-purple-900/20 px-2 py-0.5 rounded border border-purple-500/30 tracking-widest"><i className="fas fa-robot mr-1"></i> AI Auto-Classify on blur</span>}
                                         </label>
-                                        <textarea rows="4" value={data.description} onChange={e => setData({ ...data, description: e.target.value })} onBlur={handleDescriptionBlur} className="w-full bg-slate-950 border border-slate-700 rounded-xl p-4 text-sm text-white focus:border-purple-500 outline-none shadow-inner" disabled={!canEdit} placeholder="Describe the incident in detail. Click outside this box when finished to auto-classify..."></textarea>
+                                        <textarea rows="4" value={data.description} onChange={e => setData({ ...data, description: e.target.value })} onBlur={handleDescriptionBlur} className="w-full bg-slate-950 border border-slate-700 rounded-xl p-4 text-sm text-white focus:border-purple-500 outline-none shadow-inner" disabled={!canEditForm} placeholder="Describe the incident in detail. Click outside this box when finished to auto-classify..."></textarea>
                                     </div>
                                     <div className="mb-6">
                                         <label className="block text-[10px] font-bold uppercase text-slate-500 mb-2 ml-1">Immediate Actions Taken</label>
-                                        <textarea rows="3" value={data.immediateAction} onChange={e => setData({ ...data, immediateAction: e.target.value })} className="w-full bg-slate-950 border border-slate-700 rounded-xl p-4 text-sm text-white focus:border-red-500 outline-none shadow-inner" disabled={!canEdit} placeholder="What was done immediately to secure the scene or treat the injured?"></textarea>
+                                        <textarea rows="3" value={data.immediateAction} onChange={e => setData({ ...data, immediateAction: e.target.value })} className="w-full bg-slate-950 border border-slate-700 rounded-xl p-4 text-sm text-white focus:border-red-500 outline-none shadow-inner" disabled={!canEditForm} placeholder="What was done immediately to secure the scene or treat the injured?"></textarea>
                                     </div>
 
                                     <div className="bg-slate-950/50 border border-slate-800 p-6 rounded-xl">
@@ -883,10 +925,10 @@ export default function Incidents() {
                                         {data.imageEvidence && (
                                             <div className="relative inline-block group">
                                                 <img src={data.imageEvidence} alt="Evidence" className="h-48 rounded-xl border-2 border-slate-700 object-cover shadow-xl" />
-                                                {canEdit && <button onClick={() => setData({ ...data, imageEvidence: null })} className="absolute -top-3 -right-3 bg-red-500 text-white rounded-xl w-8 h-8 text-sm opacity-0 group-hover:opacity-100 transition-opacity shadow-lg flex items-center justify-center"><i className="fas fa-times"></i></button>}
+                                                {canEditForm && <button type="button" onClick={() => setData({ ...data, imageEvidence: null })} className="absolute -top-3 -right-3 bg-red-500 text-white rounded-xl w-8 h-8 text-sm opacity-0 group-hover:opacity-100 transition-opacity shadow-lg flex items-center justify-center"><i className="fas fa-times"></i></button>}
                                             </div>
                                         )}
-                                        {!data.imageEvidence && canEdit && (
+                                        {!data.imageEvidence && canEditForm && (
                                             <label className="cursor-pointer bg-slate-900 border-2 border-dashed border-slate-700 hover:border-red-500 hover:bg-slate-800 transition-colors w-48 h-48 rounded-xl flex flex-col items-center justify-center text-slate-500 hover:text-red-400">
                                                 <i className="fas fa-cloud-upload-alt text-3xl mb-2"></i>
                                                 <span className="text-xs font-bold uppercase tracking-widest">Upload Photo</span>
@@ -906,23 +948,23 @@ export default function Incidents() {
                                         <div className="bg-slate-950/50 p-6 rounded-2xl border border-slate-800 shadow-inner">
                                             <h3 className="font-bold text-white mb-6 uppercase tracking-widest text-xs"><i className="fas fa-user-shield text-teal-400 mr-2"></i> Team Roster ({(data.investigationTeam || []).length})</h3>
 
-                                            {canEdit && (
+                                            {canEditForm && (
                                                 <div className="space-y-4 mb-8 pb-8 border-b border-slate-800 no-print">
                                                     <div>
                                                         <label className="text-[10px] uppercase font-bold text-slate-500 ml-1 mb-2 block">Add Internal Employee</label>
                                                         <div className="flex gap-2">
                                                             <select value={selectedUserToAdd} onChange={e => setSelectedUserToAdd(e.target.value)} className="w-full text-xs bg-slate-900 border border-slate-700 rounded-lg p-3 outline-none focus:border-teal-500 text-white">
                                                                 <option value="">Select Employee...</option>
-                                                                {siteUsers.map(u => <option key={u.id} value={u.id}>{u.name} ({u.role})</option>)}
+                                                                {siteUsers.map(u => <option key={u.id} value={u.id}>{u.name || u.email} ({u.role})</option>)}
                                                             </select>
-                                                            <button onClick={() => handleAddTeamMember('internal')} className="bg-teal-600 hover:bg-teal-500 text-white px-4 rounded-lg text-sm font-bold shadow-lg transition-transform active:scale-95"><i className="fas fa-plus"></i></button>
+                                                            <button type="button" onClick={() => handleAddTeamMember('internal')} className="bg-teal-600 hover:bg-teal-500 text-white px-4 rounded-lg text-sm font-bold shadow-lg transition-transform active:scale-95"><i className="fas fa-plus"></i></button>
                                                         </div>
                                                     </div>
                                                     <div>
                                                         <label className="text-[10px] uppercase font-bold text-slate-500 ml-1 mb-2 block">Add External Contractor/Expert</label>
                                                         <div className="flex gap-2">
                                                             <input value={externalName} onChange={e => setExternalName(e.target.value)} placeholder="Type Name..." className="w-full text-xs bg-slate-900 border border-slate-700 rounded-lg p-3 outline-none focus:border-purple-500 text-white" />
-                                                            <button onClick={() => handleAddTeamMember('external')} className="bg-purple-600 hover:bg-purple-500 text-white px-4 rounded-lg text-sm font-bold shadow-lg transition-transform active:scale-95"><i className="fas fa-plus"></i></button>
+                                                            <button type="button" onClick={() => handleAddTeamMember('external')} className="bg-purple-600 hover:bg-purple-500 text-white px-4 rounded-lg text-sm font-bold shadow-lg transition-transform active:scale-95"><i className="fas fa-plus"></i></button>
                                                         </div>
                                                     </div>
                                                 </div>
@@ -942,7 +984,7 @@ export default function Incidents() {
                                                                 </td>
                                                                 <td className="p-4">{att.role}</td>
                                                                 <td className="p-4 text-center">
-                                                                    {canEdit && <button onClick={() => removeTeamMember(idx)} className="text-red-500 hover:text-white bg-red-500/10 hover:bg-red-500 px-2 py-1 rounded transition-colors"><i className="fas fa-times"></i></button>}
+                                                                    {canEditForm && <button type="button" onClick={() => removeTeamMember(idx)} className="text-red-500 hover:text-white bg-red-500/10 hover:bg-red-500 px-2 py-1 rounded transition-colors"><i className="fas fa-times"></i></button>}
                                                                 </td>
                                                             </tr>
                                                         ))}
@@ -954,7 +996,7 @@ export default function Incidents() {
 
                                         <div className="bg-slate-950/50 p-6 rounded-2xl border border-slate-800 shadow-inner flex flex-col">
                                             <label className="text-[10px] uppercase font-bold text-slate-500 block mb-4 tracking-wider"><i className="fas fa-pen-alt mr-2 text-teal-400"></i> Investigation Notes & Summary</label>
-                                            <textarea className="w-full flex-1 bg-slate-900 border border-slate-700 p-5 rounded-xl text-white focus:border-teal-500 outline-none resize-none custom-scroll text-sm shadow-inner min-h-[300px]" value={data.consultationSummary} onChange={e => setData({ ...data, consultationSummary: e.target.value })} placeholder="Summarize the investigation details, witness statements, and initial findings here..." disabled={!canEdit}></textarea>
+                                            <textarea className="w-full flex-1 bg-slate-900 border border-slate-700 p-5 rounded-xl text-white focus:border-teal-500 outline-none resize-none custom-scroll text-sm shadow-inner min-h-[300px]" value={data.consultationSummary} onChange={e => setData({ ...data, consultationSummary: e.target.value })} placeholder="Summarize the investigation details, witness statements, and initial findings here..." disabled={!canEditForm}></textarea>
                                         </div>
                                     </div>
                                 </div>
@@ -965,8 +1007,8 @@ export default function Incidents() {
                                 <div className="bg-slate-900/40 backdrop-blur-md border border-slate-800 rounded-3xl p-8 shadow-2xl animate-in slide-in-from-right-8 duration-300">
                                     <div className="flex justify-between items-center mb-8 border-b border-purple-500/20 pb-4">
                                         <h2 className="text-xl font-bold text-purple-400 flex items-center gap-3 uppercase tracking-widest"><i className="fas fa-search-location text-2xl"></i> 3. Root Cause Analysis</h2>
-                                        {canEdit && (
-                                            <button onClick={applySmartSuggestions} className="bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold px-6 py-3 rounded-xl shadow-lg shadow-purple-600/20 flex items-center gap-2 transition-transform active:scale-95 uppercase tracking-widest">
+                                        {canEditForm && (
+                                            <button type="button" onClick={applySmartSuggestions} className="bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold px-6 py-3 rounded-xl shadow-lg shadow-purple-600/20 flex items-center gap-2 transition-transform active:scale-95 uppercase tracking-widest">
                                                 <i className="fas fa-wand-magic-sparkles"></i> AI Auto-Analyze
                                             </button>
                                         )}
@@ -975,31 +1017,35 @@ export default function Incidents() {
                                     <div className="space-y-12">
                                         <div className="bg-slate-950/50 p-6 rounded-2xl border border-slate-800">
                                             <h3 className="font-bold text-white mb-4 uppercase tracking-widest text-xs flex items-center"><i className="fas fa-fish text-blue-400 mr-2"></i> Fishbone Diagram</h3>
-                                            <div className="bg-slate-900 rounded-xl border border-slate-700 p-4 overflow-x-auto"><Fishbone data={data.investigation?.fishbone || { man: [], machine: [], material: [], method: [], environment: [] }} onChange={fb => setData({ ...data, investigation: { ...data.investigation, fishbone: fb } })} disabled={!canEdit} /></div>
+                                            <div className="bg-slate-900 rounded-xl border border-slate-700 p-4 overflow-x-auto">
+                                                <Fishbone data={data.investigation?.fishbone || { man: [], machine: [], material: [], method: [], environment: [] }} onChange={fb => setData({ ...data, investigation: { ...data.investigation, fishbone: fb } })} disabled={!canEditForm} />
+                                            </div>
                                         </div>
 
                                         <div className="bg-slate-950/50 p-6 rounded-2xl border border-slate-800">
                                             <h3 className="font-bold text-white mb-4 uppercase tracking-widest text-xs flex items-center"><i className="fas fa-project-diagram text-orange-400 mr-2"></i> Fault Tree Analysis</h3>
-                                            <div className="bg-slate-900 rounded-xl border border-slate-700 p-6 overflow-x-auto tree"><ul className="m-0 p-0"><FaultTreeNode node={data.investigation?.faultTree || { id: 1, label: 'Top Event', type: 'AND', children: [] }} onUpdate={rt => setData({ ...data, investigation: { ...data.investigation, faultTree: rt } })} disabled={!canEdit} /></ul></div>
+                                            <div className="bg-slate-900 rounded-xl border border-slate-700 p-6 overflow-x-auto tree">
+                                                <ul className="m-0 p-0"><FaultTreeNode node={data.investigation?.faultTree || { id: 1, label: 'Top Event', type: 'AND', children: [] }} onUpdate={rt => setData({ ...data, investigation: { ...data.investigation, faultTree: rt } })} disabled={!canEditForm} /></ul>
+                                            </div>
                                         </div>
 
                                         <div className="bg-slate-950/50 p-6 rounded-2xl border border-slate-800">
                                             <div className="flex justify-between items-center mb-6">
                                                 <h3 className="font-bold text-white uppercase tracking-widest text-xs flex items-center"><i className="fas fa-question-circle text-purple-400 mr-2"></i> 5-Whys Analysis</h3>
-                                                {canEdit && <button onClick={addFiveWhyPath} className="bg-purple-600/20 text-purple-400 border border-purple-500/30 hover:bg-purple-600 hover:text-white text-[10px] font-bold uppercase tracking-widest px-4 py-2 rounded-lg transition-colors no-print"><i className="fas fa-code-branch mr-1"></i> Add Path</button>}
+                                                {canEditForm && <button type="button" onClick={addFiveWhyPath} className="bg-purple-600/20 text-purple-400 border border-purple-500/30 hover:bg-purple-600 hover:text-white text-[10px] font-bold uppercase tracking-widest px-4 py-2 rounded-lg transition-colors no-print"><i className="fas fa-code-branch mr-1"></i> Add Path</button>}
                                             </div>
                                             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                                                 {data.investigation?.fiveWhys?.map((path, pIdx) => (
                                                     <div key={path.id || pIdx} className="bg-slate-900 p-6 rounded-xl border border-slate-700 shadow-inner group">
                                                         <div className="flex justify-between items-center mb-6 border-b border-slate-800 pb-4">
-                                                            <input value={path.name || `Analysis Path ${pIdx + 1}`} onChange={e => updatePathName(pIdx, e.target.value)} disabled={!canEdit} className="bg-transparent text-xs font-bold text-purple-400 uppercase tracking-widest outline-none border-b border-transparent focus:border-purple-500 w-full transition-all" />
-                                                            {canEdit && data.investigation.fiveWhys.length > 1 && <button onClick={() => removeFiveWhyPath(pIdx)} className="text-red-500 hover:text-white opacity-0 group-hover:opacity-100 transition-opacity bg-red-500/10 hover:bg-red-500 w-8 h-8 rounded flex items-center justify-center no-print ml-4"><i className="fas fa-trash-alt"></i></button>}
+                                                            <input value={path.name || `Analysis Path ${pIdx + 1}`} onChange={e => updatePathName(pIdx, e.target.value)} disabled={!canEditForm} className="bg-transparent text-xs font-bold text-purple-400 uppercase tracking-widest outline-none border-b border-transparent focus:border-purple-500 w-full transition-all" />
+                                                            {canEditForm && data.investigation.fiveWhys.length > 1 && <button type="button" onClick={() => removeFiveWhyPath(pIdx)} className="text-red-500 hover:text-white opacity-0 group-hover:opacity-100 transition-opacity bg-red-500/10 hover:bg-red-500 w-8 h-8 rounded flex items-center justify-center no-print ml-4"><i className="fas fa-trash-alt"></i></button>}
                                                         </div>
                                                         <div className="space-y-3">
-                                                            {path.whys.map((w, i) => (
+                                                            {path.whys?.map((w, i) => (
                                                                 <div key={i} className="flex gap-4 items-center">
                                                                     <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest w-12 text-right border-r border-slate-700 pr-3">Why {i + 1}</span>
-                                                                    <input className="flex-1 bg-slate-950 border border-slate-800 rounded-lg p-3 text-xs text-white focus:border-purple-500 outline-none" value={w} onChange={e => updateFiveWhy(pIdx, i, e.target.value)} disabled={!canEdit} />
+                                                                    <input className="flex-1 bg-slate-950 border border-slate-800 rounded-lg p-3 text-xs text-white focus:border-purple-500 outline-none" value={w} onChange={e => updateFiveWhy(pIdx, i, e.target.value)} disabled={!canEditForm} />
                                                                 </div>
                                                             ))}
                                                         </div>
@@ -1010,7 +1056,7 @@ export default function Incidents() {
 
                                         <div className="bg-emerald-950/30 p-6 rounded-2xl border border-emerald-900/50">
                                             <label className="text-xs font-bold text-emerald-400 uppercase tracking-widest mb-4 flex items-center"><i className="fas fa-bullseye mr-2"></i> Final Root Cause Conclusion</label>
-                                            <textarea rows="4" value={data.investigation.rootCause} onChange={e => setData({ ...data, investigation: { ...data.investigation, rootCause: e.target.value } })} disabled={!canEdit} className="w-full bg-emerald-900/10 border border-emerald-500/30 rounded-xl p-5 text-sm text-emerald-100 focus:border-emerald-500 outline-none resize-none shadow-inner" placeholder="State the conclusive root cause based on the analysis above..."></textarea>
+                                            <textarea rows="4" value={data.investigation?.rootCause || ''} onChange={e => setData({ ...data, investigation: { ...(data.investigation || {}), rootCause: e.target.value } })} disabled={!canEditForm} className="w-full bg-emerald-900/10 border border-emerald-500/30 rounded-xl p-5 text-sm text-emerald-100 focus:border-emerald-500 outline-none resize-none shadow-inner" placeholder="State the conclusive root cause based on the analysis above..."></textarea>
                                         </div>
                                     </div>
                                 </div>
@@ -1022,11 +1068,31 @@ export default function Incidents() {
                                     <h2 className="text-xl font-bold text-orange-400 mb-8 flex items-center gap-3 border-b border-orange-500/20 pb-4 uppercase tracking-widest"><i className="fas fa-list-check text-2xl"></i> 4. CAPA Plan</h2>
 
                                     <div className="bg-slate-950/50 p-6 rounded-2xl border border-slate-800">
-                                        {canEdit && (
-                                            <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-8 no-print bg-slate-900 p-6 rounded-xl border border-slate-700 shadow-inner">
+
+                                        {/* HORIZONTAL DEPLOYMENT TOGGLE */}
+                                        <div className="col-span-1 md:col-span-5 mt-2 bg-blue-900/10 border border-blue-500/30 p-4 rounded-xl flex items-center justify-between shadow-inner mb-6">
+                                            <div>
+                                                <label className="flex items-center gap-3 cursor-pointer">
+                                                    <input type="checkbox" checked={data.horizontalDeployment || false} onChange={e => setData({ ...data, horizontalDeployment: e.target.checked })} disabled={!canEditForm} className="w-5 h-5 accent-blue-500 cursor-pointer" />
+                                                    <span className="text-sm font-bold text-blue-400 uppercase tracking-widest">Horizontal Deployment</span>
+                                                </label>
+                                                <p className="text-[10px] text-slate-400 mt-1 ml-8">If checked, saving this report will automatically generate a separate CAPA Action for <strong>every site in the organization</strong>.</p>
+                                            </div>
+                                            <i className="fas fa-globe text-3xl text-blue-500/20"></i>
+                                        </div>
+
+                                        {canEditForm && (
+                                            <div className="grid grid-cols-1 md:grid-cols-6 gap-4 mb-8 no-print bg-slate-900 p-6 rounded-xl border border-slate-700 shadow-inner">
                                                 <div className="md:col-span-2">
                                                     <label className="text-[9px] uppercase font-bold text-slate-500 ml-1 mb-2 block">Action Required</label>
                                                     <input value={newCapaAct} onChange={e => setNewCapaAct(e.target.value)} placeholder="Describe action..." className="w-full bg-slate-950 border border-slate-800 p-3 rounded-lg text-xs text-white focus:border-orange-500 outline-none" />
+                                                </div>
+                                                <div>
+                                                    <label className="text-[9px] uppercase font-bold text-slate-500 ml-1 mb-2 block">Target Site</label>
+                                                    <select value={newCapaSite} onChange={e => setNewCapaSite(e.target.value)} disabled={data.horizontalDeployment} className={`w-full bg-slate-950 border border-slate-800 p-3 rounded-lg text-xs text-white outline-none focus:border-orange-500 ${data.horizontalDeployment && 'opacity-50'}`}>
+                                                        <option value="">{data.horizontalDeployment ? 'All Sites' : 'Default'}</option>
+                                                        {!data.horizontalDeployment && sites.map(s => <option key={s.code} value={s.code}>{s.code}</option>)}
+                                                    </select>
                                                 </div>
                                                 <div>
                                                     <label className="text-[9px] uppercase font-bold text-slate-500 ml-1 mb-2 block">Owner</label>
@@ -1037,7 +1103,7 @@ export default function Incidents() {
                                                     <input type="date" value={newCapaDue} onChange={e => setNewCapaDue(e.target.value)} className="w-full bg-slate-950 border border-slate-800 p-3 rounded-lg text-xs text-white focus:border-orange-500 outline-none" />
                                                 </div>
                                                 <div className="flex items-end">
-                                                    <button onClick={addCapa} className="w-full bg-orange-600 hover:bg-orange-500 text-white p-3 rounded-lg font-bold shadow-lg shadow-orange-600/20 transition-transform active:scale-95 text-xs uppercase tracking-widest"><i className="fas fa-plus mr-1"></i> Add</button>
+                                                    <button type="button" onClick={addCapa} className="w-full bg-orange-600 hover:bg-orange-500 text-white p-3 rounded-lg font-bold shadow-lg shadow-orange-600/20 transition-transform active:scale-95 text-xs uppercase tracking-widest"><i className="fas fa-plus mr-1"></i> Add</button>
                                                 </div>
                                             </div>
                                         )}
@@ -1045,14 +1111,17 @@ export default function Incidents() {
                                         <div className="overflow-hidden rounded-xl border border-slate-700 shadow-lg bg-slate-900">
                                             <table className="w-full text-left text-sm text-slate-300">
                                                 <thead className="bg-slate-950 text-[10px] uppercase tracking-widest font-bold text-slate-500 border-b border-slate-800">
-                                                    <tr><th className="p-5">Action Details</th><th className="p-5 w-48">Owner</th><th className="p-5 w-32">Due Date</th><th className="p-5 w-40">Status</th><th className="p-5 w-12"></th></tr>
+                                                    <tr><th className="p-5 w-1/3">Action Details</th><th className="p-5">Site</th><th className="p-5">Owner</th><th className="p-5 w-24">Due Date</th><th className="p-5 w-32">Status</th><th className="p-5 w-12"></th></tr>
                                                 </thead>
                                                 <tbody className="divide-y divide-slate-800">
                                                     {(data.capa || []).map((c, i) => (
                                                         <tr key={i} className="hover:bg-slate-800/50 transition-colors">
-                                                            <td className="p-5"><input className="w-full bg-transparent border-b border-transparent hover:border-slate-600 focus:border-orange-500 text-xs py-1 outline-none text-white font-medium" value={c.act} onChange={e => { const n = [...data.capa]; n[i].act = e.target.value; setData({ ...data, capa: n }); }} disabled={!canEdit} /></td>
-                                                            <td className="p-5 text-blue-400 font-bold"><UserSelect users={siteUsers} value={c.own} onChange={v => { const n = [...data.capa]; n[i].own = v; setData({ ...data, capa: n }); }} disabled={!canEdit} /></td>
-                                                            <td className="p-5"><input type="date" className="w-full bg-transparent border-b border-transparent hover:border-slate-600 focus:border-orange-500 text-[10px] py-1 outline-none font-mono" value={c.due} onChange={e => { const n = [...data.capa]; n[i].due = e.target.value; setData({ ...data, capa: n }); }} disabled={!canEdit} /></td>
+                                                            <td className="p-5"><input className="w-full bg-transparent border-b border-transparent hover:border-slate-600 focus:border-orange-500 text-xs py-1 outline-none text-white font-medium" value={c.act} onChange={e => { const n = [...data.capa]; n[i].act = e.target.value; setData({ ...data, capa: n }); }} disabled={!canEditCapa(c)} /></td>
+                                                            <td className="p-5 text-[10px] font-bold uppercase tracking-widest text-slate-400">
+                                                                {data.horizontalDeployment ? <span className="bg-blue-900/30 text-blue-400 px-2 py-1 rounded border border-blue-500/30">All Sites</span> : (c.siteId || data.siteId)}
+                                                            </td>
+                                                            <td className="p-5 text-blue-400 font-bold"><UserSelect users={siteUsers} value={c.own} onChange={v => { const n = [...data.capa]; n[i].own = v; setData({ ...data, capa: n }); }} disabled={!canEditCapa(c)} /></td>
+                                                            <td className="p-5"><input type="date" className="w-full bg-transparent border-b border-transparent hover:border-slate-600 focus:border-orange-500 text-[10px] py-1 outline-none font-mono" value={c.due} onChange={e => { const n = [...data.capa]; n[i].due = e.target.value; setData({ ...data, capa: n }); }} disabled={!canEditCapa(c)} /></td>
                                                             <td className="p-5">
                                                                 {canEditCapa(c) ? (
                                                                     <select value={c.status} onChange={e => { const newCapa = [...data.capa]; newCapa[i].status = e.target.value; setData({ ...data, capa: newCapa }); }} className={`w-full bg-slate-950 text-xs px-3 py-2 rounded-lg outline-none border font-bold ${c.status === 'Closed' ? 'text-emerald-400 border-emerald-500/30' : c.status === 'In Progress' ? 'text-blue-400 border-blue-500/30' : 'text-orange-400 border-orange-500/30'}`}>
@@ -1060,10 +1129,10 @@ export default function Incidents() {
                                                                     </select>
                                                                 ) : <span className={`px-3 py-1.5 rounded border text-[10px] font-bold uppercase tracking-widest ${c.status === 'Closed' ? 'bg-emerald-900/20 text-emerald-400 border-emerald-500/20' : c.status === 'In Progress' ? 'bg-blue-900/20 text-blue-400 border-blue-500/20' : 'bg-orange-900/20 text-orange-400 border-orange-500/20'}`}>{c.status}</span>}
                                                             </td>
-                                                            <td className="p-5 text-center">{canEditCapa(c) && <button onClick={() => removeCapa(i)} className="text-red-500 hover:text-white bg-red-500/10 hover:bg-red-500 w-8 h-8 rounded-lg flex items-center justify-center transition-colors"><i className="fas fa-trash-alt"></i></button>}</td>
+                                                            <td className="p-5 text-center">{canEditForm && <button type="button" onClick={() => removeCapa(i)} className="text-red-500 hover:text-white bg-red-500/10 hover:bg-red-500 w-8 h-8 rounded-lg flex items-center justify-center transition-colors"><i className="fas fa-trash-alt"></i></button>}</td>
                                                         </tr>
                                                     ))}
-                                                    {(!data.capa || data.capa.length === 0) && <tr><td colSpan="5" className="text-center py-12 text-slate-500 text-sm italic border-t border-slate-800">No actions defined. Add one above.</td></tr>}
+                                                    {(!data.capa || data.capa.length === 0) && <tr><td colSpan="6" className="text-center py-12 text-slate-500 text-sm italic border-t border-slate-800">No actions defined. Add one above.</td></tr>}
                                                 </tbody>
                                             </table>
                                         </div>
@@ -1082,7 +1151,7 @@ export default function Incidents() {
                                                 <h3 className="font-bold text-lg text-white">Risk Assessment Integrity</h3>
                                                 <p className="text-xs text-slate-400 mt-1">Has the facility Risk Assessment (HIRA) been updated post-incident?</p>
                                             </div>
-                                            <button onClick={scanHiraDatabase} disabled={!canEdit} className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-3 rounded-xl font-bold text-xs uppercase tracking-widest shadow-lg shadow-blue-600/20 flex items-center gap-2 transition-transform active:scale-95 disabled:opacity-50">
+                                            <button type="button" onClick={scanHiraDatabase} disabled={!canEditForm} className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-3 rounded-xl font-bold text-xs uppercase tracking-widest shadow-lg shadow-blue-600/20 flex items-center gap-2 transition-transform active:scale-95 disabled:opacity-50">
                                                 <i className="fas fa-search"></i> Scan HIRA Database
                                             </button>
                                         </div>
@@ -1106,7 +1175,7 @@ export default function Incidents() {
                                         )}
                                     </div>
 
-                                    <div className={`flex gap-4 items-start mb-10 p-6 border rounded-2xl transition-colors cursor-pointer ${data.riskUpdated ? 'bg-emerald-900/20 border-emerald-500/40' : 'bg-slate-900 border-slate-700 hover:border-slate-500'}`} onClick={() => canEdit && setData({ ...data, riskUpdated: !data.riskUpdated })}>
+                                    <div className={`flex gap-4 items-start mb-10 p-6 border rounded-2xl transition-colors cursor-pointer ${data.riskUpdated ? 'bg-emerald-900/20 border-emerald-500/40' : 'bg-slate-900 border-slate-700 hover:border-slate-500'}`} onClick={() => canEditForm && setData({ ...data, riskUpdated: !data.riskUpdated })}>
                                         <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors ${data.riskUpdated ? 'bg-emerald-500 text-white' : 'bg-slate-800 border border-slate-600 text-transparent'}`}>
                                             <i className="fas fa-check"></i>
                                         </div>
@@ -1117,8 +1186,10 @@ export default function Incidents() {
                                     </div>
 
                                     <div className="flex justify-end gap-4 pt-8 border-t border-slate-800 action-buttons">
-                                        <button onClick={() => triggerPrint(data)} className="bg-slate-800 hover:bg-slate-700 text-white font-bold px-8 py-4 rounded-xl transition shadow text-xs uppercase tracking-widest flex items-center gap-2"><i className="fas fa-print text-lg"></i> Print Record</button>
-                                        {canEdit && <button onClick={saveData} disabled={saving} className="bg-gradient-to-r from-red-600 to-orange-600 hover:from-red-500 hover:to-orange-500 text-white font-bold px-10 py-4 rounded-xl shadow-lg shadow-red-900/50 flex items-center gap-3 transition-transform active:scale-95 text-sm uppercase tracking-widest disabled:opacity-50"><i className={`fas ${saving ? 'fa-spinner fa-spin' : 'fa-cloud-arrow-up'} text-lg`}></i> {saving ? 'Saving...' : 'Save & Submit Record'}</button>}
+                                        <button type="button" onClick={() => triggerPrint(data)} className="bg-slate-800 hover:bg-slate-700 text-white font-bold px-8 py-4 rounded-xl transition shadow text-xs uppercase tracking-widest flex items-center gap-2"><i className="fas fa-print text-lg"></i> Print Record</button>
+                                        {canEditForm && (
+                                            <button type="button" onClick={saveData} disabled={saving} className="bg-gradient-to-r from-red-600 to-orange-600 hover:from-red-500 hover:to-orange-500 text-white font-bold px-10 py-4 rounded-xl shadow-lg shadow-red-900/50 flex items-center gap-3 transition-transform active:scale-95 text-sm uppercase tracking-widest disabled:opacity-50"><i className={`fas ${saving ? 'fa-spinner fa-spin' : 'fa-cloud-arrow-up'} text-lg`}></i> {saving ? 'Saving...' : 'Save & Submit Record'}</button>
+                                        )}
                                     </div>
                                 </div>
                             )}
@@ -1136,7 +1207,7 @@ export default function Incidents() {
                                 <h2 className="text-2xl font-bold text-blue-400 flex items-center gap-3"><i className="fas fa-search-location"></i> Relevant HIRA Matches</h2>
                                 <p className="text-xs text-slate-400 mt-2">The AI scanned active Risk Assessments matching keywords in your incident description.</p>
                             </div>
-                            <button onClick={() => setSearchModalOpen(false)} className="text-slate-400 hover:text-white bg-slate-800 hover:bg-red-500/20 w-10 h-10 flex items-center justify-center rounded-xl transition"><i className="fas fa-times text-xl"></i></button>
+                            <button type="button" onClick={() => setSearchModalOpen(false)} className="text-slate-400 hover:text-white bg-slate-800 hover:bg-red-500/20 w-10 h-10 flex items-center justify-center rounded-xl transition"><i className="fas fa-times text-xl"></i></button>
                         </div>
 
                         <div className="flex-1 overflow-y-auto">
@@ -1156,7 +1227,7 @@ export default function Incidents() {
                                                 <div className="text-sm text-blue-400 font-bold mb-3 bg-blue-900/10 inline-block px-3 py-1 rounded border border-blue-900/30">[{match.hazard.category}] {match.hazard.subCategory}</div>
                                                 <div className="text-xs text-slate-400 leading-relaxed border-l-2 border-slate-700 pl-4 italic">{match.hazard.desc}</div>
                                             </div>
-                                            <button onClick={() => openHazardEditor(match)} className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-4 rounded-xl text-xs font-bold uppercase tracking-widest shadow-lg shadow-blue-600/20 transition-transform active:scale-95 whitespace-nowrap opacity-0 group-hover:opacity-100 flex items-center gap-2">Update Risk <i className="fas fa-arrow-right"></i></button>
+                                            <button type="button" onClick={() => openHazardEditor(match)} className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-4 rounded-xl text-xs font-bold uppercase tracking-widest shadow-lg shadow-blue-600/20 transition-transform active:scale-95 whitespace-nowrap opacity-0 group-hover:opacity-100 flex items-center gap-2">Update Risk <i className="fas fa-arrow-right"></i></button>
                                         </div>
                                     ))}
                                 </div>
@@ -1171,7 +1242,7 @@ export default function Incidents() {
                     <div className="bg-slate-900 rounded-3xl max-w-4xl w-full p-8 border border-slate-700 max-h-[90vh] overflow-y-auto custom-scroll shadow-2xl">
                         <div className="flex justify-between items-center mb-6 border-b border-slate-800 pb-6">
                             <h2 className="text-2xl font-bold text-orange-400 flex items-center gap-3"><i className="fas fa-shield-virus"></i> Update HIRA Record</h2>
-                            <button onClick={() => setEditingHazardData(null)} className="text-slate-400 hover:text-white bg-slate-800 hover:bg-red-500/20 w-10 h-10 flex items-center justify-center rounded-xl transition"><i className="fas fa-times text-xl"></i></button>
+                            <button type="button" onClick={() => setEditingHazardData(null)} className="text-slate-400 hover:text-white bg-slate-800 hover:bg-red-500/20 w-10 h-10 flex items-center justify-center rounded-xl transition"><i className="fas fa-times text-xl"></i></button>
                         </div>
 
                         <div className="bg-slate-950 p-6 rounded-2xl border border-slate-800 mb-8 shadow-inner">
@@ -1205,10 +1276,10 @@ export default function Incidents() {
                                 <label className="text-[10px] uppercase text-emerald-400 font-bold tracking-widest block mb-4 flex items-center gap-2"><i className="fas fa-plus-circle"></i> Add Additional Control</label>
                                 <div className="flex flex-col gap-3 flex-1">
                                     <input id="new-hira-ctrl" placeholder="Describe new safety control implemented..." className="bg-slate-950 text-sm p-4 rounded-xl border border-slate-700 focus:border-emerald-500 outline-none text-white shadow-inner flex-1" />
-                                    <button onClick={() => {
+                                    <button type="button" onClick={() => {
                                         const ctrl = document.getElementById('new-hira-ctrl').value;
                                         if (ctrl) {
-                                            const n = [...(editingHazardData.modifiedHazard.additionalControls || []), { category: 'Administrative', desc: ctrl, owner: session.user, status: 'Open' }];
+                                            const n = [...(editingHazardData.modifiedHazard.additionalControls || []), { category: 'Administrative', desc: ctrl, owner: session.name || session.email, status: 'Open' }];
                                             setEditingHazardData({ ...editingHazardData, modifiedHazard: { ...editingHazardData.modifiedHazard, additionalControls: n } });
                                             document.getElementById('new-hira-ctrl').value = '';
                                         }
@@ -1226,7 +1297,7 @@ export default function Incidents() {
                                             <span className="text-[9px] bg-blue-900/30 text-blue-400 px-2 py-1 rounded-lg mr-4 font-bold uppercase tracking-widest border border-blue-900">{c.category}</span>
                                             {c.desc}
                                         </div>
-                                        <button onClick={() => {
+                                        <button type="button" onClick={() => {
                                             const n = editingHazardData.modifiedHazard.additionalControls.filter((_, idx) => idx !== i);
                                             setEditingHazardData({ ...editingHazardData, modifiedHazard: { ...editingHazardData.modifiedHazard, additionalControls: n } });
                                         }} className="text-red-500 hover:text-white opacity-0 group-hover:opacity-100 transition-opacity bg-red-900/20 hover:bg-red-600 w-8 h-8 rounded-lg flex items-center justify-center"><i className="fas fa-trash-alt"></i></button>
@@ -1237,8 +1308,8 @@ export default function Incidents() {
                         </div>
 
                         <div className="flex justify-end gap-4 pt-6 border-t border-slate-800">
-                            <button onClick={() => setEditingHazardData(null)} className="px-8 py-4 bg-slate-800 text-white font-bold rounded-xl text-xs uppercase tracking-widest hover:bg-slate-700 transition-colors">Cancel</button>
-                            <button onClick={saveLinkedHazard} disabled={saving} className="px-10 py-4 bg-emerald-600 text-white rounded-xl text-xs uppercase tracking-widest font-bold shadow-lg shadow-emerald-600/20 hover:bg-emerald-500 flex items-center gap-3 transition-transform active:scale-95 disabled:opacity-50">
+                            <button type="button" onClick={() => setEditingHazardData(null)} className="px-8 py-4 bg-slate-800 text-white font-bold rounded-xl text-xs uppercase tracking-widest hover:bg-slate-700 transition-colors">Cancel</button>
+                            <button type="button" onClick={saveLinkedHazard} disabled={saving} className="px-10 py-4 bg-emerald-600 text-white rounded-xl text-xs uppercase tracking-widest font-bold shadow-lg shadow-emerald-600/20 hover:bg-emerald-500 flex items-center gap-3 transition-transform active:scale-95 disabled:opacity-50">
                                 {saving ? <i className="fas fa-spinner fa-spin text-lg"></i> : <i className="fas fa-link text-lg"></i>}
                                 Save & Link Incident
                             </button>
@@ -1247,7 +1318,7 @@ export default function Incidents() {
                 </div>
             )}
 
-            {/* --- DEDICATED PRINT OVERLAY (Now safely outside of the hidden UI wrapper) --- */}
+            {/* --- DEDICATED PRINT OVERLAY --- */}
             {printData && (
                 <div className="print-overlay p-8 bg-white text-black min-h-screen w-full absolute top-0 left-0 z-50">
                     <div className="flex justify-between items-end border-b-4 border-black pb-4 mb-6">
@@ -1266,7 +1337,7 @@ export default function Incidents() {
                         <table className="w-full text-sm border-none">
                             <tbody>
                                 <tr>
-                                    <td className="w-[15%] font-bold py-1">Site / Location:</td><td className="w-[35%] py-1">{printData.siteId}</td>
+                                    <td className="w-[15%] font-bold py-1">Site / Location:</td><td className="w-[35%] py-1">{printData.siteId} {printData.horizontalDeployment && '(Horizontal Deployment)'}</td>
                                     <td className="w-[15%] font-bold py-1">Date & Time:</td><td className="w-[35%] py-1">{printData.date} @ {printData.time || 'N/A'}</td>
                                 </tr>
                                 <tr>
@@ -1386,21 +1457,23 @@ export default function Incidents() {
                             <thead>
                                 <tr className="bg-gray-200">
                                     <th className="border border-black p-2 text-left">Action Description</th>
-                                    <th className="border border-black p-2 text-left w-1/4">Owner</th>
-                                    <th className="border border-black p-2 w-32 text-center">Due Date</th>
-                                    <th className="border border-black p-2 w-32 text-center">Status</th>
+                                    <th className="border border-black p-2 text-left w-[15%]">Site</th>
+                                    <th className="border border-black p-2 text-left w-[20%]">Owner</th>
+                                    <th className="border border-black p-2 w-[15%] text-center">Due Date</th>
+                                    <th className="border border-black p-2 w-[15%] text-center">Status</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {printData.capa && printData.capa.length > 0 ? printData.capa.map((c, i) => (
                                     <tr key={i}>
                                         <td className="border border-black p-2">{c.act}</td>
+                                        <td className="border border-black p-2 font-bold text-gray-600">{c.siteId || printData.siteId}</td>
                                         <td className="border border-black p-2 font-bold">{c.own || 'Unassigned'}</td>
                                         <td className="border border-black p-2 text-center font-mono">{c.due}</td>
                                         <td className="border border-black p-2 text-center font-bold uppercase">{c.status}</td>
                                     </tr>
                                 )) : (
-                                    <tr><td colSpan="4" className="border border-black p-4 text-center italic">No CAPA items recorded.</td></tr>
+                                    <tr><td colSpan="5" className="border border-black p-4 text-center italic">No CAPA items recorded.</td></tr>
                                 )}
                             </tbody>
                         </table>

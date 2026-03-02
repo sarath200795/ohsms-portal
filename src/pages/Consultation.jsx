@@ -19,14 +19,15 @@ const MEETING_TYPES = [
 const MeetingDetailModal = ({ meeting, onClose, onUpdateStatus, onPrint, session, permissions }) => {
     if (!meeting) return null;
 
+    const currentUser = session?.name || session?.email || session?.user;
+
     const canEditStatus = (row) => {
-        if (permissions.viewOnly && !permissions.canEditOwnedActions) return false;
-        if (permissions.canEditOwnedActions) return row.owner === session.user;
-        return !permissions.viewOnly;
+        if (permissions.canEditCreate) return true; // Admins/Managers/Owners can edit all
+        if (permissions.viewOnly && permissions.canEditOwnedActions) return row.owner === currentUser; // Users can edit their own assigned actions
+        return false;
     };
 
     return (
-        // Added print:hidden to hide the modal UI during printing
         <div className="fixed inset-0 bg-slate-950/90 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto animate-in fade-in zoom-in-95 duration-300 print:hidden">
             <div className="bg-slate-900 border border-slate-700 w-full max-w-5xl rounded-3xl flex flex-col shadow-2xl relative min-h-[50vh] max-h-[90vh] overflow-hidden">
                 <div className="p-6 border-b border-slate-700 flex justify-between items-center bg-slate-800/50">
@@ -105,7 +106,7 @@ const MeetingDetailModal = ({ meeting, onClose, onUpdateStatus, onPrint, session
                                                         value={row.status || 'Open'}
                                                         onChange={e => onUpdateStatus(meeting.firebaseKey, idx, e.target.value)}
                                                         disabled={!canEditStatus(row)}
-                                                        className={`text-xs px-3 py-1.5 rounded-lg font-bold outline-none cursor-pointer border ${row.status === 'Closed' ? 'bg-emerald-900/20 text-emerald-400 border-emerald-500/30' : row.status === 'In Progress' ? 'bg-yellow-900/20 text-yellow-400 border-yellow-500/30' : 'bg-red-900/20 text-red-400 border-red-500/30'}`}
+                                                        className={`text-xs px-3 py-1.5 rounded-lg font-bold outline-none border ${canEditStatus(row) ? 'cursor-pointer' : 'cursor-not-allowed opacity-80'} ${row.status === 'Closed' ? 'bg-emerald-900/20 text-emerald-400 border-emerald-500/30' : row.status === 'In Progress' ? 'bg-yellow-900/20 text-yellow-400 border-yellow-500/30' : 'bg-red-900/20 text-red-400 border-red-500/30'}`}
                                                     >
                                                         <option value="Open">Open</option>
                                                         <option value="In Progress">In Progress</option>
@@ -138,10 +139,18 @@ export default function Consultation() {
     const navigate = useNavigate();
     const location = useLocation();
 
-    const [fbReady, setFbReady] = useState(true);
     const [isLoading, setIsLoading] = useState(true);
     const [session, setSession] = useState(null);
-    const [permissions, setPermissions] = useState({ viewOnly: false, canEditOwnedActions: false, canDelete: false });
+
+    // RBAC & Filter State
+    const [permissions, setPermissions] = useState({ viewOnly: false, canEditOwnedActions: false, canDelete: false, canEditCreate: false });
+    const [filterSite, setFilterSite] = useState('All');
+    const [filterCategory, setFilterCategory] = useState('All');
+
+    // Calendar States
+    const [calMonth, setCalMonth] = useState(new Date().getMonth());
+    const [calYear, setCalYear] = useState(new Date().getFullYear());
+    const [calSiteFilter, setCalSiteFilter] = useState('All');
 
     // Core Data
     const [sites, setSites] = useState([]);
@@ -152,15 +161,6 @@ export default function Consultation() {
     const [view, setView] = useState('list');
     const [printData, setPrintData] = useState(null);
     const [saving, setSaving] = useState(false);
-
-    // List View Filters
-    const [filterSite, setFilterSite] = useState('All');
-    const [filterCategory, setFilterCategory] = useState('All');
-
-    // Calendar States
-    const [calMonth, setCalMonth] = useState(new Date().getMonth());
-    const [calYear, setCalYear] = useState(new Date().getFullYear());
-    const [calSiteFilter, setCalSiteFilter] = useState('');
 
     // Form Data State
     const [formData, setFormData] = useState({
@@ -175,87 +175,167 @@ export default function Consultation() {
 
     // Load Session and Bulletproof Data
     useEffect(() => {
-        const s = sessionStorage.getItem('isoSession');
-        if (!s) { navigate('/'); return; }
-        const sess = JSON.parse(s);
-        setSession(sess);
+        try {
+            const s = sessionStorage.getItem('isoSession');
+            if (!s) { navigate('/'); return; }
+            const sess = JSON.parse(s);
 
-        const params = new URLSearchParams(location.search);
-        let ctxSite = params.get('site') || 'All';
+            const cleanRole = String(sess.role || '').trim();
 
-        if (sess.role !== 'Owner' && sess.assignedSite && ctxSite === 'All') {
-            ctxSite = sess.assignedSite;
-        }
+            // 1. BULLETPROOF MODULE GUARD
+            const isGlobalAdmin = ['Global Owner', 'Global Manager', 'Owner', 'Admin'].includes(cleanRole);
+            const isSiteAdmin = ['Site Owner', 'Site Manager'].includes(cleanRole);
 
-        setFilterSite(ctxSite);
-        setFormData(prev => ({ ...prev, siteId: ctxSite === 'All' ? '' : ctxSite }));
+            const hasModuleAccess = isGlobalAdmin || isSiteAdmin || (sess.accessibleModules || []).some(m => {
+                const lowerM = String(m).toLowerCase();
+                return lowerM.includes('consultation') || lowerM.includes('communication') || lowerM.includes('meeting');
+            });
 
-        const viewOnly = params.get('viewOnly') === 'true';
-        const role = params.get('role') || sess.role;
-        setPermissions({ viewOnly: viewOnly || role === 'User', canEditOwnedActions: role === 'Manager', canDelete: role === 'Owner' });
+            if (!hasModuleAccess) {
+                alert("Security Alert: You do not have permission to access the Consultation & Communication module.");
+                navigate('/dashboard');
+                return;
+            }
 
-        const pCategory = params.get('category');
-        if (pCategory) {
-            setFormData(prev => ({ ...prev, type: pCategory, subject: params.get('subject') || prev.subject, minutes: params.get('minutes') || prev.minutes }));
-            setView('form');
-        }
+            setSession(sess);
 
-        const loadDatabases = async () => {
-            try {
-                const dbRef = ref(rtdb, `organizations/${sess.orgId}`);
-                const snap = await get(dbRef);
-                if (snap.exists()) {
-                    const orgData = snap.val();
+            // 2. STRICT RBAC MATRIX
+            const canDel = ['Global Owner', 'Owner', 'Admin', 'Site Owner'].includes(cleanRole);
+            const canEditCr = ['Global Owner', 'Global Manager', 'Owner', 'Admin', 'Site Owner', 'Site Manager', 'User'].includes(cleanRole);
 
-                    if (orgData.sites) {
-                        const allSites = Object.entries(orgData.sites).map(([k, v]) => {
-                            if (typeof v === 'object' && v !== null) return { id: k, code: v.code || k, name: v.name || v.code || k, ...v };
-                            return { id: k, code: v, name: v };
-                        });
+            setPermissions({
+                viewOnly: !canEditCr,
+                canEditOwnedActions: true, // Let them update their own tasks in the modal
+                canDelete: canDel,
+                canEditCreate: canEditCr
+            });
 
-                        let finalSites = [];
-                        if (sess.role === 'Owner') {
-                            finalSites = allSites;
-                        } else {
-                            const accessible = Array.isArray(sess.accessibleSites) ? sess.accessibleSites : (sess.assignedSite ? [sess.assignedSite] : []);
-                            finalSites = allSites.filter(s => accessible.includes(s.code) || accessible.includes(s.id) || sess.assignedSite === s.code || sess.assignedSite === s.id);
+            // 3. SYNCHRONIZED SITE PERSISTENCE
+            const params = new URLSearchParams(location.search);
+            let ctxSite = params.get('site') || sessionStorage.getItem('isoCurrentSite') || 'All';
+
+            if (!isGlobalAdmin && ctxSite === 'All') {
+                ctxSite = (sess.assignedSite && sess.assignedSite !== 'GLOBAL') ? sess.assignedSite : (sess.accessibleSites?.[0] || '');
+            }
+
+            setFilterSite(ctxSite);
+            setCalSiteFilter(ctxSite);
+            sessionStorage.setItem('isoCurrentSite', ctxSite === 'All' ? 'GLOBAL' : ctxSite);
+
+            const pCategory = params.get('category');
+            if (pCategory) {
+                setFormData(prev => ({ ...prev, siteId: ctxSite === 'All' ? '' : ctxSite, type: pCategory, subject: params.get('subject') || prev.subject, minutes: params.get('minutes') || prev.minutes }));
+                setView('form');
+            } else {
+                setFormData(prev => ({ ...prev, siteId: ctxSite === 'All' ? '' : ctxSite }));
+            }
+
+            const loadDatabases = async () => {
+                try {
+                    const dbRef = ref(rtdb, `organizations/${sess.orgId}`);
+                    const snap = await get(dbRef);
+                    if (snap.exists()) {
+                        const orgData = snap.val();
+
+                        if (orgData.sites) {
+                            const parsedSites = Object.keys(orgData.sites).map(key => {
+                                const sVal = orgData.sites[key];
+                                return typeof sVal === 'object' ? { id: key, code: sVal.code || key, name: sVal.name || sVal.code || key } : { id: key, code: sVal, name: sVal };
+                            });
+                            setSites(parsedSites);
                         }
-                        setSites(finalSites);
-                        setCalSiteFilter(ctxSite !== 'All' ? ctxSite : (finalSites[0]?.code || 'All'));
-                    }
 
-                    if (orgData.users) {
-                        const allUsers = Object.entries(orgData.users).map(([k, v]) => {
-                            if (typeof v === 'object' && v !== null) return { id: k, name: v.name || "Unknown", role: v.role || "User", ...v };
-                            return { id: k, name: v, role: "User" };
-                        }).filter(u => u.status !== 'Inactive' && u.status !== 'Deleted');
-                        setUsers(allUsers);
-                    }
+                        if (orgData.users) {
+                            const allUsers = Object.keys(orgData.users).map(key => {
+                                const uVal = orgData.users[key];
+                                return typeof uVal === 'object' ? { id: key, name: uVal.name || uVal.email || "System Owner", role: uVal.role || "User", ...uVal } : { id: key, name: uVal || "System Owner", role: "User" };
+                            }).filter(u => u.status !== 'Inactive' && u.status !== 'Deleted');
+                            setUsers(allUsers);
+                        }
 
-                    if (orgData.consultations) {
-                        setMeetings(Object.entries(orgData.consultations)
-                            .map(([k, v]) => ({ firebaseKey: k, ...v }))
-                            .sort((a, b) => new Date(b.date) - new Date(a.date))
-                        );
+                        if (orgData.consultations) {
+                            setMeetings(Object.entries(orgData.consultations)
+                                .map(([k, v]) => ({ firebaseKey: k, ...v }))
+                                .sort((a, b) => new Date(b.date) - new Date(a.date))
+                            );
+                        }
                     }
-                }
-            } catch (err) { console.error("Database Error:", err); }
-            finally { setIsLoading(false); }
-        };
+                } catch (err) { console.error("Database Error:", err); }
+                finally { setIsLoading(false); }
+            };
 
-        loadDatabases();
+            loadDatabases();
+        } catch (error) {
+            console.error("Initialization Error", error);
+            setIsLoading(false);
+        }
     }, [navigate, location.search]);
 
-    // Derived Filtering
+    // ==========================================
+    // 4. STRICT ROW-LEVEL SECURITY (RLS)
+    // ==========================================
+    const role = session?.role?.trim() || 'User';
+    const isGlobalUser = ['Global Owner', 'Global Manager', 'Owner', 'Admin'].includes(role);
+
+    const allowedSiteCodes = useMemo(() => {
+        if (!session) return new Set();
+        const codes = new Set([session.assignedSite, ...(session.accessibleSites || [])].filter(Boolean));
+        if (!isGlobalUser) {
+            codes.delete('GLOBAL');
+            codes.delete('All');
+        }
+        return codes;
+    }, [session, isGlobalUser]);
+
+    const visibleSites = useMemo(() => {
+        if (isGlobalUser) return sites;
+        return sites.filter(s => allowedSiteCodes.has(s.code) || allowedSiteCodes.has(s.id));
+    }, [sites, isGlobalUser, allowedSiteCodes]);
+
+    const handleSiteFilterChange = (e) => {
+        const val = e.target.value;
+        setFilterSite(val);
+        sessionStorage.setItem('isoCurrentSite', val === 'All' ? 'GLOBAL' : val);
+    };
+
+    const handleCalSiteFilterChange = (e) => {
+        const val = e.target.value;
+        setCalSiteFilter(val);
+        sessionStorage.setItem('isoCurrentSite', val === 'All' ? 'GLOBAL' : val);
+    };
+
+    const canViewRecord = (siteId) => isGlobalUser || siteId === 'Global' || siteId === 'GLOBAL' || allowedSiteCodes.has(siteId);
+
+    const canEditForm = useMemo(() => {
+        if (!permissions.canEditCreate) return false;
+        if (isGlobalUser) return true;
+        if (!formData?.siteId) return true;
+        return allowedSiteCodes.has(formData.siteId);
+    }, [permissions.canEditCreate, isGlobalUser, allowedSiteCodes, formData?.siteId]);
+
+    // --- Derived Filtering ---
     const siteUsers = useMemo(() => {
-        if (!formData.siteId) return users;
-        return users.filter(u => u.role === 'Owner' || (u.accessibleSites && u.accessibleSites.includes(formData.siteId)) || u.assignedSite === formData.siteId);
-    }, [users, formData.siteId]);
+        return users.filter(u => {
+            const isGlobalUsr = u.role === 'Owner' || u.role === 'Lead Auditor' || u.assignedSite === 'GLOBAL' || (u.accessibleSites && u.accessibleSites.includes('GLOBAL'));
+            const activeSiteId = formData.siteId || filterSite;
+            const siteMatch = isGlobalUsr || !activeSiteId || activeSiteId === 'All' || u.assignedSite === activeSiteId || (u.accessibleSites && u.accessibleSites.includes(activeSiteId));
+            return siteMatch;
+        });
+    }, [users, formData.siteId, filterSite]);
 
-    const canEdit = !permissions.viewOnly || (permissions.canEditOwnedActions && (formData.actions || []).some(c => c.owner === session?.user));
+    const filteredList = useMemo(() => {
+        return meetings.filter(m => {
+            if (!canViewRecord(m.siteId)) return false; // RLS Hard Block
+            const matchSite = filterSite === 'All' || m.siteId === filterSite;
+            const matchCat = filterCategory === 'All' || m.type === filterCategory;
+            return matchSite && matchCat;
+        });
+    }, [meetings, filterSite, filterCategory, canViewRecord]);
 
-    // Handlers
+
+    // --- Handlers ---
     const handleAddAttendee = (type) => {
+        if (!canEditForm) return;
         if (type === 'external') {
             if (!externalName.trim()) return alert("Enter external attendee name.");
             if ((formData.attendees || []).some(a => a.name.toLowerCase() === externalName.trim().toLowerCase())) return alert("Attendee is already in the list.");
@@ -264,17 +344,21 @@ export default function Consultation() {
             setExternalName('');
         } else {
             if (!selectedUserToAdd) return;
-            const userObj = users.find(u => u.name === selectedUserToAdd);
+            const userObj = users.find(u => u.name === selectedUserToAdd || u.email === selectedUserToAdd);
             if ((formData.attendees || []).some(a => a.name === selectedUserToAdd)) return alert("Employee is already in the list.");
-            const newAttendee = { userId: userObj ? userObj.id : 'Internal', name: userObj ? userObj.name : selectedUserToAdd, role: userObj ? (userObj.designation || userObj.role) : 'Employee', dept: userObj ? userObj.department : 'N/A' };
+            const newAttendee = { userId: userObj ? userObj.id : 'Internal', name: userObj ? (userObj.name || userObj.email) : selectedUserToAdd, role: userObj ? (userObj.designation || userObj.role) : 'Employee', dept: userObj ? userObj.department : 'N/A' };
             setFormData(prev => ({ ...prev, attendees: [...(prev.attendees || []), newAttendee] }));
             setSelectedUserToAdd('');
         }
     };
 
-    const removeAttendee = (i) => setFormData({ ...formData, attendees: formData.attendees.filter((_, x) => x !== i) });
+    const removeAttendee = (i) => {
+        if (!canEditForm) return;
+        setFormData({ ...formData, attendees: formData.attendees.filter((_, x) => x !== i) });
+    }
 
     const addAction = () => {
+        if (!canEditForm) return;
         if (newActionLine.action && newActionLine.owner) {
             setFormData({ ...formData, actions: [...(formData.actions || []), { ...newActionLine, status: 'Open' }] });
             setNewActionLine({ action: '', owner: '', due: '' });
@@ -283,14 +367,22 @@ export default function Consultation() {
         }
     };
 
-    const updateAction = (i, field, val) => { const na = [...formData.actions]; na[i][field] = val; setFormData({ ...formData, actions: na }); };
-    const removeAction = (i) => setFormData({ ...formData, actions: formData.actions.filter((_, x) => x !== i) });
+    const updateAction = (i, field, val) => {
+        if (!canEditForm) return;
+        const na = [...formData.actions]; na[i][field] = val; setFormData({ ...formData, actions: na });
+    };
+    const removeAction = (i) => {
+        if (!canEditForm) return;
+        setFormData({ ...formData, actions: formData.actions.filter((_, x) => x !== i) });
+    }
 
     const saveRecord = async () => {
+        if (!canEditForm) return alert("Security Error: You do not have permission to edit records for this site.");
         if (!formData.siteId || !formData.subject) return alert("Site and Subject are required.");
+
         setSaving(true);
         const finalDocId = formData.docId || `MOM-${formData.siteId}-${Date.now().toString().slice(-4)}`;
-        const payload = { ...formData, docId: finalDocId, timestamp: new Date().toISOString(), createdBy: session.user };
+        const payload = { ...formData, docId: finalDocId, timestamp: new Date().toISOString(), createdBy: session.name || session.email };
 
         try {
             if (formData.firebaseKey) {
@@ -300,7 +392,6 @@ export default function Consultation() {
             }
             alert("Record saved successfully!");
 
-            // Refresh local state smoothly
             const dbRef = ref(rtdb, `organizations/${session.orgId}/consultations`);
             const snap = await get(dbRef);
             if (snap.exists()) {
@@ -312,6 +403,7 @@ export default function Consultation() {
     };
 
     const deleteRecord = async (key) => {
+        if (!permissions.canDelete) return alert("Security Error: You do not have permission to delete this record.");
         if (window.confirm("Delete this record permanently?")) {
             await remove(ref(rtdb, `organizations/${session.orgId}/consultations/${key}`));
             setMeetings(meetings.filter(m => m.firebaseKey !== key));
@@ -320,20 +412,26 @@ export default function Consultation() {
 
     const quickStatusUpdate = async (key, idx, newStatus) => {
         const meeting = meetings.find(m => m.firebaseKey === key);
+        const actionRow = meeting.actions[idx];
+
+        // Modal level RLS check
+        if (!permissions.canEditCreate && actionRow.owner !== (session.name || session.email || session.user)) {
+            return alert("Security Error: You can only update actions assigned to you.");
+        }
+
         const updatedActions = [...meeting.actions];
         updatedActions[idx].status = newStatus;
         await update(ref(rtdb, `organizations/${session.orgId}/consultations/${key}`), { actions: updatedActions });
         setMeetings(meetings.map(m => m.firebaseKey === key ? { ...m, actions: updatedActions } : m));
 
-        // Also update formData if currently viewing the detail modal
-        if (formData.firebaseKey === key) {
+        if (formData && formData.firebaseKey === key) {
             setFormData(prev => ({ ...prev, actions: updatedActions }));
         }
     };
 
     const triggerPrint = (dataObj) => { setPrintData(dataObj); setTimeout(() => window.print(), 800); };
 
-    // Compliance Logic
+    // --- Compliance Logic ---
     const pendingMeetings = useMemo(() => {
         if (!calSiteFilter || calSiteFilter === 'All') return [];
         const pending = [];
@@ -372,6 +470,7 @@ export default function Consultation() {
     };
 
     const handleLogPending = (type) => {
+        if (!permissions.canEditCreate) return alert("Security Error: You do not have permission to log meetings.");
         const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
         const today = new Date();
         setFormData({
@@ -390,8 +489,6 @@ export default function Consultation() {
         </div>
     );
 
-    const filteredList = meetings.filter(m => (filterSite === 'All' || m.siteId === filterSite) && (filterCategory === 'All' || m.type === filterCategory));
-
     return (
         <div className="flex flex-col h-screen bg-slate-950 text-white font-['Space_Grotesk'] overflow-hidden relative">
             <div className="absolute top-0 right-0 w-[600px] h-[600px] bg-teal-600/5 rounded-full blur-[120px] pointer-events-none z-0"></div>
@@ -399,18 +496,25 @@ export default function Consultation() {
             {/* APP HEADER - Hidden on Print */}
             <header className="app-ui h-16 border-b border-slate-800 bg-slate-900/80 backdrop-blur-md flex items-center justify-between px-6 z-20 flex-shrink-0 print:hidden">
                 <div className="flex items-center gap-4">
-                    <button onClick={() => navigate('/dashboard')} className="text-slate-400 hover:text-white transition-colors flex items-center gap-2"><i className="fas fa-arrow-left"></i> Hub</button>
+                    <button type="button" onClick={() => navigate('/dashboard')} className="text-slate-400 hover:text-white transition-colors flex items-center gap-2"><i className="fas fa-arrow-left"></i> Hub</button>
                     <div className="h-6 w-px bg-slate-800 mx-2"></div>
                     <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-teal-500 to-emerald-600 flex items-center justify-center text-white font-bold shadow-lg shadow-teal-900/50"><i className="fas fa-comments"></i></div>
                     <h1 className="font-bold text-lg tracking-wide hidden md:block">Consultation & Meetings</h1>
+
+                    <div className="ml-4 flex gap-2">
+                        <span className="text-[10px] uppercase font-bold tracking-widest bg-teal-500/10 text-teal-400 px-2 py-1 rounded border border-teal-500/20">{session?.role}</span>
+                        {permissions.viewOnly && <span className="text-[10px] uppercase font-bold tracking-widest bg-yellow-500/10 text-yellow-400 px-2 py-1 rounded border border-yellow-500/20"><i className="fas fa-eye mr-1"></i> Read Only</span>}
+                    </div>
                 </div>
                 <div className="flex bg-slate-950 p-1.5 rounded-xl border border-slate-800 shadow-inner gap-1">
-                    <button onClick={() => setView('list')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-widest transition-all ${view === 'list' || view === 'detail' ? 'bg-teal-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}><i className="fas fa-database mr-1"></i> Dashboard</button>
-                    <button onClick={() => setView('calendar')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-widest transition-all ${view === 'calendar' ? 'bg-teal-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}><i className="fas fa-calendar-alt mr-1"></i> Calendar</button>
-                    <button onClick={() => {
-                        setFormData({ id: '', firebaseKey: '', siteId: filterSite !== 'All' ? filterSite : (sites.length > 0 ? sites[0].code : ''), type: 'HSE Committee Meeting', subject: '', date: new Date().toISOString().split('T')[0], time: '', preRequisites: '', minutes: '', attendees: [], actions: [] });
-                        setView('form');
-                    }} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-widest transition-all ${view === 'form' ? 'bg-emerald-600 text-white shadow-lg' : 'text-emerald-400 hover:text-white hover:bg-slate-800'}`}><i className="fas fa-plus mr-1"></i> New Meeting</button>
+                    <button type="button" onClick={() => setView('list')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-widest transition-all ${view === 'list' || view === 'detail' ? 'bg-teal-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}><i className="fas fa-database mr-1"></i> Dashboard</button>
+                    <button type="button" onClick={() => setView('calendar')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-widest transition-all ${view === 'calendar' ? 'bg-teal-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}><i className="fas fa-calendar-alt mr-1"></i> Calendar</button>
+                    {permissions.canEditCreate && (
+                        <button type="button" onClick={() => {
+                            setFormData({ id: '', firebaseKey: '', siteId: (!isGlobalUser && visibleSites.length === 1) ? visibleSites[0].code : (filterSite !== 'All' ? filterSite : ''), type: 'HSE Committee Meeting', subject: '', date: new Date().toISOString().split('T')[0], time: '', preRequisites: '', minutes: '', attendees: [], actions: [] });
+                            setView('form');
+                        }} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-widest transition-all ${view === 'form' ? 'bg-emerald-600 text-white shadow-lg' : 'text-emerald-400 hover:text-white hover:bg-slate-800'}`}><i className="fas fa-plus mr-1"></i> New Meeting</button>
+                    )}
                 </div>
             </header>
 
@@ -427,16 +531,16 @@ export default function Consultation() {
                             </div>
                             <div className="flex items-center gap-3">
                                 <div className="bg-slate-900 border border-slate-700 p-1.5 rounded-xl flex gap-2 shadow-inner">
-                                    <select className="bg-slate-950 text-white text-xs font-bold px-3 py-2 rounded-lg outline-none border border-slate-800 focus:border-teal-500" value={filterSite} onChange={e => setFilterSite(e.target.value)}>
-                                        <option value="All">All Sites</option>
-                                        {sites.map((s, idx) => <option key={s.id || idx} value={s.code || s.id}>{s.name}</option>)}
+                                    <select className="bg-slate-950 text-white text-xs font-bold px-3 py-2 rounded-lg outline-none border border-slate-800 focus:border-teal-500" value={filterSite} onChange={handleSiteFilterChange}>
+                                        {(isGlobalUser || visibleSites.length > 1) && <option value="All">All Authorized Sites</option>}
+                                        {visibleSites.map((s, idx) => <option key={s.id || idx} value={s.code || s.id}>{s.name}</option>)}
                                     </select>
                                     <select className="bg-slate-950 text-white text-xs font-bold px-3 py-2 rounded-lg outline-none border border-slate-800 focus:border-teal-500" value={filterCategory} onChange={e => setFilterCategory(e.target.value)}>
                                         <option value="All">All Categories</option>
                                         {MEETING_TYPES.map(t => <option key={t}>{t}</option>)}
                                     </select>
                                 </div>
-                                <button onClick={() => {
+                                <button type="button" onClick={() => {
                                     const dataToExport = filteredList.map(m => ({ ID: m.docId, Site: m.siteId, Date: m.date, Type: m.type, Subject: m.subject, Attendees: (m.attendees || []).length, Actions: (m.actions || []).length }));
                                     const ws = XLSX.utils.json_to_sheet(dataToExport); const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, "Meetings"); XLSX.writeFile(wb, "Meetings_Export.xlsx");
                                 }} className="bg-slate-800 hover:bg-slate-700 text-white px-4 py-2.5 rounded-xl font-bold text-xs shadow flex items-center gap-2 transition-colors border border-slate-600"><i className="fas fa-file-excel text-emerald-500"></i> Export</button>
@@ -478,8 +582,13 @@ export default function Consultation() {
                                                 </span>
                                             </div>
                                             <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                {!permissions.viewOnly && <button onClick={e => { e.stopPropagation(); setFormData(m); setView('form'); }} className="text-slate-400 hover:text-white bg-slate-800 hover:bg-blue-600 w-8 h-8 rounded-lg flex items-center justify-center transition-colors shadow-lg"><i className="fas fa-edit"></i></button>}
-                                                {permissions.canDelete && <button onClick={e => { e.stopPropagation(); deleteRecord(m.firebaseKey); }} className="text-slate-400 hover:text-white bg-slate-800 hover:bg-red-600 w-8 h-8 rounded-lg flex items-center justify-center transition-colors shadow-lg"><i className="fas fa-trash"></i></button>}
+                                                {permissions.canEditCreate ? (
+                                                    <button type="button" onClick={e => { e.stopPropagation(); setFormData(m); setView('form'); }} className="text-blue-400 hover:text-white bg-slate-800 hover:bg-blue-600 w-8 h-8 rounded-lg flex items-center justify-center transition-colors shadow-lg"><i className="fas fa-edit"></i></button>
+                                                ) : (
+                                                    <button type="button" onClick={e => { e.stopPropagation(); setFormData(m); setView('form'); }} className="text-slate-400 hover:text-white bg-slate-800 hover:bg-slate-700 w-8 h-8 rounded-lg flex items-center justify-center transition-colors shadow-lg"><i className="fas fa-eye"></i></button>
+                                                )}
+
+                                                {permissions.canDelete && <button type="button" onClick={e => { e.stopPropagation(); deleteRecord(m.firebaseKey); }} className="text-red-500 hover:text-white bg-slate-800 hover:bg-red-600 w-8 h-8 rounded-lg flex items-center justify-center transition-colors shadow-lg"><i className="fas fa-trash"></i></button>}
                                             </div>
                                         </div>
                                     </div>
@@ -496,15 +605,15 @@ export default function Consultation() {
                         <div className="flex justify-between items-center bg-slate-900 p-6 rounded-3xl border border-slate-700 shadow-xl">
                             <div className="flex items-center gap-4">
                                 <label className="text-xs uppercase font-bold text-slate-400 tracking-widest">Compliance Site</label>
-                                <select className="bg-slate-950 p-3 rounded-xl w-64 border border-slate-800 text-sm font-bold text-teal-400 outline-none focus:border-teal-500 shadow-inner transition-colors" value={calSiteFilter} onChange={e => setCalSiteFilter(e.target.value)}>
-                                    <option value="" disabled>Select a Site...</option>
-                                    {sites.map((s, idx) => <option key={s.id || idx} value={s.code || s.id}>{s.name}</option>)}
+                                <select className="bg-slate-950 p-3 rounded-xl w-64 border border-slate-800 text-sm font-bold text-teal-400 outline-none focus:border-teal-500 shadow-inner transition-colors" value={calSiteFilter} onChange={handleCalSiteFilterChange}>
+                                    {(isGlobalUser || visibleSites.length > 1) && <option value="All">All Authorized Sites</option>}
+                                    {visibleSites.map((s, idx) => <option key={s.id || idx} value={s.code || s.id}>{s.name}</option>)}
                                 </select>
                             </div>
                             <div className="flex items-center gap-2 bg-slate-950 rounded-xl p-1.5 border border-slate-800 shadow-inner">
-                                <button onClick={() => { if (calMonth === 0) { setCalMonth(11); setCalYear(y => y - 1) } else { setCalMonth(m => m - 1) } }} className="px-4 py-2 hover:bg-slate-800 rounded-lg text-slate-300 transition-colors"><i className="fas fa-chevron-left"></i></button>
+                                <button type="button" onClick={() => { if (calMonth === 0) { setCalMonth(11); setCalYear(y => y - 1) } else { setCalMonth(m => m - 1) } }} className="px-4 py-2 hover:bg-slate-800 rounded-lg text-slate-300 transition-colors"><i className="fas fa-chevron-left"></i></button>
                                 <span className="font-bold w-40 text-center text-white text-sm tracking-wide">{["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"][calMonth]} {calYear}</span>
-                                <button onClick={() => { if (calMonth === 11) { setCalMonth(0); setCalYear(y => y + 1) } else { setCalMonth(m => m + 1) } }} className="px-4 py-2 hover:bg-slate-800 rounded-lg text-slate-300 transition-colors"><i className="fas fa-chevron-right"></i></button>
+                                <button type="button" onClick={() => { if (calMonth === 11) { setCalMonth(0); setCalYear(y => y + 1) } else { setCalMonth(m => m + 1) } }} className="px-4 py-2 hover:bg-slate-800 rounded-lg text-slate-300 transition-colors"><i className="fas fa-chevron-right"></i></button>
                             </div>
                         </div>
 
@@ -521,14 +630,14 @@ export default function Consultation() {
                                                     {getFreqLabel(p)} Due
                                                 </div>
                                             </div>
-                                            {!permissions.viewOnly && <button onClick={() => handleLogPending(p)} className="w-full bg-orange-600/10 hover:bg-orange-600 text-orange-400 hover:text-white border border-orange-500/20 px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-widest transition-colors shadow-sm">Log Meeting Now</button>}
+                                            {permissions.canEditCreate && <button type="button" onClick={() => handleLogPending(p)} className="w-full bg-orange-600/10 hover:bg-orange-600 text-orange-400 hover:text-white border border-orange-500/20 px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-widest transition-colors shadow-sm">Log Meeting Now</button>}
                                         </div>
                                     ))}
                                     {pendingMeetings.length === 0 && <div className="text-emerald-400 font-bold p-6 bg-emerald-900/10 rounded-2xl border border-emerald-500/20 w-full col-span-full flex items-center gap-3 shadow-inner"><i className="fas fa-check-circle text-3xl"></i> All mandated statutory meetings for this period are completely up to date!</div>}
                                 </div>
                             </div>
                         ) : (
-                            <div className="text-yellow-400 italic text-sm p-6 bg-yellow-900/10 rounded-2xl border border-yellow-500/20 w-full mb-8 shadow-inner font-bold text-center">Please select a valid facility site from the dropdown above to view compliance status.</div>
+                            <div className="text-yellow-400 italic text-sm p-6 bg-yellow-900/10 rounded-2xl border border-yellow-500/20 w-full mb-8 shadow-inner font-bold text-center">Please select a specific facility site from the dropdown to view compliance status.</div>
                         )}
 
                         <div className="glass-panel p-8 rounded-3xl shadow-2xl border border-slate-700">
@@ -543,7 +652,12 @@ export default function Consultation() {
                                     for (let i = 0; i < firstDayIndex; i++) boxes.push(<div key={`empty-${i}`} className="p-2 border-r border-b border-slate-800 bg-slate-900/30 min-h-[140px]"></div>);
                                     for (let d = 1; d <= daysInMonth; d++) {
                                         const dateStr = `${calYear}-${String(calMonth + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-                                        const dayMeetings = meetings.filter(c => c.date === dateStr && c.siteId === calSiteFilter);
+
+                                        const dayMeetings = meetings.filter(c => {
+                                            if (!canViewRecord(c.siteId)) return false;
+                                            return c.date === dateStr && (calSiteFilter === 'All' || c.siteId === calSiteFilter);
+                                        });
+
                                         boxes.push(
                                             <div key={d} className="p-3 border-r border-b border-slate-800 bg-slate-900 hover:bg-slate-800/80 transition-colors min-h-[140px] flex flex-col group">
                                                 <span className="font-bold text-slate-500 block text-right mb-2 text-sm group-hover:text-slate-300 transition-colors">{d}</span>
@@ -570,48 +684,48 @@ export default function Consultation() {
                         <div className="glass-panel p-8 md:p-10 rounded-3xl border border-slate-700 shadow-2xl">
                             <div className="flex justify-between items-center mb-10 border-b border-slate-700 pb-6">
                                 <div>
-                                    <h2 className="text-3xl font-bold text-teal-400 flex items-center gap-4"><i className="fas fa-edit"></i> {formData.firebaseKey ? 'Edit Consultation Record' : 'Log New Meeting'}</h2>
+                                    <h2 className="text-3xl font-bold text-teal-400 flex items-center gap-4"><i className="fas fa-edit"></i> {formData.firebaseKey ? (canEditForm ? 'Edit Consultation Record' : 'View Consultation Record') : 'Log New Meeting'}</h2>
                                     <p className="text-sm text-slate-400 font-mono mt-2 ml-10">Ref: {formData.docId || 'DRAFT'}</p>
                                 </div>
                                 <div className="flex gap-3">
-                                    <button onClick={() => setView('list')} className="text-slate-400 hover:text-white px-5 py-2.5 rounded-xl font-bold text-sm transition-colors">Cancel</button>
-                                    {formData.firebaseKey && <button onClick={() => triggerPrint(formData)} className="bg-slate-800 hover:bg-slate-700 text-white px-6 py-2.5 rounded-xl font-bold text-sm shadow-lg transition-colors flex items-center gap-2"><i className="fas fa-print"></i> Print</button>}
+                                    <button type="button" onClick={() => setView('list')} className="text-slate-400 hover:text-white px-5 py-2.5 rounded-xl font-bold text-sm transition-colors">Cancel</button>
+                                    {formData.firebaseKey && <button type="button" onClick={() => triggerPrint(formData)} className="bg-slate-800 hover:bg-slate-700 text-white px-6 py-2.5 rounded-xl font-bold text-sm shadow-lg transition-colors flex items-center gap-2"><i className="fas fa-print"></i> Print</button>}
                                 </div>
                             </div>
 
                             <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-10 bg-slate-900/60 p-8 rounded-2xl border border-slate-800 shadow-inner">
                                 <div>
                                     <label className="text-[10px] uppercase font-bold text-slate-500 block mb-2 tracking-widest ml-1">Facility / Site</label>
-                                    <select className="w-full bg-slate-950 border border-slate-700 p-3.5 rounded-xl text-sm font-bold text-white focus:border-teal-500 outline-none shadow-inner transition-colors" value={formData.siteId} onChange={e => setFormData({ ...formData, siteId: e.target.value, attendees: [], actions: [] })} disabled={!canEdit || (formData.firebaseKey && session.role !== 'Owner')}>
-                                        <option value="">Select Site...</option>
-                                        {sites.map((s, idx) => <option key={s.id || idx} value={s.code || s.id}>{s.name}</option>)}
+                                    <select className="w-full bg-slate-950 border border-slate-700 p-3.5 rounded-xl text-sm font-bold text-white focus:border-teal-500 outline-none shadow-inner transition-colors" value={formData.siteId} onChange={e => setFormData({ ...formData, siteId: e.target.value, attendees: [], actions: [] })} disabled={!canEditForm || (formData.firebaseKey && !isGlobalUser)}>
+                                        {(isGlobalUser || visibleSites.length > 1) && <option value="">Select Site...</option>}
+                                        {visibleSites.map((s, idx) => <option key={s.id || idx} value={s.code || s.id}>{s.name}</option>)}
                                     </select>
                                 </div>
                                 <div>
                                     <label className="text-[10px] uppercase font-bold text-slate-500 block mb-2 tracking-widest ml-1">Meeting Category</label>
-                                    <select className="w-full bg-slate-950 border border-slate-700 p-3.5 rounded-xl text-sm font-bold text-teal-400 focus:border-teal-500 outline-none shadow-inner transition-colors" value={formData.type} onChange={e => setFormData({ ...formData, type: e.target.value })} disabled={!canEdit}>
+                                    <select className="w-full bg-slate-950 border border-slate-700 p-3.5 rounded-xl text-sm font-bold text-teal-400 focus:border-teal-500 outline-none shadow-inner transition-colors" value={formData.type} onChange={e => setFormData({ ...formData, type: e.target.value })} disabled={!canEditForm}>
                                         {MEETING_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
                                     </select>
                                 </div>
                                 <div className="grid grid-cols-2 gap-4">
                                     <div>
                                         <label className="text-[10px] uppercase font-bold text-slate-500 block mb-2 tracking-widest ml-1">Date</label>
-                                        <input type="date" value={formData.date} onChange={e => setFormData({ ...formData, date: e.target.value })} disabled={!canEdit} className="w-full bg-slate-950 border border-slate-700 p-3.5 rounded-xl text-sm text-white outline-none shadow-inner font-mono transition-colors focus:border-teal-500" />
+                                        <input type="date" value={formData.date} onChange={e => setFormData({ ...formData, date: e.target.value })} disabled={!canEditForm} className="w-full bg-slate-950 border border-slate-700 p-3.5 rounded-xl text-sm text-white outline-none shadow-inner font-mono transition-colors focus:border-teal-500" />
                                     </div>
                                     <div>
                                         <label className="text-[10px] uppercase font-bold text-slate-500 block mb-2 tracking-widest ml-1">Time</label>
-                                        <input type="time" value={formData.time} onChange={e => setFormData({ ...formData, time: e.target.value })} disabled={!canEdit} className="w-full bg-slate-950 border border-slate-700 p-3.5 rounded-xl text-sm text-white outline-none shadow-inner font-mono transition-colors focus:border-teal-500" />
+                                        <input type="time" value={formData.time} onChange={e => setFormData({ ...formData, time: e.target.value })} disabled={!canEditForm} className="w-full bg-slate-950 border border-slate-700 p-3.5 rounded-xl text-sm text-white outline-none shadow-inner font-mono transition-colors focus:border-teal-500" />
                                     </div>
                                 </div>
                                 <div className="md:col-span-3">
                                     <label className="text-[10px] uppercase font-bold text-slate-500 block mb-2 tracking-widest ml-1">Subject / Primary Agenda</label>
-                                    <input value={formData.subject} onChange={e => setFormData({ ...formData, subject: e.target.value })} placeholder="Main topic of discussion..." disabled={!canEdit} className="w-full bg-slate-950 border border-slate-700 p-4 rounded-xl text-base font-bold text-white focus:border-teal-500 outline-none shadow-inner transition-colors" />
+                                    <input value={formData.subject} onChange={e => setFormData({ ...formData, subject: e.target.value })} placeholder="Main topic of discussion..." disabled={!canEditForm} className="w-full bg-slate-950 border border-slate-700 p-4 rounded-xl text-base font-bold text-white focus:border-teal-500 outline-none shadow-inner transition-colors" />
                                 </div>
                             </div>
 
                             <div className="mb-10 bg-slate-900/50 p-8 rounded-2xl border border-slate-800 shadow-inner">
                                 <label className="text-xs uppercase font-bold text-teal-400 tracking-widest mb-3 block flex items-center gap-2"><i className="fas fa-clipboard-list"></i> Pre-Requisites / Inputs</label>
-                                <textarea value={formData.preRequisites} onChange={e => setFormData({ ...formData, preRequisites: e.target.value })} className="w-full bg-slate-950 border border-slate-700 p-5 rounded-xl text-sm font-medium text-slate-300 focus:border-teal-500 resize-none custom-scroll outline-none shadow-inner transition-colors leading-relaxed" placeholder="Record reference materials, incident IDs, or data inputs required for this meeting..." disabled={!canEdit} rows="3"></textarea>
+                                <textarea value={formData.preRequisites} onChange={e => setFormData({ ...formData, preRequisites: e.target.value })} className="w-full bg-slate-950 border border-slate-700 p-5 rounded-xl text-sm font-medium text-slate-300 focus:border-teal-500 resize-none custom-scroll outline-none shadow-inner transition-colors leading-relaxed" placeholder="Record reference materials, incident IDs, or data inputs required for this meeting..." disabled={!canEditForm} rows="3"></textarea>
                             </div>
 
                             <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 mb-10">
@@ -621,7 +735,7 @@ export default function Consultation() {
                                         <h3 className="font-bold text-purple-400 uppercase text-xs tracking-widest flex items-center gap-2"><i className="fas fa-users"></i> Attendance Roster <span className="bg-purple-900/50 text-white px-2 py-0.5 rounded border border-purple-500/50 text-[10px] ml-1">{(formData.attendees || []).length}</span></h3>
                                     </div>
 
-                                    {canEdit && (
+                                    {canEditForm && (
                                         <div className="space-y-4 mb-6">
                                             <div>
                                                 <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest block mb-2 ml-1">Internal Staff</label>
@@ -629,17 +743,17 @@ export default function Consultation() {
                                                     <select value={selectedUserToAdd} onChange={e => setSelectedUserToAdd(e.target.value)} className="w-full text-sm font-bold bg-slate-950 border border-slate-700 rounded-xl p-3 focus:border-purple-500 text-white outline-none shadow-inner transition-colors">
                                                         <option value="">Select Internal Employee...</option>
                                                         {siteUsers.map(u => (
-                                                            <option key={u.id} value={u.name}>{u.name} ({u.role})</option>
+                                                            <option key={u.id} value={u.name || u.email}>{u.name || u.email} ({u.role})</option>
                                                         ))}
                                                     </select>
-                                                    <button onClick={() => handleAddAttendee('internal')} className="bg-purple-600 hover:bg-purple-500 text-white px-5 rounded-xl font-bold shadow-lg shadow-purple-600/20 transition-transform active:scale-95 whitespace-nowrap"><i className="fas fa-plus"></i></button>
+                                                    <button type="button" onClick={() => handleAddAttendee('internal')} className="bg-purple-600 hover:bg-purple-500 text-white px-5 rounded-xl font-bold shadow-lg shadow-purple-600/20 transition-transform active:scale-95 whitespace-nowrap"><i className="fas fa-plus"></i></button>
                                                 </div>
                                             </div>
                                             <div>
                                                 <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest block mb-2 ml-1">External Contractor</label>
                                                 <div className="flex gap-2">
                                                     <input value={externalName} onChange={e => setExternalName(e.target.value)} placeholder="Type Contractor Name..." className="w-full text-sm font-bold bg-slate-950 border border-slate-700 rounded-xl p-3 focus:border-pink-500 text-white outline-none shadow-inner transition-colors" />
-                                                    <button onClick={() => handleAddAttendee('external')} className="bg-pink-600 hover:bg-pink-500 text-white px-5 rounded-xl font-bold shadow-lg shadow-pink-600/20 transition-transform active:scale-95 whitespace-nowrap"><i className="fas fa-plus"></i></button>
+                                                    <button type="button" onClick={() => handleAddAttendee('external')} className="bg-pink-600 hover:bg-pink-500 text-white px-5 rounded-xl font-bold shadow-lg shadow-pink-600/20 transition-transform active:scale-95 whitespace-nowrap"><i className="fas fa-plus"></i></button>
                                                 </div>
                                             </div>
                                         </div>
@@ -659,7 +773,7 @@ export default function Consultation() {
                                                         </td>
                                                         <td className="p-4 text-xs text-slate-400">{att.role}</td>
                                                         <td className="p-4 text-center">
-                                                            {canEdit && <button onClick={() => removeAttendee(idx)} className="text-red-500 hover:text-white bg-red-900/20 hover:bg-red-600 w-8 h-8 rounded-lg flex items-center justify-center transition-colors shadow-sm"><i className="fas fa-trash-alt"></i></button>}
+                                                            {canEditForm && <button type="button" onClick={() => removeAttendee(idx)} className="text-red-500 hover:text-white bg-red-900/20 hover:bg-red-600 w-8 h-8 rounded-lg flex items-center justify-center transition-colors shadow-sm"><i className="fas fa-trash-alt"></i></button>}
                                                         </td>
                                                     </tr>
                                                 ))}
@@ -672,7 +786,7 @@ export default function Consultation() {
                                 {/* Minutes */}
                                 <div className="bg-slate-900/50 p-8 rounded-2xl border border-slate-800 shadow-inner flex flex-col h-[500px]">
                                     <label className="text-xs uppercase font-bold text-teal-400 tracking-widest mb-4 block border-b border-slate-800 pb-3 flex items-center gap-2"><i className="fas fa-comments"></i> Official Discussion Minutes</label>
-                                    <textarea value={formData.minutes} onChange={e => setFormData({ ...formData, minutes: e.target.value })} className="w-full flex-1 bg-slate-950 border border-slate-700 p-5 rounded-xl text-sm font-medium text-white focus:border-teal-500 resize-none custom-scroll outline-none shadow-inner transition-colors leading-relaxed" placeholder="Record the general discussion points, topics covered, and any feedback received from participants here..." disabled={!canEdit}></textarea>
+                                    <textarea value={formData.minutes} onChange={e => setFormData({ ...formData, minutes: e.target.value })} className="w-full flex-1 bg-slate-950 border border-slate-700 p-5 rounded-xl text-sm font-medium text-white focus:border-teal-500 resize-none custom-scroll outline-none shadow-inner transition-colors leading-relaxed" placeholder="Record the general discussion points, topics covered, and any feedback received from participants here..." disabled={!canEditForm}></textarea>
                                 </div>
                             </div>
 
@@ -684,7 +798,7 @@ export default function Consultation() {
                                     <label className="text-sm uppercase font-bold text-blue-400 tracking-widest flex items-center gap-2"><i className="fas fa-list-check"></i> Formulated Action Plan (CAPA)</label>
                                 </div>
 
-                                {canEdit && (
+                                {canEditForm && (
                                     <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-8 bg-slate-950 p-5 rounded-xl border border-slate-700 shadow-inner relative z-10">
                                         <div className="md:col-span-2">
                                             <label className="text-[10px] uppercase font-bold text-slate-500 tracking-widest block mb-2 ml-1">Corrective Action Description</label>
@@ -694,7 +808,7 @@ export default function Consultation() {
                                             <label className="text-[10px] uppercase font-bold text-slate-500 tracking-widest block mb-2 ml-1">Owner / Assignee</label>
                                             <select value={newActionLine.owner} onChange={e => setNewActionLine({ ...newActionLine, owner: e.target.value })} className="w-full bg-slate-900 border border-slate-700 p-3 rounded-xl text-sm font-bold text-blue-300 focus:border-blue-500 outline-none transition-colors">
                                                 <option value="">Select...</option>
-                                                {siteUsers.map(u => <option key={u.id} value={u.name}>{u.name}</option>)}
+                                                {siteUsers.map(u => <option key={u.id} value={u.name || u.email}>{u.name || u.email}</option>)}
                                             </select>
                                         </div>
                                         <div className="md:col-span-2 flex items-end gap-3">
@@ -702,7 +816,7 @@ export default function Consultation() {
                                                 <label className="text-[10px] uppercase font-bold text-slate-500 tracking-widest block mb-2 ml-1">Target Date</label>
                                                 <input type="date" value={newActionLine.due} onChange={e => setNewActionLine({ ...newActionLine, due: e.target.value })} className="w-full bg-slate-900 border border-slate-700 p-3 rounded-xl text-sm font-mono text-white focus:border-blue-500 outline-none transition-colors" />
                                             </div>
-                                            <button onClick={addAction} className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-3 rounded-xl shadow-lg transition-transform active:scale-95 font-bold uppercase tracking-widest text-xs h-[46px] flex items-center justify-center gap-2"><i className="fas fa-plus"></i> Add</button>
+                                            <button type="button" onClick={addAction} className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-3 rounded-xl shadow-lg transition-transform active:scale-95 font-bold uppercase tracking-widest text-xs h-[46px] flex items-center justify-center gap-2"><i className="fas fa-plus"></i> Add</button>
                                         </div>
                                     </div>
                                 )}
@@ -714,28 +828,28 @@ export default function Consultation() {
                                         </thead>
                                         <tbody className="divide-y divide-slate-800/80 bg-slate-950/80">
                                             {(formData.actions || []).map((c, i) => {
-                                                const canEditRow = !permissions.viewOnly || (permissions.canEditOwnedActions && c.owner === session.user);
+                                                const canEditRowStatus = canEditForm || (permissions.canEditOwnedActions && c.owner === (session.name || session.email || session.user));
                                                 return (
                                                     <tr key={i} className="hover:bg-slate-800/60 transition-colors">
                                                         <td className="p-3 pl-6">
-                                                            <input value={c.action} onChange={e => updateAction(i, 'action', e.target.value)} placeholder="Task details..." className="w-full bg-transparent border-b border-transparent hover:border-slate-700 focus:border-blue-500 text-sm font-medium px-2 py-1.5 outline-none text-white transition-colors" disabled={!canEdit} />
+                                                            <input value={c.action} onChange={e => updateAction(i, 'action', e.target.value)} placeholder="Task details..." className="w-full bg-transparent border-b border-transparent hover:border-slate-700 focus:border-blue-500 text-sm font-medium px-2 py-1.5 outline-none text-white transition-colors" disabled={!canEditForm} />
                                                         </td>
                                                         <td className="p-3">
-                                                            <select value={c.owner} onChange={e => updateAction(i, 'owner', e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-xs font-bold text-blue-300 outline-none focus:border-blue-500 transition-colors shadow-inner" disabled={!canEdit}>
+                                                            <select value={c.owner} onChange={e => updateAction(i, 'owner', e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-xs font-bold text-blue-300 outline-none focus:border-blue-500 transition-colors shadow-inner" disabled={!canEditForm}>
                                                                 <option value="">Select...</option>
-                                                                {siteUsers.map(u => <option key={u.id} value={u.name}>{u.name}</option>)}
+                                                                {siteUsers.map(u => <option key={u.id} value={u.name || u.email}>{u.name || u.email}</option>)}
                                                             </select>
                                                         </td>
                                                         <td className="p-3">
-                                                            <input type="date" value={c.due} onChange={e => updateAction(i, 'due', e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-xs font-mono text-white outline-none focus:border-blue-500 transition-colors shadow-inner" disabled={!canEdit} />
+                                                            <input type="date" value={c.due} onChange={e => updateAction(i, 'due', e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-xs font-mono text-white outline-none focus:border-blue-500 transition-colors shadow-inner" disabled={!canEditForm} />
                                                         </td>
                                                         <td className="p-3 text-center">
-                                                            <select value={c.status} onChange={e => updateAction(i, 'status', e.target.value)} disabled={!canEditRow} className={`w-full text-xs font-bold tracking-widest uppercase rounded-lg p-2 outline-none cursor-pointer border shadow-inner transition-colors ${c.status === 'Closed' ? 'bg-emerald-900/20 text-emerald-400 border-emerald-500/30 focus:border-emerald-500' : c.status === 'In Progress' ? 'bg-yellow-900/20 text-yellow-400 border-yellow-500/30 focus:border-yellow-500' : 'bg-slate-900 text-slate-300 border-slate-700 focus:border-slate-500'}`}>
+                                                            <select value={c.status} onChange={e => updateAction(i, 'status', e.target.value)} disabled={!canEditRowStatus} className={`w-full text-xs font-bold tracking-widest uppercase rounded-lg p-2 outline-none border shadow-inner transition-colors ${canEditRowStatus ? 'cursor-pointer' : 'cursor-not-allowed opacity-80'} ${c.status === 'Closed' ? 'bg-emerald-900/20 text-emerald-400 border-emerald-500/30 focus:border-emerald-500' : c.status === 'In Progress' ? 'bg-yellow-900/20 text-yellow-400 border-yellow-500/30 focus:border-yellow-500' : 'bg-slate-900 text-slate-300 border-slate-700 focus:border-slate-500'}`}>
                                                                 <option>Open</option><option>In Progress</option><option>Closed</option>
                                                             </select>
                                                         </td>
                                                         <td className="p-3 text-center">
-                                                            {canEdit && <button onClick={() => removeAction(i)} className="text-red-500 hover:text-white bg-red-900/20 hover:bg-red-600 w-8 h-8 rounded-lg flex items-center justify-center transition-colors shadow-sm"><i className="fas fa-trash-alt"></i></button>}
+                                                            {canEditForm && <button type="button" onClick={() => removeAction(i)} className="text-red-500 hover:text-white bg-red-900/20 hover:bg-red-600 w-8 h-8 rounded-lg flex items-center justify-center transition-colors shadow-sm"><i className="fas fa-trash-alt"></i></button>}
                                                         </td>
                                                     </tr>
                                                 )
@@ -746,9 +860,9 @@ export default function Consultation() {
                                 </div>
                             </div>
 
-                            {canEdit && (
+                            {canEditForm && (
                                 <div className="flex justify-end mt-10 border-t border-slate-800 pt-8">
-                                    <button onClick={saveRecord} disabled={saving} className="bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-500 hover:to-emerald-500 text-white font-bold py-4 px-12 rounded-xl shadow-lg shadow-teal-900/50 transition-transform transform active:scale-95 flex items-center gap-3 uppercase tracking-widest text-sm">
+                                    <button type="button" onClick={saveRecord} disabled={saving} className="bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-500 hover:to-emerald-500 text-white font-bold py-4 px-12 rounded-xl shadow-lg shadow-teal-900/50 transition-transform transform active:scale-95 flex items-center gap-3 uppercase tracking-widest text-sm">
                                         {saving ? <i className="fas fa-spinner fa-spin text-lg"></i> : <i className="fas fa-save text-lg"></i>} Save Official Record
                                     </button>
                                 </div>

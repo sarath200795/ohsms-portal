@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { ref, get, push, remove } from 'firebase/database';
 import { rtdb } from '../config/firebase';
 
@@ -45,6 +45,8 @@ const EMERGENCY_TEAMS = [
 
 export default function MockDrill() {
     const navigate = useNavigate();
+    const location = useLocation();
+
     const [session, setSession] = useState(null);
     const [selectedDrill, setSelectedDrill] = useState(null);
     const [history, setHistory] = useState([]);
@@ -52,6 +54,10 @@ export default function MockDrill() {
     const [users, setUsers] = useState([]);
     const [loading, setLoading] = useState(true);
     const [printData, setPrintData] = useState(null);
+
+    // RBAC & Filter States
+    const [permissions, setPermissions] = useState({ viewOnly: false, canDelete: false, canEditCreate: false });
+    const [siteFilter, setSiteFilter] = useState('All');
 
     // Form State
     const [form, setForm] = useState({
@@ -67,42 +73,127 @@ export default function MockDrill() {
         const s = sessionStorage.getItem('isoSession');
         if (!s) { navigate('/'); return; }
         const sess = JSON.parse(s);
+
+        // 1. STRICT MODULE GUARD
+        const isGlobalAdmin = ['Global Owner', 'Global Manager', 'Owner', 'Admin'].includes(sess.role);
+        const hasModuleAccess = isGlobalAdmin || (sess.accessibleModules || []).includes('Record Emergency');
+
+        if (!hasModuleAccess) {
+            alert("Security Alert: You do not have permission to access the Emergency Records module.");
+            navigate('/dashboard');
+            return;
+        }
+
         setSession(sess);
 
-        loadData(sess);
-    }, [navigate]);
+        // 2. STRICT RBAC MATRIX
+        const canDel = ['Global Owner', 'Owner', 'Admin', 'Site Owner'].includes(sess.role);
+        const canEditCr = ['Global Owner', 'Global Manager', 'Owner', 'Admin', 'Site Owner', 'Site Manager', 'User'].includes(sess.role);
 
-    const loadData = async (sess) => {
-        setLoading(true);
-        try {
-            const dbRef = ref(rtdb, `organizations/${sess.orgId}`);
-            const snap = await get(dbRef);
-            if (snap.exists()) {
-                const val = snap.val();
-                if (val.sites) setSites(Object.values(val.sites));
-                if (val.users) setUsers(Object.values(val.users));
-                if (val.mockDrills) {
-                    setHistory(Object.entries(val.mockDrills)
-                        .map(([k, v]) => ({ ...v, firebaseKey: k }))
-                        .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp)));
-                }
-            }
-        } catch (err) {
-            console.error("Error loading data:", err);
+        setPermissions({
+            viewOnly: !canEditCr,
+            canDelete: canDel,
+            canEditCreate: canEditCr
+        });
+
+        // 3. SYNCHRONIZED SITE PERSISTENCE
+        const params = new URLSearchParams(location.search);
+        const urlSite = params.get('site');
+
+        let storedSite = sessionStorage.getItem('isoCurrentSite');
+        if (storedSite === 'GLOBAL') storedSite = 'All';
+
+        let ctxSite = urlSite || storedSite || 'All';
+
+        if (!isGlobalAdmin && ctxSite === 'All') {
+            ctxSite = (sess.assignedSite && sess.assignedSite !== 'GLOBAL') ? sess.assignedSite : (sess.accessibleSites?.[0] || '');
         }
-        setLoading(false);
-    };
+
+        setSiteFilter(ctxSite);
+        sessionStorage.setItem('isoCurrentSite', ctxSite === 'All' ? 'GLOBAL' : ctxSite);
+        setForm(f => ({ ...f, siteId: ctxSite !== 'All' ? ctxSite : ((sess.assignedSite !== 'GLOBAL') ? sess.assignedSite : '') }));
+
+        const fetchAll = async () => {
+            setLoading(true);
+            try {
+                const dbRef = ref(rtdb, `organizations/${sess.orgId}`);
+                const snap = await get(dbRef);
+                if (snap.exists()) {
+                    const val = snap.val();
+                    if (val.sites) {
+                        const parsedSites = Object.keys(val.sites).map(key => {
+                            const sVal = val.sites[key];
+                            return typeof sVal === 'object' ? { code: sVal.code || key, name: sVal.name || sVal.code || key } : { code: sVal, name: sVal };
+                        });
+                        setSites(parsedSites);
+                    }
+                    if (val.users) {
+                        setUsers(Object.entries(val.users).map(([k, v]) => ({ id: k, ...v })).filter(u => u.status !== 'Inactive'));
+                    }
+                    if (val.mockDrills) {
+                        setHistory(Object.entries(val.mockDrills)
+                            .map(([k, v]) => ({ ...v, firebaseKey: k }))
+                            .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp)));
+                    }
+                }
+            } catch (err) {
+                console.error("Error loading data:", err);
+            }
+            setLoading(false);
+        };
+
+        fetchAll();
+    }, [navigate, location]);
+
+    // ==========================================
+    // 4. STRICT ROW-LEVEL SECURITY (RLS)
+    // ==========================================
+    const role = session?.role || 'User';
+    const isGlobalUser = ['Global Owner', 'Global Manager', 'Owner', 'Admin'].includes(role);
+
+    const allowedSiteCodes = useMemo(() => {
+        if (!session) return new Set();
+        const codes = new Set([session.assignedSite, ...(session.accessibleSites || [])].filter(Boolean));
+        if (!isGlobalUser) {
+            codes.delete('GLOBAL');
+            codes.delete('All');
+        }
+        return codes;
+    }, [session, isGlobalUser]);
+
+    const visibleSites = useMemo(() => {
+        if (isGlobalUser) return sites;
+        return sites.filter(s => allowedSiteCodes.has(s.code));
+    }, [sites, isGlobalUser, allowedSiteCodes]);
 
     const availableCommanders = useMemo(() => {
         if (!form.siteId) return [];
-        return users.filter(u => u.role === 'Owner' || u.assignedSite === form.siteId || (u.accessibleSites && u.accessibleSites.includes(form.siteId)));
+        return users.filter(u => ['Owner', 'Global Owner', 'Global Manager', 'Admin'].includes(u.role) || u.assignedSite === form.siteId || (u.accessibleSites && u.accessibleSites.includes(form.siteId)));
     }, [users, form.siteId]);
 
+    const visibleHistory = useMemo(() => {
+        return history.filter(h => {
+            const hasSiteAccess = isGlobalUser || allowedSiteCodes.has(h.siteId);
+            if (!hasSiteAccess) return false;
+
+            if (siteFilter !== 'All' && h.siteId !== siteFilter) return false;
+            return true;
+        });
+    }, [history, siteFilter, isGlobalUser, allowedSiteCodes]);
+
+    const handleSiteFilterChange = (e) => {
+        const newSite = e.target.value;
+        setSiteFilter(newSite);
+        sessionStorage.setItem('isoCurrentSite', newSite === 'All' ? 'GLOBAL' : newSite);
+    };
+
     const openDrill = (scenario) => {
+        if (!permissions.canEditCreate) return alert("Security Error: You do not have permission to initiate drills.");
+
         setSelectedDrill(scenario);
         setForm({
             ...form,
-            siteId: session.assignedSite !== 'GLOBAL' ? session.assignedSite : '',
+            siteId: (!isGlobalUser && visibleSites.length === 1) ? visibleSites[0].code : (siteFilter !== 'All' ? siteFilter : ''),
             eventType: 'Mock Drill',
             time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }),
             headCount: '', debrief: '', evacTime: '', ertResponseTime: '', capa: []
@@ -131,8 +222,14 @@ export default function MockDrill() {
     const removeCapa = (idx) => setForm({ ...form, capa: form.capa.filter((_, i) => i !== idx) });
 
     const handleSubmit = async () => {
+        if (!permissions.canEditCreate) return alert("Security Error: You do not have permission to save reports.");
         if (!form.siteId) return alert("Please select a Site ID.");
         if (!form.commander) return alert("Please select an Incident Commander.");
+
+        // Security Check: Block injection of unassigned sites
+        if (!isGlobalUser && !allowedSiteCodes.has(form.siteId)) {
+            return alert("Security Error: You are not authorized to save records for this site.");
+        }
 
         const teamsAlertedCount = Object.values(teamChecks).filter(Boolean).length;
         if (teamsAlertedCount < EMERGENCY_TEAMS.length) {
@@ -161,10 +258,9 @@ export default function MockDrill() {
             actionLog: cleanActionLog,
             capa: cleanCapa,
             timestamp: new Date().toISOString(),
-            loggedBy: session.user
+            loggedBy: session.name || session.email
         };
 
-        // Final safety parse to remove hidden undefined values
         const newRecord = JSON.parse(JSON.stringify(rawRecord));
 
         try {
@@ -177,14 +273,14 @@ export default function MockDrill() {
         }
     };
 
-    const deleteRecord = async (record, index) => {
+    const deleteRecord = async (record) => {
+        if (!permissions.canDelete) return alert("Security Error: Only Global Owners and Site Owners can permanently delete records.");
         if (window.confirm("Are you sure you want to delete this record?")) {
             try {
                 if (record.firebaseKey) {
                     await remove(ref(rtdb, `organizations/${session.orgId}/mockDrills/${record.firebaseKey}`));
                 }
-                const newHistory = history.filter((_, i) => i !== index);
-                setHistory(newHistory);
+                setHistory(history.filter(h => h.firebaseKey !== record.firebaseKey));
             } catch (e) {
                 alert("Delete failed: " + e.message);
             }
@@ -198,7 +294,6 @@ export default function MockDrill() {
         setTimeout(() => window.print(), 800);
     };
 
-    // Cleanup Print state
     useEffect(() => {
         const handleAfterPrint = () => setPrintData(null);
         window.addEventListener('afterprint', handleAfterPrint);
@@ -229,33 +324,56 @@ export default function MockDrill() {
                     </div>
                     <h1 className="font-bold text-lg hidden md:block">Emergency Response Coordinator</h1>
                 </div>
-                <div className="text-[10px] font-bold uppercase tracking-widest bg-slate-800 px-3 py-1.5 rounded-lg text-slate-400 border border-slate-700">
-                    User: {session?.user}
+                <div className="flex gap-2">
+                    <div className="text-[10px] font-bold uppercase tracking-widest bg-slate-800 px-3 py-1.5 rounded-lg text-slate-400 border border-slate-700">
+                        {session?.role}
+                    </div>
+                    {permissions.viewOnly && (
+                        <div className="text-[10px] font-bold uppercase tracking-widest bg-yellow-500/10 text-yellow-400 px-3 py-1.5 rounded-lg border border-yellow-500/20">
+                            <i className="fas fa-eye mr-1"></i> Read Only
+                        </div>
+                    )}
                 </div>
             </div>
 
             <div className="app-ui flex-1 overflow-y-auto p-8 custom-scroll no-print relative z-10">
                 <div className="max-w-7xl mx-auto animate-in fade-in duration-500">
-                    <h2 className="text-xl font-bold mb-6 flex items-center gap-2 text-white"><i className="fas fa-clipboard-list text-pink-500"></i> Select Scenario</h2>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-12">
-                        {SCENARIOS.map(s => (
-                            <div key={s.id} onClick={() => openDrill(s)} className={`glass-panel p-6 rounded-2xl cursor-pointer relative group bg-slate-900/40 hover:bg-slate-800/80 border border-slate-800 transition-all ${s.border}`}>
-                                <div className={`w-12 h-12 rounded-xl bg-slate-950 flex items-center justify-center text-xl mb-4 ${s.color} shadow-inner group-hover:scale-110 transition-transform`}><i className={`fas ${s.icon}`}></i></div>
-                                <h3 className="font-bold text-lg mb-1 text-white">{s.title}</h3>
-                                <p className="text-xs text-slate-400 font-medium">Initiate Protocol <i className="fas fa-arrow-right ml-1 opacity-0 group-hover:opacity-100 transition-opacity"></i></p>
+                    {/* SCENARIO CARDS - Hidden for Read-Only Users */}
+                    {permissions.canEditCreate && (
+                        <>
+                            <h2 className="text-xl font-bold mb-6 flex items-center gap-2 text-white"><i className="fas fa-clipboard-list text-pink-500"></i> Select Scenario to Initiate</h2>
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-12">
+                                {SCENARIOS.map(s => (
+                                    <div key={s.id} onClick={() => openDrill(s)} className={`glass-panel p-6 rounded-2xl cursor-pointer relative group bg-slate-900/40 hover:bg-slate-800/80 border border-slate-800 transition-all ${s.border}`}>
+                                        <div className={`w-12 h-12 rounded-xl bg-slate-950 flex items-center justify-center text-xl mb-4 ${s.color} shadow-inner group-hover:scale-110 transition-transform`}><i className={`fas ${s.icon}`}></i></div>
+                                        <h3 className="font-bold text-lg mb-1 text-white">{s.title}</h3>
+                                        <p className="text-xs text-slate-400 font-medium">Initiate Protocol <i className="fas fa-arrow-right ml-1 opacity-0 group-hover:opacity-100 transition-opacity"></i></p>
+                                    </div>
+                                ))}
                             </div>
-                        ))}
-                    </div>
+                        </>
+                    )}
 
-                    <div className="border-t border-slate-800 pt-8">
-                        <h3 className="font-bold text-slate-500 uppercase tracking-widest text-xs mb-4">Recent Logs</h3>
+                    <div className={permissions.canEditCreate ? "border-t border-slate-800 pt-8" : ""}>
+                        <div className="flex justify-between items-center mb-4">
+                            <h3 className="font-bold text-slate-500 uppercase tracking-widest text-xs">Recent Drill & Emergency Logs</h3>
+
+                            <div className="flex bg-slate-900 border border-slate-700 p-1.5 rounded-xl shadow-inner items-center gap-2">
+                                <span className="text-xs font-bold text-slate-500 uppercase ml-2">Site Filter:</span>
+                                <select value={siteFilter} onChange={handleSiteFilterChange} className="bg-slate-950 text-white text-xs font-bold px-3 py-2 rounded-lg outline-none border border-slate-800">
+                                    {(isGlobalUser || visibleSites.length > 1) && <option value="All">All Authorized Sites</option>}
+                                    {visibleSites.map(s => <option key={s.code} value={s.code}>{s.name}</option>)}
+                                </select>
+                            </div>
+                        </div>
+
                         <div className="bg-slate-900/50 rounded-2xl border border-slate-700 overflow-hidden shadow-xl">
                             <table className="w-full text-left text-sm text-slate-300">
                                 <thead className="bg-slate-950 text-slate-500 uppercase text-[10px] font-bold tracking-widest border-b border-slate-800">
                                     <tr>
                                         <th className="p-5 pl-6">Type</th>
-                                        <th className="p-5">Doc ID</th>
+                                        <th className="p-5">Site & ID</th>
                                         <th className="p-5">Scenario</th>
                                         <th className="p-5">Date</th>
                                         <th className="p-5">Commander</th>
@@ -265,14 +383,17 @@ export default function MockDrill() {
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-800/80">
-                                    {history.map((h, i) => (
+                                    {visibleHistory.map((h, i) => (
                                         <tr key={i} className="hover:bg-slate-800/50 transition-colors">
                                             <td className="p-5 pl-6">
                                                 <span className={`px-2 py-1 rounded-lg text-[9px] font-bold uppercase tracking-widest border ${h.eventType === 'Real Emergency' ? 'bg-red-900/30 text-red-400 border-red-500/30' : 'bg-blue-900/20 text-blue-400 border-blue-500/30'}`}>
                                                     {h.eventType || 'Mock Drill'}
                                                 </span>
                                             </td>
-                                            <td className="p-5 font-mono text-xs text-slate-400 font-bold">{h.docId || 'PENDING'}</td>
+                                            <td className="p-5">
+                                                <div className="font-mono text-xs text-blue-400 font-bold mb-1">{h.docId || 'PENDING'}</div>
+                                                <div className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">{h.siteId}</div>
+                                            </td>
                                             <td className="p-5 font-bold text-white">{h.scenario}</td>
                                             <td className="p-5 font-mono text-xs">{h.date}</td>
                                             <td className="p-5 font-medium">{h.commander}</td>
@@ -280,11 +401,11 @@ export default function MockDrill() {
                                             <td className="p-5"><span className="bg-slate-800/80 text-slate-300 font-bold px-3 py-1 rounded-lg text-[10px] border border-slate-700">{h.capa ? h.capa.length : 0} Items</span></td>
                                             <td className="p-5 pr-6 text-right flex justify-end gap-3">
                                                 <button onClick={() => generatePDF(h)} className="text-blue-400 hover:text-white bg-blue-900/20 hover:bg-blue-600 px-3 py-1.5 rounded-lg border border-blue-500/30 transition-colors" title="Download Report"><i className="fas fa-file-pdf"></i></button>
-                                                {session.role === 'Owner' && <button onClick={() => deleteRecord(h, i)} className="text-slate-400 hover:text-white bg-slate-800 hover:bg-red-600 px-3 py-1.5 rounded-lg transition-colors" title="Delete"><i className="fas fa-trash"></i></button>}
+                                                {permissions.canDelete && <button onClick={() => deleteRecord(h)} className="text-red-500 hover:text-white bg-red-900/20 hover:bg-red-600 px-3 py-1.5 rounded-lg border border-red-500/30 transition-colors" title="Delete"><i className="fas fa-trash"></i></button>}
                                             </td>
                                         </tr>
                                     ))}
-                                    {history.length === 0 && <tr><td colSpan="8" className="p-10 text-center italic text-slate-500">No response records found in database.</td></tr>}
+                                    {visibleHistory.length === 0 && <tr><td colSpan="8" className="p-10 text-center italic text-slate-500">No response records found for the selected view.</td></tr>}
                                 </tbody>
                             </table>
                         </div>
@@ -320,8 +441,20 @@ export default function MockDrill() {
 
                             {/* Context */}
                             <div className="grid grid-cols-2 md:grid-cols-4 gap-6 bg-slate-900/50 p-6 rounded-2xl border border-slate-700 shadow-inner">
-                                <div><label className="text-[10px] uppercase text-slate-500 font-bold block mb-2 tracking-widest ml-1">Site ID</label><select className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-sm text-white outline-none focus:border-blue-500" value={form.siteId} onChange={e => setForm({ ...form, siteId: e.target.value })}><option value="">Select Site...</option>{sites.map(s => <option key={s.code} value={s.code}>{s.name} ({s.code})</option>)}</select></div>
-                                <div><label className="text-[10px] uppercase text-slate-500 font-bold block mb-2 tracking-widest ml-1">Commander</label><select className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-sm text-white outline-none focus:border-blue-500" value={form.commander} onChange={e => setForm({ ...form, commander: e.target.value })} disabled={!form.siteId}><option value="">Select...</option>{availableCommanders.map(u => <option key={u.id} value={u.name}>{u.name} ({u.role})</option>)}</select></div>
+                                <div>
+                                    <label className="text-[10px] uppercase text-slate-500 font-bold block mb-2 tracking-widest ml-1">Site ID</label>
+                                    <select className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-sm text-white outline-none focus:border-blue-500" value={form.siteId} onChange={e => setForm({ ...form, siteId: e.target.value })}>
+                                        {(isGlobalUser || visibleSites.length > 1) && <option value="">Select Site...</option>}
+                                        {visibleSites.map(s => <option key={s.code} value={s.code}>{s.name} ({s.code})</option>)}
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="text-[10px] uppercase text-slate-500 font-bold block mb-2 tracking-widest ml-1">Commander</label>
+                                    <select className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-sm text-white outline-none focus:border-blue-500" value={form.commander} onChange={e => setForm({ ...form, commander: e.target.value })} disabled={!form.siteId}>
+                                        <option value="">Select...</option>
+                                        {availableCommanders.map(u => <option key={u.id} value={u.name || u.email}>{u.name || u.email} ({u.role})</option>)}
+                                    </select>
+                                </div>
                                 <div><label className="text-[10px] uppercase text-slate-500 font-bold block mb-2 tracking-widest ml-1">Date</label><input type="date" className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-sm text-white outline-none focus:border-blue-500 font-mono" value={form.date} onChange={e => setForm({ ...form, date: e.target.value })} /></div>
                                 <div><label className="text-[10px] uppercase text-slate-500 font-bold block mb-2 tracking-widest ml-1">Time</label><input type="time" className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-sm text-white outline-none focus:border-blue-500 font-mono" value={form.time} onChange={e => setForm({ ...form, time: e.target.value })} /></div>
                                 <div className="col-span-1 md:col-start-2"><label className="text-[10px] uppercase text-pink-400 font-bold block mb-2 tracking-widest ml-1">Evac Time (min)</label><input type="number" className="w-full bg-slate-950 border border-pink-900/50 rounded-xl p-3 text-sm text-white outline-none focus:border-pink-500 text-center font-bold" value={form.evacTime} onChange={e => setForm({ ...form, evacTime: e.target.value })} /></div>
@@ -407,7 +540,7 @@ export default function MockDrill() {
                                                 <input value={c.action} onChange={e => updateCapa(i, 'action', e.target.value)} placeholder="Action Description..." className="flex-1 bg-transparent border-none outline-none text-sm text-white px-2" />
                                                 <select value={c.owner} onChange={e => updateCapa(i, 'owner', e.target.value)} className="w-48 bg-slate-950 border border-slate-800 rounded-lg p-2 text-xs text-white outline-none focus:border-purple-500">
                                                     <option value="">Assign Owner...</option>
-                                                    {users.map(u => <option key={u.id} value={u.name}>{u.name}</option>)}
+                                                    {availableCommanders.map(u => <option key={u.id} value={u.name || u.email}>{u.name || u.email}</option>)}
                                                 </select>
                                                 <input type="date" value={c.due} onChange={e => updateCapa(i, 'due', e.target.value)} className="w-36 bg-slate-950 border border-slate-800 rounded-lg p-2 text-xs text-white outline-none focus:border-purple-500 font-mono" />
                                                 <button onClick={() => removeCapa(i)} className="text-red-500 hover:text-white w-8 h-8 flex items-center justify-center rounded-lg hover:bg-red-600 transition-colors"><i className="fas fa-times"></i></button>

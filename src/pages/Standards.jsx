@@ -66,38 +66,69 @@ export default function Standards() {
     const [documents, setDocuments] = useState([]);
     const [sites, setSites] = useState([]);
 
+    // RBAC & Filter State
+    const [permissions, setPermissions] = useState({ viewOnly: false, canDelete: false, canEditCreate: false });
     const [siteFilter, setSiteFilter] = useState('All');
     const [categoryFilter, setCategoryFilter] = useState('All');
     const [searchQuery, setSearchQuery] = useState('');
 
     const [formData, setFormData] = useState(null);
 
+    // --- AUTH & LOAD DATA ---
     useEffect(() => {
         try {
             if (!rtdb) {
                 throw new Error("Firebase Realtime Database (rtdb) is completely missing from config/firebase.js");
             }
 
-            let currentSession = { orgId: "TEST_ORG", user: "Dev User", role: "Owner", assignedSite: "GLOBAL" };
-
             const s = sessionStorage.getItem('isoSession');
-            if (s) {
-                currentSession = JSON.parse(s);
-            } else {
-                sessionStorage.setItem('isoSession', JSON.stringify(currentSession));
+            if (!s) { navigate('/'); return; }
+            const sess = JSON.parse(s);
+
+            // Clean the role string just in case there are trailing spaces in the DB
+            const cleanRole = String(sess.role || '').trim();
+
+            // 1. BULLETPROOF MODULE GUARD
+            const isGlobalAdmin = ['Global Owner', 'Global Manager', 'Owner', 'Admin'].includes(cleanRole);
+            const isSiteAdmin = ['Site Owner', 'Site Manager'].includes(cleanRole);
+
+            // Fuzzy match to catch "Standards", "Standard", "Document Control", etc.
+            const hasModuleAccess = isGlobalAdmin || isSiteAdmin || (sess.accessibleModules || []).some(m => {
+                const lowerM = String(m).toLowerCase();
+                return lowerM.includes('standard') || lowerM.includes('document');
+            });
+
+            if (!hasModuleAccess) {
+                alert("Security Alert: You do not have permission to access the Standards & Documents module.");
+                navigate('/dashboard');
+                return;
             }
 
-            setSession(currentSession);
+            setSession(sess);
 
+            // 2. STRICT RBAC MATRIX
+            const canDel = ['Global Owner', 'Owner', 'Admin', 'Site Owner'].includes(cleanRole);
+            const canEditCr = ['Global Owner', 'Global Manager', 'Owner', 'Admin', 'Site Owner', 'Site Manager', 'User'].includes(cleanRole);
+
+            setPermissions({
+                viewOnly: !canEditCr,
+                canDelete: canDel,
+                canEditCreate: canEditCr
+            });
+
+            // 3. SYNCHRONIZED SITE PERSISTENCE
             const params = new URLSearchParams(location.search);
-            let ctxSite = params.get('site') || 'All';
+            let ctxSite = params.get('site') || sessionStorage.getItem('isoCurrentSite') || 'All';
 
-            if (currentSession.assignedSite && currentSession.assignedSite !== 'GLOBAL') {
-                ctxSite = currentSession.assignedSite;
+            if (!isGlobalAdmin && ctxSite === 'All') {
+                ctxSite = (sess.assignedSite && sess.assignedSite !== 'GLOBAL') ? sess.assignedSite : (sess.accessibleSites?.[0] || '');
             }
-            setSiteFilter(ctxSite);
 
-            const dbRef = ref(rtdb, `organizations/${currentSession.orgId}`);
+            setSiteFilter(ctxSite);
+            sessionStorage.setItem('isoCurrentSite', ctxSite === 'All' ? 'GLOBAL' : ctxSite);
+
+
+            const dbRef = ref(rtdb, `organizations/${sess.orgId}`);
             const unsubscribe = onValue(dbRef, (snap) => {
                 if (snap.exists()) {
                     const data = snap.val();
@@ -124,16 +155,69 @@ export default function Standards() {
             setFatalError(error.message);
             setLoading(false);
         }
-    }, [location]);
+    }, [navigate, location]);
 
+    // ==========================================
+    // 4. STRICT ROW-LEVEL SECURITY (RLS)
+    // ==========================================
+    const role = session?.role?.trim() || 'User';
+    const isGlobalUser = ['Global Owner', 'Global Manager', 'Owner', 'Admin'].includes(role);
+
+    const allowedSiteCodes = useMemo(() => {
+        if (!session) return new Set();
+        const codes = new Set([session.assignedSite, ...(session.accessibleSites || [])].filter(Boolean));
+        if (!isGlobalUser) {
+            codes.delete('GLOBAL');
+            codes.delete('All');
+        }
+        return codes;
+    }, [session, isGlobalUser]);
+
+    const visibleSites = useMemo(() => {
+        if (isGlobalUser) return sites;
+        return sites.filter(s => allowedSiteCodes.has(s.code));
+    }, [sites, isGlobalUser, allowedSiteCodes]);
+
+    const handleSiteFilterChange = (e) => {
+        const newSite = e.target.value;
+        setSiteFilter(newSite);
+        sessionStorage.setItem('isoCurrentSite', newSite === 'All' ? 'GLOBAL' : newSite);
+    };
+
+    const canViewRecord = (siteId) => isGlobalUser || siteId === 'GLOBAL' || allowedSiteCodes.has(siteId);
+
+    const canEditRecord = (siteId) => {
+        if (!permissions.canEditCreate) return false;
+        if (isGlobalUser) return true;
+        return allowedSiteCodes.has(siteId);
+    };
+
+    const canDeleteRecord = (siteId) => {
+        if (!permissions.canDelete) return false;
+        if (isGlobalUser) return true;
+        return allowedSiteCodes.has(siteId);
+    };
+
+    const canEditForm = useMemo(() => {
+        if (!permissions.canEditCreate) return false;
+        if (isGlobalUser) return true;
+        if (!formData?.siteId) return true;
+        return allowedSiteCodes.has(formData.siteId) || formData.siteId === 'GLOBAL'; // Allowed to create global policy if they have access
+    }, [permissions.canEditCreate, isGlobalUser, allowedSiteCodes, formData?.siteId]);
+
+
+    // --- FILTERS & STATS ---
     const filteredDocs = useMemo(() => {
         return (documents || []).filter(doc => {
+            if (!canViewRecord(doc.siteId)) return false; // Hard Block
+
             const matchSite = siteFilter === 'All' || doc.siteId === siteFilter || doc.siteId === 'GLOBAL';
             const matchCat = categoryFilter === 'All' || doc.category === categoryFilter;
             const matchSearch = String(doc.title || '').toLowerCase().includes(searchQuery.toLowerCase()) || String(doc.docId || '').toLowerCase().includes(searchQuery.toLowerCase());
+
             return matchSite && matchCat && matchSearch;
         });
-    }, [documents, siteFilter, categoryFilter, searchQuery]);
+    }, [documents, siteFilter, categoryFilter, searchQuery, canViewRecord]);
 
     const stats = useMemo(() => {
         const total = filteredDocs.length;
@@ -149,13 +233,16 @@ export default function Standards() {
             return diffDays <= 30 && diffDays > 0;
         }).length;
 
-        const coveredClauses = new Set((documents || []).filter(d => d.isoClause && d.status === 'Active').map(d => d.isoClause));
+        const coveredClauses = new Set((filteredDocs || []).filter(d => d.isoClause && d.status === 'Active').map(d => d.isoClause));
         const complianceScore = Math.round((coveredClauses.size / ISO_MANDATORY_DOCS.length) * 100) || 0;
 
         return { total, sops, active, expiringSoon, complianceScore };
-    }, [filteredDocs, documents]);
+    }, [filteredDocs]);
 
+    // --- HANDLERS ---
     const openForm = (record = null) => {
+        if (!record && !permissions.canEditCreate) return alert("Security Error: You do not have permission to upload documents.");
+
         if (record) {
             setFormData({ ...record });
         } else {
@@ -164,11 +251,11 @@ export default function Standards() {
                 firebaseKey: '',
                 title: '',
                 category: 'Standard Operating Procedure (SOP)',
-                siteId: siteFilter !== 'All' ? siteFilter : (session?.assignedSite || 'GLOBAL'),
+                siteId: (!isGlobalUser && visibleSites.length === 1) ? visibleSites[0].code : (siteFilter !== 'All' ? siteFilter : 'GLOBAL'),
                 isoClause: '',
                 version: '1.0',
                 status: 'Draft',
-                author: session?.user || 'System User',
+                author: session?.name || session?.email || 'System User',
                 uploadDate: new Date().toISOString().split('T')[0],
                 expiryDate: '',
                 description: '',
@@ -180,6 +267,7 @@ export default function Standards() {
     };
 
     const handleFileUpload = async (e) => {
+        if (!canEditForm) return;
         const file = e.target.files[0];
         if (file) {
             if (file.size > 2 * 1024 * 1024) {
@@ -195,10 +283,16 @@ export default function Standards() {
     };
 
     const saveDocument = async () => {
+        if (!canEditForm) return alert("Security Error: You do not have permission to edit documents for this site.");
         if (!formData.title || !formData.siteId) return alert("Title and Site are required.");
 
+        // Hard Block Backend Write if they attempt to inject a site they don't own
+        if (!isGlobalUser && formData.siteId !== 'GLOBAL' && !allowedSiteCodes.has(formData.siteId)) {
+            return alert("Security Error: You are not authorized to save documents for this site.");
+        }
+
         try {
-            const payload = { ...formData, lastUpdated: new Date().toISOString(), updatedBy: session.user };
+            const payload = { ...formData, lastUpdated: new Date().toISOString(), updatedBy: session.name || session.email };
             if (formData.firebaseKey) {
                 await update(ref(rtdb, `organizations/${session.orgId}/documents/${formData.firebaseKey}`), payload);
             } else {
@@ -244,7 +338,7 @@ export default function Standards() {
         }
     };
 
-    // VISUAL ERROR BOUNDARY: If there is a fatal error, print it clearly on the screen.
+    // VISUAL ERROR BOUNDARY
     if (fatalError) return (
         <div className="flex h-screen items-center justify-center bg-slate-950 p-10 font-sans">
             <div className="bg-red-900/30 border-2 border-red-500 p-8 rounded-3xl text-white max-w-2xl w-full text-center">
@@ -285,13 +379,20 @@ export default function Standards() {
                     <div className="h-6 w-px bg-slate-700 mx-2"></div>
                     <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-indigo-500 to-blue-600 flex items-center justify-center text-white font-bold shadow-lg shadow-indigo-900/50"><i className="fas fa-folder-open"></i></div>
                     <h1 className="text-lg font-bold text-white tracking-wide hidden md:block">Standards & Document Control</h1>
+
+                    <div className="ml-4 flex gap-2">
+                        <span className="text-[10px] uppercase font-bold tracking-widest bg-indigo-500/10 text-indigo-400 px-2 py-1 rounded border border-indigo-500/20">{session?.role}</span>
+                        {permissions.viewOnly && <span className="text-[10px] uppercase font-bold tracking-widest bg-yellow-500/10 text-yellow-400 px-2 py-1 rounded border border-yellow-500/20"><i className="fas fa-eye mr-1"></i> Read Only</span>}
+                    </div>
                 </div>
             </header>
 
             <div className="flex gap-3 px-8 pt-6 bg-slate-950 flex-wrap border-b border-slate-800 pb-4 z-10 relative">
                 <button onClick={() => setView('library')} className={`px-5 py-2.5 rounded-lg font-bold text-sm transition-all flex items-center shadow-sm border whitespace-nowrap ${view === 'library' ? 'bg-indigo-600 text-white border-indigo-500 shadow-indigo-900/50' : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700 hover:text-white'}`}><i className="fas fa-book mr-2"></i> Document Library</button>
                 <button onClick={() => setView('iso-tracker')} className={`px-5 py-2.5 rounded-lg font-bold text-sm transition-all flex items-center shadow-sm border whitespace-nowrap ${view === 'iso-tracker' ? 'bg-blue-600 text-white border-blue-500 shadow-blue-900/50' : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700 hover:text-white'}`}><i className="fas fa-shield-check mr-2"></i> ISO 45001 Compliance</button>
-                <button onClick={() => openForm()} className={`px-5 py-2.5 rounded-lg font-bold text-sm transition-all flex items-center shadow-sm border whitespace-nowrap ${view === 'form' ? 'bg-emerald-600 text-white border-emerald-500 shadow-emerald-900/50' : 'bg-slate-800 text-emerald-400 border-slate-700 hover:bg-slate-700 hover:text-emerald-300'}`}><i className="fas fa-cloud-upload-alt mr-2"></i> Upload / Create</button>
+                {permissions.canEditCreate && (
+                    <button onClick={() => openForm()} className={`px-5 py-2.5 rounded-lg font-bold text-sm transition-all flex items-center shadow-sm border whitespace-nowrap ${view === 'form' ? 'bg-emerald-600 text-white border-emerald-500 shadow-emerald-900/50' : 'bg-slate-800 text-emerald-400 border-slate-700 hover:bg-slate-700 hover:text-emerald-300'}`}><i className="fas fa-cloud-upload-alt mr-2"></i> Upload / Create</button>
+                )}
             </div>
 
             <main className="flex-1 overflow-y-auto custom-scroll p-8 relative z-10">
@@ -327,10 +428,10 @@ export default function Standards() {
                                     <i className="fas fa-search absolute left-4 top-1/2 -translate-y-1/2 text-slate-500"></i>
                                     <input type="text" placeholder="Search by title or ID..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full bg-slate-900 border border-slate-700 pl-10 pr-4 py-2.5 rounded-xl text-sm focus:border-indigo-500 text-white outline-none" />
                                 </div>
-                                <select value={siteFilter} onChange={e => setSiteFilter(e.target.value)} className="bg-slate-900 border border-slate-700 text-white px-4 py-2.5 rounded-xl outline-none focus:border-indigo-500 text-sm font-bold">
-                                    <option value="All">All Sites</option>
+                                <select value={siteFilter} onChange={handleSiteFilterChange} className="bg-slate-900 border border-slate-700 text-white px-4 py-2.5 rounded-xl outline-none focus:border-indigo-500 text-sm font-bold">
+                                    {(isGlobalUser || visibleSites.length > 1) && <option value="All">All Authorized Sites</option>}
                                     <option value="GLOBAL">Global Corporate</option>
-                                    {sites.map(s => <option key={s.code} value={s.code}>{s.name}</option>)}
+                                    {visibleSites.map(s => <option key={s.code} value={s.code}>{s.name}</option>)}
                                 </select>
                                 <select value={categoryFilter} onChange={e => setCategoryFilter(e.target.value)} className="bg-slate-900 border border-slate-700 text-white px-4 py-2.5 rounded-xl outline-none focus:border-indigo-500 text-sm font-bold">
                                     <option value="All">All Categories</option>
@@ -378,8 +479,16 @@ export default function Standards() {
                                                         <i className="fas fa-download"></i> DL
                                                     </a>
                                                 )}
-                                                <button onClick={() => openForm(doc)} className="bg-slate-800 hover:bg-slate-700 text-slate-300 px-3 py-2 rounded-lg text-xs transition border border-slate-600 shadow"><i className="fas fa-edit"></i></button>
-                                                <button onClick={() => deleteDocument(doc.firebaseKey)} className="bg-red-900/20 hover:bg-red-600 text-red-500 hover:text-white px-3 py-2 rounded-lg text-xs transition border border-red-500/20 shadow"><i className="fas fa-trash"></i></button>
+
+                                                {canEditRecord(doc.siteId) ? (
+                                                    <button onClick={() => openForm(doc)} className="bg-slate-800 hover:bg-slate-700 text-slate-300 px-3 py-2 rounded-lg text-xs transition border border-slate-600 shadow" title="Edit"><i className="fas fa-edit"></i></button>
+                                                ) : (
+                                                    <button onClick={() => openForm(doc)} className="bg-slate-800 hover:bg-slate-700 text-slate-300 px-3 py-2 rounded-lg text-xs transition border border-slate-600 shadow" title="View"><i className="fas fa-eye"></i></button>
+                                                )}
+
+                                                {canDeleteRecord(doc.siteId) && (
+                                                    <button onClick={() => deleteDocument(doc.firebaseKey)} className="bg-red-900/20 hover:bg-red-600 text-red-500 hover:text-white px-3 py-2 rounded-lg text-xs transition border border-red-500/20 shadow" title="Delete"><i className="fas fa-trash"></i></button>
+                                                )}
                                             </td>
                                         </tr>
                                     ))}
@@ -416,7 +525,7 @@ export default function Standards() {
                                 </thead>
                                 <tbody className="divide-y divide-slate-800 bg-slate-950/30">
                                     {ISO_MANDATORY_DOCS.map((req, idx) => {
-                                        const mappedDocs = (documents || []).filter(d => d.isoClause === req.clause && d.status === 'Active');
+                                        const mappedDocs = (filteredDocs || []).filter(d => d.isoClause === req.clause && d.status === 'Active');
                                         const isCompliant = mappedDocs.length > 0;
 
                                         return (
@@ -457,10 +566,12 @@ export default function Standards() {
                 {view === 'form' && formData && (
                     <div className="max-w-5xl mx-auto animate-fade-in pb-20">
                         <div className="flex justify-between items-center mb-8 border-b border-slate-800 pb-4">
-                            <h2 className="text-3xl font-bold text-white">Document Control Form</h2>
+                            <h2 className="text-3xl font-bold text-white">{formData.firebaseKey ? (canEditForm ? 'Edit Document' : 'View Document') : 'Upload Document'}</h2>
                             <div className="flex gap-3">
                                 <button onClick={() => setView('library')} className="text-slate-400 hover:text-white px-4 py-2 font-bold text-sm transition">Cancel</button>
-                                <button onClick={saveDocument} className="bg-indigo-600 hover:bg-indigo-500 text-white px-8 py-2.5 rounded-xl font-bold text-sm shadow-lg shadow-indigo-900/50 transition flex items-center gap-2 transform active:scale-95"><i className="fas fa-save"></i> Save & Publish</button>
+                                {canEditForm && (
+                                    <button onClick={saveDocument} className="bg-indigo-600 hover:bg-indigo-500 text-white px-8 py-2.5 rounded-xl font-bold text-sm shadow-lg shadow-indigo-900/50 transition flex items-center gap-2 transform active:scale-95"><i className="fas fa-save"></i> Save & Publish</button>
+                                )}
                             </div>
                         </div>
 
@@ -468,18 +579,18 @@ export default function Standards() {
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
                                 <div className="md:col-span-2">
                                     <label className="text-xs uppercase font-bold text-slate-400 block mb-2 tracking-widest">Document Title</label>
-                                    <input value={formData.title} onChange={e => setFormData({ ...formData, title: e.target.value })} placeholder="e.g. Hazardous Waste Handling Procedure" className="bg-slate-950 border border-slate-700 text-white font-bold text-xl rounded-xl p-3 outline-none w-full focus:border-indigo-500 shadow-inner" />
+                                    <input value={formData.title} onChange={e => setFormData({ ...formData, title: e.target.value })} disabled={!canEditForm} placeholder="e.g. Hazardous Waste Handling Procedure" className="bg-slate-950 border border-slate-700 text-white font-bold text-xl rounded-xl p-3 outline-none w-full focus:border-indigo-500 shadow-inner" />
                                 </div>
 
                                 <div>
                                     <label className="text-xs uppercase font-bold text-slate-400 block mb-2 tracking-widest">Document Category</label>
-                                    <select value={formData.category} onChange={e => setFormData({ ...formData, category: e.target.value })} className="bg-slate-950 border border-slate-700 text-white font-bold rounded-xl p-3 outline-none w-full focus:border-indigo-500 shadow-inner">
+                                    <select value={formData.category} onChange={e => setFormData({ ...formData, category: e.target.value })} disabled={!canEditForm} className="bg-slate-950 border border-slate-700 text-white font-bold rounded-xl p-3 outline-none w-full focus:border-indigo-500 shadow-inner">
                                         {DOC_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
                                     </select>
                                 </div>
                                 <div>
                                     <label className="text-xs uppercase font-bold text-blue-400 block mb-2 tracking-widest"><i className="fas fa-link"></i> Map to ISO 45001 Clause (Optional)</label>
-                                    <select value={formData.isoClause || ''} onChange={e => setFormData({ ...formData, isoClause: e.target.value })} className="bg-blue-950/20 border border-blue-900 text-white font-bold rounded-xl p-3 outline-none w-full focus:border-blue-500 shadow-inner">
+                                    <select value={formData.isoClause || ''} onChange={e => setFormData({ ...formData, isoClause: e.target.value })} disabled={!canEditForm} className="bg-blue-950/20 border border-blue-900 text-white font-bold rounded-xl p-3 outline-none w-full focus:border-blue-500 shadow-inner">
                                         <option value="">-- No Specific Clause Mapping --</option>
                                         {ISO_MANDATORY_DOCS.map((req, idx) => (
                                             <option key={idx} value={req.clause}>Clause {req.clause} - {req.title.substring(0, 40)}...</option>
@@ -489,43 +600,49 @@ export default function Standards() {
 
                                 <div>
                                     <label className="text-xs uppercase font-bold text-slate-400 block mb-2 tracking-widest">Site Applicability</label>
-                                    <select value={formData.siteId} onChange={e => setFormData({ ...formData, siteId: e.target.value })} className="bg-slate-950 border border-slate-700 text-white font-bold rounded-xl p-3 outline-none w-full focus:border-indigo-500 shadow-inner">
-                                        <option value="GLOBAL">Global (All Sites)</option>
-                                        {sites.map(s => <option key={s.code} value={s.code}>{s.name}</option>)}
+                                    <select value={formData.siteId} onChange={e => setFormData({ ...formData, siteId: e.target.value })} disabled={formData.firebaseKey || !canEditForm} className="bg-slate-950 border border-slate-700 text-white font-bold rounded-xl p-3 outline-none w-full focus:border-indigo-500 shadow-inner">
+                                        {(isGlobalUser || visibleSites.length > 1) && <option value="GLOBAL">Global (All Sites)</option>}
+                                        {visibleSites.map(s => <option key={s.code} value={s.code}>{s.name}</option>)}
                                     </select>
                                 </div>
 
                                 <div className="grid grid-cols-2 gap-4">
-                                    <div><label className="text-xs uppercase font-bold text-slate-400 block mb-2 tracking-widest">Version</label><input value={formData.version} onChange={e => setFormData({ ...formData, version: e.target.value })} placeholder="1.0" className="bg-slate-950 border border-slate-700 text-indigo-400 font-mono font-bold rounded-xl p-3 outline-none w-full shadow-inner" /></div>
+                                    <div><label className="text-xs uppercase font-bold text-slate-400 block mb-2 tracking-widest">Version</label><input value={formData.version} onChange={e => setFormData({ ...formData, version: e.target.value })} disabled={!canEditForm} placeholder="1.0" className="bg-slate-950 border border-slate-700 text-indigo-400 font-mono font-bold rounded-xl p-3 outline-none w-full shadow-inner" /></div>
                                     <div>
                                         <label className="text-xs uppercase font-bold text-slate-400 block mb-2 tracking-widest">Status</label>
-                                        <select value={formData.status} onChange={e => setFormData({ ...formData, status: e.target.value })} className={`bg-slate-950 border border-slate-700 font-bold rounded-xl p-3 outline-none w-full shadow-inner ${formData.status === 'Active' ? 'text-emerald-400' : 'text-slate-400'}`}>
+                                        <select value={formData.status} onChange={e => setFormData({ ...formData, status: e.target.value })} disabled={!canEditForm} className={`bg-slate-950 border border-slate-700 font-bold rounded-xl p-3 outline-none w-full shadow-inner ${formData.status === 'Active' ? 'text-emerald-400' : 'text-slate-400'}`}>
                                             <option>Draft</option><option>Active</option><option>Archived</option>
                                         </select>
                                     </div>
                                 </div>
 
                                 <div className="grid grid-cols-2 gap-4">
-                                    <div><label className="text-xs uppercase font-bold text-slate-400 block mb-2 tracking-widest">Effective Date</label><input type="date" value={formData.uploadDate} onChange={e => setFormData({ ...formData, uploadDate: e.target.value })} className="bg-slate-950 border border-slate-700 text-white rounded-xl p-3 outline-none w-full shadow-inner" /></div>
-                                    <div><label className="text-xs uppercase font-bold text-slate-400 block mb-2 tracking-widest">Expiry / Review Date</label><input type="date" value={formData.expiryDate || ''} onChange={e => setFormData({ ...formData, expiryDate: e.target.value })} className="bg-slate-950 border border-slate-700 text-orange-300 rounded-xl p-3 outline-none w-full shadow-inner" /></div>
+                                    <div><label className="text-xs uppercase font-bold text-slate-400 block mb-2 tracking-widest">Effective Date</label><input type="date" value={formData.uploadDate} onChange={e => setFormData({ ...formData, uploadDate: e.target.value })} disabled={!canEditForm} className="bg-slate-950 border border-slate-700 text-white rounded-xl p-3 outline-none w-full shadow-inner" /></div>
+                                    <div><label className="text-xs uppercase font-bold text-slate-400 block mb-2 tracking-widest">Expiry / Review Date</label><input type="date" value={formData.expiryDate || ''} onChange={e => setFormData({ ...formData, expiryDate: e.target.value })} disabled={!canEditForm} className="bg-slate-950 border border-slate-700 text-orange-300 rounded-xl p-3 outline-none w-full shadow-inner" /></div>
                                 </div>
 
                                 <div className="md:col-span-2">
                                     <label className="text-xs uppercase font-bold text-slate-400 block mb-2 tracking-widest">Document Abstract / Description</label>
-                                    <textarea rows="3" value={formData.description} onChange={e => setFormData({ ...formData, description: e.target.value })} placeholder="Briefly describe the purpose of this document..." className="bg-slate-950 border border-slate-700 text-white rounded-xl p-3 outline-none w-full resize-none focus:border-indigo-500 shadow-inner"></textarea>
+                                    <textarea rows="3" value={formData.description} onChange={e => setFormData({ ...formData, description: e.target.value })} disabled={!canEditForm} placeholder="Briefly describe the purpose of this document..." className="bg-slate-950 border border-slate-700 text-white rounded-xl p-3 outline-none w-full resize-none focus:border-indigo-500 shadow-inner"></textarea>
                                 </div>
 
                                 <div className="md:col-span-2 border-t border-slate-800 pt-6">
                                     <label className="text-xs uppercase font-bold text-indigo-400 block mb-3 tracking-widest"><i className="fas fa-cloud-upload-alt mr-2"></i> File Attachment (PDF, DOCX, XLSX)</label>
                                     <div className="flex items-center gap-6 bg-slate-950 p-6 rounded-2xl border border-slate-700 border-dashed shadow-inner">
-                                        <input type="file" onChange={handleFileUpload} className="text-sm file:bg-indigo-600 file:text-white file:border-none file:rounded-lg file:px-6 file:py-3 file:mr-4 file:font-bold file:cursor-pointer cursor-pointer text-slate-400 w-auto" />
+                                        {canEditForm && (
+                                            <input type="file" onChange={handleFileUpload} className="text-sm file:bg-indigo-600 file:text-white file:border-none file:rounded-lg file:px-6 file:py-3 file:mr-4 file:font-bold file:cursor-pointer cursor-pointer text-slate-400 w-auto" />
+                                        )}
                                         {formData.fileName && (
                                             <div className="flex items-center gap-2 bg-emerald-900/20 border border-emerald-500/30 text-emerald-400 px-4 py-2 rounded-lg font-bold text-sm shadow-sm">
-                                                <i className="fas fa-check-circle"></i> {formData.fileName}
+                                                <i className="fas fa-check-circle"></i> {formData.fileName} attached.
+                                                {!canEditForm && formData.fileData && (
+                                                    <a href={formData.fileData} download={formData.fileName} className="ml-4 text-xs bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1 rounded transition">Download File</a>
+                                                )}
                                             </div>
                                         )}
+                                        {!formData.fileName && !canEditForm && <div className="text-slate-500 italic">No file attached.</div>}
                                     </div>
-                                    <p className="text-[10px] text-slate-500 mt-2 font-mono">Max size: 2MB (Base64 encoding constraint)</p>
+                                    {canEditForm && <p className="text-[10px] text-slate-500 mt-2 font-mono">Max size: 2MB (Base64 encoding constraint)</p>}
                                 </div>
                             </div>
                         </div>

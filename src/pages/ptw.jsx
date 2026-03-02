@@ -5,10 +5,9 @@ import { rtdb } from '../config/firebase';
 import QRious from 'qrious';
 
 // ==========================================
-// GLOBALS, CONFIG & BULLETPROOF FAILSAFES
+// GLOBALS & BULLETPROOF FAILSAFES
 // ==========================================
 
-// Forces Firebase objects back into Arrays to prevent .map() crashes
 const ensureArray = (val) => {
     if (val === null || val === undefined) return [];
     if (Array.isArray(val)) return val;
@@ -16,14 +15,20 @@ const ensureArray = (val) => {
     return [val];
 };
 
-// Safely parses Firebase lists and ignores corrupted string nodes
 const safeArrayParse = (data) => {
     if (!data) return [];
-    if (Array.isArray(data)) return data;
+    if (Array.isArray(data)) {
+        return data.map((item, idx) => {
+            if (item && typeof item === 'object') {
+                return { ...item, firebaseKey: String(idx) };
+            }
+            return null;
+        }).filter(Boolean);
+    }
     if (typeof data !== 'object') return [];
     return Object.keys(data).reduce((acc, key) => {
         if (typeof data[key] === 'object' && data[key] !== null) {
-            acc.push({ firebaseKey: key, ...data[key] });
+            acc.push({ ...data[key], firebaseKey: key });
         }
         return acc;
     }, []);
@@ -39,39 +44,17 @@ const PERMIT_TYPES = [
 ];
 
 const CHECKLIST_ITEMS = {
-    'HOT': [
-        "Fire extinguisher/fire hose available", "Combustible materials removed (>10m)",
-        "Gas test done (LFL < 10%)", "Fire watcher assigned",
-        "Welding screens used", "Adequate ventilation for fumes", "Sparks contained"
-    ],
-    'WAH': [
-        "Scaffold tag is green", "Full body harness used",
-        "Lifeline / Fall arrester used", "Safety nets provided",
-        "Safe access / egress provided", "Anchorage Point verified", "Usage of Roof lifeline"
-    ],
-    'CSE': [
-        "Oxygen level checked (>19.5%)", "Toxic gas checked",
-        "Adequate ventilation provided", "Attendant present outside",
-        "Rescue Team on alert", "Communication established", "Respirator / SCBA provided"
-    ],
-    'ELE': [
-        "LOTO applied (Lockout/Tagout)", "Insulated tools to be used",
-        "Rubber mat provided", "Proper PPE (Arc flash) used", "Zero energy verified"
-    ],
-    'EXC': [
-        "Underground cables checked", "Underground pipes checked",
-        "Shoring/Sloping done", "Barricades & warning signs provided", "Safe access / egress"
-    ],
-    'GEN': [
-        "Job briefed to all personnel", "Warning signs displayed",
-        "Equipment / Tools checked", "Safe access / egress provided", "Housekeeping maintained"
-    ]
+    'HOT': ["Fire extinguisher/fire hose available", "Combustible materials removed (>10m)", "Gas test done (LFL < 10%)", "Fire watcher assigned", "Welding screens used", "Adequate ventilation for fumes", "Sparks contained"],
+    'WAH': ["Scaffold tag is green", "Full body harness used", "Lifeline / Fall arrester used", "Safety nets provided", "Safe access / egress provided", "Anchorage Point verified", "Usage of Roof lifeline"],
+    'CSE': ["Oxygen level checked (>19.5%)", "Toxic gas checked", "Adequate ventilation provided", "Attendant present outside", "Rescue Team on alert", "Communication established", "Respirator / SCBA provided"],
+    'ELE': ["LOTO applied (Lockout/Tagout)", "Insulated tools to be used", "Rubber mat provided", "Proper PPE (Arc flash) used", "Zero energy verified"],
+    'EXC': ["Underground cables checked", "Underground pipes checked", "Shoring/Sloping done", "Barricades & warning signs provided", "Safe access / egress"],
+    'GEN': ["Job briefed to all personnel", "Warning signs displayed", "Equipment / Tools checked", "Safe access / egress provided", "Housekeeping maintained"]
 };
 
 const COMMON_PPE = ["Hard Hat", "Safety Glasses", "Safety Shoes", "Gloves", "Hi-Vis Vest", "Ear Protection", "Face Shield", "Fall Harness", "Respirator", "FR Clothing"];
 const WAH_EQUIP_OPTIONS = ["Fixed Scaffold", "Mobile Scaffold", "A-Frame Ladder", "Extension Ladder", "MEWP / Boom Lift", "Scissor Lift", "Rope Access System"];
 
-// Normalizes an individual permit so no property is ever undefined
 const normalizePermit = (p) => {
     if (!p) return null;
     return {
@@ -87,6 +70,12 @@ const normalizePermit = (p) => {
         validFromTime: String(p.validFromTime || ''),
         validToTime: String(p.validToTime || ''),
         statusUpdatedOn: String(p.statusUpdatedOn || ''),
+        engApproverEmail: String(p.engApproverEmail || ''),
+        prodApproverEmail: String(p.prodApproverEmail || ''),
+        engStatus: String(p.engStatus || 'Pending'),
+        prodStatus: String(p.prodStatus || 'Pending'),
+        creatorEmail: String(p.creatorEmail || ''),
+        requestedBy: String(p.requestedBy || ''),
         wms: ensureArray(p.wms),
         entrantNames: ensureArray(p.entrantNames),
         wahEquipment: ensureArray(p.wahEquipment),
@@ -97,9 +86,6 @@ const normalizePermit = (p) => {
 
 const getTypeConfig = (tId) => PERMIT_TYPES.find(t => t.id === tId) || PERMIT_TYPES[5];
 
-// ==========================================
-// MAIN COMPONENT
-// ==========================================
 export default function Ptw() {
     const navigate = useNavigate();
     const location = useLocation();
@@ -119,10 +105,14 @@ export default function Ptw() {
     const [qrImage, setQrImage] = useState(null);
 
     const [formData, setFormData] = useState(null);
-    const [approverModalOpen, setApproverModalOpen] = useState(false);
-    const [selectedApprover, setSelectedApprover] = useState('');
+    const [inspectionModal, setInspectionModal] = useState(null);
 
-    const myName = session?.name || session?.email || session?.user || 'Me';
+    // REASSIGNMENT STATE
+    const [reassignModal, setReassignModal] = useState(null);
+    const [newApproverEmail, setNewApproverEmail] = useState('');
+
+    const myName = session?.name || session?.user || 'Me';
+    const myEmail = session?.email?.toLowerCase().trim() || '';
 
     useEffect(() => {
         const s = sessionStorage.getItem('isoSession');
@@ -130,10 +120,12 @@ export default function Ptw() {
         const sess = JSON.parse(s);
         setSession(sess);
 
+        const isGlobal = sess.role === 'Owner' || sess.role === 'Admin' || sess.role === 'Lead Auditor' || sess.assignedSite === 'GLOBAL' || (sess.accessibleSites || []).includes('GLOBAL');
         const params = new URLSearchParams(location.search);
         let ctxSite = params.get('site') || 'All';
-        if (sess.role !== 'Owner' && sess.assignedSite && ctxSite === 'All') {
-            ctxSite = sess.assignedSite;
+
+        if (!isGlobal && ctxSite === 'All') {
+            ctxSite = sess.assignedSite || 'All';
         }
         setSiteFilter(ctxSite);
 
@@ -157,8 +149,8 @@ export default function Ptw() {
                         setUsers(Object.keys(data.users).map(key => {
                             const uVal = data.users[key];
                             return typeof uVal === 'object'
-                                ? { id: key, name: uVal.name || uVal.email || "System Owner", role: uVal.role || "User", ...uVal }
-                                : { id: key, name: uVal || "System Owner", role: "User" };
+                                ? { id: key, name: uVal.name || uVal.email || "System User", email: uVal.email, role: uVal.role || "User", assignedSite: uVal.assignedSite, accessibleSites: uVal.accessibleSites || [] }
+                                : { id: key, name: uVal || "System User", email: uVal, role: "User", assignedSite: "GLOBAL", accessibleSites: [] };
                         }).filter(u => u.status !== 'Inactive' && u.status !== 'Deleted'));
                     }
 
@@ -179,26 +171,90 @@ export default function Ptw() {
         loadData();
     }, [navigate, location]);
 
-    // --- GLOBAL USER FILTERING LOGIC ---
-    const siteUsers = useMemo(() => {
-        const activeSiteId = formData?.siteId || siteFilter;
-        return users.filter(u => {
-            const isGlobal = u.role === 'Owner' || u.role === 'Lead Auditor' || u.assignedSite === 'GLOBAL' || (u.accessibleSites && u.accessibleSites.includes('GLOBAL'));
-            const siteMatch = isGlobal || !activeSiteId || activeSiteId === 'All' || u.assignedSite === activeSiteId || (u.accessibleSites && u.accessibleSites.includes(activeSiteId));
-            return siteMatch;
-        });
-    }, [users, formData?.siteId, siteFilter]);
+    // ==========================================
+    // STRICT SITE & ROLE AUTHORIZATION LOGIC
+    // ==========================================
 
-    const filteredPermits = useMemo(() => {
-        return permits.filter(p => siteFilter === 'All' || p.siteId === siteFilter);
-    }, [permits, siteFilter]);
+    // 1. Is this user a global admin?
+    const isGlobalUser = useMemo(() => {
+        if (!session) return false;
+        const role = session.role || '';
+        const site = session.assignedSite || '';
+        const access = session.accessibleSites || [];
+        return role === 'Owner' || role === 'Admin' || role === 'Lead Auditor' || site === 'GLOBAL' || access.includes('GLOBAL');
+    }, [session]);
 
-    const myPendingApprovals = useMemo(() => {
-        return permits.filter(p => p.status === 'Pending Approval' && p.pendingApprover === session?.user);
-    }, [permits, session]);
+    // 2. What specific site codes is this user allowed to touch?
+    const allowedSiteCodes = useMemo(() => {
+        if (!session) return new Set();
+        const codes = new Set();
+        if (session.assignedSite && session.assignedSite !== 'GLOBAL') codes.add(session.assignedSite);
+        if (Array.isArray(session.accessibleSites)) {
+            session.accessibleSites.forEach(s => {
+                if (s && s !== 'GLOBAL') codes.add(s);
+            });
+        }
+        return codes;
+    }, [session]);
+
+    // 3. Filter the actual Site Objects to strictly what they are allowed to see
+    const allowedSites = useMemo(() => {
+        if (isGlobalUser) return sites;
+        return sites.filter(s => allowedSiteCodes.has(s.code));
+    }, [sites, isGlobalUser, allowedSiteCodes]);
+
+    const checkMatch = (targetStr) => {
+        if (!targetStr) return false;
+        const t = String(targetStr).toLowerCase().trim();
+        const e = String(session?.email || '').toLowerCase().trim();
+        const u = String(session?.user || '').toLowerCase().trim();
+        const n = String(session?.name || '').toLowerCase().trim();
+        return (e && t === e) || (u && t === u) || (n && t === n);
+    };
+
+    const isEngApprover = (p) => checkMatch(p.engApproverEmail);
+    const isProdApprover = (p) => checkMatch(p.prodApproverEmail);
+    const isCreator = (p) => checkMatch(p.creatorEmail) || checkMatch(p.requestedBy);
 
     // ==========================================
-    // FORM LOGIC
+    // FILTER LOGIC
+    // ==========================================
+
+    // Filters users for the Approver dropdowns based on the selected site
+    const siteUsers = useMemo(() => {
+        const activeSiteId = currentView === 'builder' ? (formData?.siteId || '') : siteFilter;
+        return users.filter(u => {
+            const uGlobal = u.role === 'Owner' || u.role === 'Lead Auditor' || u.assignedSite === 'GLOBAL' || (u.accessibleSites && u.accessibleSites.includes('GLOBAL'));
+            return uGlobal || !activeSiteId || activeSiteId === 'All' || u.assignedSite === activeSiteId || (u.accessibleSites && u.accessibleSites.includes(activeSiteId));
+        });
+    }, [users, formData?.siteId, siteFilter, currentView]);
+
+    const visiblePermits = useMemo(() => {
+        return permits.filter(p => {
+            const hasSiteAccess = isGlobalUser || allowedSiteCodes.has(p.siteId);
+            if (!hasSiteAccess) return false;
+            if (siteFilter !== 'All' && p.siteId !== siteFilter) return false;
+            return true;
+        });
+    }, [permits, siteFilter, isGlobalUser, allowedSiteCodes]);
+
+    const myPendingApprovals = useMemo(() => {
+        return visiblePermits.filter(p => {
+            const engMatch = isEngApprover(p);
+            const prodMatch = isProdApprover(p);
+
+            if (p.status === 'Pending Approval') {
+                return (engMatch && p.engStatus === 'Pending') || (prodMatch && p.prodStatus === 'Pending');
+            }
+            if (p.status === 'Pending Closure') {
+                return (engMatch && p.engStatus === 'Closure Pending') || (prodMatch && p.prodStatus === 'Closure Pending');
+            }
+            return false;
+        });
+    }, [visiblePermits, session]);
+
+    // ==========================================
+    // WORKFLOW ENGINE
     // ==========================================
     const openForm = (record = null) => {
         setPrintData(null);
@@ -214,19 +270,22 @@ export default function Ptw() {
             setFormData(recToEdit);
         } else {
             const typeId = 'GEN';
+            // Auto-assign the site if the user only has access to one specific site
+            const defaultSite = (!isGlobalUser && allowedSites.length === 1) ? allowedSites[0].code : '';
+
             setFormData({
-                id: `PTW-${Math.floor(100000 + Math.random() * 900000)}`, firebaseKey: '',
-                typeId: typeId, siteId: siteFilter !== 'All' ? siteFilter : (session?.assignedSite || ''), location: '', equipment: '',
+                id: `PTW-${Math.floor(100000 + Math.random() * 900000)}`,
+                typeId: typeId, siteId: defaultSite, location: '', equipment: '',
                 description: '', issuingDept: '', issuedToName: '', issuedToPh: '',
                 fireWatcherName: '', entrantNames: [''], attendantName: '', entrySupervisorName: '',
                 oxygenLevel: '', toxicGas: '', flammability: '', lotoRef: '', wahEquipment: [],
                 wms: [{ step: '', hazard: '', precaution: '' }],
                 validFromDate: new Date().toISOString().split('T')[0], validFromTime: '08:00',
                 validToDate: new Date().toISOString().split('T')[0], validToTime: '17:00',
-                status: 'Draft', requestedBy: session?.user || 'Unknown', createdDate: new Date().toISOString(),
+                status: 'Draft', requestedBy: session?.user || session?.email, creatorEmail: session?.email || session?.user, createdDate: new Date().toISOString(),
                 ppe: ["Hard Hat", "Safety Glasses", "Safety Shoes"],
                 checklist: (CHECKLIST_ITEMS[typeId] || CHECKLIST_ITEMS['GEN']).map(item => ({ label: item, checked: false })),
-                issuerSignature: '', areaInchargeSignature: '', pendingApprover: ''
+                engApproverEmail: '', prodApproverEmail: '', engStatus: 'Pending', prodStatus: 'Pending'
             });
         }
         setCurrentView('builder');
@@ -243,6 +302,155 @@ export default function Ptw() {
         });
     };
 
+    const handleSave = async (isDraft = true) => {
+        if (!formData.siteId || !formData.description || !formData.location) {
+            return alert("Site, Location, and Description are mandatory fields.");
+        }
+
+        // HARD SECURITY CHECK: Prevent user from inspecting elements to bypass site dropdown
+        if (!isGlobalUser && !allowedSiteCodes.has(formData.siteId)) {
+            return alert("Security Authorization Failed: You do not have permission to create permits for this specific facility.");
+        }
+
+        try {
+            const { firebaseKey, ...payload } = formData;
+            payload.lastUpdated = new Date().toISOString();
+
+            if (!isDraft) {
+                if (!payload.engApproverEmail || !payload.prodApproverEmail) {
+                    return alert("Cannot submit! Please scroll down to Section 5 and select both Engineering and Production approvers.");
+                }
+                payload.status = 'Pending Approval';
+                payload.engStatus = 'Pending';
+                payload.prodStatus = 'Pending';
+            }
+
+            if (firebaseKey) {
+                await update(ref(rtdb, `organizations/${session.orgId}/ptwRecords/${firebaseKey}`), payload);
+                setPermits(permits.map(p => p.id === formData.id ? normalizePermit({ ...payload, firebaseKey }) : p));
+            } else {
+                const newRef = await push(ref(rtdb, `organizations/${session.orgId}/ptwRecords`), payload);
+                payload.firebaseKey = newRef.key;
+                setPermits([normalizePermit(payload), ...permits]);
+            }
+
+            alert(`Success! Permit ${isDraft ? 'Draft Saved' : 'Sent for Dual Authorization'}.`);
+            setCurrentView('inventory');
+        } catch (e) {
+            alert("Error saving permit: " + e.message);
+        }
+    };
+
+    const handleApproveInitiation = async (permit, role) => {
+        if (!permit.firebaseKey) return alert("Database error: Permit missing key.");
+
+        try {
+            const updates = {};
+            if (role === 'eng') updates.engStatus = 'Approved';
+            if (role === 'prod') updates.prodStatus = 'Approved';
+
+            const isEngApproved = role === 'eng' ? true : permit.engStatus === 'Approved';
+            const isProdApproved = role === 'prod' ? true : permit.prodStatus === 'Approved';
+
+            if (isEngApproved && isProdApproved) {
+                updates.status = 'Work in Progress';
+                updates.statusUpdatedOn = new Date().toISOString();
+                alert("Both authorizations received. Permit is now ACTIVE (Work In Progress).");
+            } else {
+                alert(`${role === 'eng' ? 'Engineering' : 'Production'} authorization recorded. Awaiting counterpart.`);
+            }
+
+            await update(ref(rtdb, `organizations/${session.orgId}/ptwRecords/${permit.firebaseKey}`), updates);
+            setPermits(permits.map(p => p.id === permit.id ? normalizePermit({ ...p, ...updates }) : p));
+        } catch (e) { alert("Error approving: " + e.message); }
+    };
+
+    const handleInspectionSubmit = async (e, isNegative) => {
+        e.preventDefault();
+        if (!inspectionModal.firebaseKey) return alert("Database error: Permit missing key.");
+
+        const obsText = e.target.observation.value;
+        try {
+            const updates = {
+                lastInspection: obsText,
+                lastInspectionDate: new Date().toISOString(),
+                lastInspector: session.email
+            };
+
+            if (isNegative) {
+                updates.status = 'Cancelled';
+                updates.cancellationReason = "Failed Workplace Inspection: " + obsText;
+                alert("CRITICAL: Negative observation logged. Permit has been CANCELLED immediately.");
+            } else {
+                alert("Safe observation logged successfully. Work may continue.");
+            }
+
+            await update(ref(rtdb, `organizations/${session.orgId}/ptwRecords/${inspectionModal.firebaseKey}`), updates);
+            setPermits(permits.map(p => p.id === inspectionModal.id ? normalizePermit({ ...p, ...updates }) : p));
+            setInspectionModal(null);
+        } catch (err) { alert("Error logging inspection: " + err.message); }
+    };
+
+    const handleRequestClosure = async (permit) => {
+        if (!permit.firebaseKey) return alert("Database error: Permit missing key.");
+        if (!window.confirm("Submit this permit for final closure? Ensure all physical work is completed and area is clear.")) return;
+
+        try {
+            const updates = {
+                status: 'Pending Closure',
+                engStatus: 'Closure Pending',
+                prodStatus: 'Closure Pending'
+            };
+            await update(ref(rtdb, `organizations/${session.orgId}/ptwRecords/${permit.firebaseKey}`), updates);
+            setPermits(permits.map(p => p.id === permit.id ? normalizePermit({ ...p, ...updates }) : p));
+            alert("Closure request sent to Authorizers.");
+        } catch (e) { alert("Error submitting closure request: " + e.message); }
+    };
+
+    const handleApproveClosure = async (permit, role) => {
+        if (!permit.firebaseKey) return alert("Database error: Permit missing key.");
+
+        try {
+            const updates = {};
+            if (role === 'eng') updates.engStatus = 'Closure Approved';
+            if (role === 'prod') updates.prodStatus = 'Closure Approved';
+
+            const isEngClosed = role === 'eng' ? true : permit.engStatus === 'Closure Approved';
+            const isProdClosed = role === 'prod' ? true : permit.prodStatus === 'Closure Approved';
+
+            if (isEngClosed && isProdClosed) {
+                updates.status = 'Closed';
+                updates.statusUpdatedOn = new Date().toISOString();
+                alert("Final authorizations received. Permit is now permanently CLOSED.");
+            } else {
+                alert(`${role === 'eng' ? 'Engineering' : 'Production'} closure verified. Awaiting counterpart.`);
+            }
+
+            await update(ref(rtdb, `organizations/${session.orgId}/ptwRecords/${permit.firebaseKey}`), updates);
+            setPermits(permits.map(p => p.id === permit.id ? normalizePermit({ ...p, ...updates }) : p));
+        } catch (e) { alert("Error approving closure: " + e.message); }
+    };
+
+    const handleReassign = async () => {
+        const { permit, role } = reassignModal;
+        if (!permit.firebaseKey) return alert("Database error: Permit missing key.");
+        if (!newApproverEmail) return alert("Please select a new approver.");
+
+        try {
+            const updates = {};
+            if (role === 'eng') updates.engApproverEmail = newApproverEmail;
+            if (role === 'prod') updates.prodApproverEmail = newApproverEmail;
+
+            await update(ref(rtdb, `organizations/${session.orgId}/ptwRecords/${permit.firebaseKey}`), updates);
+            setPermits(permits.map(p => p.id === permit.id ? normalizePermit({ ...p, ...updates }) : p));
+
+            setReassignModal(null);
+            setNewApproverEmail('');
+            alert("Approver successfully reassigned.");
+        } catch (e) { alert("Error reassigning approver: " + e.message); }
+    };
+
+    // Array manipulation helpers
     const togglePPE = (item) => {
         const arr = [...(formData.ppe || [])];
         if (arr.includes(item)) setFormData({ ...formData, ppe: arr.filter(i => i !== item) });
@@ -283,51 +491,6 @@ export default function Ptw() {
         else setFormData({ ...formData, wahEquipment: [...arr, item] });
     };
 
-    const handleSave = async (isDraft = true) => {
-        if (!formData.siteId || !formData.description || !formData.location) return alert("Site, Location, and Description are required.");
-
-        try {
-            const payload = { ...formData, lastUpdated: new Date().toISOString() };
-
-            if (!isDraft) {
-                if (!selectedApprover) return alert("Please select an Area Incharge to approve this permit.");
-                payload.status = 'Pending Approval';
-                payload.pendingApprover = selectedApprover;
-            }
-
-            if (formData.firebaseKey) {
-                await update(ref(rtdb, `organizations/${session.orgId}/ptwRecords/${formData.firebaseKey}`), payload);
-                setPermits(permits.map(p => p.firebaseKey === formData.firebaseKey ? normalizePermit(payload) : p));
-            } else {
-                const newRef = await push(ref(rtdb, `organizations/${session.orgId}/ptwRecords`), payload);
-                payload.firebaseKey = newRef.key;
-                setPermits([normalizePermit(payload), ...permits]);
-            }
-
-            alert(`Permit ${isDraft ? 'Draft Saved' : 'Sent for Authorization'}.`);
-            setApproverModalOpen(false);
-            setCurrentView('inventory');
-        } catch (e) { alert("Error saving permit: " + e.message); }
-    };
-
-    const changeStatus = async (permit, newStatus) => {
-        if (!window.confirm(`Change status of ${permit.id} to ${newStatus}?`)) return;
-        try {
-            const updates = { status: newStatus, statusUpdatedBy: session.user, statusUpdatedOn: new Date().toISOString() };
-
-            if (newStatus === 'Active') {
-                updates.areaInchargeSignature = session.user;
-                updates.issuerSignature = permit.requestedBy;
-                updates.pendingApprover = '';
-            }
-
-            const payload = normalizePermit({ ...permit, ...updates });
-            await update(ref(rtdb, `organizations/${session.orgId}/ptwRecords/${permit.firebaseKey}`), updates);
-            setPermits(permits.map(p => p.firebaseKey === permit.firebaseKey ? payload : p));
-            if (currentView === 'builder') setFormData(payload);
-        } catch (e) { alert("Status update failed."); }
-    };
-
     const triggerPrint = (permit) => {
         const qrUrl = `${window.location.origin}${window.location.pathname}?ptw=${permit.id}`;
         try {
@@ -340,7 +503,16 @@ export default function Ptw() {
         setTimeout(() => window.print(), 500);
     };
 
-    const getTypeConfig = (tId) => PERMIT_TYPES.find(t => t.id === tId) || PERMIT_TYPES[5];
+    const getStatusColor = (status) => {
+        switch (status) {
+            case 'Pending Approval': return 'bg-orange-500/20 text-orange-400 border-orange-500/30';
+            case 'Work in Progress': return 'bg-blue-500/20 text-blue-400 border-blue-500/30';
+            case 'Pending Closure': return 'bg-purple-500/20 text-purple-400 border-purple-500/30';
+            case 'Closed': return 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30';
+            case 'Cancelled': return 'bg-red-500/20 text-red-400 border-red-500/30';
+            default: return 'bg-slate-800 text-slate-400 border-slate-700';
+        }
+    };
 
     if (loading || !session) return (
         <div className="flex h-screen items-center justify-center text-white bg-slate-950 font-['Space_Grotesk'] flex-col gap-4">
@@ -348,8 +520,6 @@ export default function Ptw() {
             <h2 className="text-sm font-bold uppercase tracking-widest text-slate-400">Loading PTW System...</h2>
         </div>
     );
-
-    const urlSite = new URLSearchParams(location.search).get('site') || session?.assignedSite || 'GLOBAL';
 
     return (
         <div className="flex flex-col h-screen bg-slate-950 text-white overflow-hidden relative font-['Space_Grotesk']">
@@ -364,13 +534,19 @@ export default function Ptw() {
                 .custom-scroll::-webkit-scrollbar { height: 8px; width: 8px; }
                 .custom-scroll::-webkit-scrollbar-track { background: #020617; border-radius: 4px; }
                 .custom-scroll::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; border: 2px solid #020617; }
+                
+                @media print {
+                    .page-break-inside-avoid {
+                        page-break-inside: avoid;
+                    }
+                }
             `}} />
 
             <div className="absolute top-0 right-0 w-[600px] h-[600px] bg-amber-600/5 rounded-full blur-[120px] pointer-events-none z-0"></div>
 
             <header className="h-16 px-6 flex items-center justify-between border-b border-slate-800 bg-slate-900/80 backdrop-blur-md z-20 flex-shrink-0 print:hidden">
                 <div className="flex items-center gap-4">
-                    <button onClick={() => navigate(`/ohs-tools?site=${urlSite}`)} className="text-slate-400 hover:text-white transition flex items-center gap-2">
+                    <button onClick={() => navigate(`/ohs-tools?site=${siteFilter}`)} className="text-slate-400 hover:text-white transition flex items-center gap-2">
                         <i className="fas fa-arrow-left"></i> OHS Tools
                     </button>
                     <div className="h-6 w-px bg-slate-700 mx-2"></div>
@@ -395,49 +571,48 @@ export default function Ptw() {
                         <div className="mb-8 flex justify-between items-end">
                             <div>
                                 <h2 className="text-3xl font-bold text-white mb-2">PTW Dashboard</h2>
-                                <p className="text-sm text-slate-400 font-['Inter']">Real-time status of all safe work permits across facilities.</p>
+                                <p className="text-sm text-slate-400 font-['Inter']">Real-time status of safe work permits for your allowed locations.</p>
                             </div>
                             <div className="flex gap-4 text-sm font-bold items-center">
                                 <select value={siteFilter} onChange={e => setSiteFilter(e.target.value)} className="bg-slate-900 border border-slate-600 text-white px-4 py-2.5 rounded-xl outline-none focus:border-amber-500 shadow-lg font-['Inter']">
-                                    <option value="All">All Sites</option>
-                                    {sites.map(s => <option key={s.code} value={s.code}>{s.name}</option>)}
+                                    {(isGlobalUser || allowedSites.length > 1) && <option value="All">All Authorized Sites</option>}
+                                    {allowedSites.map(s => <option key={s.code} value={s.code}>{s.name}</option>)}
                                 </select>
                             </div>
                         </div>
 
                         <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-                            <div className="glass-panel p-6 rounded-2xl border-l-4 border-l-emerald-500">
-                                <h3 className="text-[10px] font-bold text-emerald-500 uppercase tracking-widest mb-2">Active Permits</h3>
-                                <div className="text-4xl font-black text-white">{filteredPermits.filter(p => p.status === 'Active').length}</div>
+                            <div className="glass-panel p-6 rounded-2xl border-l-4 border-l-blue-500">
+                                <h3 className="text-[10px] font-bold text-blue-400 uppercase tracking-widest mb-2">Work In Progress</h3>
+                                <div className="text-4xl font-black text-white">{visiblePermits.filter(p => p.status === 'Work in Progress').length}</div>
                             </div>
                             <div className="glass-panel p-6 rounded-2xl border-l-4 border-l-orange-500">
                                 <h3 className="text-[10px] font-bold text-orange-400 uppercase tracking-widest mb-2">Pending Approval</h3>
-                                <div className="text-4xl font-black text-white">{filteredPermits.filter(p => p.status === 'Pending Approval').length}</div>
+                                <div className="text-4xl font-black text-white">{visiblePermits.filter(p => p.status === 'Pending Approval').length}</div>
                             </div>
-                            <div className="glass-panel p-6 rounded-2xl border-l-4 border-l-slate-500">
-                                <h3 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Closed Today</h3>
-                                <div className="text-4xl font-black text-white">{filteredPermits.filter(p => p.status === 'Closed' && String(p.statusUpdatedOn || '').startsWith(new Date().toISOString().split('T')[0])).length}</div>
+                            <div className="glass-panel p-6 rounded-2xl border-l-4 border-l-purple-500">
+                                <h3 className="text-[10px] font-bold text-purple-400 uppercase tracking-widest mb-2">Pending Closure</h3>
+                                <div className="text-4xl font-black text-white">{visiblePermits.filter(p => p.status === 'Pending Closure').length}</div>
                             </div>
                             <div className="glass-panel p-6 rounded-2xl border-l-4 border-l-red-500">
-                                <h3 className="text-[10px] font-bold text-red-400 uppercase tracking-widest mb-2">Hot Work Active</h3>
-                                <div className="text-4xl font-black text-white">{filteredPermits.filter(p => p.status === 'Active' && p.typeId === 'HOT').length}</div>
+                                <h3 className="text-[10px] font-bold text-red-400 uppercase tracking-widest mb-2">Cancelled / Stopped</h3>
+                                <div className="text-4xl font-black text-white">{visiblePermits.filter(p => p.status === 'Cancelled').length}</div>
                             </div>
                         </div>
 
                         {myPendingApprovals.length > 0 && (
                             <div className="mb-10 p-6 bg-orange-900/20 border border-orange-500/50 rounded-3xl shadow-2xl">
-                                <h3 className="font-bold text-orange-400 mb-4 text-lg flex items-center gap-2"><i className="fas fa-bell animate-pulse"></i> Permits Requiring Your Authorization</h3>
+                                <h3 className="font-bold text-orange-400 mb-4 text-lg flex items-center gap-2"><i className="fas fa-bell animate-pulse"></i> Tasks Requiring Your Action</h3>
                                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                                     {myPendingApprovals.map(p => (
                                         <div key={p.id} className="bg-slate-900 p-4 rounded-xl border border-slate-700 flex flex-col justify-between font-['Inter']">
                                             <div>
-                                                <span className="text-[10px] bg-orange-500/20 text-orange-400 px-2 py-1 rounded font-bold uppercase mb-2 inline-block border border-orange-500/30">{p.id}</span>
+                                                <span className={`text-[10px] px-2 py-1 rounded font-bold uppercase mb-2 inline-block border ${p.status === 'Pending Closure' ? 'bg-purple-500/20 text-purple-400 border-purple-500/30' : 'bg-orange-500/20 text-orange-400 border-orange-500/30'}`}>{p.status}</span>
                                                 <h4 className="font-bold text-white text-sm mb-1 line-clamp-2">{p.description}</h4>
                                                 <p className="text-xs text-slate-400 mb-4 truncate">{p.location}</p>
                                             </div>
                                             <div className="flex gap-2">
-                                                <button onClick={() => openForm(p)} className="flex-1 bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold py-2.5 rounded-lg transition uppercase tracking-wider">Review</button>
-                                                <button onClick={() => changeStatus(p, 'Active')} className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold py-2.5 rounded-lg shadow transition flex items-center justify-center gap-2 uppercase tracking-wider"><i className="fas fa-check"></i> Approve</button>
+                                                <button onClick={() => setCurrentView('inventory')} className="flex-1 bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold py-2.5 rounded-lg transition uppercase tracking-wider">Go to Registry</button>
                                             </div>
                                         </div>
                                     ))}
@@ -447,7 +622,7 @@ export default function Ptw() {
 
                         <h3 className="font-bold text-white mb-4 text-xl">Recently Active Permits</h3>
                         <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6 font-['Inter']">
-                            {filteredPermits.filter(p => p.status === 'Active' || p.status === 'Pending Approval').slice(0, 6).map(p => {
+                            {visiblePermits.filter(p => p.status === 'Work in Progress' || p.status === 'Pending Approval').slice(0, 6).map(p => {
                                 const tConfig = getTypeConfig(p.typeId);
                                 return (
                                     <div key={p.id} className={`glass-panel p-5 rounded-2xl border-t-4 shadow-lg hover:shadow-xl transition-shadow ${tConfig.border.replace('border-', 'border-t-')}`}>
@@ -458,8 +633,8 @@ export default function Ptw() {
                                         <h4 className="font-bold text-white mb-1 truncate">{p.description}</h4>
                                         <p className="text-xs text-slate-400 mb-4"><i className="fas fa-location-dot mr-1"></i> {p.location} ({p.siteId})</p>
                                         <div className="flex justify-between items-center text-[10px] font-bold uppercase tracking-wider border-t border-slate-800 pt-3">
-                                            <span className={p.status === 'Active' ? 'text-emerald-400 animate-pulse' : 'text-orange-400'}>{p.status}</span>
-                                            <span className="text-slate-500">Valid Till: {p.validToTime}</span>
+                                            <span className={p.status === 'Work in Progress' ? 'text-blue-400 animate-pulse' : 'text-orange-400'}>{p.status}</span>
+                                            <span className="text-slate-500">Till: {p.validToTime}</span>
                                         </div>
                                     </div>
                                 )
@@ -477,8 +652,8 @@ export default function Ptw() {
                                 <p className="text-sm text-slate-400 font-['Inter']">Master log of all drafted, active, and historical permits.</p>
                             </div>
                             <select value={siteFilter} onChange={e => setSiteFilter(e.target.value)} className="bg-slate-900 border border-slate-600 text-white px-4 py-2.5 rounded-xl outline-none w-48 focus:border-amber-500 shadow-lg font-['Inter'] text-sm font-bold">
-                                <option value="All">All Sites</option>
-                                {sites.map(s => <option key={s.code} value={s.code}>{s.name}</option>)}
+                                {(isGlobalUser || allowedSites.length > 1) && <option value="All">All Authorized Sites</option>}
+                                {allowedSites.map(s => <option key={s.code} value={s.code}>{s.name}</option>)}
                             </select>
                         </div>
 
@@ -489,40 +664,82 @@ export default function Ptw() {
                                         <th className="p-4 pl-6">PTW Ref</th>
                                         <th className="p-4">Type</th>
                                         <th className="p-4">Location / Work</th>
-                                        <th className="p-4">Validity</th>
-                                        <th className="p-4">Status</th>
+                                        <th className="p-4">Status & Approvals</th>
                                         <th className="p-4 pr-6 text-right">Actions</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-800 bg-slate-950/50">
-                                    {filteredPermits.map((p, i) => {
+                                    {visiblePermits.map((p, i) => {
                                         const tConfig = getTypeConfig(p.typeId);
+                                        const amIEng = isEngApprover(p);
+                                        const amIProd = isProdApprover(p);
+                                        const amICreator = isCreator(p);
+
+                                        const canReassign = amICreator && (p.status === 'Pending Approval' || p.status === 'Pending Closure');
+
                                         return (
-                                            <tr key={i} className="hover:bg-slate-800/50 transition-colors">
+                                            <tr key={p.id || i} className="hover:bg-slate-800/50 transition-colors">
                                                 <td className="p-4 pl-6 font-mono text-xs font-bold text-white">{p.id}</td>
-                                                <td className="p-4"><span className={`text-[9px] font-bold uppercase tracking-widest px-2 py-1 rounded border shadow-sm ${tConfig.bg} ${tConfig.color} ${tConfig.border}`}>{tConfig.label}</span></td>
+                                                <td className="p-4"><span className={`text-[10px] font-bold uppercase tracking-widest px-2 py-1 rounded border shadow-sm ${tConfig.bg} ${tConfig.color} ${tConfig.border}`}>{tConfig.label}</span></td>
                                                 <td className="p-4">
                                                     <div className="font-bold text-slate-200 truncate max-w-xs">{p.description}</div>
                                                     <div className="text-[10px] text-slate-500 uppercase tracking-widest mt-1">{p.location} ({p.siteId})</div>
                                                 </td>
-                                                <td className="p-4 text-xs font-mono text-slate-400">{String(p.validFromDate || '').slice(5)} to {String(p.validToDate || '').slice(5)}<br />{p.validFromTime}-{p.validToTime}</td>
                                                 <td className="p-4">
-                                                    <span className={`text-[10px] font-bold uppercase tracking-wider ${p.status === 'Active' ? 'text-emerald-400' : p.status === 'Pending Approval' ? 'text-orange-400' : p.status === 'Closed' ? 'text-slate-500' : 'text-blue-400'}`}>{p.status}</span>
+                                                    <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border ${getStatusColor(p.status)}`}>{p.status}</span>
+
+                                                    {/* DISPLAY APPROVERS WITH REASSIGN OPTION FOR CREATOR */}
+                                                    <div className="text-[9px] mt-2 flex flex-col gap-1 font-bold uppercase text-slate-500 tracking-widest">
+                                                        <div className="flex items-center gap-2">
+                                                            <span>ENG: <span className={p.engStatus.includes('Approved') ? 'text-emerald-400' : 'text-orange-400'}>{p.engStatus}</span></span>
+                                                            {canReassign && !p.engStatus.includes('Approved') && (
+                                                                <button onClick={() => { setReassignModal({ permit: p, role: 'eng' }); setNewApproverEmail(p.engApproverEmail); }} className="text-amber-500 hover:text-amber-400 transition" title="Reassign Eng Approver"><i className="fas fa-edit"></i></button>
+                                                            )}
+                                                        </div>
+                                                        <div className="flex items-center gap-2">
+                                                            <span>PROD: <span className={p.prodStatus.includes('Approved') ? 'text-emerald-400' : 'text-orange-400'}>{p.prodStatus}</span></span>
+                                                            {canReassign && !p.prodStatus.includes('Approved') && (
+                                                                <button onClick={() => { setReassignModal({ permit: p, role: 'prod' }); setNewApproverEmail(p.prodApproverEmail); }} className="text-amber-500 hover:text-amber-400 transition" title="Reassign Prod Approver"><i className="fas fa-edit"></i></button>
+                                                            )}
+                                                        </div>
+                                                    </div>
                                                 </td>
-                                                <td className="p-4 pr-6 text-right flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                    {p.status === 'Pending Approval' && (session.user === p.pendingApprover || session.role === 'Owner') && (
-                                                        <button onClick={() => changeStatus(p, 'Active')} className="bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase transition shadow flex items-center"><i className="fas fa-check mr-1"></i> Approve</button>
+                                                <td className="p-4 pr-6 text-right flex justify-end gap-2 flex-wrap min-w-[200px] ml-auto">
+
+                                                    {/* STAGE 1: INITIATION APPROVAL */}
+                                                    {p.status === 'Pending Approval' && amIEng && p.engStatus === 'Pending' && (
+                                                        <button onClick={() => handleApproveInitiation(p, 'eng')} className="bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase transition shadow"><i className="fas fa-check mr-1"></i> Apprv Eng</button>
                                                     )}
-                                                    {p.status === 'Active' && (
-                                                        <button onClick={() => changeStatus(p, 'Closed')} className="bg-slate-700 hover:bg-slate-600 text-white px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase transition shadow flex items-center border border-slate-500"><i className="fas fa-times mr-1"></i> Close</button>
+                                                    {p.status === 'Pending Approval' && amIProd && p.prodStatus === 'Pending' && (
+                                                        <button onClick={() => handleApproveInitiation(p, 'prod')} className="bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase transition shadow"><i className="fas fa-check mr-1"></i> Apprv Prod</button>
                                                     )}
+
+                                                    {/* STAGE 2: WORK IN PROGRESS */}
+                                                    {p.status === 'Work in Progress' && (
+                                                        <>
+                                                            <button onClick={() => setInspectionModal(p)} className="bg-orange-600 hover:bg-orange-500 text-white px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase transition shadow"><i className="fas fa-search mr-1"></i> Inspect</button>
+                                                            {amICreator && (
+                                                                <button onClick={() => handleRequestClosure(p)} className="bg-slate-700 hover:bg-slate-600 text-white px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase transition border border-slate-500 shadow">Close Work</button>
+                                                            )}
+                                                        </>
+                                                    )}
+
+                                                    {/* STAGE 3: CLOSURE APPROVAL */}
+                                                    {p.status === 'Pending Closure' && amIEng && p.engStatus === 'Closure Pending' && (
+                                                        <button onClick={() => handleApproveClosure(p, 'eng')} className="bg-purple-600 hover:bg-purple-500 text-white px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase transition shadow"><i className="fas fa-check-double mr-1"></i> Verify Close Eng</button>
+                                                    )}
+                                                    {p.status === 'Pending Closure' && amIProd && p.prodStatus === 'Closure Pending' && (
+                                                        <button onClick={() => handleApproveClosure(p, 'prod')} className="bg-purple-600 hover:bg-purple-500 text-white px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase transition shadow"><i className="fas fa-check-double mr-1"></i> Verify Close Prod</button>
+                                                    )}
+
+                                                    {/* VIEW/PRINT/EDIT */}
                                                     <button onClick={() => triggerPrint(p)} className="bg-slate-800 hover:bg-slate-700 text-white w-8 h-8 rounded-lg text-sm transition border border-slate-600 shadow flex items-center justify-center"><i className="fas fa-print"></i></button>
                                                     <button onClick={() => openForm(p)} className="bg-slate-800 hover:bg-amber-600 text-white w-8 h-8 rounded-lg text-sm transition border border-slate-600 shadow flex items-center justify-center"><i className="fas fa-edit"></i></button>
                                                 </td>
                                             </tr>
                                         );
                                     })}
-                                    {filteredPermits.length === 0 && <tr><td colSpan={6} className="p-16 text-center text-slate-500 italic text-base border-t border-slate-800">No permits found.</td></tr>}
+                                    {visiblePermits.length === 0 && <tr><td colSpan={5} className="p-16 text-center text-slate-500 italic text-base border-t border-slate-800">No permits found for authorized locations.</td></tr>}
                                 </tbody>
                             </table>
                         </div>
@@ -540,17 +757,11 @@ export default function Ptw() {
                                 {formData.status === 'Draft' ? (
                                     <>
                                         <button onClick={() => handleSave(true)} className="bg-slate-800 hover:bg-slate-700 border border-slate-600 text-white px-6 py-2.5 rounded-xl font-bold text-sm shadow transition font-['Inter']">Save Draft</button>
-                                        <button onClick={() => setApproverModalOpen(true)} className="bg-gradient-to-r from-amber-600 to-orange-500 hover:from-amber-500 hover:to-orange-400 text-white px-8 py-2.5 rounded-xl font-bold text-sm shadow-lg shadow-amber-900/50 transition font-['Inter'] flex items-center gap-2"><i className="fas fa-paper-plane"></i> Send for Approval</button>
+                                        <button onClick={() => handleSave(false)} className="bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 text-white px-8 py-2.5 rounded-xl font-bold text-sm shadow-lg shadow-emerald-900/50 transition font-['Inter'] flex items-center gap-2"><i className="fas fa-paper-plane"></i> Submit for Authorization</button>
                                     </>
                                 ) : (
                                     <>
                                         <button onClick={() => triggerPrint(formData)} className="bg-slate-800 hover:bg-slate-700 border border-slate-600 text-white px-6 py-2.5 rounded-xl font-bold text-sm shadow transition flex items-center gap-2 font-['Inter']"><i className="fas fa-print"></i> Print Permit</button>
-                                        {formData.status === 'Pending Approval' && (session.user === formData.pendingApprover || session.role === 'Owner') && (
-                                            <button onClick={() => changeStatus(formData, 'Active')} className="bg-emerald-600 hover:bg-emerald-500 text-white px-8 py-2.5 rounded-xl font-bold text-sm shadow-lg transition flex items-center gap-2 font-['Inter']"><i className="fas fa-check"></i> Authorize & Activate</button>
-                                        )}
-                                        {formData.status === 'Active' && (
-                                            <button onClick={() => changeStatus(formData, 'Closed')} className="bg-red-600 hover:bg-red-500 text-white px-8 py-2.5 rounded-xl font-bold text-sm shadow-lg transition flex items-center gap-2 font-['Inter']"><i className="fas fa-times"></i> Close Permit</button>
-                                        )}
                                     </>
                                 )}
                             </div>
@@ -562,7 +773,7 @@ export default function Ptw() {
                                 <div className="flex justify-between items-center mb-6 border-b border-slate-700 pb-4 font-['Space_Grotesk']">
                                     <h3 className="text-xl font-bold text-white flex items-center gap-3"><i className="fas fa-info-circle text-amber-500"></i> Section 1: Job Context</h3>
                                     <div className="flex items-center gap-3">
-                                        <span className={`text-[10px] font-bold uppercase tracking-widest px-3 py-1 rounded border shadow-sm ${formData.status === 'Active' ? 'bg-emerald-900/30 text-emerald-400 border-emerald-500' : formData.status === 'Pending Approval' ? 'bg-orange-900/30 text-orange-400 border-orange-500' : 'bg-slate-900 text-slate-400 border-slate-700'}`}>{formData.status}</span>
+                                        <span className={`text-[10px] font-bold uppercase tracking-widest px-3 py-1 rounded border shadow-sm ${getStatusColor(formData.status)}`}>{formData.status}</span>
                                         <span className="font-mono text-xs bg-slate-950 px-3 py-1.5 rounded-lg border border-slate-700 text-white font-bold shadow-inner">{formData.id}</span>
                                     </div>
                                 </div>
@@ -575,9 +786,9 @@ export default function Ptw() {
                                     </div>
                                     <div>
                                         <label className="text-[10px] uppercase font-bold text-slate-400 block mb-2 tracking-widest">Site / Facility</label>
-                                        <select value={formData.siteId} onChange={e => updateField('siteId', e.target.value)} disabled={formData.status !== 'Draft'} className="font-bold text-white shadow-inner">
-                                            <option value="">Select Site...</option>
-                                            {sites.map(s => <option key={s.code} value={s.code}>{s.name}</option>)}
+                                        <select value={formData.siteId} onChange={e => updateField('siteId', e.target.value)} disabled={formData.status !== 'Draft' || (!isGlobalUser && allowedSites.length <= 1)} className="font-bold text-white shadow-inner">
+                                            {(isGlobalUser || allowedSites.length > 1) && <option value="">Select Authorized Site...</option>}
+                                            {allowedSites.map(s => <option key={s.code} value={s.code}>{s.name} ({s.code})</option>)}
                                         </select>
                                     </div>
 
@@ -611,12 +822,12 @@ export default function Ptw() {
                                         <div className="md:col-span-2">
                                             <div className="flex justify-between items-center mb-3">
                                                 <label className="text-[10px] uppercase font-bold text-slate-300 tracking-widest">Authorized Entrants</label>
-                                                {formData.status === 'Draft' && <button onClick={addEntrant} className="text-[10px] bg-purple-600 hover:bg-purple-500 transition px-3 py-1.5 rounded-lg text-white font-bold uppercase tracking-widest shadow"><i className="fas fa-plus mr-1"></i> Add Entrant</button>}
+                                                {formData.status === 'Draft' && <button type="button" onClick={addEntrant} className="text-[10px] bg-purple-600 hover:bg-purple-500 transition px-3 py-1.5 rounded-lg text-white font-bold uppercase tracking-widest shadow"><i className="fas fa-plus mr-1"></i> Add Entrant</button>}
                                             </div>
                                             {(formData.entrantNames || []).map((ent, idx) => (
                                                 <div key={idx} className="flex gap-2 mb-2">
                                                     <input value={ent} onChange={e => updateEntrant(idx, e.target.value)} disabled={formData.status !== 'Draft'} placeholder={`Entrant ${idx + 1} Name`} className="border border-purple-900/50 focus:border-purple-500 shadow-inner" />
-                                                    {formData.status === 'Draft' && (formData.entrantNames || []).length > 1 && <button onClick={() => removeEntrant(idx)} className="bg-red-900/30 hover:bg-red-600 text-red-500 hover:text-white px-4 rounded-lg transition-colors border border-red-500/30"><i className="fas fa-times"></i></button>}
+                                                    {formData.status === 'Draft' && (formData.entrantNames || []).length > 1 && <button type="button" onClick={() => removeEntrant(idx)} className="bg-red-900/30 hover:bg-red-600 text-red-500 hover:text-white px-4 rounded-lg transition-colors border border-red-500/30"><i className="fas fa-times"></i></button>}
                                                 </div>
                                             ))}
                                         </div>
@@ -631,7 +842,6 @@ export default function Ptw() {
                                 </div>
                             )}
 
-                            {/* ELECTRICAL LOTO */}
                             {formData.typeId === 'ELE' && (
                                 <div className="bg-amber-900/10 p-8 rounded-3xl border border-amber-500/30 shadow-xl animate-fade-in">
                                     <label className="text-xs uppercase font-bold text-amber-400 block mb-3 tracking-widest font-['Space_Grotesk']"><i className="fas fa-lock mr-2"></i> LOTO Linkage Required</label>
@@ -645,7 +855,6 @@ export default function Ptw() {
                                 </div>
                             )}
 
-                            {/* WORK AT HEIGHT */}
                             {formData.typeId === 'WAH' && (
                                 <div className="bg-blue-900/10 p-8 rounded-3xl border border-blue-500/30 shadow-xl animate-fade-in">
                                     <label className="text-sm uppercase font-bold text-blue-400 block mb-5 tracking-widest font-['Space_Grotesk']"><i className="fas fa-arrow-up mr-2"></i> Height Access Equipment to be used</label>
@@ -671,11 +880,11 @@ export default function Ptw() {
                                 </div>
                             </div>
 
-                            {/* SECTION 4: WMS (WORK METHOD STATEMENT) */}
+                            {/* SECTION 3: WMS */}
                             <div className="bg-slate-800/80 p-8 rounded-3xl shadow-xl border border-slate-700">
                                 <div className="flex justify-between items-center mb-6 border-b border-slate-700 pb-4 font-['Space_Grotesk']">
                                     <h3 className="text-xl font-bold text-white flex items-center gap-3"><i className="fas fa-tasks text-amber-500"></i> Section 3: Work Method Statement</h3>
-                                    {formData.status === 'Draft' && <button onClick={addWmsRow} className="bg-emerald-600 hover:bg-emerald-500 text-white px-5 py-2.5 rounded-xl text-xs font-bold transition shadow-lg flex items-center gap-2 uppercase tracking-widest"><i className="fas fa-plus"></i> Add Step</button>}
+                                    {formData.status === 'Draft' && <button type="button" onClick={addWmsRow} className="bg-emerald-600 hover:bg-emerald-500 text-white px-5 py-2.5 rounded-xl text-xs font-bold transition shadow-lg flex items-center gap-2 uppercase tracking-widest"><i className="fas fa-plus"></i> Add Step</button>}
                                 </div>
 
                                 <div className="overflow-x-auto rounded-2xl border border-slate-700 shadow-2xl">
@@ -697,7 +906,7 @@ export default function Ptw() {
                                                     <td className="p-3"><textarea rows="2" value={row?.hazard || ''} onChange={e => updateWmsRow(idx, 'hazard', e.target.value)} disabled={formData.status !== 'Draft'} className="bg-transparent border border-transparent hover:border-slate-800 focus:border-red-500 text-sm py-2 px-3 resize-none h-full text-red-200 outline-none transition-colors custom-scroll" placeholder="What could go wrong?"></textarea></td>
                                                     <td className="p-3"><textarea rows="2" value={row?.precaution || ''} onChange={e => updateWmsRow(idx, 'precaution', e.target.value)} disabled={formData.status !== 'Draft'} className="bg-transparent border border-transparent hover:border-slate-800 focus:border-emerald-500 text-sm py-2 px-3 resize-none h-full text-emerald-200 outline-none transition-colors custom-scroll" placeholder="How to prevent it?"></textarea></td>
                                                     <td className="p-3 text-center">
-                                                        {formData.status === 'Draft' && (formData.wms || []).length > 1 && <button onClick={() => removeWmsRow(idx)} className="text-red-500 hover:text-white bg-red-900/20 hover:bg-red-600 px-3 py-2 rounded-lg transition-colors border border-red-500/30"><i className="fas fa-trash"></i></button>}
+                                                        {formData.status === 'Draft' && (formData.wms || []).length > 1 && <button type="button" onClick={() => removeWmsRow(idx)} className="text-red-500 hover:text-white bg-red-900/20 hover:bg-red-600 px-3 py-2 rounded-lg transition-colors border border-red-500/30"><i className="fas fa-trash"></i></button>}
                                                     </td>
                                                 </tr>
                                             ))}
@@ -706,7 +915,7 @@ export default function Ptw() {
                                 </div>
                             </div>
 
-                            {/* SECTION 5: PPE & CHECKLIST */}
+                            {/* SECTION 4: PPE & CHECKLIST */}
                             <div className="bg-slate-800/80 p-8 rounded-3xl shadow-xl border border-slate-700">
                                 <h3 className="text-xl font-bold text-white flex items-center gap-3 mb-6 border-b border-slate-700 pb-4 font-['Space_Grotesk']"><i className="fas fa-clipboard-check text-amber-500"></i> Section 4: Standard Safety Checks</h3>
 
@@ -734,30 +943,88 @@ export default function Ptw() {
                                     </div>
                                 </div>
                             </div>
+
+                            {/* SECTION 5: DUAL AUTHORIZATION */}
+                            <div className="bg-slate-800/80 p-8 rounded-3xl shadow-xl border-t-4 border-emerald-500">
+                                <h3 className="text-xl font-bold text-white flex items-center gap-3 mb-6 border-b border-slate-700 pb-4 font-['Space_Grotesk']"><i className="fas fa-users-cog text-emerald-500"></i> Section 5: Dual Authorization Routing</h3>
+                                <p className="text-sm text-slate-400 mb-6 font-['Inter']">Select the required approvers to review and activate this permit. Both parties must approve before work can commence.</p>
+
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                    <div className="bg-slate-900/50 p-6 rounded-2xl border border-slate-700">
+                                        <label className="text-[10px] uppercase font-bold text-emerald-400 tracking-widest block mb-2"><i className="fas fa-cogs mr-1"></i> Engineering Approver</label>
+                                        <select value={formData.engApproverEmail} onChange={e => updateField('engApproverEmail', e.target.value)} disabled={formData.status !== 'Draft'} className="w-full font-bold text-white py-3 px-4 bg-slate-950 border border-slate-700 rounded-xl outline-none focus:border-emerald-500 shadow-inner">
+                                            <option value="">-- Select Engineering Auth --</option>
+                                            <option value={myEmail} className="bg-slate-800 text-emerald-400 font-bold">➡️ Assign to Me ({myName})</option>
+                                            {siteUsers.map(u => (
+                                                <option key={`eng-${u.id}`} value={u.email || u.name}>{u.name} ({u.email || 'System Auth'})</option>
+                                            ))}
+                                        </select>
+                                        {formData.status !== 'Draft' && <p className="mt-3 text-xs font-bold uppercase tracking-widest text-slate-500">Status: <span className={formData.engStatus.includes('Approved') ? 'text-emerald-400' : 'text-orange-400'}>{formData.engStatus}</span></p>}
+                                    </div>
+
+                                    <div className="bg-slate-900/50 p-6 rounded-2xl border border-slate-700">
+                                        <label className="text-[10px] uppercase font-bold text-emerald-400 tracking-widest block mb-2"><i className="fas fa-industry mr-1"></i> Production Approver</label>
+                                        <select value={formData.prodApproverEmail} onChange={e => updateField('prodApproverEmail', e.target.value)} disabled={formData.status !== 'Draft'} className="w-full font-bold text-white py-3 px-4 bg-slate-950 border border-slate-700 rounded-xl outline-none focus:border-emerald-500 shadow-inner">
+                                            <option value="">-- Select Production Auth --</option>
+                                            <option value={myEmail} className="bg-slate-800 text-emerald-400 font-bold">➡️ Assign to Me ({myName})</option>
+                                            {siteUsers.map(u => (
+                                                <option key={`prod-${u.id}`} value={u.email || u.name}>{u.name} ({u.email || 'System Auth'})</option>
+                                            ))}
+                                        </select>
+                                        {formData.status !== 'Draft' && <p className="mt-3 text-xs font-bold uppercase tracking-widest text-slate-500">Status: <span className={formData.prodStatus.includes('Approved') ? 'text-emerald-400' : 'text-orange-400'}>{formData.prodStatus}</span></p>}
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 )}
 
-                {/* APPROVAL MODAL */}
-                {approverModalOpen && (
-                    <div className="fixed inset-0 bg-slate-950/90 backdrop-blur-md z-50 flex items-center justify-center p-4 print:hidden">
-                        <div className="bg-slate-900 border border-slate-700 rounded-3xl p-8 max-w-md w-full shadow-2xl animate-fade-in font-['Space_Grotesk']">
-                            <div className="absolute top-0 right-0 w-32 h-32 bg-amber-600/10 rounded-full blur-[50px] pointer-events-none"></div>
-                            <h2 className="text-2xl font-bold text-white mb-2 relative z-10"><i className="fas fa-user-check text-amber-500 mr-2"></i> Assign Authorizer</h2>
-                            <p className="text-sm text-slate-400 mb-8 relative z-10">Select the Area Incharge or Manager responsible for authorizing this permit.</p>
+                {/* INSPECTION MODAL */}
+                {inspectionModal && (
+                    <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                        <div className="bg-slate-900 border border-slate-700 rounded-3xl p-8 max-w-lg w-full shadow-2xl animate-fade-in font-['Space_Grotesk']">
+                            <h2 className="text-xl font-bold text-white mb-2"><i className="fas fa-search text-orange-500 mr-2"></i> Conduct Inspection</h2>
+                            <p className="text-xs text-slate-400 mb-6">Location: <span className="text-fuchsia-400 font-bold">{inspectionModal.location}</span></p>
 
-                            <label className="text-[10px] uppercase font-bold text-slate-500 tracking-widest block mb-2">Select User</label>
-                            <select value={selectedApprover} onChange={e => setSelectedApprover(e.target.value)} className="w-full mb-8 font-bold text-white text-base py-4 px-4 bg-slate-950 border border-slate-700 rounded-xl outline-none focus:border-amber-500 shadow-inner relative z-10">
-                                <option value="">-- Choose Approver --</option>
-                                <option value={myName} className="bg-slate-800 text-amber-400 font-bold">➡️ Assign to Me ({myName})</option>
-                                {siteUsers.filter(u => u.role === 'Manager' || u.role === 'Owner').map(u => (
-                                    <option key={u.id} value={u.name}>{u.name} ({u.role})</option>
+                            <form onSubmit={(e) => handleInspectionSubmit(e, false)} id="safe-form">
+                                <label className="text-[10px] uppercase font-bold text-slate-400 block mb-2">Observation Notes</label>
+                                <textarea name="observation" required rows="4" className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-sm outline-none focus:border-orange-500 mb-6 font-['Inter'] text-white" placeholder="Log site conditions, PPE usage, etc..."></textarea>
+
+                                <div className="flex flex-col gap-3">
+                                    <button type="submit" form="safe-form" className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 rounded-xl transition-all uppercase tracking-widest text-xs shadow-lg">
+                                        <i className="fas fa-check-circle mr-2"></i> Log as Safe & Continue
+                                    </button>
+
+                                    <button type="button" onClick={(e) => handleInspectionSubmit({ preventDefault: () => { }, target: document.getElementById('safe-form') }, true)} className="w-full bg-red-900/50 hover:bg-red-600 border border-red-500/50 text-white font-bold py-3 rounded-xl transition-all uppercase tracking-widest text-xs">
+                                        <i className="fas fa-ban mr-2"></i> Log Unsafe (Cancel Permit)
+                                    </button>
+
+                                    <button type="button" onClick={() => setInspectionModal(null)} className="w-full bg-slate-800 hover:bg-slate-700 text-white font-bold py-3 rounded-xl transition-all uppercase tracking-widest text-xs mt-2">
+                                        Close Menu
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                )}
+
+                {/* REASSIGN APPROVER MODAL */}
+                {reassignModal && (
+                    <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                        <div className="bg-slate-900 border border-slate-700 rounded-3xl p-8 max-w-md w-full shadow-2xl animate-fade-in font-['Space_Grotesk']">
+                            <h2 className="text-xl font-bold text-white mb-2"><i className="fas fa-user-edit text-amber-500 mr-2"></i> Reassign Approver</h2>
+                            <p className="text-xs text-slate-400 mb-6 leading-relaxed">Select a new <strong className="text-white">{reassignModal.role === 'eng' ? 'Engineering' : 'Production'}</strong> approver for Permit <span className="font-mono text-amber-400">{reassignModal.permit.id}</span>.</p>
+
+                            <select value={newApproverEmail} onChange={e => setNewApproverEmail(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-sm text-white mb-6 outline-none focus:border-amber-500 font-bold">
+                                <option value="">-- Select New Approver --</option>
+                                {siteUsers.map(u => (
+                                    <option key={u.id} value={u.email || u.name}>{u.name} ({u.email || 'System Auth'})</option>
                                 ))}
                             </select>
 
-                            <div className="flex gap-4 relative z-10">
-                                <button onClick={() => setApproverModalOpen(false)} className="flex-1 bg-slate-800 hover:bg-slate-700 text-white font-bold py-3.5 rounded-xl transition uppercase tracking-widest text-xs border border-slate-700">Cancel</button>
-                                <button onClick={() => handleSave(false)} className="flex-1 bg-amber-600 hover:bg-amber-500 text-white font-bold py-3.5 rounded-xl shadow-lg transition uppercase tracking-widest text-xs"><i className="fas fa-paper-plane mr-2"></i> Send Request</button>
+                            <div className="flex gap-3">
+                                <button onClick={handleReassign} className="flex-1 bg-amber-600 hover:bg-amber-500 text-white font-bold py-3 rounded-xl transition-all text-[10px] uppercase tracking-widest shadow-lg">Confirm</button>
+                                <button onClick={() => setReassignModal(null)} className="flex-1 bg-slate-800 hover:bg-slate-700 text-white font-bold py-3 rounded-xl transition-all text-[10px] uppercase tracking-widest border border-slate-700">Cancel</button>
                             </div>
                         </div>
                     </div>
@@ -875,24 +1142,26 @@ export default function Ptw() {
                         </div>
 
                         <div className="mt-8 border-2 border-black page-break-inside-avoid">
-                            <h2 className="text-center font-bold text-sm uppercase bg-gray-200 border-b-2 border-black p-2">5. Authorization & Signatures</h2>
+                            <h2 className="text-center font-bold text-sm uppercase bg-gray-200 border-b-2 border-black p-2">5. Dual Authorization Signatures</h2>
                             <p className="text-[10px] text-center p-1.5 border-b border-gray-300 italic bg-gray-50">By signing, I confirm the area is safe, precautions are implemented, and workers are briefed.</p>
                             <table className="w-full text-sm border-none">
                                 <tbody>
                                     <tr>
                                         <td className="w-1/3 p-4 border-r border-black align-top h-32">
-                                            <strong className="block mb-6 uppercase tracking-widest text-xs">Requested By:</strong>
-                                            Name: <strong className="text-base">{printData.requestedBy}</strong><br /><br /><br />
+                                            <strong className="block mb-6 uppercase tracking-widest text-xs text-gray-500">Requested By:</strong>
+                                            Name: <strong className="text-base">{printData.creatorEmail || printData.requestedBy}</strong><br /><br /><br />
                                             Sign: __________________
                                         </td>
                                         <td className="w-1/3 p-4 border-r border-black align-top h-32">
-                                            <strong className="block mb-6 uppercase tracking-widest text-xs">Area In-Charge (Approver):</strong>
-                                            Name: <strong className="text-base">{printData.areaInchargeSignature || printData.pendingApprover || '________________'}</strong><br /><br /><br />
+                                            <strong className="block mb-6 uppercase tracking-widest text-xs text-gray-500">Engineering Approval:</strong>
+                                            Name: <strong className="text-base">{printData.engApproverEmail || '________________'}</strong><br />
+                                            Status: {printData.engStatus}<br /><br />
                                             Sign: __________________
                                         </td>
                                         <td className="w-1/3 p-4 align-top h-32">
-                                            <strong className="block mb-6 uppercase tracking-widest text-xs">Job Completion (Close Out):</strong>
-                                            Name: __________________<br /><br /><br />
+                                            <strong className="block mb-6 uppercase tracking-widest text-xs text-gray-500">Production Approval:</strong>
+                                            Name: <strong className="text-base">{printData.prodApproverEmail || '________________'}</strong><br />
+                                            Status: {printData.prodStatus}<br /><br />
                                             Sign/Time: __________________
                                         </td>
                                     </tr>

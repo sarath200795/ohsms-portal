@@ -159,6 +159,9 @@ export default function HealthDashboard() {
     // Analytics Filters
     const [dashboardFilter, setDashboardFilter] = useState('All');
 
+    // RBAC State
+    const [permissions, setPermissions] = useState({ viewOnly: false, canDelete: false, canEditCreate: false });
+
     // --- Form States ---
     const [formData, setFormData] = useState({
         natureOfInjury: '', tenure: '', empNameId: '', bodyPart: [], specBodyPart: '',
@@ -182,7 +185,6 @@ export default function HealthDashboard() {
         capa: []
     });
 
-    // New CAPA tracking for Illness form
     const [newIllCapaAct, setNewIllCapaAct] = useState('');
     const [newIllCapaOwn, setNewIllCapaOwn] = useState('');
     const [newIllCapaDue, setNewIllCapaDue] = useState('');
@@ -194,12 +196,42 @@ export default function HealthDashboard() {
         const s = sessionStorage.getItem('isoSession');
         if (!s) { navigate('/'); return; }
         const sess = JSON.parse(s);
+
+        // 1. STRICT MODULE GUARD (UPDATED to allow Site Owners/Managers)
+        const isGlobalAdmin = ['Global Owner', 'Global Manager', 'Owner', 'Admin'].includes(sess.role);
+        const isSiteAdmin = ['Site Owner', 'Site Manager'].includes(sess.role);
+
+        const hasModuleAccess = isGlobalAdmin || isSiteAdmin || (sess.accessibleModules || []).some(m => m.includes('Health'));
+
+        if (!hasModuleAccess) {
+            alert("Security Alert: You do not have permission to access the Occupational Health module.");
+            navigate('/dashboard');
+            return;
+        }
+
         setSession(sess);
 
+        // 2. STRICT RBAC MATRIX
+        const canDel = ['Global Owner', 'Owner', 'Admin', 'Site Owner'].includes(sess.role);
+        const canEditCr = ['Global Owner', 'Global Manager', 'Owner', 'Admin', 'Site Owner', 'Site Manager', 'User'].includes(sess.role);
+
+        setPermissions({
+            viewOnly: !canEditCr,
+            canDelete: canDel,
+            canEditCreate: canEditCr
+        });
+
+        // 3. SYNCHRONIZED SITE PERSISTENCE
         const params = new URLSearchParams(location.search);
-        let ctxSite = params.get('site') || 'All';
-        if (sess.role !== 'Owner' && sess.assignedSite && ctxSite === 'All') ctxSite = sess.assignedSite;
+        let ctxSite = params.get('site') || sessionStorage.getItem('isoCurrentSite') || 'All';
+
+        if (!isGlobalAdmin && ctxSite === 'All') {
+            ctxSite = (sess.assignedSite && sess.assignedSite !== 'GLOBAL') ? sess.assignedSite : (sess.accessibleSites?.[0] || '');
+        }
+
         setSiteFilter(ctxSite);
+        sessionStorage.setItem('isoCurrentSite', ctxSite === 'All' ? 'GLOBAL' : ctxSite);
+
 
         const loadData = async () => {
             try {
@@ -258,51 +290,80 @@ export default function HealthDashboard() {
     }, [navigate, location]);
 
     // ==========================================
-    // FILTERED DATA LOGIC
+    // 4. ROW LEVEL SECURITY (RLS) & FILTERS
     // ==========================================
+    const isGlobalUser = ['Global Owner', 'Global Manager', 'Owner', 'Admin'].includes(session?.role);
+
+    const allowedSiteCodes = useMemo(() => {
+        if (!session) return new Set();
+        const codes = new Set([session.assignedSite, ...(session.accessibleSites || [])].filter(Boolean));
+        if (!isGlobalUser) {
+            codes.delete('GLOBAL');
+            codes.delete('All');
+        }
+        return codes;
+    }, [session, isGlobalUser]);
+
+    const visibleSites = useMemo(() => {
+        if (isGlobalUser) return sites;
+        return sites.filter(s => allowedSiteCodes.has(s.code));
+    }, [sites, isGlobalUser, allowedSiteCodes]);
+
+    const canViewRecord = (siteId) => isGlobalUser || allowedSiteCodes.has(siteId);
+
+    const handleSiteFilterChange = (e) => {
+        const newSite = e.target.value;
+        setSiteFilter(newSite);
+        sessionStorage.setItem('isoCurrentSite', newSite === 'All' ? 'GLOBAL' : newSite);
+    };
+
     const siteUsers = useMemo(() => {
         return users.filter(u => {
-            const isGlobal = u.role === 'Owner' || u.role === 'Lead Auditor' || u.assignedSite === 'GLOBAL' || (u.accessibleSites && u.accessibleSites.includes('GLOBAL'));
-            // Check whichever form is currently active to get the specific site context
+            const isGlobalUsr = u.role === 'Owner' || u.role === 'Lead Auditor' || u.assignedSite === 'GLOBAL' || (u.accessibleSites && u.accessibleSites.includes('GLOBAL'));
             const activeSiteId = survForm.siteId || vaccForm.siteId || illnessForm.siteId || siteFilter;
-            const siteMatch = isGlobal || !activeSiteId || activeSiteId === 'All' || u.assignedSite === activeSiteId || (u.accessibleSites && u.accessibleSites.includes(activeSiteId));
+            const siteMatch = isGlobalUsr || !activeSiteId || activeSiteId === 'All' || u.assignedSite === activeSiteId || (u.accessibleSites && u.accessibleSites.includes(activeSiteId));
             return siteMatch;
         });
     }, [users, survForm.siteId, vaccForm.siteId, illnessForm.siteId, siteFilter]);
 
     const filteredIncidents = useMemo(() => {
         return incidents.filter(inc => {
+            if (!canViewRecord(inc.siteId)) return false;
             if (siteFilter !== 'All' && inc.siteId !== siteFilter) return false;
             return true;
         });
-    }, [incidents, siteFilter]);
+    }, [incidents, siteFilter, canViewRecord]);
 
     const filteredSurveillance = useMemo(() => {
         return surveillanceList.filter(s => {
+            if (!canViewRecord(s.siteId)) return false;
             if (siteFilter !== 'All' && s.siteId !== siteFilter) return false;
             return true;
         });
-    }, [surveillanceList, siteFilter]);
+    }, [surveillanceList, siteFilter, canViewRecord]);
 
     const filteredVaccination = useMemo(() => {
         return vaccinationList.filter(v => {
+            if (!canViewRecord(v.siteId)) return false;
             if (siteFilter !== 'All' && v.siteId !== siteFilter) return false;
             return true;
         });
-    }, [vaccinationList, siteFilter]);
+    }, [vaccinationList, siteFilter, canViewRecord]);
 
     const filteredIllness = useMemo(() => {
         return illnessList.filter(i => {
+            if (!canViewRecord(i.siteId)) return false;
             if (siteFilter !== 'All' && i.siteId !== siteFilter) return false;
             return true;
         });
-    }, [illnessList, siteFilter]);
+    }, [illnessList, siteFilter, canViewRecord]);
 
     const heatmapData = useMemo(() => {
         const counts = {};
         Object.keys(healthCases).forEach(key => {
             const inc = incidents.find(i => i.firebaseKey === key);
             if (!inc) return;
+            if (!canViewRecord(inc.siteId)) return;
             if (siteFilter !== 'All' && inc.siteId !== siteFilter) return;
             if (dashboardFilter !== 'All' && inc.type !== dashboardFilter) return;
 
@@ -316,7 +377,7 @@ export default function HealthDashboard() {
             });
         });
         return counts;
-    }, [healthCases, incidents, dashboardFilter, siteFilter]);
+    }, [healthCases, incidents, dashboardFilter, siteFilter, canViewRecord]);
 
     // ==========================================
     // INJURY CASE LOGIC
@@ -340,6 +401,7 @@ export default function HealthDashboard() {
     };
 
     const toggleBodyPart = (part) => {
+        if (!permissions.canEditCreate) return;
         if (formData.bodyPart.includes(part)) {
             setFormData({ ...formData, bodyPart: formData.bodyPart.filter(p => p !== part) });
         } else {
@@ -348,6 +410,7 @@ export default function HealthDashboard() {
     };
 
     const handleFile = async (e) => {
+        if (!permissions.canEditCreate) return;
         const file = e.target.files[0];
         if (file) {
             const b64 = await fileToBase64(file);
@@ -356,10 +419,11 @@ export default function HealthDashboard() {
     };
 
     const handleSaveInjury = async () => {
+        if (!permissions.canEditCreate) return alert("Security Error: You do not have permission to edit records.");
         if (!formData.empNameId || !formData.natureOfInjury) return alert("Employee Name/ID and Nature of Injury are required.");
 
         try {
-            const payload = { ...formData, updatedAt: new Date().toISOString(), updatedBy: session.user };
+            const payload = { ...formData, updatedAt: new Date().toISOString(), updatedBy: session.user || session.name };
             await update(ref(rtdb, `organizations/${session.orgId}/healthCases/${selectedIncident.firebaseKey}`), payload);
 
             setHealthCases({ ...healthCases, [selectedIncident.firebaseKey]: payload });
@@ -383,6 +447,8 @@ export default function HealthDashboard() {
     // SURVEILLANCE LOGIC
     // ==========================================
     const openSurveillanceForm = (record = null) => {
+        if (!record && !permissions.canEditCreate) return alert("Security Error: You do not have permission to create records.");
+
         setPrintSurvData(null);
         if (record) {
             let migratedRecord = { ...record };
@@ -403,10 +469,11 @@ export default function HealthDashboard() {
             if (!migratedRecord.testGroups) migratedRecord.testGroups = [];
             setSurvForm(migratedRecord);
         } else {
+            const sId = (!isGlobalUser && visibleSites.length === 1) ? visibleSites[0].code : (siteFilter !== 'All' ? siteFilter : '');
             setSurvForm({
                 id: `HSV-${Date.now().toString().slice(-6)}`, firebaseKey: '',
                 type: 'Periodic Surveillance', date: new Date().toISOString().split('T')[0],
-                agent: '', campaignName: '', siteId: siteFilter !== 'All' ? siteFilter : (session.assignedSite || ''),
+                agent: '', campaignName: '', siteId: sId,
                 testGroups: [
                     { id: Date.now(), testName: 'General Checkup', employees: [{ empId: '', name: '', defectMetric: 'Normal', status: 'Fit for Duty', remarks: '' }] }
                 ]
@@ -423,9 +490,11 @@ export default function HealthDashboard() {
     const removeSurvEmployee = (gIdx, eIdx) => { const arr = [...survForm.testGroups]; arr[gIdx].employees = arr[gIdx].employees.filter((_, i) => i !== eIdx); setSurvForm({ ...survForm, testGroups: arr }); };
 
     const handleSaveSurveillance = async () => {
+        if (!permissions.canEditCreate) return alert("Security Error: You do not have permission to save records.");
         if (!survForm.agent || !survForm.siteId) return alert("Site and Agent Exposed To are required.");
+
         try {
-            const payload = { ...survForm, createdBy: session.user, lastUpdated: new Date().toISOString() };
+            const payload = { ...survForm, createdBy: session.name || session.email, lastUpdated: new Date().toISOString() };
             if (survForm.firebaseKey) {
                 await update(ref(rtdb, `organizations/${session.orgId}/healthSurveillance/${survForm.firebaseKey}`), payload);
                 setSurveillanceList(surveillanceList.map(s => s.firebaseKey === survForm.firebaseKey ? payload : s));
@@ -449,14 +518,17 @@ export default function HealthDashboard() {
     // VACCINATION LOGIC
     // ==========================================
     const openVaccinationForm = (record = null) => {
+        if (!record && !permissions.canEditCreate) return alert("Security Error: You do not have permission to create records.");
+
         setPrintVaccData(null);
         if (record) {
             setVaccForm(record);
         } else {
+            const sId = (!isGlobalUser && visibleSites.length === 1) ? visibleSites[0].code : (siteFilter !== 'All' ? siteFilter : '');
             setVaccForm({
                 id: `VAC-${Date.now().toString().slice(-6)}`, firebaseKey: '',
                 date: new Date().toISOString().split('T')[0],
-                vaccineName: '', dosage: 'Dose 1', provider: '', siteId: siteFilter !== 'All' ? siteFilter : (session.assignedSite || ''),
+                vaccineName: '', dosage: 'Dose 1', provider: '', siteId: sId,
                 employees: [{ empId: '', name: '', status: 'Administered', remarks: '' }]
             });
         }
@@ -468,9 +540,11 @@ export default function HealthDashboard() {
     const removeVaccEmployee = (idx) => { setVaccForm({ ...vaccForm, employees: vaccForm.employees.filter((_, i) => i !== idx) }); };
 
     const handleSaveVaccination = async () => {
+        if (!permissions.canEditCreate) return alert("Security Error: You do not have permission to save records.");
         if (!vaccForm.vaccineName || !vaccForm.siteId) return alert("Site and Vaccine Name are required.");
+
         try {
-            const payload = { ...vaccForm, createdBy: session.user, lastUpdated: new Date().toISOString() };
+            const payload = { ...vaccForm, createdBy: session.name || session.email, lastUpdated: new Date().toISOString() };
             if (vaccForm.firebaseKey) {
                 await update(ref(rtdb, `organizations/${session.orgId}/vaccinationRecords/${vaccForm.firebaseKey}`), payload);
                 setVaccinationList(vaccinationList.map(v => v.firebaseKey === vaccForm.firebaseKey ? payload : v));
@@ -504,11 +578,13 @@ export default function HealthDashboard() {
     }, [illnessForm.siteId, session, illnessSeq, currentTab, selectedIllness]);
 
     const openIllnessForm = (record = null) => {
+        if (!record && !permissions.canEditCreate) return alert("Security Error: You do not have permission to create records.");
+
         setPrintIllnessData(null);
         if (record) {
             setIllnessForm(record);
         } else {
-            const sId = siteFilter !== 'All' ? siteFilter : (session.assignedSite || 'GEN');
+            const sId = (!isGlobalUser && visibleSites.length === 1) ? visibleSites[0].code : (siteFilter !== 'All' ? siteFilter : '');
             setIllnessForm({
                 id: `${session.orgId}-${sId}-ILL-${illnessSeq}`, firebaseKey: '', siteId: sId,
                 date: new Date().toISOString().split('T')[0], time: '', empNameId: '',
@@ -537,9 +613,11 @@ export default function HealthDashboard() {
     };
 
     const handleSaveIllness = async () => {
+        if (!permissions.canEditCreate) return alert("Security Error: You do not have permission to save records.");
         if (!illnessForm.empNameId || !illnessForm.healthIssue || !illnessForm.siteId) return alert("Site, Employee Name, and Health Issue are required.");
+
         try {
-            const payload = { ...illnessForm, createdBy: session.user, lastUpdated: new Date().toISOString() };
+            const payload = { ...illnessForm, createdBy: session.name || session.email, lastUpdated: new Date().toISOString() };
             if (illnessForm.firebaseKey) {
                 await update(ref(rtdb, `organizations/${session.orgId}/illnessRecords/${illnessForm.firebaseKey}`), payload);
                 setIllnessList(illnessList.map(i => i.firebaseKey === illnessForm.firebaseKey ? payload : i));
@@ -559,7 +637,6 @@ export default function HealthDashboard() {
         setTimeout(() => window.print(), 200);
     };
 
-    const urlSite = new URLSearchParams(location.search).get('site') || session?.assignedSite || 'GLOBAL';
 
     if (loading) return <div className="flex h-screen items-center justify-center text-white bg-slate-950 flex-col font-['Space_Grotesk']"><i className="fas fa-circle-notch fa-spin text-4xl text-rose-500 mb-4"></i><h2 className="text-sm font-bold uppercase tracking-widest text-slate-400">Loading Health Dashboard...</h2></div>;
 
@@ -568,14 +645,19 @@ export default function HealthDashboard() {
             {/* Header */}
             <header className="h-16 px-6 flex items-center justify-between border-b border-slate-800 bg-slate-900 print:hidden flex-shrink-0">
                 <div className="flex items-center gap-4 font-['Space_Grotesk']">
-                    <button onClick={() => navigate(`/ohs-tools?site=${urlSite}`)} className="text-slate-400 hover:text-white transition flex items-center gap-2"><i className="fas fa-arrow-left"></i> OHS Tools</button>
+                    <button onClick={() => navigate(`/ohs-tools?site=${siteFilter}`)} className="text-slate-400 hover:text-white transition flex items-center gap-2"><i className="fas fa-arrow-left"></i> OHS Tools</button>
                     <div className="h-6 w-px bg-slate-700 mx-4"></div>
                     <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-rose-500 to-pink-600 flex items-center justify-center text-white font-bold shadow-lg shadow-rose-900/50"><i className="fas fa-heart-pulse"></i></div>
                     <h1 className="text-lg font-bold text-white tracking-wide">Occupational Health</h1>
+
+                    <div className="ml-4 flex gap-2">
+                        <span className="text-[10px] uppercase font-bold tracking-widest bg-rose-500/10 text-rose-400 px-2 py-1 rounded border border-rose-500/20">{session?.role}</span>
+                        {permissions.viewOnly && <span className="text-[10px] uppercase font-bold tracking-widest bg-yellow-500/10 text-yellow-400 px-2 py-1 rounded border border-yellow-500/20"><i className="fas fa-eye mr-1"></i> Read Only</span>}
+                    </div>
                 </div>
             </header>
 
-            {/* Tab Navigation - POLISHED */}
+            {/* Tab Navigation */}
             {!selectedIncident && !selectedSurveillance && !selectedVaccination && !selectedIllness && (
                 <div className="flex gap-3 px-8 pt-6 print:hidden bg-slate-950 flex-wrap border-b border-slate-800 pb-4 font-['Space_Grotesk']">
                     <button onClick={() => setCurrentTab('records')} className={`px-5 py-2.5 rounded-lg font-bold text-sm transition-all flex items-center shadow-sm border ${currentTab === 'records' ? 'bg-rose-600 text-white border-rose-500 shadow-rose-900/50' : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700 hover:text-white'}`}><i className="fas fa-user-injured mr-2"></i> Injury Records</button>
@@ -598,9 +680,9 @@ export default function HealthDashboard() {
                                 <p className="text-sm text-slate-400 font-['Inter']">Manage medical records automatically linked to reported acute safety incidents.</p>
                             </div>
                             <div className="flex gap-4 text-sm font-bold items-center">
-                                <select value={siteFilter} onChange={e => setSiteFilter(e.target.value)} className="bg-slate-900 border border-slate-600 text-white px-4 py-2.5 rounded-xl outline-none focus:border-rose-500 shadow-lg">
-                                    <option value="All">All Sites</option>
-                                    {sites.map(s => <option key={s.code} value={s.code}>{s.name}</option>)}
+                                <select value={siteFilter} onChange={handleSiteFilterChange} className="bg-slate-900 border border-slate-600 text-white px-4 py-2.5 rounded-xl outline-none focus:border-rose-500 shadow-lg">
+                                    {(isGlobalUser || visibleSites.length > 1) && <option value="All">All Authorized Sites</option>}
+                                    {visibleSites.map(s => <option key={s.code} value={s.code}>{s.name}</option>)}
                                 </select>
                                 <div className="bg-slate-800 px-5 py-2.5 rounded-xl border border-slate-700 text-slate-300 shadow-lg">Total Cases: <span className="text-white text-lg ml-2">{filteredIncidents.length}</span></div>
                                 <div className="bg-rose-900/30 px-5 py-2.5 rounded-xl border border-rose-500/50 text-rose-400 shadow-lg">Pending Eval: <span className="text-white text-lg ml-2">{filteredIncidents.filter(i => !healthCases[i.firebaseKey]).length}</span></div>
@@ -639,13 +721,15 @@ export default function HealthDashboard() {
                                 <p className="text-sm text-slate-400 font-['Inter']">Capture and monitor chronic health conditions resulting from workplace exposure.</p>
                             </div>
                             <div className="flex gap-4 text-sm font-bold items-center">
-                                <select value={siteFilter} onChange={e => setSiteFilter(e.target.value)} className="bg-slate-900 border border-slate-600 text-white px-4 py-2.5 rounded-xl outline-none focus:border-amber-500 shadow-lg">
-                                    <option value="All">All Sites</option>
-                                    {sites.map(s => <option key={s.code} value={s.code}>{s.name}</option>)}
+                                <select value={siteFilter} onChange={handleSiteFilterChange} className="bg-slate-900 border border-slate-600 text-white px-4 py-2.5 rounded-xl outline-none focus:border-amber-500 shadow-lg">
+                                    {(isGlobalUser || visibleSites.length > 1) && <option value="All">All Authorized Sites</option>}
+                                    {visibleSites.map(s => <option key={s.code} value={s.code}>{s.name}</option>)}
                                 </select>
-                                <button onClick={() => openIllnessForm()} className="bg-gradient-to-r from-amber-600 to-orange-500 hover:from-amber-500 hover:to-orange-400 text-white font-bold px-6 py-2.5 rounded-xl shadow-lg transition-transform active:scale-95 flex items-center gap-2">
-                                    <i className="fas fa-plus"></i> Log Illness Case
-                                </button>
+                                {permissions.canEditCreate && (
+                                    <button onClick={() => openIllnessForm()} className="bg-gradient-to-r from-amber-600 to-orange-500 hover:from-amber-500 hover:to-orange-400 text-white font-bold px-6 py-2.5 rounded-xl shadow-lg transition-transform active:scale-95 flex items-center gap-2">
+                                        <i className="fas fa-plus"></i> Log Illness Case
+                                    </button>
+                                )}
                             </div>
                         </div>
 
@@ -681,13 +765,15 @@ export default function HealthDashboard() {
                                 <p className="text-sm text-slate-400 font-['Inter']">Track biological monitoring, exposure tests, and fitness to work statuses.</p>
                             </div>
                             <div className="flex gap-4 text-sm font-bold items-center">
-                                <select value={siteFilter} onChange={e => setSiteFilter(e.target.value)} className="bg-slate-900 border border-slate-600 text-white px-4 py-2.5 rounded-xl outline-none focus:border-indigo-500 shadow-lg">
-                                    <option value="All">All Sites</option>
-                                    {sites.map(s => <option key={s.code} value={s.code}>{s.name}</option>)}
+                                <select value={siteFilter} onChange={handleSiteFilterChange} className="bg-slate-900 border border-slate-600 text-white px-4 py-2.5 rounded-xl outline-none focus:border-indigo-500 shadow-lg">
+                                    {(isGlobalUser || visibleSites.length > 1) && <option value="All">All Authorized Sites</option>}
+                                    {visibleSites.map(s => <option key={s.code} value={s.code}>{s.name}</option>)}
                                 </select>
-                                <button onClick={() => openSurveillanceForm()} className="bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-bold px-6 py-2.5 rounded-xl shadow-lg transition-transform active:scale-95 flex items-center gap-2">
-                                    <i className="fas fa-plus"></i> New Surv. Record
-                                </button>
+                                {permissions.canEditCreate && (
+                                    <button onClick={() => openSurveillanceForm()} className="bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-bold px-6 py-2.5 rounded-xl shadow-lg transition-transform active:scale-95 flex items-center gap-2">
+                                        <i className="fas fa-plus"></i> New Surv. Record
+                                    </button>
+                                )}
                             </div>
                         </div>
 
@@ -726,13 +812,15 @@ export default function HealthDashboard() {
                                 <p className="text-sm text-slate-400 font-['Inter']">Track employee immunizations, doses, and booster campaigns.</p>
                             </div>
                             <div className="flex gap-4 text-sm font-bold items-center">
-                                <select value={siteFilter} onChange={e => setSiteFilter(e.target.value)} className="bg-slate-900 border border-slate-600 text-white px-4 py-2.5 rounded-xl outline-none focus:border-cyan-500 shadow-lg">
-                                    <option value="All">All Sites</option>
-                                    {sites.map(s => <option key={s.code} value={s.code}>{s.name}</option>)}
+                                <select value={siteFilter} onChange={handleSiteFilterChange} className="bg-slate-900 border border-slate-600 text-white px-4 py-2.5 rounded-xl outline-none focus:border-cyan-500 shadow-lg">
+                                    {(isGlobalUser || visibleSites.length > 1) && <option value="All">All Authorized Sites</option>}
+                                    {visibleSites.map(s => <option key={s.code} value={s.code}>{s.name}</option>)}
                                 </select>
-                                <button onClick={() => openVaccinationForm()} className="bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white font-bold px-6 py-2.5 rounded-xl shadow-lg transition-transform active:scale-95 flex items-center gap-2">
-                                    <i className="fas fa-plus"></i> Add Event
-                                </button>
+                                {permissions.canEditCreate && (
+                                    <button onClick={() => openVaccinationForm()} className="bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white font-bold px-6 py-2.5 rounded-xl shadow-lg transition-transform active:scale-95 flex items-center gap-2">
+                                        <i className="fas fa-plus"></i> Add Event
+                                    </button>
+                                )}
                             </div>
                         </div>
 
@@ -768,13 +856,13 @@ export default function HealthDashboard() {
 
                             <div className="bg-slate-800/80 p-6 rounded-2xl mb-8 border border-slate-700 shadow-lg">
                                 <label className="text-xs uppercase font-bold text-slate-400 block mb-2 tracking-wider">Filter by Site</label>
-                                <select value={siteFilter} onChange={e => setSiteFilter(e.target.value)} className="w-full mb-6 font-medium text-sm">
-                                    <option value="All">All Sites</option>
-                                    {sites.map(s => <option key={s.code} value={s.code}>{s.name}</option>)}
+                                <select value={siteFilter} onChange={handleSiteFilterChange} className="w-full mb-6 font-medium text-sm bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-white outline-none">
+                                    {(isGlobalUser || visibleSites.length > 1) && <option value="All">All Authorized Sites</option>}
+                                    {visibleSites.map(s => <option key={s.code} value={s.code}>{s.name}</option>)}
                                 </select>
 
                                 <label className="text-xs uppercase font-bold text-slate-400 block mb-2 tracking-wider">Filter by Injury Type</label>
-                                <select value={dashboardFilter} onChange={e => setDashboardFilter(e.target.value)} className="w-full font-medium text-sm">
+                                <select value={dashboardFilter} onChange={e => setDashboardFilter(e.target.value)} className="w-full font-medium text-sm bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-white outline-none">
                                     <option value="All">All Injuries</option>
                                     <option value="First Aid injury">First Aid</option>
                                     <option value="Lost Time injury">Lost Time (LTI)</option>
@@ -837,38 +925,38 @@ export default function HealthDashboard() {
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                         <div>
                                             <label className="text-[10px] uppercase font-bold text-slate-400 tracking-widest block mb-2 ml-1">1. Nature of Injury</label>
-                                            <select value={formData.natureOfInjury} onChange={e => setFormData({ ...formData, natureOfInjury: e.target.value })} className="font-['Inter']">
+                                            <select value={formData.natureOfInjury} onChange={e => setFormData({ ...formData, natureOfInjury: e.target.value })} disabled={!permissions.canEditCreate} className="font-['Inter'] w-full bg-slate-950 border border-slate-700 rounded-lg p-3 text-white outline-none">
                                                 <option value="">Select Category...</option>
                                                 {NATURES_OF_INJURY.map(n => <option key={n} value={n}>{n}</option>)}
                                             </select>
                                         </div>
-                                        <div><label className="text-[10px] uppercase font-bold text-slate-400 tracking-widest block mb-2 ml-1">2. Employee Name / ID</label><input placeholder="John Doe (EMP-4521)" value={formData.empNameId} onChange={e => setFormData({ ...formData, empNameId: e.target.value })} className="font-['Inter']" /></div>
+                                        <div><label className="text-[10px] uppercase font-bold text-slate-400 tracking-widest block mb-2 ml-1">2. Employee Name / ID</label><input placeholder="John Doe (EMP-4521)" value={formData.empNameId} onChange={e => setFormData({ ...formData, empNameId: e.target.value })} disabled={!permissions.canEditCreate} className="font-['Inter'] w-full bg-slate-950 border border-slate-700 rounded-lg p-3 text-white outline-none" /></div>
 
                                         <div>
                                             <label className="text-[10px] uppercase font-bold text-slate-400 tracking-widest block mb-2 ml-1">3. Gender</label>
-                                            <select value={formData.gender} onChange={e => setFormData({ ...formData, gender: e.target.value })} className="font-['Inter']">
+                                            <select value={formData.gender} onChange={e => setFormData({ ...formData, gender: e.target.value })} disabled={!permissions.canEditCreate} className="font-['Inter'] w-full bg-slate-950 border border-slate-700 rounded-lg p-3 text-white outline-none">
                                                 <option value="">Select...</option><option>Male</option><option>Female</option><option>Other</option>
                                             </select>
                                         </div>
-                                        <div><label className="text-[10px] uppercase font-bold text-slate-400 tracking-widest block mb-2 ml-1">4. Employee Tenure (Years)</label><input type="number" placeholder="e.g. 2.5" value={formData.tenure} onChange={e => setFormData({ ...formData, tenure: e.target.value })} className="font-['Inter']" /></div>
+                                        <div><label className="text-[10px] uppercase font-bold text-slate-400 tracking-widest block mb-2 ml-1">4. Employee Tenure (Years)</label><input type="number" placeholder="e.g. 2.5" value={formData.tenure} onChange={e => setFormData({ ...formData, tenure: e.target.value })} disabled={!permissions.canEditCreate} className="font-['Inter'] w-full bg-slate-950 border border-slate-700 rounded-lg p-3 text-white outline-none" /></div>
 
                                         <div className="md:col-span-2 grid grid-cols-2 gap-6 bg-slate-900/50 p-6 rounded-2xl border border-slate-700">
                                             <div>
                                                 <label className="text-[10px] uppercase font-bold text-rose-400 tracking-widest block mb-2 ml-1">5. Body Parts (Multi-Select Map)</label>
-                                                <input placeholder="Click map to select..." value={formData.bodyPart.join(', ')} readOnly className="bg-slate-950 border-rose-900/50 text-rose-300 font-bold font-['Inter']" />
+                                                <input placeholder="Click map to select..." value={formData.bodyPart.join(', ')} readOnly className="bg-slate-950 border-rose-900/50 text-rose-300 font-bold font-['Inter'] w-full rounded-lg p-3 outline-none" />
                                             </div>
                                             <div>
                                                 <label className="text-[10px] uppercase font-bold text-slate-400 tracking-widest block mb-2 ml-1">6. Specific Details</label>
-                                                <input list="specific-parts" placeholder="Type or select specific part..." value={formData.specBodyPart} onChange={e => setFormData({ ...formData, specBodyPart: e.target.value })} className="font-['Inter']" />
+                                                <input list="specific-parts" placeholder="Type or select specific part..." value={formData.specBodyPart} onChange={e => setFormData({ ...formData, specBodyPart: e.target.value })} disabled={!permissions.canEditCreate} className="font-['Inter'] w-full bg-slate-950 border border-slate-700 rounded-lg p-3 text-white outline-none" />
                                                 <datalist id="specific-parts">
                                                     {SPECIFIC_PARTS.map(p => <option key={p} value={p} />)}
                                                 </datalist>
                                             </div>
                                         </div>
 
-                                        <div className="md:col-span-2"><label className="text-[10px] uppercase font-bold text-slate-400 tracking-widest block mb-2 ml-1">7. First Aid / Initial Treatment Done</label><textarea rows="3" className="resize-none font-['Inter']" placeholder="Describe the treatment provided on site..." value={formData.firstAidDone} onChange={e => setFormData({ ...formData, firstAidDone: e.target.value })}></textarea></div>
+                                        <div className="md:col-span-2"><label className="text-[10px] uppercase font-bold text-slate-400 tracking-widest block mb-2 ml-1">7. First Aid / Initial Treatment Done</label><textarea rows="3" className="resize-none font-['Inter'] w-full bg-slate-950 border border-slate-700 rounded-lg p-3 text-white outline-none" placeholder="Describe the treatment provided on site..." value={formData.firstAidDone} onChange={e => setFormData({ ...formData, firstAidDone: e.target.value })} disabled={!permissions.canEditCreate}></textarea></div>
 
-                                        <div><label className="text-[10px] uppercase font-bold text-slate-400 tracking-widest block mb-2 ml-1">8. First Aid Administered By</label><input placeholder="Name of First Aider/Nurse" value={formData.firstAidDoneBy} onChange={e => setFormData({ ...formData, firstAidDoneBy: e.target.value })} className="font-['Inter']" /></div>
+                                        <div><label className="text-[10px] uppercase font-bold text-slate-400 tracking-widest block mb-2 ml-1">8. First Aid Administered By</label><input placeholder="Name of First Aider/Nurse" value={formData.firstAidDoneBy} onChange={e => setFormData({ ...formData, firstAidDoneBy: e.target.value })} disabled={!permissions.canEditCreate} className="font-['Inter'] w-full bg-slate-950 border border-slate-700 rounded-lg p-3 text-white outline-none" /></div>
 
                                         {isSerious() && (
                                             <div className="md:col-span-2 mt-2 p-6 rounded-2xl bg-orange-900/20 border border-orange-500/30 shadow-inner">
@@ -877,21 +965,23 @@ export default function HealthDashboard() {
                                                     <div>
                                                         <label className="text-[10px] uppercase font-bold text-slate-400 tracking-widest block mb-2 ml-1">9. Medical Report Upload</label>
                                                         <div className="bg-slate-900 p-2 rounded-lg border border-slate-700 flex items-center">
-                                                            <input type="file" onChange={handleFile} className="text-xs text-slate-400 file:bg-orange-600 file:text-white file:border-none file:rounded-md file:px-4 file:py-1.5 file:mr-4 file:font-bold cursor-pointer bg-transparent border-none p-0 outline-none shadow-none font-['Inter']" />
+                                                            <input type="file" onChange={handleFile} disabled={!permissions.canEditCreate} className="text-xs text-slate-400 file:bg-orange-600 file:text-white file:border-none file:rounded-md file:px-4 file:py-1.5 file:mr-4 file:font-bold cursor-pointer bg-transparent border-none p-0 outline-none shadow-none font-['Inter']" />
                                                         </div>
                                                         {formData.medicalReportName && <div className="text-xs text-emerald-400 mt-2 font-medium flex items-center gap-1"><i className="fas fa-check-circle"></i> {formData.medicalReportName} attached</div>}
                                                     </div>
-                                                    <div><label className="text-[10px] uppercase font-bold text-slate-400 tracking-widest block mb-2 ml-1">10. Number of Days on Leave / Restricted</label><input type="number" placeholder="Days..." value={formData.daysOnLeave} onChange={e => setFormData({ ...formData, daysOnLeave: e.target.value })} className="bg-slate-900 border-slate-700 font-['Inter']" /></div>
+                                                    <div><label className="text-[10px] uppercase font-bold text-slate-400 tracking-widest block mb-2 ml-1">10. Number of Days on Leave / Restricted</label><input type="number" placeholder="Days..." value={formData.daysOnLeave} onChange={e => setFormData({ ...formData, daysOnLeave: e.target.value })} disabled={!permissions.canEditCreate} className="bg-slate-900 border-slate-700 font-['Inter'] w-full rounded-lg p-3 text-white outline-none" /></div>
                                                 </div>
                                             </div>
                                         )}
                                     </div>
 
-                                    <div className="mt-10 pt-6 border-t border-slate-700 flex justify-end">
-                                        <button onClick={handleSaveInjury} className="bg-gradient-to-r from-rose-600 to-pink-600 hover:from-rose-500 hover:to-pink-500 text-white font-bold py-3.5 px-10 rounded-xl shadow-lg transition-transform active:scale-95 flex items-center gap-2 text-sm uppercase tracking-widest">
-                                            <i className="fas fa-save"></i> Save Health Record
-                                        </button>
-                                    </div>
+                                    {permissions.canEditCreate && (
+                                        <div className="mt-10 pt-6 border-t border-slate-700 flex justify-end">
+                                            <button onClick={handleSaveInjury} className="bg-gradient-to-r from-rose-600 to-pink-600 hover:from-rose-500 hover:to-pink-500 text-white font-bold py-3.5 px-10 rounded-xl shadow-lg transition-transform active:scale-95 flex items-center gap-2 text-sm uppercase tracking-widest">
+                                                <i className="fas fa-save"></i> Save Health Record
+                                            </button>
+                                        </div>
+                                    )}
                                 </div>
                             </div>
 
@@ -923,27 +1013,27 @@ export default function HealthDashboard() {
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
                                 <div>
                                     <label className="text-[10px] uppercase font-bold text-slate-400 tracking-widest block mb-2 ml-1">Site</label>
-                                    <select value={illnessForm.siteId} onChange={e => setIllnessForm({ ...illnessForm, siteId: e.target.value })} className="font-bold text-slate-200 font-['Inter']">
-                                        <option value="">Select Site...</option>
-                                        {sites.map(s => <option key={s.code} value={s.code}>{s.name}</option>)}
+                                    <select value={illnessForm.siteId} onChange={e => setIllnessForm({ ...illnessForm, siteId: e.target.value })} disabled={!permissions.canEditCreate} className="font-bold text-slate-200 font-['Inter'] w-full bg-slate-950 border border-slate-700 rounded-lg p-3 outline-none focus:border-amber-500">
+                                        {(isGlobalUser || visibleSites.length > 1) && <option value="">Select Site...</option>}
+                                        {visibleSites.map(s => <option key={s.code} value={s.code}>{s.name}</option>)}
                                     </select>
                                 </div>
-                                <div><label className="text-[10px] uppercase font-bold text-slate-400 tracking-widest block mb-2 ml-1">Employee Name / ID</label><input placeholder="e.g. John Doe (EMP-123)" value={illnessForm.empNameId} onChange={e => setIllnessForm({ ...illnessForm, empNameId: e.target.value })} className="font-bold text-amber-300 border-amber-900/50 font-['Inter']" /></div>
+                                <div><label className="text-[10px] uppercase font-bold text-slate-400 tracking-widest block mb-2 ml-1">Employee Name / ID</label><input placeholder="e.g. John Doe (EMP-123)" value={illnessForm.empNameId} onChange={e => setIllnessForm({ ...illnessForm, empNameId: e.target.value })} disabled={!permissions.canEditCreate} className="font-bold text-amber-300 border-amber-900/50 font-['Inter'] w-full bg-slate-950 rounded-lg p-3 outline-none focus:border-amber-500" /></div>
 
-                                <div><label className="text-[10px] uppercase font-bold text-slate-400 tracking-widest block mb-2 ml-1">Date Reported</label><input type="date" value={illnessForm.date} onChange={e => setIllnessForm({ ...illnessForm, date: e.target.value })} className="font-['Inter'] font-mono" /></div>
-                                <div><label className="text-[10px] uppercase font-bold text-slate-400 tracking-widest block mb-2 ml-1">Time Reported</label><input type="time" value={illnessForm.time} onChange={e => setIllnessForm({ ...illnessForm, time: e.target.value })} className="font-['Inter'] font-mono" /></div>
+                                <div><label className="text-[10px] uppercase font-bold text-slate-400 tracking-widest block mb-2 ml-1">Date Reported</label><input type="date" value={illnessForm.date} onChange={e => setIllnessForm({ ...illnessForm, date: e.target.value })} disabled={!permissions.canEditCreate} className="font-['Inter'] font-mono w-full bg-slate-950 border border-slate-700 rounded-lg p-3 outline-none focus:border-amber-500 text-white" /></div>
+                                <div><label className="text-[10px] uppercase font-bold text-slate-400 tracking-widest block mb-2 ml-1">Time Reported</label><input type="time" value={illnessForm.time} onChange={e => setIllnessForm({ ...illnessForm, time: e.target.value })} disabled={!permissions.canEditCreate} className="font-['Inter'] font-mono w-full bg-slate-950 border border-slate-700 rounded-lg p-3 outline-none focus:border-amber-500 text-white" /></div>
                             </div>
 
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-10 bg-slate-900/60 p-8 rounded-2xl border border-slate-700 shadow-inner">
-                                <div><label className="text-[10px] uppercase font-bold text-amber-400 tracking-widest block mb-2 ml-1">Exposed To Agent</label><input placeholder="e.g. Silica Dust, Loud Noise, Solvents" value={illnessForm.agent} onChange={e => setIllnessForm({ ...illnessForm, agent: e.target.value })} className="border-amber-900/50 focus:border-amber-500 text-amber-100 font-['Inter']" /></div>
-                                <div><label className="text-[10px] uppercase font-bold text-slate-400 tracking-widest block mb-2 ml-1">Period of Exposure</label><input placeholder="e.g. 5 Years, 6 Months" value={illnessForm.exposurePeriod} onChange={e => setIllnessForm({ ...illnessForm, exposurePeriod: e.target.value })} className="font-['Inter']" /></div>
+                                <div><label className="text-[10px] uppercase font-bold text-amber-400 tracking-widest block mb-2 ml-1">Exposed To Agent</label><input placeholder="e.g. Silica Dust, Loud Noise, Solvents" value={illnessForm.agent} onChange={e => setIllnessForm({ ...illnessForm, agent: e.target.value })} disabled={!permissions.canEditCreate} className="border-amber-900/50 focus:border-amber-500 text-amber-100 font-['Inter'] w-full bg-slate-950 rounded-lg p-3 outline-none" /></div>
+                                <div><label className="text-[10px] uppercase font-bold text-slate-400 tracking-widest block mb-2 ml-1">Period of Exposure</label><input placeholder="e.g. 5 Years, 6 Months" value={illnessForm.exposurePeriod} onChange={e => setIllnessForm({ ...illnessForm, exposurePeriod: e.target.value })} disabled={!permissions.canEditCreate} className="font-['Inter'] w-full bg-slate-950 border border-slate-700 rounded-lg p-3 text-white outline-none focus:border-amber-500" /></div>
 
-                                <div><label className="text-[10px] uppercase font-bold text-slate-400 tracking-widest block mb-2 ml-1">Health Issue Triggered</label><input placeholder="e.g. Occupational Asthma, NIHL" value={illnessForm.healthIssue} onChange={e => setIllnessForm({ ...illnessForm, healthIssue: e.target.value })} className="font-bold text-white border-slate-600 font-['Inter']" /></div>
-                                <div><label className="text-[10px] uppercase font-bold text-slate-400 tracking-widest block mb-2 ml-1">Impacted Body Function / Part</label><input placeholder="e.g. Lung Capacity, Hearing" value={illnessForm.impactedFunction} onChange={e => setIllnessForm({ ...illnessForm, impactedFunction: e.target.value })} className="font-['Inter']" /></div>
+                                <div><label className="text-[10px] uppercase font-bold text-slate-400 tracking-widest block mb-2 ml-1">Health Issue Triggered</label><input placeholder="e.g. Occupational Asthma, NIHL" value={illnessForm.healthIssue} onChange={e => setIllnessForm({ ...illnessForm, healthIssue: e.target.value })} disabled={!permissions.canEditCreate} className="font-bold text-white border-slate-600 font-['Inter'] w-full bg-slate-950 rounded-lg p-3 outline-none focus:border-amber-500" /></div>
+                                <div><label className="text-[10px] uppercase font-bold text-slate-400 tracking-widest block mb-2 ml-1">Impacted Body Function / Part</label><input placeholder="e.g. Lung Capacity, Hearing" value={illnessForm.impactedFunction} onChange={e => setIllnessForm({ ...illnessForm, impactedFunction: e.target.value })} disabled={!permissions.canEditCreate} className="font-['Inter'] w-full bg-slate-950 border border-slate-700 rounded-lg p-3 text-white outline-none focus:border-amber-500" /></div>
 
                                 <div className="col-span-1 md:col-span-2">
                                     <label className="text-[10px] uppercase font-bold text-slate-400 tracking-widest block mb-2 ml-1">Treatment for the Illness / Medical Action Plan</label>
-                                    <textarea rows="4" className="resize-none font-['Inter'] custom-scroll" placeholder="Detail the medical treatment prescribed or workplace adjustments made (e.g. reassignment to non-noise area)..." value={illnessForm.treatment} onChange={e => setIllnessForm({ ...illnessForm, treatment: e.target.value })}></textarea>
+                                    <textarea rows="4" className="resize-none font-['Inter'] custom-scroll w-full bg-slate-950 border border-slate-700 rounded-lg p-3 text-white outline-none focus:border-amber-500" placeholder="Detail the medical treatment prescribed or workplace adjustments made (e.g. reassignment to non-noise area)..." value={illnessForm.treatment} onChange={e => setIllnessForm({ ...illnessForm, treatment: e.target.value })} disabled={!permissions.canEditCreate}></textarea>
                                 </div>
                             </div>
 
@@ -953,22 +1043,24 @@ export default function HealthDashboard() {
                                     <h3 className="text-sm font-bold text-orange-400 uppercase tracking-widest flex items-center gap-2"><i className="fas fa-list-check"></i> Corrective & Preventive Actions (CAPA)</h3>
                                 </div>
 
-                                <div className="bg-slate-900 p-6 rounded-2xl border border-slate-700 shadow-inner mb-6">
-                                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                                        <div className="md:col-span-2"><input value={newIllCapaAct} onChange={e => setNewIllCapaAct(e.target.value)} placeholder="Action required to prevent aggravation/recurrence..." className="font-['Inter'] text-sm" /></div>
-                                        <div>
-                                            <select value={newIllCapaOwn} onChange={e => setNewIllCapaOwn(e.target.value)} className="font-['Inter'] text-sm font-bold text-blue-300">
-                                                <option value="">Assign Owner...</option>
-                                                <option value={myName} className="bg-slate-800 text-amber-400 font-bold">➡️ Assign to Me</option>
-                                                {siteUsers.map(u => <option key={u.id} value={u.name}>{u.name}</option>)}
-                                            </select>
-                                        </div>
-                                        <div className="flex gap-2">
-                                            <input type="date" value={newIllCapaDue} onChange={e => setNewIllCapaDue(e.target.value)} className="font-['Inter'] text-sm font-mono" />
-                                            <button onClick={addIllnessCapa} className="bg-orange-600 hover:bg-orange-500 text-white px-5 rounded-lg font-bold shadow transition-transform active:scale-95"><i className="fas fa-plus"></i></button>
+                                {permissions.canEditCreate && (
+                                    <div className="bg-slate-900 p-6 rounded-2xl border border-slate-700 shadow-inner mb-6">
+                                        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                                            <div className="md:col-span-2"><input value={newIllCapaAct} onChange={e => setNewIllCapaAct(e.target.value)} placeholder="Action required to prevent aggravation/recurrence..." className="font-['Inter'] text-sm w-full bg-slate-950 border border-slate-700 rounded-lg p-3 text-white outline-none focus:border-orange-500" /></div>
+                                            <div>
+                                                <select value={newIllCapaOwn} onChange={e => setNewIllCapaOwn(e.target.value)} className="font-['Inter'] text-sm font-bold text-blue-300 w-full bg-slate-950 border border-slate-700 rounded-lg p-3 outline-none focus:border-orange-500">
+                                                    <option value="">Assign Owner...</option>
+                                                    <option value={myName} className="bg-slate-800 text-amber-400 font-bold">➡️ Assign to Me</option>
+                                                    {siteUsers.map(u => <option key={u.id} value={u.name}>{u.name}</option>)}
+                                                </select>
+                                            </div>
+                                            <div className="flex gap-2">
+                                                <input type="date" value={newIllCapaDue} onChange={e => setNewIllCapaDue(e.target.value)} className="font-['Inter'] text-sm font-mono w-full bg-slate-950 border border-slate-700 rounded-lg p-3 text-white outline-none focus:border-orange-500" />
+                                                <button onClick={addIllnessCapa} className="bg-orange-600 hover:bg-orange-500 text-white px-5 rounded-lg font-bold shadow transition-transform active:scale-95"><i className="fas fa-plus"></i></button>
+                                            </div>
                                         </div>
                                     </div>
-                                </div>
+                                )}
 
                                 <div className="border border-slate-700 rounded-2xl overflow-hidden shadow-xl">
                                     <table className="w-full text-left text-sm text-slate-300 font-['Inter']">
@@ -978,20 +1070,20 @@ export default function HealthDashboard() {
                                         <tbody className="divide-y divide-slate-800 bg-slate-950">
                                             {(illnessForm.capa || []).map((c, i) => (
                                                 <tr key={i} className="hover:bg-slate-800/50 transition-colors">
-                                                    <td className="p-3 pl-5"><input className="bg-transparent border-b border-transparent focus:border-orange-500 text-sm py-1.5 px-2 outline-none w-full text-white" value={c.act} onChange={e => updateIllnessCapa(i, 'act', e.target.value)} /></td>
+                                                    <td className="p-3 pl-5"><input className="bg-transparent border-b border-transparent focus:border-orange-500 text-sm py-1.5 px-2 outline-none w-full text-white" value={c.act} onChange={e => updateIllnessCapa(i, 'act', e.target.value)} disabled={!permissions.canEditCreate} /></td>
                                                     <td className="p-3 font-bold">
-                                                        <select value={c.own} onChange={e => updateIllnessCapa(i, 'own', e.target.value)} className="bg-slate-900 border border-slate-700 rounded-lg p-2 text-xs font-bold text-blue-300 outline-none focus:border-orange-500 w-full shadow-inner">
+                                                        <select value={c.own} onChange={e => updateIllnessCapa(i, 'own', e.target.value)} disabled={!permissions.canEditCreate} className="bg-slate-900 border border-slate-700 rounded-lg p-2 text-xs font-bold text-blue-300 outline-none focus:border-orange-500 w-full shadow-inner">
                                                             <option value="">Owner...</option>
                                                             {siteUsers.map(u => <option key={u.id} value={u.name}>{u.name}</option>)}
                                                         </select>
                                                     </td>
-                                                    <td className="p-3"><input type="date" className="bg-slate-900 border border-slate-700 rounded-lg p-2 text-xs text-white outline-none focus:border-orange-500 font-mono shadow-inner w-full" value={c.due} onChange={e => updateIllnessCapa(i, 'due', e.target.value)} /></td>
+                                                    <td className="p-3"><input type="date" className="bg-slate-900 border border-slate-700 rounded-lg p-2 text-xs text-white outline-none focus:border-orange-500 font-mono shadow-inner w-full" value={c.due} onChange={e => updateIllnessCapa(i, 'due', e.target.value)} disabled={!permissions.canEditCreate} /></td>
                                                     <td className="p-3">
-                                                        <select value={c.status} onChange={e => updateIllnessCapa(i, 'status', e.target.value)} className={`bg-slate-900 text-xs px-2 py-2 rounded-lg outline-none border shadow-inner focus:border-orange-500 font-bold w-full uppercase tracking-wider ${c.status === 'Closed' ? 'text-emerald-400 border-emerald-500/30' : c.status === 'In Progress' ? 'text-blue-400 border-blue-500/30' : 'text-orange-400 border-orange-500/30'}`}>
+                                                        <select value={c.status} onChange={e => updateIllnessCapa(i, 'status', e.target.value)} disabled={!permissions.canEditCreate} className={`bg-slate-900 text-xs px-2 py-2 rounded-lg outline-none border shadow-inner focus:border-orange-500 font-bold w-full uppercase tracking-wider ${c.status === 'Closed' ? 'text-emerald-400 border-emerald-500/30' : c.status === 'In Progress' ? 'text-blue-400 border-blue-500/30' : 'text-orange-400 border-orange-500/30'}`}>
                                                             <option>Open</option><option>In Progress</option><option>Closed</option>
                                                         </select>
                                                     </td>
-                                                    <td className="p-3 text-center"><button onClick={() => removeIllnessCapa(i)} className="text-red-500 hover:text-white transition-colors bg-red-900/20 hover:bg-red-600 w-8 h-8 rounded-lg flex items-center justify-center shadow-sm"><i className="fas fa-trash-alt"></i></button></td>
+                                                    <td className="p-3 text-center">{permissions.canEditCreate && <button onClick={() => removeIllnessCapa(i)} className="text-red-500 hover:text-white transition-colors bg-red-900/20 hover:bg-red-600 w-8 h-8 rounded-lg flex items-center justify-center shadow-sm"><i className="fas fa-trash-alt"></i></button>}</td>
                                                 </tr>
                                             ))}
                                             {(!illnessForm.capa || illnessForm.capa.length === 0) && <tr><td colSpan="5" className="p-8 text-center text-slate-500 italic">No CAPA items recorded for this illness.</td></tr>}
@@ -1000,11 +1092,13 @@ export default function HealthDashboard() {
                                 </div>
                             </div>
 
-                            <div className="flex justify-end pt-8 border-t border-slate-700">
-                                <button onClick={handleSaveIllness} className="bg-gradient-to-r from-amber-600 to-orange-500 hover:from-amber-500 hover:to-orange-400 text-white font-bold py-3.5 px-12 rounded-xl shadow-lg transition-transform active:scale-95 flex items-center gap-3 text-sm uppercase tracking-widest">
-                                    <i className="fas fa-save text-lg"></i> Save Illness Report
-                                </button>
-                            </div>
+                            {permissions.canEditCreate && (
+                                <div className="flex justify-end pt-8 border-t border-slate-700">
+                                    <button onClick={handleSaveIllness} className="bg-gradient-to-r from-amber-600 to-orange-500 hover:from-amber-500 hover:to-orange-400 text-white font-bold py-3.5 px-12 rounded-xl shadow-lg transition-transform active:scale-95 flex items-center gap-3 text-sm uppercase tracking-widest">
+                                        <i className="fas fa-save text-lg"></i> Save Illness Report
+                                    </button>
+                                </div>
+                            )}
                         </div>
                     </div>
                 )}
@@ -1026,20 +1120,20 @@ export default function HealthDashboard() {
                             <div className="grid grid-cols-2 md:grid-cols-4 gap-6 mb-8 bg-slate-900/50 p-6 rounded-2xl border border-slate-700 shadow-inner">
                                 <div>
                                     <label className="text-[10px] uppercase font-bold text-slate-400 tracking-widest block mb-2 ml-1">Site</label>
-                                    <select value={survForm.siteId} onChange={e => setSurvForm({ ...survForm, siteId: e.target.value })} className="font-bold text-white font-['Inter']">
-                                        <option value="">Select Site...</option>
-                                        {sites.map(s => <option key={s.code} value={s.code}>{s.name}</option>)}
+                                    <select value={survForm.siteId} onChange={e => setSurvForm({ ...survForm, siteId: e.target.value })} disabled={!permissions.canEditCreate} className="font-bold text-white font-['Inter'] w-full bg-slate-950 border border-slate-700 rounded-lg p-3 outline-none focus:border-indigo-500">
+                                        {(isGlobalUser || visibleSites.length > 1) && <option value="">Select Site...</option>}
+                                        {visibleSites.map(s => <option key={s.code} value={s.code}>{s.name}</option>)}
                                     </select>
                                 </div>
                                 <div>
                                     <label className="text-[10px] uppercase font-bold text-slate-400 tracking-widest block mb-2 ml-1">Surveillance Type</label>
-                                    <select value={survForm.type} onChange={e => setSurvForm({ ...survForm, type: e.target.value })} className="font-bold text-indigo-300 border-indigo-900/50 font-['Inter']">
+                                    <select value={survForm.type} onChange={e => setSurvForm({ ...survForm, type: e.target.value })} disabled={!permissions.canEditCreate} className="font-bold text-indigo-300 border-indigo-900/50 font-['Inter'] w-full bg-slate-950 border border-slate-700 rounded-lg p-3 outline-none focus:border-indigo-500">
                                         {SURVEILLANCE_TYPES.map(t => <option key={t}>{t}</option>)}
                                     </select>
                                 </div>
-                                <div><label className="text-[10px] uppercase font-bold text-slate-400 tracking-widest block mb-2 ml-1">Date</label><input type="date" value={survForm.date} onChange={e => setSurvForm({ ...survForm, date: e.target.value })} className="font-['Inter'] font-mono" /></div>
-                                <div><label className="text-[10px] uppercase font-bold text-slate-400 tracking-widest block mb-2 ml-1">Agent Exposed To</label><input placeholder="e.g. Noise, Silica, Lead" value={survForm.agent} onChange={e => setSurvForm({ ...survForm, agent: e.target.value })} className="font-['Inter'] font-bold text-white" /></div>
-                                <div className="col-span-2 md:col-span-4"><label className="text-[10px] uppercase font-bold text-slate-400 tracking-widest block mb-2 ml-1">Campaign Name / Context</label><input placeholder="e.g. Annual Factory Noise Assessment" value={survForm.campaignName} onChange={e => setSurvForm({ ...survForm, campaignName: e.target.value })} className="font-bold text-white text-base font-['Inter']" /></div>
+                                <div><label className="text-[10px] uppercase font-bold text-slate-400 tracking-widest block mb-2 ml-1">Date</label><input type="date" value={survForm.date} onChange={e => setSurvForm({ ...survForm, date: e.target.value })} disabled={!permissions.canEditCreate} className="font-['Inter'] font-mono w-full bg-slate-950 border border-slate-700 rounded-lg p-3 text-white outline-none focus:border-indigo-500" /></div>
+                                <div><label className="text-[10px] uppercase font-bold text-slate-400 tracking-widest block mb-2 ml-1">Agent Exposed To</label><input placeholder="e.g. Noise, Silica, Lead" value={survForm.agent} onChange={e => setSurvForm({ ...survForm, agent: e.target.value })} disabled={!permissions.canEditCreate} className="font-['Inter'] font-bold text-white w-full bg-slate-950 border border-slate-700 rounded-lg p-3 outline-none focus:border-indigo-500" /></div>
+                                <div className="col-span-2 md:col-span-4"><label className="text-[10px] uppercase font-bold text-slate-400 tracking-widest block mb-2 ml-1">Campaign Name / Context</label><input placeholder="e.g. Annual Factory Noise Assessment" value={survForm.campaignName} onChange={e => setSurvForm({ ...survForm, campaignName: e.target.value })} disabled={!permissions.canEditCreate} className="font-bold text-white text-base font-['Inter'] w-full bg-slate-950 border border-slate-700 rounded-lg p-3 outline-none focus:border-indigo-500" /></div>
                             </div>
 
                             <div className="mb-6">
@@ -1052,12 +1146,14 @@ export default function HealthDashboard() {
                                         <div className="bg-slate-800/80 p-5 flex justify-between items-center border-b border-slate-700 flex-wrap gap-4 pl-8">
                                             <div className="flex items-center gap-3 flex-1 min-w-[300px]">
                                                 <div className="bg-indigo-900/50 w-10 h-10 rounded-xl flex items-center justify-center border border-indigo-500/30 shadow-inner"><i className="fas fa-vial text-indigo-400 text-xl"></i></div>
-                                                <input value={group.testName} onChange={e => updateTestGroupName(gIdx, e.target.value)} placeholder="Enter Test Type (e.g. Audiometry, Vision, Blood Lead)..." className="bg-slate-950 border border-slate-600 text-base p-3 rounded-xl text-white font-bold w-full focus:border-indigo-500 outline-none shadow-inner font-['Inter'] transition-colors" />
+                                                <input value={group.testName} onChange={e => updateTestGroupName(gIdx, e.target.value)} disabled={!permissions.canEditCreate} placeholder="Enter Test Type (e.g. Audiometry, Vision, Blood Lead)..." className="bg-slate-950 border border-slate-600 text-base p-3 rounded-xl text-white font-bold w-full focus:border-indigo-500 outline-none shadow-inner font-['Inter'] transition-colors" />
                                             </div>
-                                            <div className="flex gap-3">
-                                                <button onClick={() => addSurvEmployee(gIdx)} className="bg-indigo-600 hover:bg-indigo-500 text-white px-5 py-3 rounded-xl text-xs font-bold uppercase tracking-widest transition shadow-lg flex items-center gap-2"><i className="fas fa-user-plus"></i> Add Employee</button>
-                                                <button onClick={() => removeTestGroup(gIdx)} className="bg-slate-950 hover:bg-red-600 text-slate-400 hover:text-white w-12 h-12 rounded-xl text-sm font-bold transition border border-slate-700 hover:border-red-500 shadow flex items-center justify-center"><i className="fas fa-trash-alt"></i></button>
-                                            </div>
+                                            {permissions.canEditCreate && (
+                                                <div className="flex gap-3">
+                                                    <button onClick={() => addSurvEmployee(gIdx)} className="bg-indigo-600 hover:bg-indigo-500 text-white px-5 py-3 rounded-xl text-xs font-bold uppercase tracking-widest transition shadow-lg flex items-center gap-2"><i className="fas fa-user-plus"></i> Add Employee</button>
+                                                    <button onClick={() => removeTestGroup(gIdx)} className="bg-slate-950 hover:bg-red-600 text-slate-400 hover:text-white w-12 h-12 rounded-xl text-sm font-bold transition border border-slate-700 hover:border-red-500 shadow flex items-center justify-center"><i className="fas fa-trash-alt"></i></button>
+                                                </div>
+                                            )}
                                         </div>
                                         <div className="overflow-x-auto p-5 pl-8 custom-scroll">
                                             <table className="w-full text-left text-sm font-['Inter']">
@@ -1074,20 +1170,20 @@ export default function HealthDashboard() {
                                                 <tbody className="divide-y divide-slate-800 bg-slate-950/50">
                                                     {group.employees.map((emp, eIdx) => (
                                                         <tr key={eIdx} className="hover:bg-slate-800/50 transition-colors">
-                                                            <td className="p-3 pl-5"><input placeholder="Name..." value={emp.name} onChange={e => updateSurvEmployee(gIdx, eIdx, 'name', e.target.value)} className="bg-transparent border-b border-transparent focus:border-indigo-500 text-sm py-1.5 px-2 w-full font-bold text-white outline-none transition-colors" /></td>
-                                                            <td className="p-3"><input placeholder="ID..." value={emp.empId} onChange={e => updateSurvEmployee(gIdx, eIdx, 'empId', e.target.value)} className="bg-transparent border-b border-transparent focus:border-indigo-500 text-sm py-1.5 px-2 w-full font-mono text-slate-300 outline-none transition-colors" /></td>
+                                                            <td className="p-3 pl-5"><input placeholder="Name..." value={emp.name} onChange={e => updateSurvEmployee(gIdx, eIdx, 'name', e.target.value)} disabled={!permissions.canEditCreate} className="bg-transparent border-b border-transparent focus:border-indigo-500 text-sm py-1.5 px-2 w-full font-bold text-white outline-none transition-colors" /></td>
+                                                            <td className="p-3"><input placeholder="ID..." value={emp.empId} onChange={e => updateSurvEmployee(gIdx, eIdx, 'empId', e.target.value)} disabled={!permissions.canEditCreate} className="bg-transparent border-b border-transparent focus:border-indigo-500 text-sm py-1.5 px-2 w-full font-mono text-slate-300 outline-none transition-colors" /></td>
                                                             <td className="p-3">
-                                                                <select value={emp.defectMetric} onChange={e => updateSurvEmployee(gIdx, eIdx, 'defectMetric', e.target.value)} className={`bg-slate-900 border border-slate-700 rounded-lg p-2.5 w-full text-xs font-bold outline-none focus:border-indigo-500 shadow-inner ${emp.defectMetric === 'Normal' ? 'text-emerald-400' : emp.defectMetric === 'Minor Abnormality' ? 'text-yellow-400' : 'text-rose-500'}`}>
+                                                                <select value={emp.defectMetric} onChange={e => updateSurvEmployee(gIdx, eIdx, 'defectMetric', e.target.value)} disabled={!permissions.canEditCreate} className={`bg-slate-900 border border-slate-700 rounded-lg p-2.5 w-full text-xs font-bold outline-none focus:border-indigo-500 shadow-inner ${emp.defectMetric === 'Normal' ? 'text-emerald-400' : emp.defectMetric === 'Minor Abnormality' ? 'text-yellow-400' : 'text-rose-500'}`}>
                                                                     <option>Normal</option><option>Minor Abnormality</option><option>Significant Abnormality</option>
                                                                 </select>
                                                             </td>
                                                             <td className="p-3">
-                                                                <select value={emp.status} onChange={e => updateSurvEmployee(gIdx, eIdx, 'status', e.target.value)} className="bg-slate-900 border border-slate-700 rounded-lg p-2.5 w-full text-xs font-bold text-white outline-none focus:border-indigo-500 shadow-inner">
+                                                                <select value={emp.status} onChange={e => updateSurvEmployee(gIdx, eIdx, 'status', e.target.value)} disabled={!permissions.canEditCreate} className="bg-slate-900 border border-slate-700 rounded-lg p-2.5 w-full text-xs font-bold text-white outline-none focus:border-indigo-500 shadow-inner">
                                                                     <option>Fit for Duty</option><option>Fit with Restrictions</option><option>Temporarily Unfit</option><option>Permanently Unfit</option>
                                                                 </select>
                                                             </td>
-                                                            <td className="p-3"><input placeholder="Action required..." value={emp.remarks} onChange={e => updateSurvEmployee(gIdx, eIdx, 'remarks', e.target.value)} className="bg-transparent border-b border-transparent focus:border-indigo-500 text-sm py-1.5 px-2 w-full text-slate-300 outline-none transition-colors" /></td>
-                                                            <td className="p-3 text-center"><button onClick={() => removeSurvEmployee(gIdx, eIdx)} className="text-red-500 hover:text-white transition-colors bg-red-900/20 hover:bg-red-600 w-8 h-8 rounded-lg flex items-center justify-center shadow-sm"><i className="fas fa-trash-alt"></i></button></td>
+                                                            <td className="p-3"><input placeholder="Action required..." value={emp.remarks} onChange={e => updateSurvEmployee(gIdx, eIdx, 'remarks', e.target.value)} disabled={!permissions.canEditCreate} className="bg-transparent border-b border-transparent focus:border-indigo-500 text-sm py-1.5 px-2 w-full text-slate-300 outline-none transition-colors" /></td>
+                                                            <td className="p-3 text-center">{permissions.canEditCreate && <button onClick={() => removeSurvEmployee(gIdx, eIdx)} className="text-red-500 hover:text-white transition-colors bg-red-900/20 hover:bg-red-600 w-8 h-8 rounded-lg flex items-center justify-center shadow-sm"><i className="fas fa-trash-alt"></i></button>}</td>
                                                         </tr>
                                                     ))}
                                                     {group.employees.length === 0 && <tr><td colSpan="6" className="p-8 text-center text-slate-500 italic text-sm">No employees assigned to this test.</td></tr>}
@@ -1097,16 +1193,20 @@ export default function HealthDashboard() {
                                     </div>
                                 ))}
 
-                                <button onClick={addTestGroup} className="mb-4 bg-slate-900/50 hover:bg-slate-800 text-indigo-400 hover:text-indigo-300 border-2 border-indigo-500/30 border-dashed px-6 py-6 rounded-3xl text-sm uppercase tracking-widest font-bold w-full transition-all flex items-center justify-center gap-3 shadow-inner">
-                                    <i className="fas fa-plus-circle text-2xl"></i> Add Another Test Type Group
-                                </button>
+                                {permissions.canEditCreate && (
+                                    <button onClick={addTestGroup} className="mb-4 bg-slate-900/50 hover:bg-slate-800 text-indigo-400 hover:text-indigo-300 border-2 border-indigo-500/30 border-dashed px-6 py-6 rounded-3xl text-sm uppercase tracking-widest font-bold w-full transition-all flex items-center justify-center gap-3 shadow-inner">
+                                        <i className="fas fa-plus-circle text-2xl"></i> Add Another Test Type Group
+                                    </button>
+                                )}
                             </div>
 
-                            <div className="flex justify-end pt-8 border-t border-slate-700">
-                                <button onClick={handleSaveSurveillance} className="bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-bold py-4 px-12 rounded-xl shadow-lg transition-transform active:scale-95 flex items-center gap-3 text-sm uppercase tracking-widest">
-                                    <i className="fas fa-save text-lg"></i> Save Surveillance Data
-                                </button>
-                            </div>
+                            {permissions.canEditCreate && (
+                                <div className="flex justify-end pt-8 border-t border-slate-700">
+                                    <button onClick={handleSaveSurveillance} className="bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-bold py-4 px-12 rounded-xl shadow-lg transition-transform active:scale-95 flex items-center gap-3 text-sm uppercase tracking-widest">
+                                        <i className="fas fa-save text-lg"></i> Save Surveillance Data
+                                    </button>
+                                </div>
+                            )}
                         </div>
                     </div>
                 )}
@@ -1128,27 +1228,27 @@ export default function HealthDashboard() {
                             <div className="grid grid-cols-2 md:grid-cols-4 gap-6 mb-10 bg-slate-900/50 p-6 rounded-2xl border border-slate-700 shadow-inner">
                                 <div>
                                     <label className="text-[10px] uppercase font-bold text-slate-400 tracking-widest block mb-2 ml-1">Site</label>
-                                    <select value={vaccForm.siteId} onChange={e => setVaccForm({ ...vaccForm, siteId: e.target.value })} className="font-bold text-white font-['Inter']">
-                                        <option value="">Select Site...</option>
-                                        {sites.map(s => <option key={s.code} value={s.code}>{s.name}</option>)}
+                                    <select value={vaccForm.siteId} onChange={e => setVaccForm({ ...vaccForm, siteId: e.target.value })} disabled={!permissions.canEditCreate} className="font-bold text-white font-['Inter'] w-full bg-slate-950 border border-slate-700 rounded-lg p-3 outline-none focus:border-cyan-500">
+                                        {(isGlobalUser || visibleSites.length > 1) && <option value="">Select Site...</option>}
+                                        {visibleSites.map(s => <option key={s.code} value={s.code}>{s.name}</option>)}
                                     </select>
                                 </div>
-                                <div><label className="text-[10px] uppercase font-bold text-slate-400 tracking-widest block mb-2 ml-1">Date</label><input type="date" value={vaccForm.date} onChange={e => setVaccForm({ ...vaccForm, date: e.target.value })} className="font-['Inter'] font-mono" /></div>
-                                <div><label className="text-[10px] uppercase font-bold text-slate-400 tracking-widest block mb-2 ml-1">Vaccine Name</label><input placeholder="e.g. Tetanus, Hep B, Flu" value={vaccForm.vaccineName} onChange={e => setVaccForm({ ...vaccForm, vaccineName: e.target.value })} className="font-bold text-cyan-300 border-cyan-900/50 focus:border-cyan-500 font-['Inter']" /></div>
+                                <div><label className="text-[10px] uppercase font-bold text-slate-400 tracking-widest block mb-2 ml-1">Date</label><input type="date" value={vaccForm.date} onChange={e => setVaccForm({ ...vaccForm, date: e.target.value })} disabled={!permissions.canEditCreate} className="font-['Inter'] font-mono w-full bg-slate-950 border border-slate-700 rounded-lg p-3 text-white outline-none focus:border-cyan-500" /></div>
+                                <div><label className="text-[10px] uppercase font-bold text-slate-400 tracking-widest block mb-2 ml-1">Vaccine Name</label><input placeholder="e.g. Tetanus, Hep B, Flu" value={vaccForm.vaccineName} onChange={e => setVaccForm({ ...vaccForm, vaccineName: e.target.value })} disabled={!permissions.canEditCreate} className="font-bold text-cyan-300 border-cyan-900/50 focus:border-cyan-500 font-['Inter'] w-full bg-slate-950 rounded-lg p-3 outline-none" /></div>
                                 <div>
                                     <label className="text-[10px] uppercase font-bold text-slate-400 tracking-widest block mb-2 ml-1">Dosage / Sequence</label>
-                                    <select value={vaccForm.dosage} onChange={e => setVaccForm({ ...vaccForm, dosage: e.target.value })} className="font-bold text-slate-200 font-['Inter']">
+                                    <select value={vaccForm.dosage} onChange={e => setVaccForm({ ...vaccForm, dosage: e.target.value })} disabled={!permissions.canEditCreate} className="font-bold text-slate-200 font-['Inter'] w-full bg-slate-950 border border-slate-700 rounded-lg p-3 outline-none focus:border-cyan-500">
                                         <option>Dose 1</option><option>Dose 2</option><option>Dose 3</option><option>Booster</option><option>Annual Renewal</option>
                                     </select>
                                 </div>
-                                <div className="col-span-2 md:col-span-4"><label className="text-[10px] uppercase font-bold text-slate-400 tracking-widest block mb-2 ml-1">Healthcare Provider / Clinic</label><input placeholder="e.g. City General Hospital / Dr. Smith" value={vaccForm.provider} onChange={e => setVaccForm({ ...vaccForm, provider: e.target.value })} className="font-bold text-white font-['Inter'] text-base p-3.5" /></div>
+                                <div className="col-span-2 md:col-span-4"><label className="text-[10px] uppercase font-bold text-slate-400 tracking-widest block mb-2 ml-1">Healthcare Provider / Clinic</label><input placeholder="e.g. City General Hospital / Dr. Smith" value={vaccForm.provider} onChange={e => setVaccForm({ ...vaccForm, provider: e.target.value })} disabled={!permissions.canEditCreate} className="font-bold text-white font-['Inter'] text-base p-3.5 w-full bg-slate-950 border border-slate-700 rounded-lg outline-none focus:border-cyan-500" /></div>
                             </div>
 
                             <div className="mb-6 border border-slate-700 rounded-3xl overflow-hidden shadow-2xl bg-slate-900 relative">
                                 <div className="absolute top-0 left-0 w-2 h-full bg-cyan-500"></div>
                                 <div className="bg-slate-800/80 p-6 flex justify-between items-center border-b border-slate-700 pl-8">
                                     <h3 className="font-bold text-lg text-white uppercase tracking-wider flex items-center gap-3"><i className="fas fa-users-medical text-cyan-400 text-2xl"></i> Employee Immunization Roster</h3>
-                                    <button onClick={addVaccEmployee} className="bg-cyan-600 hover:bg-cyan-500 text-white px-5 py-3 rounded-xl text-xs font-bold uppercase tracking-widest transition shadow-lg flex items-center gap-2"><i className="fas fa-plus"></i> Add Employee</button>
+                                    {permissions.canEditCreate && <button onClick={addVaccEmployee} className="bg-cyan-600 hover:bg-cyan-500 text-white px-5 py-3 rounded-xl text-xs font-bold uppercase tracking-widest transition shadow-lg flex items-center gap-2"><i className="fas fa-plus"></i> Add Employee</button>}
                                 </div>
 
                                 <div className="overflow-x-auto p-6 pl-8 custom-scroll">
@@ -1165,15 +1265,15 @@ export default function HealthDashboard() {
                                         <tbody className="divide-y divide-slate-800 bg-slate-950/50">
                                             {vaccForm.employees.map((emp, i) => (
                                                 <tr key={i} className="hover:bg-slate-800/50 transition-colors">
-                                                    <td className="p-3 pl-5"><input placeholder="Name..." value={emp.name} onChange={e => updateVaccEmployee(i, 'name', e.target.value)} className="bg-transparent border-b border-transparent focus:border-cyan-500 text-sm py-1.5 px-2 w-full font-bold text-white outline-none transition-colors" /></td>
-                                                    <td className="p-3"><input placeholder="ID..." value={emp.empId} onChange={e => updateVaccEmployee(i, 'empId', e.target.value)} className="bg-transparent border-b border-transparent focus:border-cyan-500 text-sm py-1.5 px-2 w-full font-mono text-slate-300 outline-none transition-colors" /></td>
+                                                    <td className="p-3 pl-5"><input placeholder="Name..." value={emp.name} onChange={e => updateVaccEmployee(i, 'name', e.target.value)} disabled={!permissions.canEditCreate} className="bg-transparent border-b border-transparent focus:border-cyan-500 text-sm py-1.5 px-2 w-full font-bold text-white outline-none transition-colors" /></td>
+                                                    <td className="p-3"><input placeholder="ID..." value={emp.empId} onChange={e => updateVaccEmployee(i, 'empId', e.target.value)} disabled={!permissions.canEditCreate} className="bg-transparent border-b border-transparent focus:border-cyan-500 text-sm py-1.5 px-2 w-full font-mono text-slate-300 outline-none transition-colors" /></td>
                                                     <td className="p-3">
-                                                        <select value={emp.status} onChange={e => updateVaccEmployee(i, 'status', e.target.value)} className={`bg-slate-900 border border-slate-700 rounded-lg p-2.5 w-full text-xs font-bold outline-none focus:border-cyan-500 shadow-inner ${emp.status === 'Administered' ? 'text-emerald-400' : emp.status === 'Refused (Sign Waiver)' ? 'text-rose-500' : 'text-yellow-400'}`}>
+                                                        <select value={emp.status} onChange={e => updateVaccEmployee(i, 'status', e.target.value)} disabled={!permissions.canEditCreate} className={`bg-slate-900 border border-slate-700 rounded-lg p-2.5 w-full text-xs font-bold outline-none focus:border-cyan-500 shadow-inner ${emp.status === 'Administered' ? 'text-emerald-400' : emp.status === 'Refused (Sign Waiver)' ? 'text-rose-500' : 'text-yellow-400'}`}>
                                                             <option>Administered</option><option>Pending</option><option>Refused (Sign Waiver)</option><option>Medical Exemption</option>
                                                         </select>
                                                     </td>
-                                                    <td className="p-3"><input placeholder="Batch No. or specific notes..." value={emp.remarks} onChange={e => updateVaccEmployee(i, 'remarks', e.target.value)} className="bg-transparent border-b border-transparent focus:border-cyan-500 text-sm py-1.5 px-2 w-full text-slate-300 outline-none transition-colors" /></td>
-                                                    <td className="p-3 text-center"><button onClick={() => removeVaccEmployee(i)} className="text-red-500 hover:text-white transition-colors bg-red-900/20 hover:bg-red-600 w-8 h-8 rounded-lg flex items-center justify-center shadow-sm"><i className="fas fa-trash-alt"></i></button></td>
+                                                    <td className="p-3"><input placeholder="Batch No. or specific notes..." value={emp.remarks} onChange={e => updateVaccEmployee(i, 'remarks', e.target.value)} disabled={!permissions.canEditCreate} className="bg-transparent border-b border-transparent focus:border-cyan-500 text-sm py-1.5 px-2 w-full text-slate-300 outline-none transition-colors" /></td>
+                                                    <td className="p-3 text-center">{permissions.canEditCreate && <button onClick={() => removeVaccEmployee(i)} className="text-red-500 hover:text-white transition-colors bg-red-900/20 hover:bg-red-600 w-8 h-8 rounded-lg flex items-center justify-center shadow-sm"><i className="fas fa-trash-alt"></i></button>}</td>
                                                 </tr>
                                             ))}
                                             {vaccForm.employees.length === 0 && <tr><td colSpan="5" className="p-10 text-center text-slate-500 italic text-sm">No employees added to this vaccination event.</td></tr>}
@@ -1182,11 +1282,13 @@ export default function HealthDashboard() {
                                 </div>
                             </div>
 
-                            <div className="flex justify-end pt-8 border-t border-slate-700">
-                                <button onClick={handleSaveVaccination} className="bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white font-bold py-4 px-12 rounded-xl shadow-lg transition-transform active:scale-95 flex items-center gap-3 text-sm uppercase tracking-widest">
-                                    <i className="fas fa-save text-lg"></i> Save Vaccination Record
-                                </button>
-                            </div>
+                            {permissions.canEditCreate && (
+                                <div className="flex justify-end pt-8 border-t border-slate-700">
+                                    <button onClick={handleSaveVaccination} className="bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white font-bold py-4 px-12 rounded-xl shadow-lg transition-transform active:scale-95 flex items-center gap-3 text-sm uppercase tracking-widest">
+                                        <i className="fas fa-save text-lg"></i> Save Vaccination Record
+                                    </button>
+                                </div>
+                            )}
                         </div>
                     </div>
                 )}

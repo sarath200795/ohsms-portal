@@ -1,223 +1,208 @@
 import React, { useState } from 'react';
-import { signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
 import { useNavigate } from 'react-router-dom';
-import { ref, set } from 'firebase/database';
 import { auth, rtdb } from '../config/firebase';
+import { signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
+import { ref, get, set, push } from 'firebase/database';
 
 export default function Login() {
+    const navigate = useNavigate();
     const [isRegistering, setIsRegistering] = useState(false);
-    const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
 
-    // Shared Fields
+    // Login Form State
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
 
-    // Registration Only Fields
-    const [fullName, setFullName] = useState('');
-    const [organizationName, setOrganizationName] = useState('');
+    // Registration Form State
+    const [orgName, setOrgName] = useState('');
+    const [userName, setUserName] = useState('');
+    const [regEmail, setRegEmail] = useState('');
+    const [regPassword, setRegPassword] = useState('');
 
-    // Login Only Field
-    const [orgId, setOrgId] = useState('');
-
-    const navigate = useNavigate();
-
-    const handleSubmit = async (e) => {
+    const handleLogin = async (e) => {
         e.preventDefault();
-        setError('');
         setLoading(true);
-
         try {
-            let userCredential;
-            let sessionData;
+            const userCredential = await signInWithEmailAndPassword(auth, email, password);
+            const user = userCredential.user;
 
-            if (isRegistering) {
-                userCredential = await createUserWithEmailAndPassword(auth, email, password);
+            // Find which organization this user belongs to
+            const orgsRef = ref(rtdb, 'organizations');
+            const orgsSnap = await get(orgsRef);
 
-                // Format the user's typed organization name into a clean ID (e.g., "Acme Corp" -> "ACME_CORP")
-                const generatedOrgId = organizationName.toUpperCase().replace(/\s+/g, '_');
+            let userFound = false;
+            let userData = null;
+            let userOrgId = null;
 
-                // --- SECURITY SYNC ---
-                // Creates the "Passport" for Firebase Security Rules
-                await set(ref(rtdb, `users/${userCredential.user.uid}`), {
-                    orgId: generatedOrgId,
-                    role: 'Owner',
-                    email: email,
-                    status: 'Active'
-                });
-
-                // Initialize the organization structure
-                await set(ref(rtdb, `organizations/${generatedOrgId}/info`), {
-                    name: organizationName,
-                    createdBy: userCredential.user.uid,
-                    createdAt: new Date().toISOString()
-                });
-
-                sessionData = {
-                    uid: userCredential.user.uid,
-                    email: userCredential.user.email,
-                    user: fullName || userCredential.user.email.split('@')[0],
-                    role: 'Owner',
-                    orgId: generatedOrgId
-                };
-            } else {
-                userCredential = await signInWithEmailAndPassword(auth, email, password);
-                const finalOrgId = orgId.toUpperCase().replace(/\s+/g, '_');
-
-                // --- SECURITY SYNC ---
-                // Updates the passport on every login to ensure rules stay active
-                await set(ref(rtdb, `users/${userCredential.user.uid}`), {
-                    orgId: finalOrgId,
-                    role: 'Owner',
-                    email: email,
-                    status: 'Active'
-                });
-
-                sessionData = {
-                    uid: userCredential.user.uid,
-                    email: userCredential.user.email,
-                    user: userCredential.user.email.split('@')[0],
-                    role: 'Owner',
-                    orgId: finalOrgId
-                };
+            if (orgsSnap.exists()) {
+                const orgs = orgsSnap.val();
+                for (const orgId in orgs) {
+                    if (orgs[orgId].users) {
+                        const userKey = Object.keys(orgs[orgId].users).find(
+                            key => orgs[orgId].users[key].email?.toLowerCase().trim() === email.toLowerCase().trim()
+                        );
+                        if (userKey) {
+                            userData = orgs[orgId].users[userKey];
+                            userOrgId = orgId;
+                            userFound = true;
+                            break;
+                        }
+                    }
+                }
             }
 
-            sessionStorage.setItem('isoSession', JSON.stringify(sessionData));
-            navigate('/dashboard');
+            if (userFound) {
+                if (userData.status === 'Deleted' || userData.status === 'Inactive') {
+                    setLoading(false);
+                    return alert("This account has been deactivated. Please contact your administrator.");
+                }
 
-        } catch (err) {
-            console.error("Auth Error:", err);
-            if (err.code === 'auth/email-already-in-use') setError("This email is already registered.");
-            else if (err.code === 'auth/weak-password') setError("Password must be at least 6 characters.");
-            else if (err.code === 'auth/invalid-credential') setError("Invalid security credentials.");
-            else setError("Authentication failed. Please check your credentials and Organization ID.");
+                // STRICT SESSION STORAGE: Pull exactly what is in the DB
+                const sessionData = {
+                    uid: user.uid,
+                    email: user.email,
+                    orgId: userOrgId,
+                    name: userData.name || user.email.split('@')[0],
+                    role: userData.role || 'User',
+                    assignedSite: userData.assignedSite || 'GLOBAL',
+                    accessibleSites: userData.accessibleSites || [],
+                    accessibleModules: userData.accessibleModules || []
+                };
+
+                sessionStorage.setItem('isoSession', JSON.stringify(sessionData));
+                navigate('/dashboard');
+            } else {
+                alert("Account authenticated, but not assigned to an active Organization directory.");
+            }
+        } catch (error) {
+            alert("Login Failed: " + error.message);
         } finally {
             setLoading(false);
         }
     };
 
-    const toggleMode = () => {
-        setIsRegistering(!isRegistering);
-        setError('');
-        setPassword('');
+    const handleRegister = async (e) => {
+        e.preventDefault();
+        if (regPassword.length < 6) return alert("Password must be at least 6 characters.");
+        setLoading(true);
+
+        try {
+            // 1. Create Firebase Auth User
+            const userCredential = await createUserWithEmailAndPassword(auth, regEmail, regPassword);
+            const user = userCredential.user;
+
+            // 2. Generate new Organization Node
+            const newOrgRef = push(ref(rtdb, 'organizations'));
+            const orgId = newOrgRef.key;
+
+            // 3. Build Initial Organization Structure
+            const newOrgData = {
+                details: {
+                    name: orgName,
+                    createdAt: new Date().toISOString(),
+                    ownerEmail: user.email
+                },
+                sites: {
+                    "HQ-01": { code: "HQ-01", name: "Headquarters" }
+                },
+                users: {
+                    [user.uid]: {
+                        name: userName,
+                        email: user.email.toLowerCase().trim(),
+                        role: "Global Owner", // Supreme access
+                        assignedSite: "GLOBAL",
+                        status: "Active",
+                        createdAt: new Date().toISOString()
+                    }
+                }
+            };
+
+            await set(newOrgRef, newOrgData);
+
+            // 4. Set Session and Auto-Login
+            const sessionData = {
+                uid: user.uid,
+                email: user.email,
+                orgId: orgId,
+                name: userName,
+                role: "Global Owner",
+                assignedSite: "GLOBAL",
+                accessibleSites: ["GLOBAL"],
+                accessibleModules: ["Analytics", "Incidents", "Risk Assessment", "Participation", "Internal Audit", "CAPA Manager", "Training", "Improvement", "Record Emergency", "OHS Tools", "Sites", "Users"]
+            };
+
+            sessionStorage.setItem('isoSession', JSON.stringify(sessionData));
+            alert("Organization Registered Successfully!");
+            navigate('/dashboard');
+
+        } catch (error) {
+            alert("Registration Failed: " + error.message);
+        } finally {
+            setLoading(false);
+        }
     };
 
     return (
-        <div className="min-h-screen bg-slate-950 flex items-center justify-center p-6 font-['Space_Grotesk'] relative overflow-hidden">
-            <div className="absolute top-[-20%] left-[-10%] w-[50%] h-[50%] bg-blue-600/10 rounded-full blur-[120px] pointer-events-none"></div>
+        <div className="h-screen bg-slate-950 flex flex-col items-center justify-center font-['Space_Grotesk'] p-4 relative overflow-hidden">
 
-            <div className="w-full max-w-md bg-slate-900/40 backdrop-blur-xl border border-slate-800 p-8 rounded-3xl shadow-2xl relative z-10 animate-in fade-in zoom-in-95 duration-500">
+            <div className="absolute top-[-20%] left-[-10%] w-96 h-96 bg-blue-600/20 blur-[120px] rounded-full pointer-events-none"></div>
+            <div className="absolute bottom-[-20%] right-[-10%] w-96 h-96 bg-emerald-600/10 blur-[120px] rounded-full pointer-events-none"></div>
 
+            <div className="max-w-md w-full bg-slate-900/80 backdrop-blur-xl border border-slate-800 p-8 rounded-3xl shadow-2xl relative z-10">
                 <div className="text-center mb-8">
-                    <div className="w-16 h-16 bg-gradient-to-tr from-blue-600 to-purple-600 rounded-2xl flex items-center justify-center text-white text-3xl font-bold mx-auto mb-4 shadow-lg shadow-blue-500/20">
-                        <i className="fas fa-shield-halved"></i>
+                    <div className="w-16 h-16 bg-gradient-to-tr from-blue-600 to-emerald-500 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg shadow-blue-900/20">
+                        <i className="fas fa-shield-halved text-white text-2xl"></i>
                     </div>
-                    <h1 className="text-2xl font-bold text-white tracking-tight uppercase">
-                        ISO 45001 <span className="text-blue-500 ml-1">Enterprise</span>
-                    </h1>
-                    <p className="text-slate-400 text-sm mt-2">
-                        {isRegistering ? 'Register a new enterprise domain' : 'Secure portal authentication'}
-                    </p>
+                    <h1 className="text-2xl font-bold text-white">ISO 45001 Portal</h1>
+                    <p className="text-slate-400 text-sm mt-2">{isRegistering ? 'Setup your enterprise workspace' : 'Sign in to manage workplace safety'}</p>
                 </div>
 
-                {error && (
-                    <div className="bg-red-500/10 border border-red-500/50 text-red-500 p-3 rounded-xl text-xs font-bold mb-6 text-center uppercase tracking-widest animate-in slide-in-from-top-2">
-                        {error}
-                    </div>
+                <div className="flex bg-slate-950 rounded-xl p-1 mb-8 border border-slate-800">
+                    <button type="button" onClick={() => setIsRegistering(false)} className={`flex-1 py-2 text-sm font-bold rounded-lg transition ${!isRegistering ? 'bg-slate-800 text-white shadow' : 'text-slate-500 hover:text-white'}`}>Sign In</button>
+                    <button type="button" onClick={() => setIsRegistering(true)} className={`flex-1 py-2 text-sm font-bold rounded-lg transition ${isRegistering ? 'bg-slate-800 text-white shadow' : 'text-slate-500 hover:text-white'}`}>Register Org</button>
+                </div>
+
+                {!isRegistering ? (
+                    <form onSubmit={handleLogin} className="space-y-5 animate-in fade-in zoom-in duration-300">
+                        <div>
+                            <label className="text-[10px] uppercase font-bold text-slate-500 tracking-widest block mb-2">Email Address</label>
+                            <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white focus:border-blue-500 outline-none transition" placeholder="you@company.com" />
+                        </div>
+                        <div>
+                            <label className="text-[10px] uppercase font-bold text-slate-500 tracking-widest block mb-2">Password</label>
+                            <input type="password" required value={password} onChange={(e) => setPassword(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white focus:border-blue-500 outline-none transition" placeholder="••••••••" />
+                        </div>
+                        <button type="submit" disabled={loading} className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3.5 rounded-xl transition shadow-lg shadow-blue-900/20 uppercase tracking-widest text-sm mt-4">
+                            {loading ? 'Authenticating...' : 'Secure Sign In'}
+                        </button>
+                    </form>
+                ) : (
+                    <form onSubmit={handleRegister} className="space-y-4 animate-in fade-in zoom-in duration-300">
+                        <div>
+                            <label className="text-[10px] uppercase font-bold text-slate-500 tracking-widest block mb-1">Organization Name</label>
+                            <input type="text" required value={orgName} onChange={(e) => setOrgName(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-white focus:border-emerald-500 outline-none text-sm" placeholder="e.g. Acme Corp" />
+                        </div>
+                        <div>
+                            <label className="text-[10px] uppercase font-bold text-slate-500 tracking-widest block mb-1">Your Full Name</label>
+                            <input type="text" required value={userName} onChange={(e) => setUserName(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-white focus:border-emerald-500 outline-none text-sm" placeholder="Admin Name" />
+                        </div>
+                        <div>
+                            <label className="text-[10px] uppercase font-bold text-slate-500 tracking-widest block mb-1">Admin Email</label>
+                            <input type="email" required value={regEmail} onChange={(e) => setRegEmail(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-white focus:border-emerald-500 outline-none text-sm" placeholder="admin@acme.com" />
+                        </div>
+                        <div>
+                            <label className="text-[10px] uppercase font-bold text-slate-500 tracking-widest block mb-1">Master Password</label>
+                            <input type="password" required value={regPassword} onChange={(e) => setRegPassword(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-white focus:border-emerald-500 outline-none text-sm" placeholder="••••••••" />
+                        </div>
+                        <button type="submit" disabled={loading} className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3.5 rounded-xl transition shadow-lg shadow-emerald-900/20 uppercase tracking-widest text-sm mt-6">
+                            {loading ? 'Creating Workspace...' : 'Register & Initialize'}
+                        </button>
+                    </form>
                 )}
+            </div>
 
-                <form onSubmit={handleSubmit} className="space-y-4">
-
-                    {/* --- REGISTRATION SPECIFIC FIELDS --- */}
-                    {isRegistering && (
-                        <div className="space-y-4 animate-in slide-in-from-top-4 duration-300">
-                            <div className="relative">
-                                <i className="fas fa-building absolute left-4 top-1/2 -translate-y-1/2 text-slate-500"></i>
-                                <input
-                                    type="text"
-                                    placeholder="Organization Name (e.g., Acme Corp)"
-                                    className="w-full bg-slate-950/50 border border-slate-800 rounded-xl p-4 pl-12 text-white focus:outline-none focus:border-blue-500 transition-all placeholder:text-slate-600"
-                                    value={organizationName}
-                                    onChange={(e) => setOrganizationName(e.target.value)}
-                                    required={isRegistering}
-                                />
-                            </div>
-                            <div className="relative">
-                                <i className="fas fa-user absolute left-4 top-1/2 -translate-y-1/2 text-slate-500"></i>
-                                <input
-                                    type="text"
-                                    placeholder="Full Name"
-                                    className="w-full bg-slate-950/50 border border-slate-800 rounded-xl p-4 pl-12 text-white focus:outline-none focus:border-blue-500 transition-all placeholder:text-slate-600"
-                                    value={fullName}
-                                    onChange={(e) => setFullName(e.target.value)}
-                                    required={isRegistering}
-                                />
-                            </div>
-                        </div>
-                    )}
-
-                    {/* --- LOGIN SPECIFIC FIELD --- */}
-                    {!isRegistering && (
-                        <div className="relative animate-in slide-in-from-top-4 duration-300">
-                            <i className="fas fa-network-wired absolute left-4 top-1/2 -translate-y-1/2 text-slate-500"></i>
-                            <input
-                                type="text"
-                                placeholder="Organization ID (e.g., ACME_CORP)"
-                                className="w-full bg-slate-950/50 border border-slate-800 rounded-xl p-4 pl-12 text-white focus:outline-none focus:border-blue-500 transition-all placeholder:text-slate-600 uppercase"
-                                value={orgId}
-                                onChange={(e) => setOrgId(e.target.value.toUpperCase().replace(/\s+/g, '_'))}
-                                required={!isRegistering}
-                            />
-                        </div>
-                    )}
-
-                    {/* --- SHARED FIELDS --- */}
-                    <div className="relative">
-                        <i className="fas fa-envelope absolute left-4 top-1/2 -translate-y-1/2 text-slate-500"></i>
-                        <input
-                            type="email"
-                            placeholder="Enterprise ID / Email"
-                            className="w-full bg-slate-950/50 border border-slate-800 rounded-xl p-4 pl-12 text-white focus:outline-none focus:border-blue-500 transition-all placeholder:text-slate-600"
-                            value={email}
-                            onChange={(e) => setEmail(e.target.value)}
-                            required
-                        />
-                    </div>
-
-                    <div className="relative">
-                        <i className="fas fa-lock absolute left-4 top-1/2 -translate-y-1/2 text-slate-500"></i>
-                        <input
-                            type="password"
-                            placeholder="Security Key"
-                            className="w-full bg-slate-950/50 border border-slate-800 rounded-xl p-4 pl-12 text-white focus:outline-none focus:border-blue-500 transition-all placeholder:text-slate-600"
-                            value={password}
-                            onChange={(e) => setPassword(e.target.value)}
-                            required
-                            minLength="6"
-                        />
-                    </div>
-
-                    <button
-                        type="submit"
-                        disabled={loading}
-                        className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-4 rounded-xl transition-all uppercase tracking-widest text-sm shadow-lg shadow-blue-600/20 disabled:bg-slate-800 disabled:text-slate-500 mt-2 flex justify-center items-center gap-2"
-                    >
-                        {loading ? <i className="fas fa-spinner fa-spin"></i> : null}
-                        {loading ? 'Authenticating...' : (isRegistering ? 'Establish Organization' : 'Access Portal')}
-                    </button>
-                </form>
-
-                <div className="mt-6 text-center">
-                    <button
-                        type="button"
-                        onClick={toggleMode}
-                        className="text-slate-400 hover:text-white text-xs transition-colors"
-                    >
-                        {isRegistering
-                            ? "Already registered? Return to Login"
-                            : "New facility? Register Organization here"}
-                    </button>
-                </div>
+            <div className="mt-8 text-slate-600 text-xs font-bold tracking-widest uppercase">
+                Enterprise OHS Management System
             </div>
         </div>
     );
