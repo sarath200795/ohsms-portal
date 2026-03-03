@@ -9,9 +9,11 @@ export default function Login() {
     const [isRegistering, setIsRegistering] = useState(false);
     const [loading, setLoading] = useState(false);
 
+    // Login Form State
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
 
+    // Registration Form State
     const [orgName, setOrgName] = useState('');
     const [userName, setUserName] = useState('');
     const [regEmail, setRegEmail] = useState('');
@@ -24,14 +26,14 @@ export default function Login() {
             const userCredential = await signInWithEmailAndPassword(auth, email, password);
             const user = userCredential.user;
 
-            // 1. SECURE LOOKUP: Find which Org this user belongs to
+            // 1. SECURE LOOKUP: Find which Org this user belongs to using the new directory
             const userDirRef = ref(rtdb, `userDirectory/${user.uid}`);
             const userDirSnap = await get(userDirRef);
 
             if (userDirSnap.exists()) {
                 const userOrgId = userDirSnap.val().orgId;
 
-                // 2. Fetch their specific profile from that isolated Organization
+                // 2. Fetch their specific profile from their isolated Organization
                 const orgUserRef = ref(rtdb, `organizations/${userOrgId}/users/${user.uid}`);
                 const orgUserSnap = await get(orgUserRef);
 
@@ -69,7 +71,7 @@ export default function Login() {
                 }
             } else {
                 await signOut(auth);
-                alert("Security Error: No organization mapping found for this account.");
+                alert("Security Error: No organization mapping found for this account. You may be using a legacy test account. Please register a new one.");
             }
         } catch (error) {
             alert("Login Failed: " + error.message);
@@ -84,11 +86,11 @@ export default function Login() {
         setLoading(true);
 
         try {
-            // 1. Create Firebase Auth User FIRST
+            // 1. Create Firebase Auth User FIRST so we get a token
             const userCredential = await createUserWithEmailAndPassword(auth, regEmail, regPassword);
             const user = userCredential.user;
 
-            // 2. Format Org Name for Registry check
+            // 2. Use the secure registry to check if org exists, NOT the root organizations folder
             const safeOrgName = orgName.toLowerCase().trim().replace(/[\.#$\[\]]/g, '');
             const orgRegRef = ref(rtdb, `orgRegistry/${safeOrgName}`);
             const orgRegSnap = await get(orgRegRef);
@@ -107,7 +109,7 @@ export default function Login() {
                     createdAt: new Date().toISOString()
                 });
 
-                // Map User to Org in the Directory
+                // Map User to Org in the Secure Directory
                 await set(ref(rtdb, `userDirectory/${user.uid}`), { orgId: existingOrgId });
 
                 await signOut(auth);
@@ -117,7 +119,7 @@ export default function Login() {
                 setRegEmail(''); setRegPassword(''); setUserName(''); setOrgName('');
 
             } else {
-                // CREATE BRAND NEW ORG
+                // CREATE BRAND NEW ORG (TENANT GENESIS)
                 const newOrgRef = push(ref(rtdb, 'organizations'));
                 const orgId = newOrgRef.key;
 
@@ -137,12 +139,18 @@ export default function Login() {
                     }
                 });
 
-                // Update Public Registries
+                // Update Public Registries so future users can find it
                 await set(ref(rtdb, `orgRegistry/${safeOrgName}`), orgId);
                 await set(ref(rtdb, `userDirectory/${user.uid}`), { orgId: orgId });
 
                 const sessionData = {
-                    uid: user.uid, email: user.email, orgId: orgId, name: userName, role: "Global Owner", assignedSite: "GLOBAL", accessibleSites: ["GLOBAL"],
+                    uid: user.uid,
+                    email: user.email,
+                    orgId: orgId,
+                    name: userName,
+                    role: "Global Owner",
+                    assignedSite: "GLOBAL",
+                    accessibleSites: ["GLOBAL"],
                     accessibleModules: ["Analytics", "Incidents", "Risk Assessment", "Participation", "Internal Audit", "CAPA Manager", "Training", "Improvement", "Record Emergency", "OHS Tools", "Sites", "Users"]
                 };
 
