@@ -26,13 +26,11 @@ export default function Users() {
 
     const [view, setView] = useState('users');
 
-    // Modals
     const [editModal, setEditModal] = useState(null);
     const [requestModal, setRequestModal] = useState(false);
     const [createModal, setCreateModal] = useState(false);
     const [successModal, setSuccessModal] = useState(null);
 
-    // Form States
     const [editForm, setEditForm] = useState(null);
     const [reqForm, setReqForm] = useState({ role: 'User', siteId: '', modules: [] });
     const [createForm, setCreateForm] = useState({ name: '', email: '', tempPassword: '', role: 'User', assignedSite: '', accessibleSites: [], accessibleModules: [] });
@@ -43,7 +41,6 @@ export default function Users() {
             if (!s) { navigate('/'); return; }
             const sess = JSON.parse(s);
 
-            // SECURITY GUARD: Only Admins/Managers should be here
             const hasAccess = ['Global Owner', 'Global Manager', 'Owner', 'Admin', 'Site Owner', 'Site Manager'].includes(sess.role) || (sess.accessibleModules || []).includes('Users');
             if (!hasAccess) {
                 alert("Security Alert: You do not have permission to access User Management.");
@@ -64,7 +61,6 @@ export default function Users() {
                         if (data.users) {
                             const uList = Object.keys(data.users).map(k => ({ firebaseKey: k, ...data.users[k] })).filter(u => u.status !== 'Deleted');
                             setUsers(uList.sort((a, b) => {
-                                // Put pending users at the top, then sort alphabetically
                                 if (a.status === 'Pending' && b.status !== 'Pending') return -1;
                                 if (b.status === 'Pending' && a.status !== 'Pending') return 1;
                                 return (a.name || '').localeCompare(b.name || '');
@@ -83,9 +79,6 @@ export default function Users() {
         }
     }, [navigate]);
 
-    // ==========================================
-    // SECURITY HELPERS
-    // ==========================================
     const isGlobalAdmin = ['Global Owner', 'Global Manager', 'Owner', 'Admin'].includes(session?.role);
     const isSiteAdmin = ['Site Owner', 'Site Manager'].includes(session?.role);
 
@@ -107,9 +100,6 @@ export default function Users() {
         return false;
     };
 
-    // ==========================================
-    // CREATE NEW USER (GLOBAL ADMIN ONLY)
-    // ==========================================
     const openCreateUser = () => {
         if (!isGlobalAdmin) return alert("Security Error: Only Global Admins can register new users directly.");
         const randomPass = Math.random().toString(36).slice(-6) + "A1!";
@@ -127,26 +117,22 @@ export default function Users() {
         const cleanEmail = createForm.email.toLowerCase().trim();
         const selectedRole = createForm.role;
 
-        // Prevent exact duplicates
         const isDuplicate = users.find(u => u.email && u.email.toLowerCase().trim() === cleanEmail);
         if (isDuplicate) return alert("A user with this exact email already exists in the system.");
 
         try {
-            // 1. Create Firebase Auth User via Secondary Instance to avoid logging out Admin
             const tempAppName = "tempApp-" + Date.now();
             const tempApp = initializeApp(auth.app.options, tempAppName);
             const tempAuth = getAuth(tempApp);
 
+            let newUid;
             try {
-                await createUserWithEmailAndPassword(tempAuth, cleanEmail, createForm.tempPassword);
+                const userCredential = await createUserWithEmailAndPassword(tempAuth, cleanEmail, createForm.tempPassword);
+                newUid = userCredential.user.uid;
                 await signOut(tempAuth);
             } catch (authErr) {
                 return alert("Auth Error: " + authErr.message);
             }
-
-            // 2. Realtime Database Entry
-            const usersRef = ref(rtdb, `organizations/${session.orgId}/users`);
-            const newRef = push(usersRef);
 
             const { tempPassword, ...formFields } = createForm;
 
@@ -154,17 +140,20 @@ export default function Users() {
                 ...formFields,
                 email: cleanEmail,
                 role: selectedRole,
-                status: 'Active', // Instantly active since created by Admin
+                status: 'Active',
                 createdBy: session?.email || 'System',
                 createdAt: new Date().toISOString(),
                 accessibleModules: createForm.accessibleModules || [],
                 accessibleSites: createForm.accessibleSites || []
             };
 
-            await set(newRef, payload);
+            // 1. SAVE TO ORG SPECIFIC DIRECTORY
+            await set(ref(rtdb, `organizations/${session.orgId}/users/${newUid}`), payload);
 
-            // 3. Update UI & Show Password
-            setUsers([{ firebaseKey: newRef.key, ...payload }, ...users].sort((a, b) => (a.name || '').localeCompare(b.name || '')));
+            // 2. REGISTER IN SECURE GLOBAL DIRECTORY
+            await set(ref(rtdb, `userDirectory/${newUid}`), { orgId: session.orgId });
+
+            setUsers([{ firebaseKey: newUid, ...payload }, ...users].sort((a, b) => (a.name || '').localeCompare(b.name || '')));
             setCreateModal(false);
 
             setSuccessModal({
@@ -177,9 +166,6 @@ export default function Users() {
         } catch (e) { alert("Database Error: " + e.message); }
     };
 
-    // ==========================================
-    // EDIT & DELETE USERS
-    // ==========================================
     const openEdit = (u) => {
         if (!canManageUser(u)) return alert("You do not have permission to manage this user.");
         setEditForm({ ...u, accessibleSites: ensureArray(u.accessibleSites), accessibleModules: ensureArray(u.accessibleModules) });
@@ -190,8 +176,6 @@ export default function Users() {
         if (!editForm.firebaseKey) return alert("Error: User key missing.");
         try {
             const { firebaseKey, ...updates } = editForm;
-
-            // KEY FIX: If an admin edits a pending user and saves, force them to Active
             updates.status = 'Active';
 
             await update(ref(rtdb, `organizations/${session.orgId}/users/${firebaseKey}`), updates);
@@ -205,7 +189,6 @@ export default function Users() {
             setEditModal(false);
             alert("User permissions updated successfully. If they were Pending, they are now Active.");
 
-            // Self-update check
             if (editForm.email === session?.email) {
                 const newSess = { ...session, ...updates };
                 sessionStorage.setItem('isoSession', JSON.stringify(newSess));
@@ -222,14 +205,12 @@ export default function Users() {
             await update(ref(rtdb, `organizations/${session.orgId}/users/${firebaseKey}`), {
                 status: 'Deleted', deletedBy: session?.email, deletedOn: new Date().toISOString()
             });
+            // We do NOT delete them from the userDirectory so the Auth account remains valid, just denied access to the org.
             setUsers(users.filter(u => u.firebaseKey !== firebaseKey));
             alert("User successfully removed.");
         } catch (e) { alert("Failed to delete user."); }
     };
 
-    // ==========================================
-    // PERMISSION REQUESTS
-    // ==========================================
     const submitRequest = async () => {
         if (!reqForm.siteId) return alert("Please select a site to request access for.");
         try {
@@ -253,7 +234,6 @@ export default function Users() {
             const targetUser = users.find(u => u.email === req.userEmail);
             if (!targetUser) return alert("User no longer exists in the database.");
 
-            // KEY FIX: Also force 'Active' status when approving a request
             const updates = {
                 status: 'Active',
                 role: req.requestedRole,
@@ -271,7 +251,6 @@ export default function Users() {
         } catch (e) { alert("Failed to approve."); }
     };
 
-    // Array Toggles
     const toggleEditArray = (field, item) => {
         const arr = [...ensureArray(editForm[field])];
         if (arr.includes(item)) setEditForm({ ...editForm, [field]: arr.filter(i => i !== item) });
@@ -412,9 +391,6 @@ export default function Users() {
                 </div>
             </main>
 
-            {/* ========================================== */}
-            {/* MODAL: CREATE NEW USER (GLOBAL ADMIN ONLY) */}
-            {/* ========================================== */}
             {createModal && (
                 <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[9999] flex items-center justify-center p-4">
                     <div className="bg-slate-900 border border-slate-700 rounded-3xl p-8 max-w-2xl w-full shadow-2xl max-h-[90vh] overflow-y-auto custom-scroll">
@@ -493,9 +469,6 @@ export default function Users() {
                 </div>
             )}
 
-            {/* ========================================== */}
-            {/* SUCCESS MODAL: SHOW TEMP PASSWORD */}
-            {/* ========================================== */}
             {successModal && (
                 <div className="fixed inset-0 bg-slate-950/90 backdrop-blur-md z-[99999] flex items-center justify-center p-4">
                     <div className="bg-slate-900 border-2 border-emerald-500/50 rounded-3xl p-8 max-w-md w-full shadow-2xl text-center animate-in fade-in zoom-in duration-300">
@@ -525,9 +498,6 @@ export default function Users() {
                 </div>
             )}
 
-            {/* ========================================== */}
-            {/* MODAL: EDIT USER PERMISSIONS */}
-            {/* ========================================== */}
             {editModal && editForm && (
                 <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[9999] flex items-center justify-center p-4">
                     <div className="bg-slate-900 border border-slate-700 rounded-3xl p-8 max-w-2xl w-full shadow-2xl max-h-[90vh] overflow-y-auto custom-scroll">
@@ -536,7 +506,6 @@ export default function Users() {
                             <button type="button" onClick={() => setEditModal(false)} className="text-slate-500 hover:text-white"><i className="fas fa-times text-xl"></i></button>
                         </div>
 
-                        {/* GLOBAL ADMIN ONLY: REVOKE ALL SHORTCUT */}
                         {isGlobalAdmin && (
                             <div className="mb-6 flex justify-end">
                                 <button type="button" onClick={() => setEditForm({ ...editForm, accessibleSites: [], accessibleModules: [] })} className="text-[10px] bg-red-900/20 hover:bg-red-600 border border-red-500/30 text-red-400 hover:text-white font-bold px-3 py-1.5 rounded-lg transition uppercase tracking-widest shadow">
@@ -604,7 +573,6 @@ export default function Users() {
                 </div>
             )}
 
-            {/* --- REQUEST ACCESS MODAL --- */}
             {requestModal && (
                 <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[9999] flex items-center justify-center p-4">
                     <div className="bg-slate-900 border border-slate-700 rounded-3xl p-8 max-w-md w-full shadow-2xl">

@@ -9,11 +9,9 @@ export default function Login() {
     const [isRegistering, setIsRegistering] = useState(false);
     const [loading, setLoading] = useState(false);
 
-    // Login Form State
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
 
-    // Registration Form State
     const [orgName, setOrgName] = useState('');
     const [userName, setUserName] = useState('');
     const [regEmail, setRegEmail] = useState('');
@@ -26,62 +24,52 @@ export default function Login() {
             const userCredential = await signInWithEmailAndPassword(auth, email, password);
             const user = userCredential.user;
 
-            // Find which organization this user belongs to
-            const orgsRef = ref(rtdb, 'organizations');
-            const orgsSnap = await get(orgsRef);
+            // 1. SECURE LOOKUP: Find which Org this user belongs to
+            const userDirRef = ref(rtdb, `userDirectory/${user.uid}`);
+            const userDirSnap = await get(userDirRef);
 
-            let userFound = false;
-            let userData = null;
-            let userOrgId = null;
+            if (userDirSnap.exists()) {
+                const userOrgId = userDirSnap.val().orgId;
 
-            if (orgsSnap.exists()) {
-                const orgs = orgsSnap.val();
-                for (const orgId in orgs) {
-                    if (orgs[orgId].users) {
-                        const userKey = Object.keys(orgs[orgId].users).find(
-                            key => orgs[orgId].users[key].email?.toLowerCase().trim() === email.toLowerCase().trim()
-                        );
-                        if (userKey) {
-                            userData = orgs[orgId].users[userKey];
-                            userOrgId = orgId;
-                            userFound = true;
-                            break;
-                        }
+                // 2. Fetch their specific profile from that isolated Organization
+                const orgUserRef = ref(rtdb, `organizations/${userOrgId}/users/${user.uid}`);
+                const orgUserSnap = await get(orgUserRef);
+
+                if (orgUserSnap.exists()) {
+                    const userData = orgUserSnap.val();
+
+                    if (userData.status === 'Pending') {
+                        setLoading(false);
+                        await signOut(auth);
+                        return alert("Your account is currently Pending. Please wait for your Organization Admin to approve your access.");
                     }
-                }
-            }
 
-            if (userFound) {
-                // BLOCK PENDING OR DEACTIVATED USERS
-                if (userData.status === 'Pending') {
-                    setLoading(false);
+                    if (userData.status === 'Deleted' || userData.status === 'Inactive') {
+                        setLoading(false);
+                        await signOut(auth);
+                        return alert("This account has been deactivated. Please contact your administrator.");
+                    }
+
+                    const sessionData = {
+                        uid: user.uid,
+                        email: user.email,
+                        orgId: userOrgId,
+                        name: userData.name || user.email.split('@')[0],
+                        role: userData.role || 'User',
+                        assignedSite: userData.assignedSite || 'GLOBAL',
+                        accessibleSites: userData.accessibleSites || [],
+                        accessibleModules: userData.accessibleModules || []
+                    };
+
+                    sessionStorage.setItem('isoSession', JSON.stringify(sessionData));
+                    navigate('/dashboard');
+                } else {
                     await signOut(auth);
-                    return alert("Your account is currently Pending. Please wait for your Organization Admin to approve your access.");
+                    alert("Your account exists but was removed from the organization directory.");
                 }
-
-                if (userData.status === 'Deleted' || userData.status === 'Inactive') {
-                    setLoading(false);
-                    await signOut(auth);
-                    return alert("This account has been deactivated. Please contact your administrator.");
-                }
-
-                // STRICT SESSION STORAGE: Pull exactly what is in the DB
-                const sessionData = {
-                    uid: user.uid,
-                    email: user.email,
-                    orgId: userOrgId,
-                    name: userData.name || user.email.split('@')[0],
-                    role: userData.role || 'User',
-                    assignedSite: userData.assignedSite || 'GLOBAL',
-                    accessibleSites: userData.accessibleSites || [],
-                    accessibleModules: userData.accessibleModules || []
-                };
-
-                sessionStorage.setItem('isoSession', JSON.stringify(sessionData));
-                navigate('/dashboard');
             } else {
                 await signOut(auth);
-                alert("Account authenticated, but not assigned to an active Organization directory.");
+                alert("Security Error: No organization mapping found for this account.");
             }
         } catch (error) {
             alert("Login Failed: " + error.message);
@@ -96,98 +84,72 @@ export default function Login() {
         setLoading(true);
 
         try {
-            // 1. Create Firebase Auth User FIRST so we have database permissions
+            // 1. Create Firebase Auth User FIRST
             const userCredential = await createUserWithEmailAndPassword(auth, regEmail, regPassword);
             const user = userCredential.user;
 
-            // 2. NOW check if the Organization already exists
-            const orgsRef = ref(rtdb, 'organizations');
-            const orgsSnap = await get(orgsRef);
-            let existingOrgId = null;
-            let adminEmail = null;
+            // 2. Format Org Name for Registry check
+            const safeOrgName = orgName.toLowerCase().trim().replace(/[\.#$\[\]]/g, '');
+            const orgRegRef = ref(rtdb, `orgRegistry/${safeOrgName}`);
+            const orgRegSnap = await get(orgRegRef);
 
-            if (orgsSnap.exists()) {
-                const orgs = orgsSnap.val();
-                for (const id in orgs) {
-                    if (orgs[id].details?.name?.toLowerCase().trim() === orgName.toLowerCase().trim()) {
-                        existingOrgId = id;
-                        // Capture the admin's email to show the user
-                        adminEmail = orgs[id].details?.ownerEmail || 'the system administrator';
-                        break;
-                    }
-                }
-            }
+            let existingOrgId = orgRegSnap.val();
 
-            // 3. Split Logic: Join Existing vs Create New
+            // 3. Join Existing OR Create New
             if (existingOrgId) {
-                // JOIN EXISTING ORG AS PENDING
-                const newUserRef = ref(rtdb, `organizations/${existingOrgId}/users/${user.uid}`);
-                await set(newUserRef, {
+                // JOIN EXISTING AS PENDING
+                await set(ref(rtdb, `organizations/${existingOrgId}/users/${user.uid}`), {
                     name: userName,
                     email: user.email.toLowerCase().trim(),
                     role: "User",
-                    assignedSite: "", // No site access until approved
-                    status: "Pending", // Forces Admin approval
+                    assignedSite: "",
+                    status: "Pending",
                     createdAt: new Date().toISOString()
                 });
 
-                await signOut(auth); // Log them out immediately
+                // Map User to Org in the Directory
+                await set(ref(rtdb, `userDirectory/${user.uid}`), { orgId: existingOrgId });
 
-                // Show detailed pop-up with Admin Email
-                alert(`Registration successful!\n\nThe workspace "${orgName}" already exists. Your account has been placed in a 'Pending' queue.\n\nPlease contact your Organization Admin (${adminEmail}) to request access approval.`);
+                await signOut(auth);
+                alert(`Registration successful!\n\nThe workspace "${orgName}" already exists. Your account is in the 'Pending' queue.\nPlease ask your Organization Admin to approve you.`);
 
                 setIsRegistering(false);
-                setRegEmail('');
-                setRegPassword('');
-                setUserName('');
-                setOrgName('');
+                setRegEmail(''); setRegPassword(''); setUserName(''); setOrgName('');
 
             } else {
-                // CREATE BRAND NEW ORG (FIRST USER = ACTIVE GLOBAL OWNER)
+                // CREATE BRAND NEW ORG
                 const newOrgRef = push(ref(rtdb, 'organizations'));
                 const orgId = newOrgRef.key;
 
-                const newOrgData = {
-                    details: {
-                        name: orgName,
-                        createdAt: new Date().toISOString(),
-                        ownerEmail: user.email
-                    },
-                    sites: {
-                        "HQ-01": { code: "HQ-01", name: "Headquarters" }
-                    },
+                await set(newOrgRef, {
+                    details: { name: orgName, createdAt: new Date().toISOString(), ownerEmail: user.email },
+                    sites: { "HQ-01": { code: "HQ-01", name: "Headquarters" } },
                     users: {
                         [user.uid]: {
                             name: userName,
                             email: user.email.toLowerCase().trim(),
-                            role: "Global Owner", // Supreme access
+                            role: "Global Owner",
                             assignedSite: "GLOBAL",
                             accessibleSites: ["GLOBAL"],
-                            status: "Active", // Auto-approved
+                            status: "Active",
                             createdAt: new Date().toISOString()
                         }
                     }
-                };
+                });
 
-                await set(newOrgRef, newOrgData);
+                // Update Public Registries
+                await set(ref(rtdb, `orgRegistry/${safeOrgName}`), orgId);
+                await set(ref(rtdb, `userDirectory/${user.uid}`), { orgId: orgId });
 
-                // Set Session and Auto-Login
                 const sessionData = {
-                    uid: user.uid,
-                    email: user.email,
-                    orgId: orgId,
-                    name: userName,
-                    role: "Global Owner",
-                    assignedSite: "GLOBAL",
-                    accessibleSites: ["GLOBAL"],
+                    uid: user.uid, email: user.email, orgId: orgId, name: userName, role: "Global Owner", assignedSite: "GLOBAL", accessibleSites: ["GLOBAL"],
                     accessibleModules: ["Analytics", "Incidents", "Risk Assessment", "Participation", "Internal Audit", "CAPA Manager", "Training", "Improvement", "Record Emergency", "OHS Tools", "Sites", "Users"]
                 };
 
                 sessionStorage.setItem('isoSession', JSON.stringify(sessionData));
-                alert("Workspace created successfully! You have been granted Global Owner permissions.");
+                alert("Workspace created successfully! You are the Global Owner.");
                 navigate('/dashboard');
             }
-
         } catch (error) {
             alert("Registration Failed: " + error.message);
         } finally {
