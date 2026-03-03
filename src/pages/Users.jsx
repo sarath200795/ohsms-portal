@@ -38,31 +38,49 @@ export default function Users() {
     const [createForm, setCreateForm] = useState({ name: '', email: '', tempPassword: '', role: 'User', assignedSite: '', accessibleSites: [], accessibleModules: [] });
 
     useEffect(() => {
-        const s = sessionStorage.getItem('isoSession');
-        if (!s) return navigate('/');
-        const sess = JSON.parse(s);
-        setSession(sess);
+        try {
+            const s = sessionStorage.getItem('isoSession');
+            if (!s) { navigate('/'); return; }
+            const sess = JSON.parse(s);
 
-        const loadData = async () => {
-            try {
-                const snap = await get(ref(rtdb, `organizations/${sess.orgId}`));
-                if (snap.exists()) {
-                    const data = snap.val();
-                    if (data.sites) {
-                        setSites(Object.keys(data.sites).map(k => ({ code: data.sites[k].code || k, name: data.sites[k].name || k })));
+            // SECURITY GUARD: Only Admins/Managers should be here
+            const hasAccess = ['Global Owner', 'Global Manager', 'Owner', 'Admin', 'Site Owner', 'Site Manager'].includes(sess.role) || (sess.accessibleModules || []).includes('Users');
+            if (!hasAccess) {
+                alert("Security Alert: You do not have permission to access User Management.");
+                navigate('/dashboard');
+                return;
+            }
+
+            setSession(sess);
+
+            const loadData = async () => {
+                try {
+                    const snap = await get(ref(rtdb, `organizations/${sess.orgId}`));
+                    if (snap.exists()) {
+                        const data = snap.val();
+                        if (data.sites) {
+                            setSites(Object.keys(data.sites).map(k => ({ code: data.sites[k].code || k, name: data.sites[k].name || k })));
+                        }
+                        if (data.users) {
+                            const uList = Object.keys(data.users).map(k => ({ firebaseKey: k, ...data.users[k] })).filter(u => u.status !== 'Deleted');
+                            setUsers(uList.sort((a, b) => {
+                                // Put pending users at the top, then sort alphabetically
+                                if (a.status === 'Pending' && b.status !== 'Pending') return -1;
+                                if (b.status === 'Pending' && a.status !== 'Pending') return 1;
+                                return (a.name || '').localeCompare(b.name || '');
+                            }));
+                        }
+                        if (data.permissionRequests) {
+                            const reqList = Object.keys(data.permissionRequests).map(k => ({ firebaseKey: k, ...data.permissionRequests[k] }));
+                            setRequests(reqList.sort((a, b) => new Date(b.date) - new Date(a.date)));
+                        }
                     }
-                    if (data.users) {
-                        const uList = Object.keys(data.users).map(k => ({ firebaseKey: k, ...data.users[k] })).filter(u => u.status !== 'Deleted');
-                        setUsers(uList.sort((a, b) => (a.name || '').localeCompare(b.name || '')));
-                    }
-                    if (data.permissionRequests) {
-                        const reqList = Object.keys(data.permissionRequests).map(k => ({ firebaseKey: k, ...data.permissionRequests[k] }));
-                        setRequests(reqList.sort((a, b) => new Date(b.date) - new Date(a.date)));
-                    }
-                }
-            } catch (e) { console.error(e); } finally { setLoading(false); }
-        };
-        loadData();
+                } catch (e) { console.error(e); } finally { setLoading(false); }
+            };
+            loadData();
+        } catch (error) {
+            setLoading(false);
+        }
     }, [navigate]);
 
     // ==========================================
@@ -93,7 +111,7 @@ export default function Users() {
     // CREATE NEW USER (GLOBAL ADMIN ONLY)
     // ==========================================
     const openCreateUser = () => {
-        if (!isGlobalAdmin) return alert("Security Error: Only Global Admins can register new users.");
+        if (!isGlobalAdmin) return alert("Security Error: Only Global Admins can register new users directly.");
         const randomPass = Math.random().toString(36).slice(-6) + "A1!";
         setCreateForm({ name: '', email: '', tempPassword: randomPass, role: 'User', assignedSite: '', accessibleSites: [], accessibleModules: [] });
         setCreateModal(true);
@@ -135,8 +153,8 @@ export default function Users() {
             const payload = {
                 ...formFields,
                 email: cleanEmail,
-                role: selectedRole, // STRICT
-                status: 'Active',
+                role: selectedRole,
+                status: 'Active', // Instantly active since created by Admin
                 createdBy: session?.email || 'System',
                 createdAt: new Date().toISOString(),
                 accessibleModules: createForm.accessibleModules || [],
@@ -172,12 +190,22 @@ export default function Users() {
         if (!editForm.firebaseKey) return alert("Error: User key missing.");
         try {
             const { firebaseKey, ...updates } = editForm;
+
+            // KEY FIX: If an admin edits a pending user and saves, force them to Active
+            updates.status = 'Active';
+
             await update(ref(rtdb, `organizations/${session.orgId}/users/${firebaseKey}`), updates);
 
-            setUsers(users.map(u => u.firebaseKey === firebaseKey ? { ...updates, firebaseKey } : u));
-            setEditModal(false);
-            alert("User permissions updated successfully.");
+            setUsers(users.map(u => u.firebaseKey === firebaseKey ? { ...updates, firebaseKey } : u).sort((a, b) => {
+                if (a.status === 'Pending' && b.status !== 'Pending') return -1;
+                if (b.status === 'Pending' && a.status !== 'Pending') return 1;
+                return (a.name || '').localeCompare(b.name || '');
+            }));
 
+            setEditModal(false);
+            alert("User permissions updated successfully. If they were Pending, they are now Active.");
+
+            // Self-update check
             if (editForm.email === session?.email) {
                 const newSess = { ...session, ...updates };
                 sessionStorage.setItem('isoSession', JSON.stringify(newSess));
@@ -225,7 +253,9 @@ export default function Users() {
             const targetUser = users.find(u => u.email === req.userEmail);
             if (!targetUser) return alert("User no longer exists in the database.");
 
+            // KEY FIX: Also force 'Active' status when approving a request
             const updates = {
+                status: 'Active',
                 role: req.requestedRole,
                 assignedSite: targetUser.assignedSite || req.requestedSite,
                 accessibleSites: Array.from(new Set([...ensureArray(targetUser.accessibleSites), req.requestedSite])),
@@ -237,7 +267,7 @@ export default function Users() {
 
             setUsers(users.map(u => u.firebaseKey === targetUser.firebaseKey ? { ...u, ...updates } : u));
             setRequests(requests.map(r => r.firebaseKey === req.firebaseKey ? { ...r, status: 'Approved' } : r));
-            alert("Request Approved and Applied.");
+            alert("Request Approved. User access has been updated.");
         } catch (e) { alert("Failed to approve."); }
     };
 
@@ -266,7 +296,7 @@ export default function Users() {
         <div className="flex flex-col h-screen bg-slate-950 font-['Space_Grotesk'] text-white">
             <header className="h-16 px-6 flex items-center justify-between border-b border-slate-800 bg-slate-900/80 z-10">
                 <div className="flex items-center gap-4">
-                    <button onClick={() => navigate('/dashboard')} className="text-slate-400 hover:text-white transition"><i className="fas fa-arrow-left mr-2"></i> Hub</button>
+                    <button type="button" onClick={() => navigate('/dashboard')} className="text-slate-400 hover:text-white transition"><i className="fas fa-arrow-left mr-2"></i> Hub</button>
                     <div className="h-6 w-px bg-slate-800 mx-2"></div>
                     <h1 className="text-lg font-bold"><i className="fas fa-users-gear text-blue-400 mr-2"></i> Access Management</h1>
                 </div>
@@ -277,14 +307,17 @@ export default function Users() {
 
             <div className="flex justify-between items-center px-8 pt-6 border-b border-slate-800 pb-4 z-10">
                 <div className="flex gap-4">
-                    <button onClick={() => setView('users')} className={`px-4 py-2 rounded-lg text-sm font-bold transition ${view === 'users' ? 'bg-blue-600 text-white shadow-lg' : 'bg-slate-900 text-slate-400 hover:bg-slate-800'}`}>Active Users</button>
-                    <button onClick={() => setView('requests')} className={`px-4 py-2 rounded-lg text-sm font-bold transition flex items-center gap-2 ${view === 'requests' ? 'bg-blue-600 text-white shadow-lg' : 'bg-slate-900 text-slate-400 hover:bg-slate-800'}`}>
+                    <button type="button" onClick={() => setView('users')} className={`px-4 py-2 rounded-lg text-sm font-bold transition flex items-center gap-2 ${view === 'users' ? 'bg-blue-600 text-white shadow-lg' : 'bg-slate-900 text-slate-400 hover:bg-slate-800'}`}>
+                        Active Users
+                        {users.filter(u => u.status === 'Pending').length > 0 && <span className="bg-red-500 text-white text-[10px] px-2 py-0.5 rounded-full shadow">{users.filter(u => u.status === 'Pending').length}</span>}
+                    </button>
+                    <button type="button" onClick={() => setView('requests')} className={`px-4 py-2 rounded-lg text-sm font-bold transition flex items-center gap-2 ${view === 'requests' ? 'bg-blue-600 text-white shadow-lg' : 'bg-slate-900 text-slate-400 hover:bg-slate-800'}`}>
                         Pending Requests {requests.filter(r => r.status === 'Pending').length > 0 && <span className="bg-red-500 text-white text-[10px] px-2 py-0.5 rounded-full shadow">{requests.filter(r => r.status === 'Pending').length}</span>}
                     </button>
                 </div>
 
                 {isGlobalAdmin && (
-                    <button onClick={openCreateUser} className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-lg text-sm font-bold shadow-lg transition flex items-center gap-2">
+                    <button type="button" onClick={openCreateUser} className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-lg text-sm font-bold shadow-lg transition flex items-center gap-2">
                         <i className="fas fa-user-plus"></i> Register New User
                     </button>
                 )}
@@ -300,7 +333,7 @@ export default function Users() {
                                 <thead className="bg-slate-950 text-[10px] uppercase text-slate-400 font-bold tracking-widest border-b border-slate-800">
                                     <tr>
                                         <th className="p-4 pl-6">User Details</th>
-                                        <th className="p-4">Role</th>
+                                        <th className="p-4">Role & Status</th>
                                         <th className="p-4">Primary Site</th>
                                         <th className="p-4">Access Count</th>
                                         <th className="p-4 pr-6 text-right">Admin Actions</th>
@@ -308,9 +341,12 @@ export default function Users() {
                                 </thead>
                                 <tbody className="divide-y divide-slate-800">
                                     {users.map(u => (
-                                        <tr key={u.firebaseKey} className="hover:bg-slate-800/50 transition">
+                                        <tr key={u.firebaseKey} className={`transition ${u.status === 'Pending' ? 'bg-orange-900/10 hover:bg-orange-900/20' : 'hover:bg-slate-800/50'}`}>
                                             <td className="p-4 pl-6">
-                                                <div className="font-bold text-white">{u.name || 'Unknown User'}</div>
+                                                <div className="font-bold text-white flex items-center gap-2">
+                                                    {u.name || 'Unknown User'}
+                                                    {u.status === 'Pending' && <span className="bg-orange-500 text-white text-[9px] px-1.5 py-0.5 rounded uppercase tracking-wider animate-pulse">Awaiting Approval</span>}
+                                                </div>
                                                 <div className="text-xs text-slate-500">{u.email}</div>
                                             </td>
                                             <td className="p-4"><span className={`text-[10px] px-2 py-1 rounded font-bold uppercase tracking-wider border ${u.role?.includes('Owner') || u.role?.includes('Manager') || u.role === 'Admin' ? 'bg-amber-900/30 text-amber-400 border-amber-500/30' : u.role === 'Lead Auditor' ? 'bg-purple-900/30 text-purple-400 border-purple-500/30' : 'bg-slate-800 text-slate-300 border-slate-600'}`}>{u.role || 'User'}</span></td>
@@ -322,10 +358,12 @@ export default function Users() {
                                             <td className="p-4 pr-6 text-right">
                                                 <div className="flex justify-end gap-2">
                                                     {canManageUser(u) && (
-                                                        <button onClick={() => openEdit(u)} className="bg-blue-600/20 hover:bg-blue-600 text-blue-400 hover:text-white px-3 py-1.5 rounded text-xs font-bold transition border border-blue-500/30">Edit Rules</button>
+                                                        <button type="button" onClick={() => openEdit(u)} className={`px-3 py-1.5 rounded text-xs font-bold transition border ${u.status === 'Pending' ? 'bg-orange-600/20 hover:bg-orange-600 text-orange-400 hover:text-white border-orange-500/30' : 'bg-blue-600/20 hover:bg-blue-600 text-blue-400 hover:text-white border-blue-500/30'}`}>
+                                                            {u.status === 'Pending' ? 'Review & Approve' : 'Edit Rules'}
+                                                        </button>
                                                     )}
                                                     {isGlobalAdmin && (
-                                                        <button onClick={() => handleDeleteUser(u.firebaseKey)} className="bg-red-900/30 hover:bg-red-600 text-red-500 hover:text-white px-3 py-1.5 rounded text-xs font-bold transition border border-red-500/30">Remove</button>
+                                                        <button type="button" onClick={() => handleDeleteUser(u.firebaseKey)} className="bg-red-900/30 hover:bg-red-600 text-red-500 hover:text-white px-3 py-1.5 rounded text-xs font-bold transition border border-red-500/30">Remove</button>
                                                     )}
                                                 </div>
                                             </td>
@@ -360,7 +398,7 @@ export default function Users() {
                                             </div>
                                             <div>
                                                 {canApprove ? (
-                                                    <button onClick={() => approveRequest(r)} className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-lg font-bold text-sm shadow transition flex items-center gap-2"><i className="fas fa-check"></i> Approve & Apply</button>
+                                                    <button type="button" onClick={() => approveRequest(r)} className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-lg font-bold text-sm shadow transition flex items-center gap-2"><i className="fas fa-check"></i> Approve & Apply</button>
                                                 ) : (
                                                     <span className="text-xs text-red-400 font-bold uppercase tracking-widest bg-red-900/20 px-3 py-1.5 rounded-lg border border-red-500/30"><i className="fas fa-lock mr-1"></i> Requires Global Clearance</span>
                                                 )}
@@ -382,7 +420,7 @@ export default function Users() {
                     <div className="bg-slate-900 border border-slate-700 rounded-3xl p-8 max-w-2xl w-full shadow-2xl max-h-[90vh] overflow-y-auto custom-scroll">
                         <div className="flex justify-between items-center mb-6 border-b border-slate-800 pb-4">
                             <h2 className="text-xl font-bold text-white"><i className="fas fa-user-plus text-emerald-500 mr-2"></i> Register New User Account</h2>
-                            <button onClick={() => setCreateModal(false)} className="text-slate-500 hover:text-white"><i className="fas fa-times text-xl"></i></button>
+                            <button type="button" onClick={() => setCreateModal(false)} className="text-slate-500 hover:text-white"><i className="fas fa-times text-xl"></i></button>
                         </div>
 
                         <div className="space-y-6">
@@ -557,7 +595,9 @@ export default function Users() {
                             </div>
 
                             <div className="pt-6 border-t border-slate-800">
-                                <button type="button" onClick={handleUpdateUser} className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3.5 rounded-xl shadow-lg transition tracking-widest uppercase text-sm">Save Permissions</button>
+                                <button type="button" onClick={handleUpdateUser} className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3.5 rounded-xl shadow-lg transition tracking-widest uppercase text-sm">
+                                    {editForm.status === 'Pending' ? 'Approve Access & Save Permissions' : 'Save Permissions'}
+                                </button>
                             </div>
                         </div>
                     </div>

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { auth, rtdb } from '../config/firebase';
-import { signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
+import { signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut } from 'firebase/auth';
 import { ref, get, set, push } from 'firebase/database';
 
 export default function Login() {
@@ -52,8 +52,16 @@ export default function Login() {
             }
 
             if (userFound) {
+                // BLOCK PENDING OR DEACTIVATED USERS
+                if (userData.status === 'Pending') {
+                    setLoading(false);
+                    await signOut(auth);
+                    return alert("Your account is currently Pending. Please wait for your Organization Admin to approve your access.");
+                }
+
                 if (userData.status === 'Deleted' || userData.status === 'Inactive') {
                     setLoading(false);
+                    await signOut(auth);
                     return alert("This account has been deactivated. Please contact your administrator.");
                 }
 
@@ -72,6 +80,7 @@ export default function Login() {
                 sessionStorage.setItem('isoSession', JSON.stringify(sessionData));
                 navigate('/dashboard');
             } else {
+                await signOut(auth);
                 alert("Account authenticated, but not assigned to an active Organization directory.");
             }
         } catch (error) {
@@ -87,53 +96,97 @@ export default function Login() {
         setLoading(true);
 
         try {
-            // 1. Create Firebase Auth User
+            // 1. Create Firebase Auth User FIRST so we have database permissions
             const userCredential = await createUserWithEmailAndPassword(auth, regEmail, regPassword);
             const user = userCredential.user;
 
-            // 2. Generate new Organization Node
-            const newOrgRef = push(ref(rtdb, 'organizations'));
-            const orgId = newOrgRef.key;
+            // 2. NOW check if the Organization already exists
+            const orgsRef = ref(rtdb, 'organizations');
+            const orgsSnap = await get(orgsRef);
+            let existingOrgId = null;
+            let adminEmail = null;
 
-            // 3. Build Initial Organization Structure
-            const newOrgData = {
-                details: {
-                    name: orgName,
-                    createdAt: new Date().toISOString(),
-                    ownerEmail: user.email
-                },
-                sites: {
-                    "HQ-01": { code: "HQ-01", name: "Headquarters" }
-                },
-                users: {
-                    [user.uid]: {
-                        name: userName,
-                        email: user.email.toLowerCase().trim(),
-                        role: "Global Owner", // Supreme access
-                        assignedSite: "GLOBAL",
-                        status: "Active",
-                        createdAt: new Date().toISOString()
+            if (orgsSnap.exists()) {
+                const orgs = orgsSnap.val();
+                for (const id in orgs) {
+                    if (orgs[id].details?.name?.toLowerCase().trim() === orgName.toLowerCase().trim()) {
+                        existingOrgId = id;
+                        // Capture the admin's email to show the user
+                        adminEmail = orgs[id].details?.ownerEmail || 'the system administrator';
+                        break;
                     }
                 }
-            };
+            }
 
-            await set(newOrgRef, newOrgData);
+            // 3. Split Logic: Join Existing vs Create New
+            if (existingOrgId) {
+                // JOIN EXISTING ORG AS PENDING
+                const newUserRef = ref(rtdb, `organizations/${existingOrgId}/users/${user.uid}`);
+                await set(newUserRef, {
+                    name: userName,
+                    email: user.email.toLowerCase().trim(),
+                    role: "User",
+                    assignedSite: "", // No site access until approved
+                    status: "Pending", // Forces Admin approval
+                    createdAt: new Date().toISOString()
+                });
 
-            // 4. Set Session and Auto-Login
-            const sessionData = {
-                uid: user.uid,
-                email: user.email,
-                orgId: orgId,
-                name: userName,
-                role: "Global Owner",
-                assignedSite: "GLOBAL",
-                accessibleSites: ["GLOBAL"],
-                accessibleModules: ["Analytics", "Incidents", "Risk Assessment", "Participation", "Internal Audit", "CAPA Manager", "Training", "Improvement", "Record Emergency", "OHS Tools", "Sites", "Users"]
-            };
+                await signOut(auth); // Log them out immediately
 
-            sessionStorage.setItem('isoSession', JSON.stringify(sessionData));
-            alert("Organization Registered Successfully!");
-            navigate('/dashboard');
+                // Show detailed pop-up with Admin Email
+                alert(`Registration successful!\n\nThe workspace "${orgName}" already exists. Your account has been placed in a 'Pending' queue.\n\nPlease contact your Organization Admin (${adminEmail}) to request access approval.`);
+
+                setIsRegistering(false);
+                setRegEmail('');
+                setRegPassword('');
+                setUserName('');
+                setOrgName('');
+
+            } else {
+                // CREATE BRAND NEW ORG (FIRST USER = ACTIVE GLOBAL OWNER)
+                const newOrgRef = push(ref(rtdb, 'organizations'));
+                const orgId = newOrgRef.key;
+
+                const newOrgData = {
+                    details: {
+                        name: orgName,
+                        createdAt: new Date().toISOString(),
+                        ownerEmail: user.email
+                    },
+                    sites: {
+                        "HQ-01": { code: "HQ-01", name: "Headquarters" }
+                    },
+                    users: {
+                        [user.uid]: {
+                            name: userName,
+                            email: user.email.toLowerCase().trim(),
+                            role: "Global Owner", // Supreme access
+                            assignedSite: "GLOBAL",
+                            accessibleSites: ["GLOBAL"],
+                            status: "Active", // Auto-approved
+                            createdAt: new Date().toISOString()
+                        }
+                    }
+                };
+
+                await set(newOrgRef, newOrgData);
+
+                // Set Session and Auto-Login
+                const sessionData = {
+                    uid: user.uid,
+                    email: user.email,
+                    orgId: orgId,
+                    name: userName,
+                    role: "Global Owner",
+                    assignedSite: "GLOBAL",
+                    accessibleSites: ["GLOBAL"],
+                    accessibleModules: ["Analytics", "Incidents", "Risk Assessment", "Participation", "Internal Audit", "CAPA Manager", "Training", "Improvement", "Record Emergency", "OHS Tools", "Sites", "Users"]
+                };
+
+                sessionStorage.setItem('isoSession', JSON.stringify(sessionData));
+                alert("Workspace created successfully! You have been granted Global Owner permissions.");
+                navigate('/dashboard');
+            }
 
         } catch (error) {
             alert("Registration Failed: " + error.message);
@@ -154,7 +207,7 @@ export default function Login() {
                         <i className="fas fa-shield-halved text-white text-2xl"></i>
                     </div>
                     <h1 className="text-2xl font-bold text-white">ISO 45001 Portal</h1>
-                    <p className="text-slate-400 text-sm mt-2">{isRegistering ? 'Setup your enterprise workspace' : 'Sign in to manage workplace safety'}</p>
+                    <p className="text-slate-400 text-sm mt-2">{isRegistering ? 'Setup or join your enterprise workspace' : 'Sign in to manage workplace safety'}</p>
                 </div>
 
                 <div className="flex bg-slate-950 rounded-xl p-1 mb-8 border border-slate-800">
@@ -181,21 +234,22 @@ export default function Login() {
                         <div>
                             <label className="text-[10px] uppercase font-bold text-slate-500 tracking-widest block mb-1">Organization Name</label>
                             <input type="text" required value={orgName} onChange={(e) => setOrgName(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-white focus:border-emerald-500 outline-none text-sm" placeholder="e.g. Acme Corp" />
+                            <p className="text-[9px] text-slate-500 mt-1.5 ml-1"><i className="fas fa-info-circle mr-1"></i>If this name already exists, you will join as a pending user.</p>
                         </div>
                         <div>
                             <label className="text-[10px] uppercase font-bold text-slate-500 tracking-widest block mb-1">Your Full Name</label>
-                            <input type="text" required value={userName} onChange={(e) => setUserName(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-white focus:border-emerald-500 outline-none text-sm" placeholder="Admin Name" />
+                            <input type="text" required value={userName} onChange={(e) => setUserName(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-white focus:border-emerald-500 outline-none text-sm" placeholder="John Doe" />
                         </div>
                         <div>
-                            <label className="text-[10px] uppercase font-bold text-slate-500 tracking-widest block mb-1">Admin Email</label>
-                            <input type="email" required value={regEmail} onChange={(e) => setRegEmail(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-white focus:border-emerald-500 outline-none text-sm" placeholder="admin@acme.com" />
+                            <label className="text-[10px] uppercase font-bold text-slate-500 tracking-widest block mb-1">Account Email</label>
+                            <input type="email" required value={regEmail} onChange={(e) => setRegEmail(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-white focus:border-emerald-500 outline-none text-sm" placeholder="john@acme.com" />
                         </div>
                         <div>
-                            <label className="text-[10px] uppercase font-bold text-slate-500 tracking-widest block mb-1">Master Password</label>
+                            <label className="text-[10px] uppercase font-bold text-slate-500 tracking-widest block mb-1">Secure Password</label>
                             <input type="password" required value={regPassword} onChange={(e) => setRegPassword(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-white focus:border-emerald-500 outline-none text-sm" placeholder="••••••••" />
                         </div>
                         <button type="submit" disabled={loading} className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3.5 rounded-xl transition shadow-lg shadow-emerald-900/20 uppercase tracking-widest text-sm mt-6">
-                            {loading ? 'Creating Workspace...' : 'Register & Initialize'}
+                            {loading ? 'Processing...' : 'Register & Initialize'}
                         </button>
                     </form>
                 )}
