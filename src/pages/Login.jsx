@@ -151,7 +151,12 @@ export default function Login() {
                     role: "Global Owner",
                     assignedSite: "GLOBAL",
                     accessibleSites: ["GLOBAL"],
-                    accessibleModules: ["Analytics", "Incidents", "Risk Assessment", "Participation", "Internal Audit", "CAPA Manager", "Training", "Improvement", "Record Emergency", "OHS Tools", "Sites", "Users"]
+                    accessibleModules: [
+                        "Analytics", "Incidents", "Risk Assessment", "Participation",
+                        "Internal Audit", "CAPA Manager", "Training", "Improvement",
+                        "Record Emergency", "OHS Tools", "Contractors", "MOC",
+                        "Inspections", "Sites", "Users"
+                    ]
                 };
 
                 sessionStorage.setItem('isoSession', JSON.stringify(sessionData));
@@ -172,12 +177,20 @@ export default function Login() {
             <div className="absolute bottom-[-20%] right-[-10%] w-96 h-96 bg-emerald-600/10 blur-[120px] rounded-full pointer-events-none"></div>
 
             <div className="max-w-md w-full bg-slate-900/80 backdrop-blur-xl border border-slate-800 p-8 rounded-3xl shadow-2xl relative z-10">
-                <div className="text-center mb-8">
-                    <div className="w-16 h-16 bg-gradient-to-tr from-blue-600 to-emerald-500 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg shadow-blue-900/20">
-                        <i className="fas fa-shield-halved text-white text-2xl"></i>
-                    </div>
-                    <h1 className="text-2xl font-bold text-white">ISO 45001 Portal</h1>
-                    <p className="text-slate-400 text-sm mt-2">{isRegistering ? 'Setup or join your enterprise workspace' : 'Sign in to manage workplace safety'}</p>
+
+                {/* --- BRANDING BLOCK --- */}
+                <div className="text-center mb-10">
+                    <img
+                        src="/we-ehs-logo.jpg"
+                        alt="WE EHS Logo"
+                        className="w-24 h-24 rounded-2xl mx-auto mb-4 shadow-xl shadow-blue-900/30 object-cover border border-slate-700"
+                    />
+                    <h1 className="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-white to-slate-400 tracking-widest uppercase">
+                        WE EHS SAFETY TOOL
+                    </h1>
+                    <p className="text-blue-400/80 text-xs font-bold uppercase tracking-widest mt-2">
+                        {isRegistering ? 'Initialize Enterprise Workspace' : 'Enterprise OHS Management'}
+                    </p>
                 </div>
 
                 <div className="flex bg-slate-950 rounded-xl p-1 mb-8 border border-slate-800">
@@ -225,8 +238,9 @@ export default function Login() {
                 )}
             </div>
 
+            {/* --- FOOTER BRANDING --- */}
             <div className="mt-8 text-slate-600 text-xs font-bold tracking-widest uppercase">
-                Enterprise OHS Management System
+                Powered by WE EHS SAFETY TOOL
             </div>
         </div>
     );

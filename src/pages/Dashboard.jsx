@@ -1,17 +1,15 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { auth, rtdb } from '../config/firebase';
+import { auth } from '../config/firebase';
 import { signOut } from 'firebase/auth';
-import { ref, onValue } from 'firebase/database';
+import useStore from '../store/useStore';
 
-// UPGRADED NAV CARD WITH ACTION PREVIEWS
 const NavCard = ({ module, actions = [], onClick }) => {
     const topActions = actions.slice(0, 3);
     const extraCount = actions.length - 3;
 
     return (
         <div onClick={onClick} className="glass-panel p-6 rounded-3xl relative overflow-hidden group min-h-[12rem] flex flex-col border border-slate-700/50 hover:border-blue-500/50 transition-all duration-300 cursor-pointer shadow-lg hover:shadow-blue-900/20 hover:-translate-y-1">
-            {/* Hover Gradient & Glow */}
             <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
             <div className="absolute -right-8 -top-8 w-32 h-32 bg-white/5 rounded-full blur-2xl group-hover:bg-blue-500/10 transition-colors duration-500"></div>
 
@@ -19,7 +17,6 @@ const NavCard = ({ module, actions = [], onClick }) => {
                 <div className={`w-12 h-12 rounded-2xl bg-slate-800/80 flex items-center justify-center text-2xl shadow-xl transition-transform duration-300 group-hover:scale-110 group-hover:rotate-3 ${module.color}`}>
                     <i className={`fas ${module.icon}`}></i>
                 </div>
-                {/* Dynamic Notification Badge */}
                 {actions.length > 0 ? (
                     <div className="bg-red-500 text-white text-[10px] font-bold px-2.5 py-1 rounded-lg shadow-lg animate-pulse border border-red-400">
                         {actions.length} Action{actions.length > 1 ? 's' : ''}
@@ -33,8 +30,6 @@ const NavCard = ({ module, actions = [], onClick }) => {
 
             <div className="relative z-10 flex-1 flex flex-col justify-end">
                 <h3 className="text-lg font-bold text-white mb-1 group-hover:text-blue-400 transition-colors">{module.label}</h3>
-
-                {/* Embedded Action List */}
                 {actions.length > 0 ? (
                     <div className="mt-3 space-y-1.5 border-t border-slate-700/50 pt-3">
                         {topActions.map((act, i) => (
@@ -55,16 +50,11 @@ const NavCard = ({ module, actions = [], onClick }) => {
 
 export default function Dashboard() {
     const navigate = useNavigate();
-    const [session, setSession] = useState(null);
-    const [sites, setSites] = useState([]);
-    const [orgName, setOrgName] = useState('OHS Portal');
+    const { session, orgData, isDataLoading, initializeSession, clearSession } = useStore();
 
     const [selectedSite, setSelectedSite] = useState('');
-
-    const [loading, setLoading] = useState(true);
     const [isNotificationOpen, setIsNotificationOpen] = useState(false);
     const [isFabOpen, setIsFabOpen] = useState(false);
-    const [myActions, setMyActions] = useState([]);
 
     const ALL_MODULES = [
         { id: 'Analytics', label: 'Analytics', icon: 'fa-chart-pie', color: 'text-purple-400', path: '/analytics' },
@@ -77,6 +67,9 @@ export default function Dashboard() {
         { id: 'Improvement', label: 'Improvement', icon: 'fa-chart-line', color: 'text-blue-400', path: '/improvement' },
         { id: 'Record Emergency', label: 'Record Emergency', icon: 'fa-person-running', color: 'text-pink-400', path: '/mock-drill' },
         { id: 'OHS Tools', label: 'OHS Tools', icon: 'fa-toolbox', color: 'text-fuchsia-400', path: '/ohs-tools' },
+        { id: 'Contractors', label: 'Contractor Safety', icon: 'fa-hard-hat', color: 'text-indigo-400', path: '/contractors' },
+        { id: 'MOC', label: 'Mgmt of Change', icon: 'fa-code-branch', color: 'text-rose-400', path: '/moc' },
+        { id: 'Inspections', label: 'Inspections', icon: 'fa-search-location', color: 'text-lime-400', path: '/inspections' },
         { id: 'Users', label: 'Users', icon: 'fa-users-gear', color: 'text-slate-300', path: '/users' },
         { id: 'Sites', label: 'Sites', icon: 'fa-building-shield', color: 'text-slate-300', path: '/sites' },
     ];
@@ -84,115 +77,87 @@ export default function Dashboard() {
     useEffect(() => {
         const raw = sessionStorage.getItem('isoSession');
         if (!raw) return navigate('/');
+        const sess = JSON.parse(raw);
 
-        let sess = JSON.parse(raw);
-        setSession(sess);
+        initializeSession(sess);
 
         const isGlobalAdmin = ['Global Owner', 'Global Manager', 'Owner', 'Admin'].includes(sess.role);
-        const myEmail = sess.email?.toLowerCase().trim();
-        const myName = sess.name?.toLowerCase().trim();
 
-        const checkUserMatch = (val) => val?.toLowerCase().trim() === myEmail || val?.toLowerCase().trim() === myName;
+        let initialSite = sessionStorage.getItem('isoCurrentSite');
+        if (!initialSite) initialSite = isGlobalAdmin ? 'GLOBAL' : sess.assignedSite;
+        if (!isGlobalAdmin && initialSite === 'GLOBAL') initialSite = sess.assignedSite;
 
-        if (!selectedSite) {
-            let initialSite = sessionStorage.getItem('isoCurrentSite');
-            if (!initialSite) initialSite = isGlobalAdmin ? 'GLOBAL' : sess.assignedSite;
-            if (!isGlobalAdmin && initialSite === 'GLOBAL') initialSite = sess.assignedSite;
-            setSelectedSite(initialSite || 'GLOBAL');
-            sessionStorage.setItem('isoCurrentSite', initialSite || 'GLOBAL');
+        setSelectedSite(initialSite || 'GLOBAL');
+        sessionStorage.setItem('isoCurrentSite', initialSite || 'GLOBAL');
+    }, [navigate, initializeSession]);
+
+    const { orgName, sites, myActions, visibleModules } = useMemo(() => {
+        let orgName = 'OHS Portal';
+        let parsedSites = [];
+        let actions = [];
+        let vModules = [];
+
+        if (session && orgData) {
+            const isGlobalAdmin = ['Global Owner', 'Global Manager', 'Owner', 'Admin'].includes(session.role);
+            const myEmail = session.email?.toLowerCase().trim();
+            const myName = session.name?.toLowerCase().trim();
+            const checkUserMatch = (val) => val?.toLowerCase().trim() === myEmail || val?.toLowerCase().trim() === myName;
+
+            if (orgData.details?.name) orgName = orgData.details.name;
+
+            if (orgData.sites) {
+                const allSites = Object.values(orgData.sites);
+                if (isGlobalAdmin) {
+                    parsedSites = allSites;
+                } else {
+                    const allowedCodes = new Set([session.assignedSite, ...(session.accessibleSites || [])]);
+                    parsedSites = allSites.filter(s => allowedCodes.has(s.code));
+                }
+            }
+
+            if (isGlobalAdmin) vModules = ALL_MODULES;
+            else vModules = ALL_MODULES.filter(mod => session.accessibleModules?.includes(mod.id));
+
+            if (orgData.ptwRecords) {
+                Object.values(orgData.ptwRecords).forEach(p => {
+                    const isPending = p.status === 'Pending Approval' || p.status === 'Pending Closure';
+                    const isMyTurn = (p.engApproverEmail && checkUserMatch(p.engApproverEmail) && p.engStatus.includes('Pending')) ||
+                        (p.prodApproverEmail && checkUserMatch(p.prodApproverEmail) && p.prodStatus.includes('Pending'));
+                    if (isPending && isMyTurn) {
+                        actions.push({ title: `Permit Auth: ${p.id}`, module: 'OHS Tools', path: `/ptw?site=${p.siteId}` });
+                    }
+                });
+            }
+
+            if (orgData.incidents) {
+                Object.values(orgData.incidents).forEach(inc => {
+                    const capas = inc.capa || (inc.investigation && inc.investigation.capa);
+                    if (capas) {
+                        Object.values(capas).forEach(act => {
+                            if (act && act.status !== 'Closed' && checkUserMatch(act.owner || act.own)) {
+                                actions.push({ title: act.action || act.act || act.desc, module: 'CAPA Manager', path: `/capa?site=${inc.siteId || 'All'}` });
+                            }
+                        });
+                    }
+                });
+            }
+
+            if (isGlobalAdmin && orgData.permissionRequests) {
+                Object.values(orgData.permissionRequests).forEach(req => {
+                    if (req.status === 'Pending') {
+                        actions.push({ title: `Access Request: ${req.userName}`, module: 'Users', path: '/users' });
+                    }
+                });
+            }
         }
 
-        const orgRef = ref(rtdb, `organizations/${sess.orgId}`);
-        const unsubscribe = onValue(orgRef, (snap) => {
-            if (snap.exists()) {
-                const val = snap.val();
-
-                if (val.details && val.details.name) setOrgName(val.details.name);
-
-                if (val.users) {
-                    const myLiveProfile = Object.values(val.users).find(u => u.email?.toLowerCase() === sess.email?.toLowerCase());
-                    if (myLiveProfile) {
-                        const updatedSession = {
-                            ...sess,
-                            role: myLiveProfile.role || 'User',
-                            assignedSite: myLiveProfile.assignedSite || 'GLOBAL',
-                            accessibleSites: myLiveProfile.accessibleSites || [],
-                            accessibleModules: myLiveProfile.accessibleModules || []
-                        };
-                        sessionStorage.setItem('isoSession', JSON.stringify(updatedSession));
-                        sess = updatedSession;
-                        setSession(updatedSession);
-                    }
-                }
-
-                if (val.sites) {
-                    const allSites = Object.values(val.sites);
-                    if (isGlobalAdmin) {
-                        setSites(allSites);
-                    } else {
-                        const allowedCodes = new Set([sess.assignedSite, ...(sess.accessibleSites || [])]);
-                        setSites(allSites.filter(s => allowedCodes.has(s.code)));
-                    }
-                }
-
-                // ==========================================
-                // EXPANDED NOTIFICATION & ACTION EXTRACTION
-                // ==========================================
-                let pending = [];
-
-                // 1. PTW Approvals
-                if (val.ptwRecords) {
-                    Object.values(val.ptwRecords).forEach(p => {
-                        const isPending = p.status === 'Pending Approval' || p.status === 'Pending Closure';
-                        const isMyTurn = (p.engApproverEmail && checkUserMatch(p.engApproverEmail) && p.engStatus.includes('Pending')) ||
-                            (p.prodApproverEmail && checkUserMatch(p.prodApproverEmail) && p.prodStatus.includes('Pending'));
-                        if (isPending && isMyTurn) {
-                            pending.push({ title: `Permit Auth: ${p.id}`, module: 'OHS Tools', path: `/ptw?site=${p.siteId}` });
-                        }
-                    });
-                }
-
-                // 2. CAPA Actions (from Incidents)
-                if (val.incidents) {
-                    Object.values(val.incidents).forEach(inc => {
-                        const capas = inc.capa || (inc.investigation && inc.investigation.capa);
-                        if (capas) {
-                            Object.values(capas).forEach(act => {
-                                if (act && act.status !== 'Closed' && checkUserMatch(act.owner || act.own)) {
-                                    pending.push({ title: act.action || act.act || act.desc, module: 'CAPA Manager', path: `/capa?site=${inc.siteId || 'All'}` });
-                                }
-                            });
-                        }
-                    });
-                }
-
-                // 3. User Permission Requests (Global Admins Only)
-                if (isGlobalAdmin && val.permissionRequests) {
-                    Object.values(val.permissionRequests).forEach(req => {
-                        if (req.status === 'Pending') {
-                            pending.push({ title: `Access Request: ${req.userName}`, module: 'Users', path: '/users' });
-                        }
-                    });
-                }
-
-                setMyActions(pending);
-            }
-            setLoading(false);
-        });
-
-        return () => unsubscribe();
-    }, [navigate, selectedSite]);
-
-    const visibleModules = useMemo(() => {
-        if (!session) return [];
-        const isGlobalAdmin = ['Global Owner', 'Global Manager', 'Owner', 'Admin'].includes(session.role);
-        if (isGlobalAdmin) return ALL_MODULES;
-        return ALL_MODULES.filter(mod => session.accessibleModules?.includes(mod.id));
-    }, [session]);
+        return { orgName, sites: parsedSites, myActions: actions, visibleModules: vModules };
+    }, [orgData, session]);
 
     const handleLogout = async () => {
         await signOut(auth);
         sessionStorage.clear();
+        clearSession();
         navigate('/');
     };
 
@@ -208,10 +173,10 @@ export default function Dashboard() {
         navigate(`${mod.path}?site=${paramSite}`);
     };
 
-    if (loading) return <div className="h-screen flex items-center justify-center bg-slate-950 text-white animate-spin">...</div>;
+    if (isDataLoading) return <div className="h-screen flex flex-col items-center justify-center bg-slate-950 text-slate-400 font-['Space_Grotesk'] tracking-widest text-xs uppercase animate-pulse"><div className="w-12 h-12 border-4 border-slate-800 border-t-blue-500 rounded-full animate-spin mb-4"></div>Loading Workspace...</div>;
 
-    const isGlobalAdmin = ['Global Owner', 'Global Manager', 'Owner', 'Admin'].includes(session?.role);
     const firstName = session?.name?.split(' ')[0] || 'Team Member';
+    const isGlobalAdmin = ['Global Owner', 'Global Manager', 'Owner', 'Admin'].includes(session?.role);
     const activeSiteName = selectedSite === 'GLOBAL' ? 'Global View (All Sites)' : (sites.find(s => s.code === selectedSite)?.name || selectedSite);
 
     return (
@@ -224,13 +189,19 @@ export default function Dashboard() {
                 .custom-scroll::-webkit-scrollbar-thumb { background: #334155; border-radius: 10px; }
             `}} />
 
-            {/* FLOATING ACTION BUTTON (SPEED DIAL) */}
+            {/* FLOATING ACTION BUTTON */}
             <div className="fixed bottom-8 right-8 z-50 flex flex-col items-end gap-3">
                 <div className={`flex flex-col gap-3 transition-all duration-300 origin-bottom ${isFabOpen ? 'scale-100 opacity-100 mb-2' : 'scale-0 opacity-0 h-0 pointer-events-none'}`}>
                     {visibleModules.find(m => m.id === 'Incidents') && (
                         <button onClick={() => { navigate('/incidents?site=' + (selectedSite === 'GLOBAL' ? 'All' : selectedSite)); setIsFabOpen(false); }} className="flex items-center gap-3 group">
                             <span className="bg-slate-800/90 backdrop-blur-sm text-slate-200 text-xs font-bold px-4 py-2 rounded-xl shadow-lg border border-slate-700 group-hover:text-white group-hover:border-orange-500 transition-colors">Report Incident</span>
                             <div className="w-12 h-12 rounded-full bg-orange-600 text-white flex items-center justify-center shadow-lg shadow-orange-900/50 hover:scale-110 transition-transform"><i className="fas fa-triangle-exclamation"></i></div>
+                        </button>
+                    )}
+                    {visibleModules.find(m => m.id === 'Inspections') && (
+                        <button onClick={() => { navigate('/inspections?site=' + (selectedSite === 'GLOBAL' ? 'All' : selectedSite)); setIsFabOpen(false); }} className="flex items-center gap-3 group">
+                            <span className="bg-slate-800/90 backdrop-blur-sm text-slate-200 text-xs font-bold px-4 py-2 rounded-xl shadow-lg border border-slate-700 group-hover:text-white group-hover:border-lime-500 transition-colors">Start Inspection</span>
+                            <div className="w-12 h-12 rounded-full bg-lime-600 text-white flex items-center justify-center shadow-lg shadow-lime-900/50 hover:scale-110 transition-transform"><i className="fas fa-search-location"></i></div>
                         </button>
                     )}
                     {visibleModules.find(m => m.id === 'OHS Tools') && (
@@ -256,9 +227,14 @@ export default function Dashboard() {
 
             <header className="h-16 px-6 flex items-center justify-between backdrop-blur-md bg-slate-900/80 border-b border-slate-800 z-40">
                 <div className="flex items-center gap-4">
-                    <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center shadow-lg shadow-blue-900/50"><i className="fas fa-shield-halved"></i></div>
-                    <h1 className="text-base font-bold hidden md:block tracking-wide">
-                        {orgName} <span className="text-slate-500 font-normal ml-2">| OHS Portal</span>
+                    {/* --- BRANDING BLOCK (HEADER) --- */}
+                    <img
+                        src="/we-ehs-logo.jpg"
+                        alt="WE EHS"
+                        className="w-10 h-10 rounded-lg shadow-lg shadow-blue-900/50 object-cover border border-slate-700"
+                    />
+                    <h1 className="text-base font-black hidden md:block tracking-widest text-white uppercase">
+                        WE EHS SAFETY TOOL <span className="text-slate-500 font-medium tracking-normal ml-2 capitalize">| {orgName}</span>
                     </h1>
 
                     <div className="flex items-center gap-2 text-xs font-bold bg-slate-950 px-3 py-1.5 rounded-lg border border-slate-700 shadow-inner ml-2">
@@ -280,8 +256,8 @@ export default function Dashboard() {
                         {myActions.length > 0 && <span className="absolute -top-1 -right-1 bg-red-500 text-[9px] font-bold w-4 h-4 rounded-full flex items-center justify-center animate-pulse border border-slate-900">{myActions.length}</span>}
                     </button>
                     <div className="text-right hidden md:block">
-                        <p className="text-xs font-bold text-white">{session.name || session.email}</p>
-                        <p className="text-[9px] text-blue-400 uppercase tracking-widest">{session.role}</p>
+                        <p className="text-xs font-bold text-white">{session?.name || session?.email}</p>
+                        <p className="text-[9px] text-blue-400 uppercase tracking-widest">{session?.role}</p>
                     </div>
                     <button onClick={handleLogout} className="w-9 h-9 rounded-full bg-red-900/20 flex items-center justify-center border border-red-500/30 text-red-400 hover:bg-red-600 hover:text-white transition-colors shadow-inner"><i className="fas fa-power-off"></i></button>
                 </div>
@@ -290,7 +266,6 @@ export default function Dashboard() {
             <main className="flex-1 overflow-y-auto p-4 md:p-8 custom-scroll relative">
                 <div className="max-w-7xl mx-auto pb-24">
 
-                    {/* DYNAMIC WELCOME HERO */}
                     <div className="mb-10 p-8 rounded-[2rem] bg-gradient-to-br from-slate-800 to-slate-900 border border-slate-700 relative overflow-hidden shadow-2xl">
                         <div className="absolute top-0 right-0 w-96 h-96 bg-blue-500/10 rounded-full blur-[100px] pointer-events-none"></div>
                         <div className="absolute bottom-0 left-0 w-64 h-64 bg-emerald-500/10 rounded-full blur-[80px] pointer-events-none"></div>
@@ -328,7 +303,6 @@ export default function Dashboard() {
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 md:gap-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
                         {visibleModules.map(mod => {
-                            // Filter myActions to pass only the relevant ones down to the respective NavCard
                             const modActions = myActions.filter(a => a.module === mod.id);
                             return <NavCard key={mod.id} module={mod} actions={modActions} onClick={() => handleNavigation(mod)} />
                         })}
