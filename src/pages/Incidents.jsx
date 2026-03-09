@@ -4,19 +4,11 @@ import { ref, get, update, push, remove } from 'firebase/database';
 import { rtdb } from '../config/firebase';
 import * as XLSX from 'xlsx';
 
-// --- ENHANCED HSE SMART KNOWLEDGE BASE ---
-const SMART_DB = {
-    "Fire & Explosion": { keywords: ["fire", "burn", "smoke", "flame", "hot", "ignition", "combust", "explosion", "spark", "caught fire", "burnt"], fishbone: { man: ["Lack of fire training"], machine: ["Overheated equipment", "Faulty wiring"], material: ["Flammable liquids", "Waste buildup"], method: ["Hot work permit violation"], environment: ["High temp", "Dry conditions"] }, root_causes: ["Failure to control ignition sources", "Inadequate housekeeping & waste management"], five_whys: [{ id: 1, name: 'Ignition Source Path', whys: ["Combustible material ignited", "Sparks from hot work fell on waste", "No fire blanket used", "Hot work permit not issued", "Supervisor bypassed procedure"] }], fault_tree: { id: 1, label: "Fire Outbreak", type: "AND", children: [{ id: 2, label: "Ignition Source", type: "OR", children: [{ id: 3, label: "Sparks", type: "EVENT" }, { id: 4, label: "Electrical Fault", type: "EVENT" }] }, { id: 5, label: "Fuel Present", type: "EVENT" }] }, capa: ["Refresher Fire Safety Training", "Install auto-suppression system", "Audit Hot Work Permits"] },
-    "COSHH / Chemical Exposure": { keywords: ["chemical", "spill", "leak", "acid", "fume", "toxic", "gas", "solvent", "liquid", "coshh", "inhal"], fishbone: { man: ["No PPE worn", "Improper handling"], machine: ["Valve failure", "Pump leak"], material: ["Defective container", "Wrong label"], method: ["Mixing error"], environment: ["Poor ventilation"] }, root_causes: ["Lack of COSHH assessment", "Inadequate preventative maintenance on transfer systems"], five_whys: [{ id: 1, name: 'Exposure Path', whys: ["Worker inhaled toxic fumes", "Ventilation system failed", "Extract fan motor seized", "Maintenance schedule missed", "No automated tracking system for maintenance"] }], fault_tree: { id: 1, label: "Chemical Exposure", type: "AND", children: [{ id: 2, label: "Loss of Containment", type: "OR", children: [{ id: 3, label: "Seal Failure", type: "EVENT" }, { id: 4, label: "Container Drop", type: "EVENT" }] }, { id: 5, label: "Worker in Area", type: "EVENT" }] }, capa: ["Install secondary containment (bunding)", "COSHH Awareness Training", "Review MSDS compliance", "Upgrade LEV extraction"] },
-    "Asbestos": { keywords: ["asbestos", "acm", "fibre", "dust", "insulation", "lagging", "mesothelioma"], fishbone: { man: ["Unaware of ACMs"], machine: ["Drilling into walls"], material: ["Old insulation"], method: ["No asbestos register check"], environment: ["Older building"] }, root_causes: ["Failure to consult Asbestos Register prior to maintenance work"], five_whys: [{ id: 1, name: 'Disturbance Path', whys: ["Asbestos fibres released", "Worker drilled into lagging", "Did not know it contained asbestos", "Asbestos register not checked", "Permit to work process did not mandate check"] }], fault_tree: { id: 1, label: "Asbestos Exposure", type: "AND", children: [{ id: 2, label: "ACM Disturbed", type: "EVENT" }, { id: 3, label: "Inhalation of Fibres", type: "OR", children: [{ id: 4, label: "No RPE used", type: "EVENT" }, { id: 5, label: "No wet method", type: "EVENT" }] }] }, capa: ["Conduct full Asbestos Survey", "Implement Asbestos Permit to Work", "Asbestos Awareness Training"] },
-    "Work at Height": { keywords: ["fall", "ladder", "scaffold", "roof", "height", "drop", "edge", "platform", "fragile"], fishbone: { man: ["Unsafe act", "No harness"], machine: ["Damaged ladder", "Scaffold defect"], material: ["Fragile roof lights"], method: ["No permit to work"], environment: ["Windy", "Slippery"] }, root_causes: ["Failure to plan work at height safely", "Inadequate fall protection or edge protection"], five_whys: [{ id: 1, name: 'Fall Path', whys: ["Worker fell from height", "Ladder slipped", "Ladder not tied off", "No tie-off point available", "Work planned without considering proper access equipment (MEWP)"] }], fault_tree: { id: 1, label: "Fall from Height", type: "AND", children: [{ id: 2, label: "Unstable Access", type: "OR", children: [{ id: 3, label: "Untied Ladder", type: "EVENT" }, { id: 4, label: "Fragile Roof", type: "EVENT" }] }, { id: 5, label: "No Fall Arrest System", type: "EVENT" }] }, capa: ["Enforce 100% tie-off policy", "Switch to MEWPs instead of ladders", "Weekly Scaffold Inspections"] },
-    "Slips, Trips & Falls": { keywords: ["slip", "trip", "floor", "wet", "uneven", "cable", "obstruction", "ice", "housekeeping", "tripped", "slipped", "fell", "puddle"], fishbone: { man: ["Rushing", "Distracted (phone)"], machine: ["Leaking machine"], material: ["Spilled oil/water"], method: ["Poor housekeeping routines"], environment: ["Poor lighting", "Wet floor"] }, root_causes: ["Floor contamination not promptly cleaned", "Walkways obstructed due to lack of storage"], five_whys: [{ id: 1, name: 'Trip Path', whys: ["Employee tripped and fell", "Caught foot on trailing cable", "Cable stretched across walkway", "No floor sockets available", "Workspace design didn't account for equipment needs"] }], fault_tree: { id: 1, label: "Slip/Trip Event", type: "AND", children: [{ id: 2, label: "Hazard Present", type: "OR", children: [{ id: 3, label: "Wet Floor", type: "EVENT" }, { id: 4, label: "Trailing Cable", type: "EVENT" }] }, { id: 5, label: "Hazard Not Seen", type: "EVENT" }] }, capa: ["Implement clean-as-you-go policy", "Install Anti-slip flooring", "Cable Management Review"] },
-    "Manual Handling": { keywords: ["lift", "back", "strain", "heavy", "twist", "spine", "load", "carrying", "ergonomic", "push", "pull"], fishbone: { man: ["Poor lifting technique", "Fatigue"], machine: ["No trolley/hoist available"], material: ["Heavy/Bulky load"], method: ["Lifting alone", "Repetitive motion"], environment: ["Cramped space", "Uneven floor"] }, root_causes: ["Failure to avoid manual handling operations", "Lack of mechanical lifting aids"], five_whys: [{ id: 1, name: 'Strain Path', whys: ["Employee suffered back strain", "Lifting a 25kg box", "Trolley was broken", "Not reported to maintenance", "No defect reporting culture"] }], fault_tree: { id: 1, label: "Musculoskeletal Injury", type: "AND", children: [{ id: 2, label: "High Exertion Force", type: "EVENT" }, { id: 3, label: "Poor Posture", type: "OR", children: [{ id: 4, label: "Twisting", type: "EVENT" }, { id: 5, label: "Bending", type: "EVENT" }] }] }, capa: ["Provide Mechanical Lifting Aids", "Manual Handling Assessment (MAC Tool)", "Manual Handling Training"] },
-    "Machinery & Equipment": { keywords: ["guard", "cut", "crush", "entangle", "machine", "nip", "blade", "conveyor", "amputation", "loto", "tool"], fishbone: { man: ["Bypassed guard", "Loose clothing"], machine: ["Missing guard", "E-stop failure"], material: ["Jammed workpiece"], method: ["Maintenance on live machine"], environment: ["Poor lighting"] }, root_causes: ["Inadequate machine guarding", "Failure to follow Lockout/Tagout (LOTO) procedures"], five_whys: [{ id: 1, name: 'Contact Path', whys: ["Operator cut hand", "Reached into moving machine", "Interlock guard was overridden", "To clear a jam quickly", "Production pressure encouraged bypassing safety"] }], fault_tree: { id: 1, label: "Contact with Moving Part", type: "AND", children: [{ id: 2, label: "Access to Danger Zone", type: "EVENT" }, { id: 3, label: "Machine Running", type: "OR", children: [{ id: 4, label: "No LOTO", type: "EVENT" }, { id: 5, label: "Interlock Failure", type: "EVENT" }] }] }, capa: ["Full Machine Guarding Audit", "LOTO Training & Lock Provision", "Daily Pre-start checks"] },
-    "Workplace Transport / Vehicles": { keywords: ["vehicle", "forklift", "truck", "flt", "reverse", "collision", "hit", "driver", "pedestrian", "crush", "run over"], fishbone: { man: ["Speeding", "Blind spot", "No seatbelt"], machine: ["Brake failure", "No reverse alarm"], material: ["Unstable load blocking vision"], method: ["No pedestrian segregation"], environment: ["Busy yard", "Poor weather"] }, root_causes: ["Lack of pedestrian and vehicle segregation", "Inadequate traffic management plan"], five_whys: [{ id: 1, name: 'Collision Path', whys: ["Forklift struck pedestrian", "Driver didn't see pedestrian", "Load was carried too high", "Driver untrained on specific load types", "Training matrix not updated"] }], fault_tree: { id: 1, label: "Vehicle/Pedestrian Collision", type: "AND", children: [{ id: 2, label: "Vehicle in Area", type: "EVENT" }, { id: 3, label: "Pedestrian in Area", type: "EVENT" }, { id: 4, label: "No Segregation Barrier", type: "EVENT" }] }, capa: ["Install Physical Pedestrian Barriers", "Implement designated walkways", "Forklift Refresher Training"] },
-    "Electrical Safety": { keywords: ["electric", "shock", "wire", "cable", "voltage", "panel", "fuse", "short", "arc", "electrocution"], fishbone: { man: ["Unqualified person", "Did not test for dead"], machine: ["Exposed live wire"], material: ["Water/moisture ingress"], method: ["Working live", "No isolation"], environment: ["Damp conditions"] }, root_causes: ["Equipment not PAT tested", "Failure to safely isolate electrical supplies"], five_whys: [{ id: 1, name: 'Shock Path', whys: ["Worker received electric shock", "Touched live exposed wire", "Cable outer sheath was damaged", "Run over by forklift previously", "Cables not protected in high traffic areas"] }], fault_tree: { id: 1, label: "Electric Shock", type: "AND", children: [{ id: 2, label: "Contact with Live Conductor", type: "EVENT" }, { id: 3, label: "Path to Ground", type: "OR", children: [{ id: 4, label: "No insulated mat", type: "EVENT" }, { id: 5, label: "Wet hands", type: "EVENT" }] }] }, capa: ["Implement routine PAT Testing", "Strict LOTO Lockout policy for electrical work", "Electrical Safety Training"] }
-};
-const SMART_CATEGORIES = Object.keys(SMART_DB);
+const SMART_CATEGORIES = [
+    "Fire & Explosion", "COSHH / Chemical Exposure", "Asbestos",
+    "Work at Height", "Slips, Trips & Falls", "Manual Handling",
+    "Machinery & Equipment", "Workplace Transport / Vehicles", "Electrical Safety"
+];
 
 // --- UTILITIES ---
 const fileToBase64 = (file) => new Promise((resolve, reject) => {
@@ -279,7 +271,7 @@ export default function Incidents() {
     const [view, setView] = useState('repo');
     const [step, setStep] = useState(1);
     const [session, setSession] = useState(null);
-    const [isAnalyzing, setIsAnalyzing] = useState(false); // State for the Heuristic AI
+    const [isAnalyzing, setIsAnalyzing] = useState(false);
 
     // Database Data
     const [incidentsList, setIncidentsList] = useState([]);
@@ -520,7 +512,7 @@ export default function Incidents() {
     };
 
     // =====================================================================
-    // ADVANCED HEURISTIC NLP ENGINE (REPLACES SMART DB FOR FULL CONTEXT)
+    // ADVANCED HEURISTIC NLP ENGINE (EXTRACTS ACTUAL CONTEXT)
     // =====================================================================
     const generateSmartInvestigation = (description) => {
         if (!description || description.length < 15) {
@@ -529,124 +521,106 @@ export default function Incidents() {
 
         setIsAnalyzing(true);
 
-        // Simulate AI "thinking" time for better UX
+        // Simulate processing time
         setTimeout(() => {
-            const lowerDesc = description.toLowerCase();
+            const cleanDesc = description.replace(/[^\w\s.,-]/g, '').trim();
+            const lowerDesc = cleanDesc.toLowerCase();
 
-            // 1. ADVANCED KNOWLEDGE GRAPH
-            const rules = [
-                {
-                    triggers: ['slip', 'trip', 'fall', 'puddle', 'wet', 'spill', 'liquid', 'oil', 'fluid'],
-                    event: "Loss of traction resulting in a fall or near-miss.",
-                    immediate: "Presence of unauthorized substance/liquid on the walking surface.",
-                    root: "Breakdown in environmental control and housekeeping standards.",
-                    fishbone: { man: ["Failure to observe hazard", "Rushing/Distraction"], environment: ["Contaminated/Slippery walking surface"], method: ["Inadequate hazard identification", "Poor spill response"] }
-                },
-                {
-                    triggers: ['forklift', 'truck', 'vehicle', 'crane', 'hit', 'struck', 'collision'],
-                    event: "Vehicle/pedestrian or vehicle/object interaction.",
-                    immediate: "Failure to maintain safe separation distance.",
-                    root: "Inadequate traffic management plan or segregation controls.",
-                    fishbone: { man: ["Operator error/blind spot", "Pedestrian in exclusion zone"], machine: ["Vehicle design/sensors"], method: ["Lack of physical segregation"] }
-                },
-                {
-                    triggers: ['gasket', 'blew', 'broke', 'snapped', 'leak', 'pressure', 'valve', 'pump', 'machine', 'equipment'],
-                    event: "Unexpected equipment component failure during operation.",
-                    immediate: "Mechanical stress exceeded component tolerance.",
-                    root: "Systemic failure in preventative maintenance lifecycle.",
-                    fishbone: { machine: ["Component degradation/failure"], material: ["Substandard replacement part"], method: ["Maintenance schedule not adhered to"] }
-                },
-                {
-                    triggers: ['cut', 'laceration', 'sharp', 'blade', 'knife', 'sliced'],
-                    event: "Contact with unguarded sharp edge.",
-                    immediate: "Body part exposed to hazardous point of operation.",
-                    root: "Inadequate risk assessment of tooling/guarding requirements.",
-                    fishbone: { man: ["Improper handling technique"], machine: ["Missing or bypassed machine guard"], environment: ["Poor lighting at workstation"] }
-                },
-                {
-                    triggers: ['complained', 'reported', 'ignored', 'told them', 'weeks', 'days'],
-                    event: "Hazard realized despite prior warning.",
-                    immediate: "Failure to address reported leading indicators.",
-                    root: "Safety culture breakdown regarding hazard escalation and closure.",
-                    fishbone: { method: ["CAPA/Reporting system failure", "Lack of supervisor follow-up"], man: ["Normalization of deviance"] }
-                }
+            // 1. SPLIT INTO CAUSAL CLAUSES
+            // This splits the sentence whenever the user typed a punctuation mark or a causal word.
+            const splitters = /\bbecause\b|\bdue to\b|\bcaused by\b|\bsince\b|\bresulting in\b|\bled to\b|\bafter\b|\bwhen\b|\btherefore\b|\bso\b|,|\./i;
+            const rawParts = cleanDesc.split(splitters).map(p => p.trim()).filter(p => p.length > 4);
+
+            let event = rawParts[0] || "Incident occurred";
+            let cause1 = rawParts[1] || "Further investigation required to determine immediate cause";
+            let cause2 = rawParts[2] || "Investigate underlying contributing factors";
+            let cause3 = rawParts[3] || "Investigate systemic management gaps";
+
+            const generatedWhys = [
+                `Why 1 (The Event): ${event.charAt(0).toUpperCase() + event.slice(1)}`,
+                `Why 2 (Immediate Cause): ${cause1.charAt(0).toUpperCase() + cause1.slice(1)}`,
+                `Why 3 (Contributing Factor): ${cause2.charAt(0).toUpperCase() + cause2.slice(1)}`,
+                `Why 4 (Systemic Factor): ${cause3.charAt(0).toUpperCase() + cause3.slice(1)}`,
+                `Why 5 (Root Cause): Breakdown in safety management controls regarding the above factors.`
             ];
 
-            // 2. CONTEXT EXTRACTION
-            let matchedRules = rules.filter(r => r.triggers.some(t => lowerDesc.includes(t)));
+            // 2. DYNAMIC FISHBONE MAPPING
+            const fishbone = { man: [], machine: [], material: [], method: [], environment: [] };
 
-            // Fallback if no specific rules match
-            if (matchedRules.length === 0) {
-                matchedRules = [{
-                    event: "Unplanned occupational health and safety event.",
-                    immediate: "Deviation from standard operating procedures.",
-                    root: "Gap in task-specific risk assessment and hazard controls.",
-                    fishbone: { man: ["Task execution error"], method: ["Inadequate SOP / Training"], environment: ["Unidentified site hazard"] }
-                }];
-            }
+            // Dictionary of categorization triggers
+            const dict = {
+                man: ['rushing', 'forgot', 'failed', 'ignored', 'worker', 'operator', 'john', 'employee', 'slip', 'trip', 'fall', 'technique', 'fatigue', 'unaware'],
+                machine: ['machine', 'equipment', 'broken', 'failed', 'blew', 'gasket', 'valve', 'forklift', 'truck', 'guard', 'sensor', 'brake', 'motor', 'leaked'],
+                material: ['fluid', 'oil', 'water', 'chemical', 'box', 'load', 'material', 'substance', 'gas', 'fume', 'sharp'],
+                method: ['complained', 'reported', 'weeks', 'days', 'procedure', 'permit', 'loto', 'training', 'schedule', 'maintenance', 'policy', 'rushed'],
+                environment: ['puddle', 'rain', 'weather', 'dark', 'lighting', 'noise', 'mud', 'slippery', 'wet', 'cold', 'hot', 'dust']
+            };
 
-            // 3. SYNTHESIZE 5-WHYS (Mixing matched concepts)
-            const primary = matchedRules[0];
-            const secondary = matchedRules[1] || primary; // Mix in a second concept if they mentioned two things
+            // Analyze the actual chunks the user typed and slot them into the Fishbone
+            rawParts.forEach(part => {
+                const lowerPart = part.toLowerCase();
+                let categorized = false;
 
-            const synthesized5Whys = [
-                `Why 1 (The Event): ${primary.event}`,
-                `Why 2 (Immediate Cause): ${primary.immediate}`,
-                `Why 3 (Contributing Factor): ${secondary.fishbone.method?.[0] || "Process deviation occurred."}`,
-                `Why 4 (Systemic Issue): ${secondary.root}`,
-                `Why 5 (Root Cause): ${primary.root}`
-            ];
+                if (dict.man.some(w => lowerPart.includes(w))) { fishbone.man.push(part.charAt(0).toUpperCase() + part.slice(1)); categorized = true; }
+                if (dict.machine.some(w => lowerPart.includes(w))) { fishbone.machine.push(part.charAt(0).toUpperCase() + part.slice(1)); categorized = true; }
+                if (dict.material.some(w => lowerPart.includes(w))) { fishbone.material.push(part.charAt(0).toUpperCase() + part.slice(1)); categorized = true; }
+                if (dict.method.some(w => lowerPart.includes(w))) { fishbone.method.push(part.charAt(0).toUpperCase() + part.slice(1)); categorized = true; }
+                if (dict.environment.some(w => lowerPart.includes(w))) { fishbone.environment.push(part.charAt(0).toUpperCase() + part.slice(1)); categorized = true; }
 
-            // 4. SYNTHESIZE FISHBONE (Merging all matched arrays)
-            const synthesizedFishbone = { man: [], machine: [], material: [], method: [], environment: [] };
-            matchedRules.forEach(rule => {
-                if (rule.fishbone.man) synthesizedFishbone.man.push(...rule.fishbone.man);
-                if (rule.fishbone.machine) synthesizedFishbone.machine.push(...rule.fishbone.machine);
-                if (rule.fishbone.material) synthesizedFishbone.material.push(...rule.fishbone.material);
-                if (rule.fishbone.method) synthesizedFishbone.method.push(...rule.fishbone.method);
-                if (rule.fishbone.environment) synthesizedFishbone.environment.push(...rule.fishbone.environment);
+                // If a chunk wasn't recognized by a keyword, default it to Method to ensure no context is lost
+                if (!categorized) fishbone.method.push(part.charAt(0).toUpperCase() + part.slice(1));
             });
 
-            // Deduplicate arrays
-            Object.keys(synthesizedFishbone).forEach(key => {
-                synthesizedFishbone[key] = [...new Set(synthesizedFishbone[key])];
-                if (synthesizedFishbone[key].length === 0) synthesizedFishbone[key] = ["Not identified in narrative"];
+            // Clean up Fishbone (deduplicate and add fallbacks)
+            Object.keys(fishbone).forEach(key => {
+                fishbone[key] = [...new Set(fishbone[key])];
+                if (fishbone[key].length === 0) fishbone[key] = ["No specific factors identified in description."];
+                else if (fishbone[key].length > 3) fishbone[key] = fishbone[key].slice(0, 3); // Limit to top 3 for clean UI
             });
 
-            // 5. SYNTHESIZE FAULT TREE (FTA)
-            const synthesizedFTA = {
-                id: 1, label: `Top Event: ${primary.event}`, type: 'OR',
+            // 3. DYNAMIC FAULT TREE
+            const generatedFTA = {
+                id: 1, label: `Top Event: ${event.substring(0, 35)}...`, type: 'AND',
                 children: [
                     {
-                        id: 2, label: `Immediate: ${primary.immediate}`, type: 'AND',
+                        id: 2, label: `Immediate: ${cause1.substring(0, 35)}...`, type: 'OR',
                         children: [
-                            { id: 4, label: `Condition: ${synthesizedFishbone.environment[0]}`, type: 'EVENT' },
-                            { id: 5, label: `Action: ${synthesizedFishbone.man[0]}`, type: 'EVENT' }
+                            { id: 4, label: `Condition: ${fishbone.environment[0] !== "No specific factors identified in description." ? fishbone.environment[0].substring(0, 25) : (fishbone.machine[0] || 'Unknown')}`, type: 'EVENT' },
+                            { id: 5, label: `Action: ${fishbone.man[0] !== "No specific factors identified in description." ? fishbone.man[0].substring(0, 25) : (fishbone.method[0] || 'Unknown')}`, type: 'EVENT' }
                         ]
-                    },
-                    {
-                        id: 3, label: `Systemic: ${primary.root}`, type: 'EVENT',
-                        children: []
                     }
                 ]
             };
 
-            // 6. UPDATE REACT STATE
+            // 4. DYNAMIC CAPA SUGGESTIONS
+            let dynamicCapa = [];
+            if (fishbone.machine[0] && !fishbone.machine[0].includes("No specific")) {
+                dynamicCapa.push({ act: `Inspect and resolve issue: ${fishbone.machine[0]}`, siteId: data.siteId, own: '', due: '', status: 'Open' });
+            }
+            if (fishbone.method[0] && !fishbone.method[0].includes("No specific")) {
+                dynamicCapa.push({ act: `Review procedures regarding: ${fishbone.method[0]}`, siteId: data.siteId, own: '', due: '', status: 'Open' });
+            }
+            if (dynamicCapa.length === 0) {
+                dynamicCapa.push({ act: `Conduct full investigation into: ${event}`, siteId: data.siteId, own: '', due: '', status: 'Open' });
+            }
+
+            // 5. UPDATE REACT STATE
             setData(prev => ({
                 ...prev,
                 investigation: {
                     ...prev.investigation,
-                    rootCause: primary.root,
-                    fiveWhys: [{ id: Date.now(), name: 'Contextual Auto-Path', whys: synthesized5Whys }],
-                    fishbone: synthesizedFishbone,
-                    faultTree: synthesizedFTA
-                }
+                    rootCause: cause3 !== "Investigate systemic management gaps" ? `The root cause stems from: ${cause3.toLowerCase()}` : `The root cause involves systemic issues leading to: ${cause1.toLowerCase()}`,
+                    fiveWhys: [{ id: Date.now(), name: 'Contextual Auto-Analysis', whys: generatedWhys }],
+                    fishbone: fishbone,
+                    faultTree: generatedFTA
+                },
+                capa: [...(prev.capa || []), ...dynamicCapa]
             }));
 
             setIsAnalyzing(false);
             alert("Contextual RCA Matrix Generated! Move to Step 3 to review the Auto-Analysis.");
 
-        }, 1500); // 1.5 second artificial delay for UX
+        }, 1500);
     };
 
 
