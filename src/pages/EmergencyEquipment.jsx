@@ -2,12 +2,11 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { ref, get, push, update, remove } from 'firebase/database';
 import { rtdb } from '../config/firebase';
+import { QRCodeSVG } from 'qrcode.react'; // NEW: QR Code Library
 
 const TYPES = ['Fire Extinguisher', 'First Aid Kit', 'AED / Defibrillator', 'Eye Wash Station', 'Spill Kit', 'Evacuation Chair'];
 const STATUSES = ['Active', 'Needs Inspection', 'Out of Service', 'Missing'];
 
-// --- IS 2190 COMPLIANCE DATABASE ---
-// Defines Refill and Hydrostatic Pressure Test (HPT) frequencies in Years
 const FIRE_EXT_TYPES = [
     { name: 'Water (Stored Pressure)', refillYears: 3, hptYears: 3 },
     { name: 'Water (Gas Cartridge)', refillYears: 1, hptYears: 3 },
@@ -32,13 +31,13 @@ export default function EmergencyEquipment() {
     const [siteFilter, setSiteFilter] = useState('All');
 
     const [formData, setFormData] = useState({
-        id: '', siteId: '', type: 'Fire Extinguisher', location: '', serialNumber: '',
+        firebaseKey: null, assetId: '', siteId: '', type: 'Fire Extinguisher', location: '',
         lastInspection: new Date().toISOString().split('T')[0], nextInspection: '', status: 'Active', notes: '',
-        // IS 2190 Specific Fields
         extinguisherType: '', lastRefillDate: '', lastHptDate: '', nextRefillDate: '', nextHptDate: ''
     });
 
     const [inspectData, setInspectData] = useState(null);
+    const [printTagData, setPrintTagData] = useState(null); // For QR Tag Printing
 
     // 1. Fetch Session & Data on Load
     useEffect(() => {
@@ -49,6 +48,7 @@ export default function EmergencyEquipment() {
 
         const params = new URLSearchParams(location.search);
         let ctxSite = params.get('site') || sessionStorage.getItem('isoCurrentSite') || 'All';
+        const scanId = params.get('scan'); // Catch QR Code Scans!
 
         const isGlobal = ['Global Owner', 'Global Manager', 'Owner', 'Admin'].includes(sess.role);
         if (!isGlobal && ctxSite === 'All') {
@@ -63,13 +63,31 @@ export default function EmergencyEquipment() {
                 const snap = await get(ref(rtdb, `organizations/${sess.orgId}`));
                 if (snap.exists()) {
                     const data = snap.val();
+                    let loadedEq = [];
                     if (data.emergencyEquipment) {
-                        setEquipment(Object.entries(data.emergencyEquipment).map(([k, v]) => ({ firebaseKey: k, ...v })));
-                    } else {
-                        setEquipment([]);
-                    }
+                        loadedEq = Object.entries(data.emergencyEquipment).map(([k, v]) => ({ firebaseKey: k, ...v }));
+                        setEquipment(loadedEq);
+                    } else { setEquipment([]); }
+
                     if (data.sites) {
                         setSites(Object.keys(data.sites).map(key => ({ code: data.sites[key].code || key, name: data.sites[key].name || key })));
+                    }
+
+                    // If a QR Code was scanned, open the inspection form immediately
+                    if (scanId) {
+                        const targetEq = loadedEq.find(e => e.firebaseKey === scanId);
+                        if (targetEq) {
+                            setInspectData({
+                                ...targetEq,
+                                date: new Date().toISOString().split('T')[0],
+                                nextDate: targetEq.nextInspection || '',
+                                notes: '',
+                                checks: { gauge: true, pin: true, hose: true, body: true } // Default checklist
+                            });
+                            setView('inspect');
+                            // Clean the URL so refreshing doesn't keep opening it
+                            window.history.replaceState(null, '', '/emergency-equipment');
+                        }
                     }
                 }
             } catch (err) { console.error(err); } finally { setLoading(false); }
@@ -130,15 +148,11 @@ export default function EmergencyEquipment() {
                 actionNeeded++;
             } else {
                 let isExpiring = false;
-                // Routine inspection due
                 if (e.nextInspection && new Date(e.nextInspection) <= thirtyDaysFromNow) isExpiring = true;
-
-                // IS 2190 Checks
                 if (e.type === 'Fire Extinguisher') {
                     if (e.nextRefillDate && new Date(e.nextRefillDate) <= thirtyDaysFromNow) isExpiring = true;
                     if (e.nextHptDate && new Date(e.nextHptDate) <= thirtyDaysFromNow) isExpiring = true;
                 }
-
                 if (isExpiring) expiringSoon++;
             }
         });
@@ -151,7 +165,16 @@ export default function EmergencyEquipment() {
         if (!formData.type || !formData.location || !formData.siteId) return alert("Type, Location, and Site are required.");
 
         try {
-            const payload = { ...formData, updatedBy: session.name || session.email, lastUpdated: new Date().toISOString() };
+            let finalAssetId = formData.assetId;
+            // AUTO-GENERATE ID: Site-Loc-Sr.No
+            if (!finalAssetId) {
+                const locPrefix = formData.location.replace(/[^a-zA-Z0-9]/g, '').substring(0, 3).toUpperCase();
+                const randomNum = Math.floor(1000 + Math.random() * 9000);
+                finalAssetId = `${formData.siteId}-${locPrefix}-${randomNum}`;
+            }
+
+            const payload = { ...formData, assetId: finalAssetId, updatedBy: session.name || session.email, lastUpdated: new Date().toISOString() };
+
             if (formData.firebaseKey) {
                 await update(ref(rtdb, `organizations/${session.orgId}/emergencyEquipment/${formData.firebaseKey}`), payload);
             } else {
@@ -163,11 +186,22 @@ export default function EmergencyEquipment() {
 
     const handleLogInspection = async () => {
         try {
+            // Build checklist summary for notes
+            let checklistStr = "";
+            if (inspectData.type === 'Fire Extinguisher' && inspectData.checks) {
+                const c = inspectData.checks;
+                checklistStr = `[Checks - Gauge: ${c.gauge ? 'OK' : 'FAIL'}, Pin: ${c.pin ? 'OK' : 'FAIL'}, Hose: ${c.hose ? 'OK' : 'FAIL'}, Body: ${c.body ? 'OK' : 'FAIL'}] `;
+            }
+
+            const finalNotes = inspectData.notes
+                ? `${checklistStr}${inspectData.notes} (Inspected by ${session.name})`
+                : `${checklistStr}Routine inspection by ${session.name}`;
+
             const payload = {
                 lastInspection: inspectData.date,
                 nextInspection: inspectData.nextDate,
                 status: inspectData.status,
-                notes: inspectData.notes ? `${inspectData.notes} (Inspected by ${session.name})` : `Routine inspection by ${session.name}`,
+                notes: finalNotes,
                 updatedBy: session.name,
                 lastUpdated: new Date().toISOString()
             };
@@ -192,14 +226,12 @@ export default function EmergencyEquipment() {
         const thirtyDays = new Date();
         thirtyDays.setDate(thirtyDays.getDate() + 30);
 
-        // Routine Inspection
         if (e.nextInspection) {
             const inspDate = new Date(e.nextInspection);
             if (inspDate < today) badges.push(<span key="insp-exp" className="bg-red-900/30 text-red-400 border border-red-500/30 px-2 py-1 rounded text-[9px] font-bold uppercase tracking-widest animate-pulse">INSP EXPIRED</span>);
             else if (inspDate <= thirtyDays) badges.push(<span key="insp-due" className="bg-orange-900/30 text-orange-400 border border-orange-500/30 px-2 py-1 rounded text-[9px] font-bold uppercase tracking-widest">INSP DUE SOON</span>);
         }
 
-        // IS 2190 checks
         if (e.type === 'Fire Extinguisher') {
             if (e.nextRefillDate) {
                 const refillDate = new Date(e.nextRefillDate);
@@ -222,9 +254,9 @@ export default function EmergencyEquipment() {
 
     return (
         <div className="flex flex-col h-screen bg-slate-950 font-['Space_Grotesk'] text-slate-200 overflow-hidden relative">
-            <div className="absolute top-0 right-0 w-[600px] h-[600px] bg-orange-600/10 rounded-full blur-[120px] pointer-events-none z-0"></div>
+            <div className="absolute top-0 right-0 w-[600px] h-[600px] bg-orange-600/10 rounded-full blur-[120px] pointer-events-none z-0 no-print"></div>
 
-            <header className="h-16 px-6 flex items-center justify-between z-20 backdrop-blur-sm bg-slate-900/50 border-b border-slate-800">
+            <header className="h-16 px-6 flex items-center justify-between z-20 backdrop-blur-sm bg-slate-900/50 border-b border-slate-800 no-print">
                 <div className="flex items-center gap-4">
                     <button onClick={() => navigate(`/ohs-tools?site=${siteFilter}`)} className="text-slate-400 hover:text-white transition-colors flex items-center gap-2"><i className="fas fa-arrow-left"></i> Tools</button>
                     <div className="h-6 w-px bg-slate-700 mx-2"></div>
@@ -233,8 +265,8 @@ export default function EmergencyEquipment() {
                 </div>
             </header>
 
-            <main className="flex-1 overflow-y-auto p-4 md:p-8 custom-scroll relative z-10 w-full">
-                <div className="max-w-6xl mx-auto animate-in fade-in duration-500 space-y-6 pb-20">
+            <main className="flex-1 overflow-y-auto p-4 md:p-8 custom-scroll relative z-10 w-full no-print">
+                <div className="max-w-7xl mx-auto animate-in fade-in duration-500 space-y-6 pb-20">
 
                     {/* Top Metrics */}
                     {view === 'list' && (
@@ -242,7 +274,7 @@ export default function EmergencyEquipment() {
                             <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4 mb-2">
                                 <div>
                                     <h2 className="text-2xl font-bold text-white flex items-center gap-3">Facility Registry</h2>
-                                    <p className="text-sm text-slate-400">Inspection & compliance tracking for life-safety apparatus.</p>
+                                    <p className="text-sm text-slate-400">QR-Enabled inspection tracking for life-safety apparatus.</p>
                                 </div>
                                 <div className="flex gap-4 items-center">
                                     <div className="bg-slate-900 border border-slate-700 p-1.5 rounded-xl shadow-inner flex items-center gap-2">
@@ -251,29 +283,14 @@ export default function EmergencyEquipment() {
                                             {sites.filter(s => isGlobalUser || s.code === session?.assignedSite || (session?.accessibleSites || []).includes(s.code)).map(s => <option key={s.code} value={s.code}>{s.name}</option>)}
                                         </select>
                                     </div>
-                                    {canEdit && <button onClick={() => { setFormData({ id: '', siteId: siteFilter === 'All' ? '' : siteFilter, type: 'Fire Extinguisher', location: '', serialNumber: '', lastInspection: new Date().toISOString().split('T')[0], nextInspection: '', status: 'Active', notes: '', extinguisherType: '', lastRefillDate: '', lastHptDate: '', nextRefillDate: '', nextHptDate: '' }); setView('form'); }} className="bg-gradient-to-tr from-orange-600 to-red-500 hover:from-orange-500 hover:to-red-400 text-white px-5 py-2.5 rounded-xl font-bold text-sm shadow-lg flex items-center gap-2 transition-transform active:scale-95 whitespace-nowrap"><i className="fas fa-plus"></i> Add Equipment</button>}
-                                </div>
-                            </div>
-
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-                                <div className="bg-slate-900/80 p-6 rounded-2xl border border-slate-700 shadow-lg flex items-center justify-between border-l-4 border-l-blue-500">
-                                    <div><p className="text-[10px] uppercase font-bold text-slate-400 tracking-widest mb-1">Total Registered</p><h3 className="text-3xl font-black text-white">{stats.total}</h3></div>
-                                    <div className="w-12 h-12 bg-blue-500/10 rounded-full flex items-center justify-center text-blue-400 text-xl"><i className="fas fa-clipboard-list"></i></div>
-                                </div>
-                                <div className="bg-slate-900/80 p-6 rounded-2xl border border-slate-700 shadow-lg flex items-center justify-between border-l-4 border-l-orange-500">
-                                    <div><p className="text-[10px] uppercase font-bold text-slate-400 tracking-widest mb-1">Due &lt; 30 Days</p><h3 className="text-3xl font-black text-orange-400">{stats.expiringSoon}</h3></div>
-                                    <div className="w-12 h-12 bg-orange-500/10 rounded-full flex items-center justify-center text-orange-400 text-xl"><i className="fas fa-clock"></i></div>
-                                </div>
-                                <div className="bg-slate-900/80 p-6 rounded-2xl border border-slate-700 shadow-lg flex items-center justify-between border-l-4 border-l-red-500">
-                                    <div><p className="text-[10px] uppercase font-bold text-slate-400 tracking-widest mb-1">Action Required</p><h3 className="text-3xl font-black text-red-500">{stats.actionNeeded}</h3></div>
-                                    <div className="w-12 h-12 bg-red-500/10 rounded-full flex items-center justify-center text-red-500 text-xl"><i className="fas fa-exclamation-triangle"></i></div>
+                                    {canEdit && <button onClick={() => { setFormData({ id: '', siteId: siteFilter === 'All' ? '' : siteFilter, type: 'Fire Extinguisher', location: '', assetId: '', lastInspection: new Date().toISOString().split('T')[0], nextInspection: '', status: 'Active', notes: '', extinguisherType: '', lastRefillDate: '', lastHptDate: '', nextRefillDate: '', nextHptDate: '' }); setView('form'); }} className="bg-gradient-to-tr from-orange-600 to-red-500 hover:from-orange-500 hover:to-red-400 text-white px-5 py-2.5 rounded-xl font-bold text-sm shadow-lg flex items-center gap-2 transition-transform active:scale-95 whitespace-nowrap"><i className="fas fa-plus"></i> Add Equipment</button>}
                                 </div>
                             </div>
 
                             <div className="bg-slate-900/50 rounded-2xl border border-slate-700 overflow-x-auto shadow-xl">
-                                <table className="w-full text-left text-sm min-w-[800px]">
+                                <table className="w-full text-left text-sm min-w-[1000px]">
                                     <thead className="bg-slate-950 border-b border-slate-800 text-[10px] uppercase tracking-widest font-bold text-slate-500">
-                                        <tr><th className="p-4 pl-6">Equipment & Site</th><th className="p-4">Location</th><th className="p-4">Last Checked</th><th className="p-4">Compliance Status</th><th className="p-4 pr-6 text-right">Actions</th></tr>
+                                        <tr><th className="p-4 pl-6">Equipment / QR Tag</th><th className="p-4">Location</th><th className="p-4">Last Checked</th><th className="p-4">Compliance Status</th><th className="p-4 pr-6 text-right">Actions</th></tr>
                                     </thead>
                                     <tbody className="divide-y divide-slate-800/50 text-slate-300">
                                         {visibleEquipment.map(e => (
@@ -288,8 +305,8 @@ export default function EmergencyEquipment() {
                                                         {e.type === 'Evacuation Chair' && <i className="fas fa-wheelchair text-purple-400"></i>}
                                                         {e.type}
                                                     </div>
-                                                    <div className="text-[10px] text-slate-500 mt-0.5">ID: {e.serialNumber || 'N/A'} | Site: <span className="font-bold text-blue-400">{e.siteId}</span></div>
-                                                    {e.type === 'Fire Extinguisher' && e.extinguisherType && <div className="text-[9px] text-orange-400/80 uppercase font-mono mt-1">{e.extinguisherType}</div>}
+                                                    <div className="text-[10px] text-slate-500 mt-0.5">Asset ID: <span className="font-mono text-orange-400">{e.assetId || 'N/A'}</span> | Site: <span className="font-bold text-blue-400">{e.siteId}</span></div>
+                                                    {e.type === 'Fire Extinguisher' && e.extinguisherType && <div className="text-[9px] text-slate-400 uppercase font-mono mt-1 border border-slate-700 px-2 py-0.5 rounded inline-block bg-slate-900">{e.extinguisherType}</div>}
                                                 </td>
                                                 <td className="p-4 font-bold text-slate-400">{e.location}</td>
                                                 <td className="p-4 font-mono text-xs">{e.lastInspection || 'Unknown'}</td>
@@ -297,7 +314,10 @@ export default function EmergencyEquipment() {
                                                 <td className="p-4 pr-6 text-right">
                                                     {canEdit && (
                                                         <div className="flex justify-end gap-2">
-                                                            <button onClick={() => { setInspectData({ firebaseKey: e.firebaseKey, type: e.type, location: e.location, date: new Date().toISOString().split('T')[0], nextDate: '', status: 'Active', notes: '' }); setView('inspect'); }} className="bg-emerald-900/20 hover:bg-emerald-600 border border-emerald-500/30 text-emerald-400 hover:text-white px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-colors"><i className="fas fa-check-double mr-1"></i> Inspect</button>
+                                                            {/* QR TAG BUTTON */}
+                                                            <button onClick={() => { setPrintTagData(e); setTimeout(() => window.print(), 500); }} className="bg-slate-800 hover:bg-slate-700 border border-slate-600 text-white px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-colors shadow" title="Print QR Tag"><i className="fas fa-qrcode"></i> Tag</button>
+
+                                                            <button onClick={() => { setInspectData({ ...e, date: new Date().toISOString().split('T')[0], nextDate: e.nextInspection || '', status: e.status, notes: '', checks: { gauge: true, pin: true, hose: true, body: true } }); setView('inspect'); }} className="bg-emerald-900/20 hover:bg-emerald-600 border border-emerald-500/30 text-emerald-400 hover:text-white px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-colors"><i className="fas fa-clipboard-check mr-1"></i> Inspect</button>
                                                             <button onClick={() => { setFormData(e); setView('form'); }} className="bg-slate-800 hover:bg-slate-700 text-slate-300 w-8 h-8 rounded-lg flex items-center justify-center transition-colors"><i className="fas fa-edit"></i></button>
                                                             <button onClick={() => handleDelete(e.firebaseKey)} className="bg-red-900/20 hover:bg-red-600 text-red-500 hover:text-white w-8 h-8 rounded-lg flex items-center justify-center transition-colors"><i className="fas fa-trash-alt"></i></button>
                                                         </div>
@@ -375,8 +395,8 @@ export default function EmergencyEquipment() {
                                     <input value={formData.location} onChange={e => setFormData({ ...formData, location: e.target.value })} placeholder="e.g. Ground Floor Kitchen, Next to Exit A" className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-white outline-none focus:border-orange-500" />
                                 </div>
                                 <div>
-                                    <label className="text-[10px] uppercase font-bold text-slate-400 block mb-2">Serial / Asset ID (Optional)</label>
-                                    <input value={formData.serialNumber} onChange={e => setFormData({ ...formData, serialNumber: e.target.value })} placeholder="e.g. FE-1042" className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-white outline-none focus:border-orange-500" />
+                                    <label className="text-[10px] uppercase font-bold text-orange-400 block mb-2 flex justify-between">Unique Asset ID <span>(Auto-Generated if blank)</span></label>
+                                    <input value={formData.assetId || ''} onChange={e => setFormData({ ...formData, assetId: e.target.value })} placeholder="e.g. HQ-KIT-1024" className="w-full bg-slate-950 border border-orange-500/50 rounded-xl p-3 text-white outline-none focus:border-orange-500 font-mono" />
                                 </div>
                                 <div>
                                     <label className="text-[10px] uppercase font-bold text-slate-400 block mb-2">Current Overall Status</label>
@@ -411,41 +431,137 @@ export default function EmergencyEquipment() {
                         </div>
                     )}
 
-                    {/* Quick Inspection Form */}
+                    {/* PHYSICAL INSPECTION SHEET (QR SCANNED) */}
                     {view === 'inspect' && inspectData && (
-                        <div className="max-w-xl mx-auto bg-slate-900/80 p-8 rounded-3xl border border-emerald-500/30 shadow-2xl animate-in zoom-in-95 duration-300">
-                            <h3 className="text-2xl font-bold text-emerald-400 mb-2 text-center"><i className="fas fa-clipboard-check mr-2"></i> Log Routine Inspection</h3>
-                            <p className="text-center text-slate-400 text-sm mb-8 font-bold">{inspectData.type} @ {inspectData.location}</p>
-
-                            <div className="space-y-6 mb-8">
+                        <div className="max-w-2xl mx-auto bg-slate-900 border border-slate-700 shadow-2xl rounded-3xl overflow-hidden animate-in slide-in-from-bottom-8">
+                            <div className="bg-slate-800 p-6 border-b border-slate-700 flex justify-between items-center">
                                 <div>
-                                    <label className="text-[10px] uppercase font-bold text-slate-400 block mb-2">Inspection Date</label>
-                                    <input type="date" value={inspectData.date} onChange={e => setInspectData({ ...inspectData, date: e.target.value })} className="w-full bg-slate-950 border border-slate-700 rounded-xl p-4 text-white outline-none focus:border-emerald-500 font-mono font-bold" />
+                                    <div className="text-[10px] font-bold text-emerald-400 uppercase tracking-widest mb-1">Physical Inspection Sheet</div>
+                                    <h3 className="text-2xl font-bold text-white">{inspectData.type}</h3>
                                 </div>
-                                <div>
-                                    <label className="text-[10px] uppercase font-bold text-slate-400 block mb-2">Equipment Status</label>
-                                    <select value={inspectData.status} onChange={e => setInspectData({ ...inspectData, status: e.target.value })} className="w-full bg-slate-950 border border-slate-700 rounded-xl p-4 text-white outline-none focus:border-emerald-500 font-bold">
-                                        {STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
-                                    </select>
-                                </div>
-                                <div>
-                                    <label className="text-[10px] uppercase font-bold text-emerald-400 block mb-2">Next Routine Due Date</label>
-                                    <input type="date" value={inspectData.nextDate} onChange={e => setInspectData({ ...inspectData, nextDate: e.target.value })} className="w-full bg-emerald-950/20 border border-emerald-500/50 rounded-xl p-4 text-emerald-300 outline-none focus:border-emerald-400 font-mono font-bold" />
-                                </div>
-                                <div>
-                                    <label className="text-[10px] uppercase font-bold text-slate-400 block mb-2">Inspector Notes</label>
-                                    <textarea rows="3" value={inspectData.notes} onChange={e => setInspectData({ ...inspectData, notes: e.target.value })} placeholder="e.g. Pressure gauge in green, pin intact..." className="w-full bg-slate-950 border border-slate-700 rounded-xl p-4 text-white outline-none focus:border-emerald-500 resize-none"></textarea>
+                                <div className="text-right">
+                                    <div className="text-[10px] uppercase text-slate-400 font-bold mb-1">Asset ID</div>
+                                    <div className="bg-slate-950 border border-slate-700 px-3 py-1 rounded text-orange-400 font-mono font-bold">{inspectData.assetId}</div>
                                 </div>
                             </div>
 
-                            <div className="flex gap-4">
-                                <button onClick={() => setView('list')} className="flex-1 py-4 rounded-xl font-bold bg-slate-800 text-white hover:bg-slate-700 transition uppercase tracking-widest text-xs">Cancel</button>
-                                <button onClick={handleLogInspection} className="flex-[2] py-4 rounded-xl font-bold bg-emerald-600 text-white shadow-lg hover:bg-emerald-500 transition uppercase tracking-widest text-xs flex justify-center items-center gap-2"><i className="fas fa-check-double"></i> Submit Inspection</button>
+                            <div className="p-6 md:p-8 space-y-8">
+                                <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 shadow-inner text-sm">
+                                    <p className="text-slate-400 mb-1">Location: <strong className="text-white">{inspectData.location}</strong></p>
+                                    <p className="text-slate-400 mb-1">Last Inspected: <strong className="text-white font-mono">{inspectData.lastInspection}</strong></p>
+                                    {inspectData.type === 'Fire Extinguisher' && <p className="text-slate-400">Extinguisher Type: <strong className="text-orange-400">{inspectData.extinguisherType || 'Unknown'}</strong></p>}
+                                </div>
+
+                                {/* Fire Extinguisher Specific Checklist */}
+                                {inspectData.type === 'Fire Extinguisher' && (
+                                    <div>
+                                        <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4 border-b border-slate-800 pb-2">ISO Visual Checklist</h4>
+                                        <div className="space-y-3 bg-slate-950/50 p-5 rounded-2xl border border-slate-800">
+                                            <label className="flex items-center gap-4 cursor-pointer p-2 hover:bg-slate-900 rounded transition-colors">
+                                                <input type="checkbox" checked={inspectData.checks?.gauge || false} onChange={e => setInspectData({ ...inspectData, checks: { ...inspectData.checks, gauge: e.target.checked } })} className="w-5 h-5 accent-emerald-500" />
+                                                <span className="text-sm font-bold text-slate-300">Pressure gauge indicator is in the green operable range.</span>
+                                            </label>
+                                            <label className="flex items-center gap-4 cursor-pointer p-2 hover:bg-slate-900 rounded transition-colors">
+                                                <input type="checkbox" checked={inspectData.checks?.pin || false} onChange={e => setInspectData({ ...inspectData, checks: { ...inspectData.checks, pin: e.target.checked } })} className="w-5 h-5 accent-emerald-500" />
+                                                <span className="text-sm font-bold text-slate-300">Safety pin is in place and tamper seal is unbroken.</span>
+                                            </label>
+                                            <label className="flex items-center gap-4 cursor-pointer p-2 hover:bg-slate-900 rounded transition-colors">
+                                                <input type="checkbox" checked={inspectData.checks?.hose || false} onChange={e => setInspectData({ ...inspectData, checks: { ...inspectData.checks, hose: e.target.checked } })} className="w-5 h-5 accent-emerald-500" />
+                                                <span className="text-sm font-bold text-slate-300">Discharge hose/nozzle is free of cracks, dirt, or blockages.</span>
+                                            </label>
+                                            <label className="flex items-center gap-4 cursor-pointer p-2 hover:bg-slate-900 rounded transition-colors">
+                                                <input type="checkbox" checked={inspectData.checks?.body || false} onChange={e => setInspectData({ ...inspectData, checks: { ...inspectData.checks, body: e.target.checked } })} className="w-5 h-5 accent-emerald-500" />
+                                                <span className="text-sm font-bold text-slate-300">Cylinder body has no dents, corrosion, or signs of damage.</span>
+                                            </label>
+                                        </div>
+                                    </div>
+                                )}
+
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="text-[10px] uppercase font-bold text-slate-400 block mb-2">Today's Inspection Date</label>
+                                        <input type="date" value={inspectData.date} onChange={e => setInspectData({ ...inspectData, date: e.target.value })} className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-white outline-none focus:border-emerald-500 font-mono font-bold" />
+                                    </div>
+                                    <div>
+                                        <label className="text-[10px] uppercase font-bold text-emerald-400 block mb-2">Next Inspection Due</label>
+                                        <input type="date" value={inspectData.nextDate} onChange={e => setInspectData({ ...inspectData, nextDate: e.target.value })} className="w-full bg-emerald-950/20 border border-emerald-500/50 rounded-xl p-3 text-emerald-300 outline-none focus:border-emerald-400 font-mono font-bold" />
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <label className="text-[10px] uppercase font-bold text-slate-400 block mb-2">Overall Condition Status</label>
+                                    <select value={inspectData.status} onChange={e => setInspectData({ ...inspectData, status: e.target.value })} className={`w-full bg-slate-950 border border-slate-700 rounded-xl p-3 outline-none font-bold ${inspectData.status === 'Active' ? 'text-emerald-400' : 'text-red-400 border-red-500/50'}`}>
+                                        {STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+                                    </select>
+                                </div>
+
+                                <div>
+                                    <label className="text-[10px] uppercase font-bold text-slate-400 block mb-2">Inspector Remarks</label>
+                                    <textarea rows="2" value={inspectData.notes} onChange={e => setInspectData({ ...inspectData, notes: e.target.value })} placeholder="Any specific details, damages, or requests..." className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-white outline-none focus:border-emerald-500 resize-none"></textarea>
+                                </div>
+                            </div>
+
+                            <div className="flex bg-slate-800">
+                                <button onClick={() => { setView('list'); window.history.replaceState(null, '', '/emergency-equipment'); }} className="flex-1 py-5 font-bold text-slate-400 hover:text-white hover:bg-slate-700 transition uppercase tracking-widest text-xs">Cancel</button>
+                                <button onClick={handleLogInspection} className="flex-1 py-5 font-bold bg-emerald-600 text-white hover:bg-emerald-500 transition uppercase tracking-widest text-xs flex justify-center items-center gap-2"><i className="fas fa-check-double text-lg"></i> Sign & Submit</button>
                             </div>
                         </div>
                     )}
                 </div>
             </main>
+
+            {/* --- PRINT OVERLAY FOR QR TAG --- */}
+            {printTagData && (
+                <div className="hidden print:flex p-8 bg-white text-black w-full absolute inset-0 z-[9999] flex-col items-center" style={{ WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
+
+                    <div className="border-4 border-black w-[400px] rounded-2xl overflow-hidden flex flex-col mt-10 shadow-2xl">
+                        {/* Header */}
+                        <div className="bg-red-600 text-white text-center py-4 border-b-4 border-black">
+                            <h1 className="text-2xl font-black uppercase tracking-widest m-0 leading-none">Emergency</h1>
+                            <h2 className="text-lg font-bold uppercase tracking-wider m-0">Equipment Tag</h2>
+                        </div>
+
+                        {/* Details */}
+                        <div className="p-6 bg-white flex flex-col items-center">
+                            <div className="text-center mb-6">
+                                <p className="text-sm font-bold text-gray-500 uppercase tracking-widest mb-1">Asset ID</p>
+                                <h3 className="text-2xl font-mono font-black border-b-2 border-dashed border-gray-400 pb-1">{printTagData.assetId}</h3>
+                            </div>
+
+                            <p className="text-lg font-bold text-center uppercase mb-1">{printTagData.type}</p>
+                            <p className="text-sm text-center text-gray-600 font-bold mb-6 italic">Location: {printTagData.location}</p>
+
+                            {/* QR CODE GENERATOR */}
+                            <div className="p-4 border-4 border-black rounded-xl mb-4 bg-white flex justify-center items-center">
+                                <QRCodeSVG
+                                    value={`${window.location.origin}/emergency-equipment?scan=${printTagData.firebaseKey}&site=${printTagData.siteId}`}
+                                    size={160}
+                                    level="H"
+                                />
+                            </div>
+
+                            <p className="text-sm font-black uppercase tracking-widest bg-black text-white px-4 py-1 rounded-full mb-6">Scan To Inspect</p>
+
+                            {/* IS 2190 Next Maintenance Details */}
+                            {printTagData.type === 'Fire Extinguisher' && (
+                                <div className="w-full border-t-2 border-black pt-4">
+                                    <div className="flex justify-between text-xs font-bold uppercase mb-1">
+                                        <span>Next Refill:</span>
+                                        <span className="font-mono">{printTagData.nextRefillDate || 'N/A'}</span>
+                                    </div>
+                                    <div className="flex justify-between text-xs font-bold uppercase">
+                                        <span>Next Hydro Test:</span>
+                                        <span className="font-mono">{printTagData.nextHptDate || 'N/A'}</span>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+
+                    <p className="mt-8 text-xs text-gray-500 italic">Please affix this tag securely to the physical equipment using a zip-tie.</p>
+                    <button onClick={() => setPrintTagData(null)} className="no-print mt-10 bg-red-600 text-white px-6 py-2 rounded font-bold">Close Preview</button>
+                </div>
+            )}
         </div>
     );
 }
