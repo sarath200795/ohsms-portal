@@ -279,6 +279,7 @@ export default function Incidents() {
     const [view, setView] = useState('repo');
     const [step, setStep] = useState(1);
     const [session, setSession] = useState(null);
+    const [isAnalyzing, setIsAnalyzing] = useState(false); // State for the Heuristic AI
 
     // Database Data
     const [incidentsList, setIncidentsList] = useState([]);
@@ -323,7 +324,7 @@ export default function Incidents() {
             rootCause: ''
         },
         capa: [], linkedHazards: [], riskUpdated: false,
-        horizontalDeployment: false, // <-- NEW FLAG
+        horizontalDeployment: false,
         manualOverrides: { type: false, severity: false, smartType: false }
     });
 
@@ -443,7 +444,7 @@ export default function Incidents() {
     const siteUsers = useMemo(() => {
         return users.filter(u => {
             const isGlobalUsr = ['Owner', 'Global Owner', 'Global Manager', 'Admin'].includes(u.role) || u.assignedSite === 'GLOBAL' || (u.accessibleSites && u.accessibleSites.includes('GLOBAL'));
-            if (data.horizontalDeployment) return true; // Can assign to anyone globally if horizontal
+            if (data.horizontalDeployment) return true;
             const targetSite = newCapaSite || data.siteId;
             const siteMatch = isGlobalUsr || !targetSite || u.assignedSite === targetSite || (u.accessibleSites && u.accessibleSites.includes(targetSite));
             return siteMatch;
@@ -518,32 +519,136 @@ export default function Incidents() {
         }
     };
 
-    const applySmartSuggestions = () => {
-        const dynamicGen = generateDynamicInvestigation(data.description, data.smartType);
-        if (dynamicGen) {
-            let newData = {
-                ...data,
-                investigation: {
-                    ...data.investigation,
-                    fishbone: dynamicGen.fishbone,
-                    rootCause: dynamicGen.rootCause,
-                    fiveWhys: dynamicGen.fiveWhys,
-                    faultTree: dynamicGen.faultTree
-                }
-            };
+    // =====================================================================
+    // ADVANCED HEURISTIC NLP ENGINE (REPLACES SMART DB FOR FULL CONTEXT)
+    // =====================================================================
+    const generateSmartInvestigation = (description) => {
+        if (!description || description.length < 15) {
+            return alert("Please provide a more detailed incident description (at least a full sentence) for the analyzer.");
+        }
 
-            if (dynamicGen.capa && dynamicGen.capa.length > 0) {
-                const existingActions = (newData.capa || []).map(c => c.act);
-                const newActions = dynamicGen.capa.filter(c => !existingActions.includes(c.action)).map(c => ({
-                    act: c.action, siteId: data.siteId, own: '', due: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], status: 'Open'
-                }));
-                newData.capa = [...(data.capa || []), ...newActions];
+        setIsAnalyzing(true);
+
+        // Simulate AI "thinking" time for better UX
+        setTimeout(() => {
+            const lowerDesc = description.toLowerCase();
+
+            // 1. ADVANCED KNOWLEDGE GRAPH
+            const rules = [
+                {
+                    triggers: ['slip', 'trip', 'fall', 'puddle', 'wet', 'spill', 'liquid', 'oil', 'fluid'],
+                    event: "Loss of traction resulting in a fall or near-miss.",
+                    immediate: "Presence of unauthorized substance/liquid on the walking surface.",
+                    root: "Breakdown in environmental control and housekeeping standards.",
+                    fishbone: { man: ["Failure to observe hazard", "Rushing/Distraction"], environment: ["Contaminated/Slippery walking surface"], method: ["Inadequate hazard identification", "Poor spill response"] }
+                },
+                {
+                    triggers: ['forklift', 'truck', 'vehicle', 'crane', 'hit', 'struck', 'collision'],
+                    event: "Vehicle/pedestrian or vehicle/object interaction.",
+                    immediate: "Failure to maintain safe separation distance.",
+                    root: "Inadequate traffic management plan or segregation controls.",
+                    fishbone: { man: ["Operator error/blind spot", "Pedestrian in exclusion zone"], machine: ["Vehicle design/sensors"], method: ["Lack of physical segregation"] }
+                },
+                {
+                    triggers: ['gasket', 'blew', 'broke', 'snapped', 'leak', 'pressure', 'valve', 'pump', 'machine', 'equipment'],
+                    event: "Unexpected equipment component failure during operation.",
+                    immediate: "Mechanical stress exceeded component tolerance.",
+                    root: "Systemic failure in preventative maintenance lifecycle.",
+                    fishbone: { machine: ["Component degradation/failure"], material: ["Substandard replacement part"], method: ["Maintenance schedule not adhered to"] }
+                },
+                {
+                    triggers: ['cut', 'laceration', 'sharp', 'blade', 'knife', 'sliced'],
+                    event: "Contact with unguarded sharp edge.",
+                    immediate: "Body part exposed to hazardous point of operation.",
+                    root: "Inadequate risk assessment of tooling/guarding requirements.",
+                    fishbone: { man: ["Improper handling technique"], machine: ["Missing or bypassed machine guard"], environment: ["Poor lighting at workstation"] }
+                },
+                {
+                    triggers: ['complained', 'reported', 'ignored', 'told them', 'weeks', 'days'],
+                    event: "Hazard realized despite prior warning.",
+                    immediate: "Failure to address reported leading indicators.",
+                    root: "Safety culture breakdown regarding hazard escalation and closure.",
+                    fishbone: { method: ["CAPA/Reporting system failure", "Lack of supervisor follow-up"], man: ["Normalization of deviance"] }
+                }
+            ];
+
+            // 2. CONTEXT EXTRACTION
+            let matchedRules = rules.filter(r => r.triggers.some(t => lowerDesc.includes(t)));
+
+            // Fallback if no specific rules match
+            if (matchedRules.length === 0) {
+                matchedRules = [{
+                    event: "Unplanned occupational health and safety event.",
+                    immediate: "Deviation from standard operating procedures.",
+                    root: "Gap in task-specific risk assessment and hazard controls.",
+                    fishbone: { man: ["Task execution error"], method: ["Inadequate SOP / Training"], environment: ["Unidentified site hazard"] }
+                }];
             }
 
-            setData(newData);
-            alert("Analysis & CAPA Plan Auto-Generated based on description!");
-        }
+            // 3. SYNTHESIZE 5-WHYS (Mixing matched concepts)
+            const primary = matchedRules[0];
+            const secondary = matchedRules[1] || primary; // Mix in a second concept if they mentioned two things
+
+            const synthesized5Whys = [
+                `Why 1 (The Event): ${primary.event}`,
+                `Why 2 (Immediate Cause): ${primary.immediate}`,
+                `Why 3 (Contributing Factor): ${secondary.fishbone.method?.[0] || "Process deviation occurred."}`,
+                `Why 4 (Systemic Issue): ${secondary.root}`,
+                `Why 5 (Root Cause): ${primary.root}`
+            ];
+
+            // 4. SYNTHESIZE FISHBONE (Merging all matched arrays)
+            const synthesizedFishbone = { man: [], machine: [], material: [], method: [], environment: [] };
+            matchedRules.forEach(rule => {
+                if (rule.fishbone.man) synthesizedFishbone.man.push(...rule.fishbone.man);
+                if (rule.fishbone.machine) synthesizedFishbone.machine.push(...rule.fishbone.machine);
+                if (rule.fishbone.material) synthesizedFishbone.material.push(...rule.fishbone.material);
+                if (rule.fishbone.method) synthesizedFishbone.method.push(...rule.fishbone.method);
+                if (rule.fishbone.environment) synthesizedFishbone.environment.push(...rule.fishbone.environment);
+            });
+
+            // Deduplicate arrays
+            Object.keys(synthesizedFishbone).forEach(key => {
+                synthesizedFishbone[key] = [...new Set(synthesizedFishbone[key])];
+                if (synthesizedFishbone[key].length === 0) synthesizedFishbone[key] = ["Not identified in narrative"];
+            });
+
+            // 5. SYNTHESIZE FAULT TREE (FTA)
+            const synthesizedFTA = {
+                id: 1, label: `Top Event: ${primary.event}`, type: 'OR',
+                children: [
+                    {
+                        id: 2, label: `Immediate: ${primary.immediate}`, type: 'AND',
+                        children: [
+                            { id: 4, label: `Condition: ${synthesizedFishbone.environment[0]}`, type: 'EVENT' },
+                            { id: 5, label: `Action: ${synthesizedFishbone.man[0]}`, type: 'EVENT' }
+                        ]
+                    },
+                    {
+                        id: 3, label: `Systemic: ${primary.root}`, type: 'EVENT',
+                        children: []
+                    }
+                ]
+            };
+
+            // 6. UPDATE REACT STATE
+            setData(prev => ({
+                ...prev,
+                investigation: {
+                    ...prev.investigation,
+                    rootCause: primary.root,
+                    fiveWhys: [{ id: Date.now(), name: 'Contextual Auto-Path', whys: synthesized5Whys }],
+                    fishbone: synthesizedFishbone,
+                    faultTree: synthesizedFTA
+                }
+            }));
+
+            setIsAnalyzing(false);
+            alert("Contextual RCA Matrix Generated! Move to Step 3 to review the Auto-Analysis.");
+
+        }, 1500); // 1.5 second artificial delay for UX
     };
+
 
     const handleAddTeamMember = (type) => {
         if (type === 'external') {
@@ -566,61 +671,6 @@ export default function Incidents() {
         setData(prev => ({ ...prev, investigationTeam: (prev.investigationTeam || []).filter((_, i) => i !== index) }));
     };
 
-    const generateDynamicInvestigation = (description, category) => {
-        const lowerDesc = description.toLowerCase();
-        let dynFishbone = { man: [], machine: [], material: [], method: [], environment: [] };
-        let dynWhys = ["Incident occurred", "", "", "", ""];
-        let dynTreeChildren = [];
-        let dynCapa = [];
-        let matched = false;
-
-        if (/\b(slip|slipped|wet|spill|water|oil|puddle)\b/.test(lowerDesc)) {
-            dynFishbone.environment.push(/\b(weather|rain|ice|snow)\b/.test(lowerDesc) ? "Adverse weather conditions" : "Wet / Slippery surface");
-            dynFishbone.method.push("Inadequate spill response / Housekeeping");
-            dynWhys[1] = "Surface lost traction";
-            dynWhys[2] = "Contamination was present on walkway";
-            dynTreeChildren.push({ id: Date.now() + 1, label: "Loss of Traction", type: "EVENT" });
-            dynCapa.push({ action: "Review local housekeeping schedules", responsible: "", deadline: "", status: "Open" });
-            matched = true;
-        }
-        if (/\b(machine|guard|cut|tool|crush|nip)\b/.test(lowerDesc)) {
-            dynFishbone.machine.push("Potential equipment failure or bypassed safeguard");
-            dynWhys[1] = "Operator came into contact with hazard";
-            dynTreeChildren.push({ id: Date.now() + 2, label: "Equipment Hazard", type: "EVENT" });
-            dynCapa.push({ action: "Inspect equipment guarding and interlocks", responsible: "", deadline: "", status: "Open" });
-            matched = true;
-        }
-        if (/\b(training|new|unaware|did not know|untrained)\b/.test(lowerDesc)) {
-            dynFishbone.man.push("Lack of task-specific training or awareness");
-            dynWhys[3] = "Operator was unaware of the correct safe method";
-            dynCapa.push({ action: "Update training matrix & conduct refresher", responsible: "", deadline: "", status: "Open" });
-            matched = true;
-        }
-
-        for (let i = 0; i < 5; i++) { if (!dynWhys[i]) dynWhys[i] = "Investigate further..."; }
-
-        if (matched) {
-            return {
-                fishbone: dynFishbone,
-                rootCause: "Combination of factors requiring specific investigation.",
-                fiveWhys: [{ id: Date.now(), name: 'Description Auto-Path', whys: dynWhys }],
-                faultTree: { id: Date.now(), label: "Top Event", type: "AND", children: dynTreeChildren },
-                capa: dynCapa
-            };
-        } else if (SMART_DB[category]) {
-            const catData = SMART_DB[category];
-            return {
-                fishbone: JSON.parse(JSON.stringify(catData.fishbone)),
-                rootCause: catData.root_causes.join('. '),
-                fiveWhys: catData.five_whys ? JSON.parse(JSON.stringify(catData.five_whys)) : [{ id: 1, name: 'Path 1', whys: ["", "", "", "", ""] }],
-                faultTree: catData.fault_tree ? JSON.parse(JSON.stringify(catData.fault_tree)) : { id: 1, label: "Top Event", type: "AND", children: [] },
-                capa: catData.capa ? catData.capa.map(c => ({ action: c, responsible: "", deadline: "", status: "Open" })) : []
-            };
-        }
-        return null;
-    };
-
-    // --- HORIZONTAL EXPLOSION FOR INCIDENTS ---
     const saveData = async () => {
         if (!canEditForm) return alert("Security Error: You do not have permission to create or edit incidents for this site.");
         if (!data.siteId) { alert("Please select a Site"); return; }
@@ -651,7 +701,7 @@ export default function Incidents() {
 
             const payload = JSON.parse(JSON.stringify({
                 ...data,
-                capa: explodedCapa, // Saved exploded capabilities
+                capa: explodedCapa,
                 linkedHazards: cleanLinks,
                 timestamp: new Date().toISOString(),
                 reportedBy: session.user || session.name || session.email
@@ -908,13 +958,32 @@ export default function Incidents() {
                                         <div><label className="text-[10px] uppercase font-bold text-slate-500 ml-1 mb-2 block">Equipment</label><input value={data.equipmentInvolved} onChange={e => setData({ ...data, equipmentInvolved: e.target.value })} disabled={!canEditForm} className="w-full bg-slate-950 border border-slate-700 p-2.5 rounded-lg text-white text-xs outline-none focus:border-red-500" placeholder="e.g., Forklift" /></div>
                                     </div>
 
-                                    <div className="mb-6">
+                                    {/* --- SMART CONTEXTUAL DESCRIPTION BLOCK --- */}
+                                    <div className="mb-6 bg-slate-900 border border-slate-700 p-6 rounded-2xl shadow-inner relative">
                                         <label className="flex justify-between text-[10px] font-bold uppercase text-slate-500 mb-2 ml-1">
-                                            Description of Event
-                                            {!data.manualOverrides?.smartType && <span className="text-purple-400 animate-pulse bg-purple-900/20 px-2 py-0.5 rounded border border-purple-500/30 tracking-widest"><i className="fas fa-robot mr-1"></i> AI Auto-Classify on blur</span>}
+                                            Detailed Incident Narrative
+                                            {!data.manualOverrides?.smartType && <span className="text-purple-400 animate-pulse bg-purple-900/20 px-2 py-0.5 rounded border border-purple-500/30 tracking-widest"><i className="fas fa-robot mr-1"></i> Auto-Classify on blur</span>}
                                         </label>
-                                        <textarea rows="4" value={data.description} onChange={e => setData({ ...data, description: e.target.value })} onBlur={handleDescriptionBlur} className="w-full bg-slate-950 border border-slate-700 rounded-xl p-4 text-sm text-white focus:border-purple-500 outline-none shadow-inner" disabled={!canEditForm} placeholder="Describe the incident in detail. Click outside this box when finished to auto-classify..."></textarea>
+                                        <textarea rows="4" value={data.description} onChange={e => setData({ ...data, description: e.target.value })} onBlur={handleDescriptionBlur} className="w-full bg-slate-950 border border-slate-700 rounded-xl p-4 text-sm text-white focus:border-purple-500 outline-none shadow-inner mb-4" disabled={!canEditForm} placeholder="e.g., 'John slipped on a puddle of hydraulic fluid because the forklift gasket blew out, which we complained about for weeks...'"></textarea>
+
+                                        {canEditForm && (
+                                            <div className="flex justify-end">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => generateSmartInvestigation(data.description)}
+                                                    disabled={isAnalyzing || !data.description || data.description.length < 15}
+                                                    className="bg-gradient-to-r from-blue-600 to-emerald-600 hover:from-blue-500 hover:to-emerald-500 text-white px-6 py-2.5 rounded-xl font-bold text-xs uppercase tracking-widest shadow-lg transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                                                >
+                                                    {isAnalyzing ? (
+                                                        <><i className="fas fa-spinner fa-spin"></i> Processing Context...</>
+                                                    ) : (
+                                                        <><i className="fas fa-microchip"></i> Auto-Generate RCA Matrix</>
+                                                    )}
+                                                </button>
+                                            </div>
+                                        )}
                                     </div>
+
                                     <div className="mb-6">
                                         <label className="block text-[10px] font-bold uppercase text-slate-500 mb-2 ml-1">Immediate Actions Taken</label>
                                         <textarea rows="3" value={data.immediateAction} onChange={e => setData({ ...data, immediateAction: e.target.value })} className="w-full bg-slate-950 border border-slate-700 rounded-xl p-4 text-sm text-white focus:border-red-500 outline-none shadow-inner" disabled={!canEditForm} placeholder="What was done immediately to secure the scene or treat the injured?"></textarea>
@@ -1008,8 +1077,8 @@ export default function Incidents() {
                                     <div className="flex justify-between items-center mb-8 border-b border-purple-500/20 pb-4">
                                         <h2 className="text-xl font-bold text-purple-400 flex items-center gap-3 uppercase tracking-widest"><i className="fas fa-search-location text-2xl"></i> 3. Root Cause Analysis</h2>
                                         {canEditForm && (
-                                            <button type="button" onClick={applySmartSuggestions} className="bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold px-6 py-3 rounded-xl shadow-lg shadow-purple-600/20 flex items-center gap-2 transition-transform active:scale-95 uppercase tracking-widest">
-                                                <i className="fas fa-wand-magic-sparkles"></i> AI Auto-Analyze
+                                            <button type="button" onClick={() => generateSmartInvestigation(data.description)} disabled={isAnalyzing || !data.description || data.description.length < 15} className="bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold px-6 py-3 rounded-xl shadow-lg shadow-purple-600/20 flex items-center gap-2 transition-transform active:scale-95 uppercase tracking-widest disabled:opacity-50">
+                                                {isAnalyzing ? <><i className="fas fa-spinner fa-spin"></i> Analyzing...</> : <><i className="fas fa-wand-magic-sparkles"></i> AI Auto-Analyze</>}
                                             </button>
                                         )}
                                     </div>
@@ -1512,7 +1581,7 @@ export default function Incidents() {
                             </tbody>
                         </table>
                     </div>
-                    <div className="text-center text-xs text-gray-500 mt-10 border-t border-gray-300 pt-4">Generated by OHSMS Enterprise Portal | Document Control Date: {new Date().toLocaleString()}</div>
+                    <div className="text-center text-xs text-gray-500 mt-10 border-t border-gray-300 pt-4">Generated by WE EHS SAFETY TOOL | Document Control Date: {new Date().toLocaleString()}</div>
                 </div>
             )}
         </div>
