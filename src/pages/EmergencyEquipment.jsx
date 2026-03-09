@@ -2,7 +2,8 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { ref, get, push, update, remove } from 'firebase/database';
 import { rtdb } from '../config/firebase';
-import { QRCodeSVG } from 'qrcode.react'; // NEW: QR Code Library
+import { QRCodeSVG } from 'qrcode.react';
+import * as XLSX from 'xlsx'; // Needed for Bulk Import
 
 const TYPES = ['Fire Extinguisher', 'First Aid Kit', 'AED / Defibrillator', 'Eye Wash Station', 'Spill Kit', 'Evacuation Chair'];
 const STATUSES = ['Active', 'Needs Inspection', 'Out of Service', 'Missing'];
@@ -26,8 +27,9 @@ export default function EmergencyEquipment() {
     const [equipment, setEquipment] = useState([]);
     const [sites, setSites] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [importing, setImporting] = useState(false);
 
-    const [view, setView] = useState('list');
+    const [view, setView] = useState('list'); // 'list' | 'form' | 'inspect' | 'import'
     const [siteFilter, setSiteFilter] = useState('All');
 
     const [formData, setFormData] = useState({
@@ -37,7 +39,7 @@ export default function EmergencyEquipment() {
     });
 
     const [inspectData, setInspectData] = useState(null);
-    const [printTagData, setPrintTagData] = useState(null); // For QR Tag Printing
+    const [printTagData, setPrintTagData] = useState(null);
 
     // 1. Fetch Session & Data on Load
     useEffect(() => {
@@ -48,7 +50,7 @@ export default function EmergencyEquipment() {
 
         const params = new URLSearchParams(location.search);
         let ctxSite = params.get('site') || sessionStorage.getItem('isoCurrentSite') || 'All';
-        const scanId = params.get('scan'); // Catch QR Code Scans!
+        const scanId = params.get('scan');
 
         const isGlobal = ['Global Owner', 'Global Manager', 'Owner', 'Admin'].includes(sess.role);
         if (!isGlobal && ctxSite === 'All') {
@@ -73,7 +75,6 @@ export default function EmergencyEquipment() {
                         setSites(Object.keys(data.sites).map(key => ({ code: data.sites[key].code || key, name: data.sites[key].name || key })));
                     }
 
-                    // If a QR Code was scanned, open the inspection form immediately
                     if (scanId) {
                         const targetEq = loadedEq.find(e => e.firebaseKey === scanId);
                         if (targetEq) {
@@ -82,10 +83,9 @@ export default function EmergencyEquipment() {
                                 date: new Date().toISOString().split('T')[0],
                                 nextDate: targetEq.nextInspection || '',
                                 notes: '',
-                                checks: { gauge: true, pin: true, hose: true, body: true } // Default checklist
+                                checks: { gauge: true, pin: true, hose: true, body: true }
                             });
                             setView('inspect');
-                            // Clean the URL so refreshing doesn't keep opening it
                             window.history.replaceState(null, '', '/emergency-equipment');
                         }
                     }
@@ -121,7 +121,6 @@ export default function EmergencyEquipment() {
             }
         }
     }, [formData.type, formData.extinguisherType, formData.lastRefillDate, formData.lastHptDate, formData.nextRefillDate, formData.nextHptDate]);
-
 
     // 3. Permissions & Filtering
     const isGlobalUser = ['Global Owner', 'Global Manager', 'Owner', 'Admin'].includes(session?.role);
@@ -166,7 +165,6 @@ export default function EmergencyEquipment() {
 
         try {
             let finalAssetId = formData.assetId;
-            // AUTO-GENERATE ID: Site-Loc-Sr.No
             if (!finalAssetId) {
                 const locPrefix = formData.location.replace(/[^a-zA-Z0-9]/g, '').substring(0, 3).toUpperCase();
                 const randomNum = Math.floor(1000 + Math.random() * 9000);
@@ -186,7 +184,6 @@ export default function EmergencyEquipment() {
 
     const handleLogInspection = async () => {
         try {
-            // Build checklist summary for notes
             let checklistStr = "";
             if (inspectData.type === 'Fire Extinguisher' && inspectData.checks) {
                 const c = inspectData.checks;
@@ -216,6 +213,144 @@ export default function EmergencyEquipment() {
             await remove(ref(rtdb, `organizations/${session.orgId}/emergencyEquipment/${key}`));
             setEquipment(equipment.filter(e => e.firebaseKey !== key));
         }
+    };
+
+    // --- BULK IMPORT LOGIC ---
+    const downloadTemplate = () => {
+        const headers = ["Site ID (Required)", "Equipment Type (Required)", "Location (Required)", "Asset/Serial ID (Optional)", "Status", "Last Inspection Date (YYYY-MM-DD)", "Extinguisher Type (IS 2190)", "Last Refill Date (YYYY-MM-DD)", "Last HPT Date (YYYY-MM-DD)", "Notes"];
+        const example1 = ["HQ-01", "Fire Extinguisher", "Main Lobby Exit", "HQ-LOB-101", "Active", "2025-01-15", "ABC Powder / DCP (Stored Pressure)", "2023-05-10", "2023-05-10", "Mounted securely."];
+        const example2 = ["HQ-01", "First Aid Kit", "Break Room Wall", "", "Active", "2025-02-01", "", "", "", "Fully stocked."];
+
+        const ws = XLSX.utils.aoa_to_sheet([headers, example1, example2]);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "Equipment_Upload_Template");
+        XLSX.writeFile(wb, "Emergency_Equipment_Upload_Template.xlsx");
+    };
+
+    const handleExcelImport = (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        setImporting(true);
+
+        const reader = new FileReader();
+        reader.onload = async (evt) => {
+            try {
+                const bstr = evt.target.result;
+                const wb = XLSX.read(bstr, { type: 'binary' });
+                const wsname = wb.SheetNames[0];
+                const ws = wb.Sheets[wsname];
+                // Use raw:false to get formatted strings for dates instead of Excel serial numbers
+                const data = XLSX.utils.sheet_to_json(ws, { raw: false });
+
+                if (data.length === 0) throw new Error("Excel sheet is empty.");
+
+                const updates = {};
+                let count = 0;
+
+                data.forEach((row, index) => {
+                    const keys = Object.keys(row);
+                    const getCol = (keywords) => keys.find(k => keywords.some(kw => k.toLowerCase().includes(kw)));
+
+                    const siteCol = getCol(['site']);
+                    const typeCol = getCol(['equipment type']);
+                    const locCol = getCol(['location']);
+                    const assetCol = getCol(['asset', 'serial']);
+                    const statusCol = getCol(['status']);
+                    const inspCol = getCol(['last inspection']);
+                    const extTypeCol = getCol(['extinguisher type', 'is 2190']);
+                    const refillCol = getCol(['refill date']);
+                    const hptCol = getCol(['hpt date']);
+                    const notesCol = getCol(['notes']);
+
+                    const siteId = row[siteCol];
+                    const eqType = row[typeCol];
+                    const location = row[locCol];
+
+                    // Skip invalid rows gracefully
+                    if (!siteId || !eqType || !location) return;
+
+                    // Standardize dates
+                    const formatDate = (val) => {
+                        if (!val) return '';
+                        try { return new Date(val).toISOString().split('T')[0]; } catch (e) { return ''; }
+                    };
+
+                    let assetId = row[assetCol];
+                    if (!assetId) {
+                        const locPrefix = location.replace(/[^a-zA-Z0-9]/g, '').substring(0, 3).toUpperCase();
+                        const randomNum = Math.floor(1000 + Math.random() * 9000);
+                        assetId = `${siteId}-${locPrefix}-${randomNum}`;
+                    }
+
+                    const extType = row[extTypeCol] || '';
+                    const lastRefill = formatDate(row[refillCol]);
+                    const lastHpt = formatDate(row[hptCol]);
+
+                    let nextRefill = '';
+                    let nextHpt = '';
+
+                    // Apply IS 2190 Logic
+                    if (eqType === 'Fire Extinguisher' && extType) {
+                        const extConfig = FIRE_EXT_TYPES.find(t => t.name === extType);
+                        if (extConfig) {
+                            if (lastRefill) {
+                                const d = new Date(lastRefill);
+                                d.setFullYear(d.getFullYear() + extConfig.refillYears);
+                                nextRefill = d.toISOString().split('T')[0];
+                            }
+                            if (lastHpt) {
+                                const d = new Date(lastHpt);
+                                d.setFullYear(d.getFullYear() + extConfig.hptYears);
+                                nextHpt = d.toISOString().split('T')[0];
+                            }
+                        }
+                    }
+
+                    // Default Next Inspection to 1 month from Last Inspection
+                    const lastInsp = formatDate(row[inspCol]) || new Date().toISOString().split('T')[0];
+                    const nInspDate = new Date(lastInsp);
+                    nInspDate.setMonth(nInspDate.getMonth() + 1);
+                    const nextInsp = nInspDate.toISOString().split('T')[0];
+
+                    const newItem = {
+                        siteId,
+                        type: eqType,
+                        location,
+                        assetId,
+                        status: row[statusCol] || 'Active',
+                        lastInspection: lastInsp,
+                        nextInspection: nextInsp,
+                        extinguisherType: extType,
+                        lastRefillDate: lastRefill,
+                        nextRefillDate: nextRefill,
+                        lastHptDate: lastHpt,
+                        nextHptDate: nextHpt,
+                        notes: row[notesCol] || 'Imported via Bulk Upload',
+                        updatedBy: session.name || session.email,
+                        lastUpdated: new Date().toISOString()
+                    };
+
+                    // Prepare batch update
+                    const newKey = push(ref(rtdb, `organizations/${session.orgId}/emergencyEquipment`)).key;
+                    updates[`organizations/${session.orgId}/emergencyEquipment/${newKey}`] = newItem;
+                    count++;
+                });
+
+                if (count > 0) {
+                    await update(ref(rtdb), updates);
+                    alert(`Successfully imported ${count} equipment records! IS 2190 dates calculated automatically.`);
+                    setView('list'); // will trigger a re-fetch
+                } else {
+                    alert("No valid rows found. Please ensure Site, Type, and Location columns are filled.");
+                }
+
+            } catch (err) {
+                alert("Failed to parse Excel file. Please check the format.\n" + err.message);
+            }
+            setImporting(false);
+            e.target.value = null; // Reset file input
+        };
+        reader.readAsBinaryString(file);
     };
 
     const getStatusBadge = (e) => {
@@ -263,6 +398,9 @@ export default function EmergencyEquipment() {
                     <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-orange-500 to-red-600 flex items-center justify-center text-white font-bold shadow-lg"><i className="fas fa-fire-extinguisher"></i></div>
                     <h1 className="text-base font-bold text-white hidden md:block uppercase tracking-wide">Emergency Equipment</h1>
                 </div>
+                {canEdit && view !== 'import' && (
+                    <button onClick={() => setView('import')} className="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-widest transition-colors shadow-lg flex items-center gap-2"><i className="fas fa-file-excel text-emerald-500"></i> Bulk Import</button>
+                )}
             </header>
 
             <main className="flex-1 overflow-y-auto p-4 md:p-8 custom-scroll relative z-10 w-full no-print">
@@ -284,6 +422,21 @@ export default function EmergencyEquipment() {
                                         </select>
                                     </div>
                                     {canEdit && <button onClick={() => { setFormData({ id: '', siteId: siteFilter === 'All' ? '' : siteFilter, type: 'Fire Extinguisher', location: '', assetId: '', lastInspection: new Date().toISOString().split('T')[0], nextInspection: '', status: 'Active', notes: '', extinguisherType: '', lastRefillDate: '', lastHptDate: '', nextRefillDate: '', nextHptDate: '' }); setView('form'); }} className="bg-gradient-to-tr from-orange-600 to-red-500 hover:from-orange-500 hover:to-red-400 text-white px-5 py-2.5 rounded-xl font-bold text-sm shadow-lg flex items-center gap-2 transition-transform active:scale-95 whitespace-nowrap"><i className="fas fa-plus"></i> Add Equipment</button>}
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                                <div className="bg-slate-900/80 p-6 rounded-2xl border border-slate-700 shadow-lg flex items-center justify-between border-l-4 border-l-blue-500">
+                                    <div><p className="text-[10px] uppercase font-bold text-slate-400 tracking-widest mb-1">Total Registered</p><h3 className="text-3xl font-black text-white">{stats.total}</h3></div>
+                                    <div className="w-12 h-12 bg-blue-500/10 rounded-full flex items-center justify-center text-blue-400 text-xl"><i className="fas fa-clipboard-list"></i></div>
+                                </div>
+                                <div className="bg-slate-900/80 p-6 rounded-2xl border border-slate-700 shadow-lg flex items-center justify-between border-l-4 border-l-orange-500">
+                                    <div><p className="text-[10px] uppercase font-bold text-slate-400 tracking-widest mb-1">Due &lt; 30 Days</p><h3 className="text-3xl font-black text-orange-400">{stats.expiringSoon}</h3></div>
+                                    <div className="w-12 h-12 bg-orange-500/10 rounded-full flex items-center justify-center text-orange-400 text-xl"><i className="fas fa-clock"></i></div>
+                                </div>
+                                <div className="bg-slate-900/80 p-6 rounded-2xl border border-slate-700 shadow-lg flex items-center justify-between border-l-4 border-l-red-500">
+                                    <div><p className="text-[10px] uppercase font-bold text-slate-400 tracking-widest mb-1">Action Required</p><h3 className="text-3xl font-black text-red-500">{stats.actionNeeded}</h3></div>
+                                    <div className="w-12 h-12 bg-red-500/10 rounded-full flex items-center justify-center text-red-500 text-xl"><i className="fas fa-exclamation-triangle"></i></div>
                                 </div>
                             </div>
 
@@ -431,6 +584,88 @@ export default function EmergencyEquipment() {
                         </div>
                     )}
 
+                    {/* SMART IMPORT VIEW */}
+                    {view === 'import' && canEdit && (
+                        <div className="animate-in fade-in duration-500 max-w-6xl mx-auto">
+                            <div className="flex justify-between items-center mb-8 border-b border-slate-800 pb-4">
+                                <h3 className="text-xl font-bold text-white flex items-center gap-2"><i className="fas fa-file-excel text-emerald-500"></i> Smart Bulk Import</h3>
+                                <button onClick={() => setView('list')} className="text-slate-500 hover:text-white"><i className="fas fa-times text-xl"></i></button>
+                            </div>
+
+                            <div className="glass-panel p-10 rounded-3xl border border-blue-500/30 shadow-2xl text-center mb-8">
+                                <div className="w-24 h-24 rounded-2xl bg-blue-900/30 flex items-center justify-center text-5xl text-blue-400 mx-auto mb-6 shadow-inner border border-blue-500/20"><i className="fas fa-file-excel"></i></div>
+                                <h2 className="text-3xl font-bold text-white mb-4">Upload Inventory Spreadsheet</h2>
+                                <p className="text-slate-400 mb-8 max-w-xl mx-auto leading-relaxed">Upload an Excel (.xlsx) file containing your emergency equipment. Our engine will map locations, auto-generate QR Asset IDs, and automatically calculate IS 2190 Refill and HPT schedules based on your inputs.</p>
+
+                                <div className="relative border-2 border-dashed border-blue-500/50 rounded-2xl p-12 hover:bg-blue-900/10 transition-colors cursor-pointer max-w-2xl mx-auto bg-slate-900/50 group">
+                                    <input type="file" accept=".xlsx, .xls, .csv" onChange={handleExcelImport} disabled={importing} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" />
+                                    {importing ? (
+                                        <div className="text-blue-400 font-bold text-xl flex items-center justify-center gap-3"><i className="fas fa-spinner fa-spin"></i> Processing & Calculating Dates...</div>
+                                    ) : (
+                                        <div>
+                                            <i className="fas fa-cloud-upload-alt text-5xl text-slate-500 mb-4 group-hover:text-blue-400 transition-colors"></i>
+                                            <div className="text-xl font-bold text-white mb-1">Drag & Drop File Here</div>
+                                            <div className="text-sm text-slate-500 font-medium">or click to browse your computer</div>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+
+                            <div className="bg-slate-900 border border-slate-700 rounded-3xl p-8 shadow-xl">
+                                <div className="flex justify-between items-center mb-4">
+                                    <h3 className="text-emerald-400 font-bold uppercase tracking-widest text-sm flex items-center gap-2"><i className="fas fa-info-circle"></i> Standard Upload Format</h3>
+                                    <button type="button" onClick={downloadTemplate} className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs px-5 py-2.5 rounded-xl font-bold flex items-center gap-2 transition-transform active:scale-95 shadow-lg"><i className="fas fa-download"></i> Download Template</button>
+                                </div>
+                                <p className="text-sm text-slate-400 mb-6">To ensure accurate mapping and automated IS 2190 calculations, your uploaded file must contain column headers matching the structure below.</p>
+
+                                <div className="overflow-x-auto custom-scroll pb-4">
+                                    <table className="w-full text-left text-xs text-slate-300 border border-slate-700 whitespace-nowrap bg-slate-950 rounded-xl overflow-hidden">
+                                        <thead className="bg-slate-900 font-bold text-slate-500 border-b border-slate-800">
+                                            <tr>
+                                                <th className="p-4 border-r border-slate-800">Site ID (Req)</th>
+                                                <th className="p-4 border-r border-slate-800">Equipment Type (Req)</th>
+                                                <th className="p-4 border-r border-slate-800">Location (Req)</th>
+                                                <th className="p-4 border-r border-slate-800">Asset/Serial ID</th>
+                                                <th className="p-4 border-r border-slate-800">Status</th>
+                                                <th className="p-4 border-r border-slate-800">Last Inspection</th>
+                                                <th className="p-4 border-r border-slate-800 text-red-400">Extinguisher Type (IS 2190)</th>
+                                                <th className="p-4 border-r border-slate-800 text-red-400">Last Refill Date</th>
+                                                <th className="p-4 border-r border-slate-800 text-red-400">Last HPT Date</th>
+                                                <th className="p-4">Notes</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <tr className="hover:bg-slate-900/50 transition-colors">
+                                                <td className="p-4 border-r border-slate-800 font-bold">HQ-01</td>
+                                                <td className="p-4 border-r border-slate-800 text-white">Fire Extinguisher</td>
+                                                <td className="p-4 border-r border-slate-800">Main Lobby Exit</td>
+                                                <td className="p-4 border-r border-slate-800 text-slate-500 italic">Auto-generated if blank</td>
+                                                <td className="p-4 border-r border-slate-800 text-emerald-400">Active</td>
+                                                <td className="p-4 border-r border-slate-800">2025-01-15</td>
+                                                <td className="p-4 border-r border-slate-800">ABC Powder / DCP (Stored Pressure)</td>
+                                                <td className="p-4 border-r border-slate-800">2023-05-10</td>
+                                                <td className="p-4 border-r border-slate-800">2023-05-10</td>
+                                                <td className="p-4 text-slate-400">Mounted securely.</td>
+                                            </tr>
+                                            <tr className="hover:bg-slate-900/50 transition-colors">
+                                                <td className="p-4 border-r border-slate-800 font-bold">HQ-01</td>
+                                                <td className="p-4 border-r border-slate-800 text-white">First Aid Kit</td>
+                                                <td className="p-4 border-r border-slate-800">Break Room Wall</td>
+                                                <td className="p-4 border-r border-slate-800 text-slate-500 italic">Auto-generated if blank</td>
+                                                <td className="p-4 border-r border-slate-800 text-emerald-400">Active</td>
+                                                <td className="p-4 border-r border-slate-800">2025-02-01</td>
+                                                <td className="p-4 border-r border-slate-800 bg-slate-900 text-slate-600 italic">Leave blank</td>
+                                                <td className="p-4 border-r border-slate-800 bg-slate-900 text-slate-600 italic">Leave blank</td>
+                                                <td className="p-4 border-r border-slate-800 bg-slate-900 text-slate-600 italic">Leave blank</td>
+                                                <td className="p-4 text-slate-400">Fully stocked.</td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
                     {/* PHYSICAL INSPECTION SHEET (QR SCANNED) */}
                     {view === 'inspect' && inspectData && (
                         <div className="max-w-2xl mx-auto bg-slate-900 border border-slate-700 shadow-2xl rounded-3xl overflow-hidden animate-in slide-in-from-bottom-8">
@@ -515,13 +750,11 @@ export default function EmergencyEquipment() {
                 <div className="hidden print:flex p-8 bg-white text-black w-full absolute inset-0 z-[9999] flex-col items-center" style={{ WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
 
                     <div className="border-4 border-black w-[400px] rounded-2xl overflow-hidden flex flex-col mt-10 shadow-2xl">
-                        {/* Header */}
                         <div className="bg-red-600 text-white text-center py-4 border-b-4 border-black">
                             <h1 className="text-2xl font-black uppercase tracking-widest m-0 leading-none">Emergency</h1>
                             <h2 className="text-lg font-bold uppercase tracking-wider m-0">Equipment Tag</h2>
                         </div>
 
-                        {/* Details */}
                         <div className="p-6 bg-white flex flex-col items-center">
                             <div className="text-center mb-6">
                                 <p className="text-sm font-bold text-gray-500 uppercase tracking-widest mb-1">Asset ID</p>
@@ -531,7 +764,6 @@ export default function EmergencyEquipment() {
                             <p className="text-lg font-bold text-center uppercase mb-1">{printTagData.type}</p>
                             <p className="text-sm text-center text-gray-600 font-bold mb-6 italic">Location: {printTagData.location}</p>
 
-                            {/* QR CODE GENERATOR */}
                             <div className="p-4 border-4 border-black rounded-xl mb-4 bg-white flex justify-center items-center">
                                 <QRCodeSVG
                                     value={`${window.location.origin}/emergency-equipment?scan=${printTagData.firebaseKey}&site=${printTagData.siteId}`}
@@ -542,7 +774,6 @@ export default function EmergencyEquipment() {
 
                             <p className="text-sm font-black uppercase tracking-widest bg-black text-white px-4 py-1 rounded-full mb-6">Scan To Inspect</p>
 
-                            {/* IS 2190 Next Maintenance Details */}
                             {printTagData.type === 'Fire Extinguisher' && (
                                 <div className="w-full border-t-2 border-black pt-4">
                                     <div className="flex justify-between text-xs font-bold uppercase mb-1">
