@@ -512,105 +512,121 @@ export default function Incidents() {
     };
 
     // =====================================================================
-    // ADVANCED HEURISTIC NLP ENGINE (EXTRACTS ACTUAL CONTEXT)
+    // ADVANCED INFERENCE ENGINE: Contextual "Reading" Without API
     // =====================================================================
     const generateSmartInvestigation = (description) => {
-        if (!description || description.length < 15) {
-            return alert("Please provide a more detailed incident description (at least a full sentence) for the analyzer.");
+        if (!description || description.length < 20) {
+            return alert("Please provide a detailed sentence explaining what happened, what failed, and why.");
         }
 
         setIsAnalyzing(true);
 
-        // Simulate processing time
         setTimeout(() => {
-            const cleanDesc = description.replace(/[^\w\s.,-]/g, '').trim();
-            const lowerDesc = cleanDesc.toLowerCase();
+            const lower = description.toLowerCase();
 
-            // 1. SPLIT INTO CAUSAL CLAUSES
-            // This splits the sentence whenever the user typed a punctuation mark or a causal word.
-            const splitters = /\bbecause\b|\bdue to\b|\bcaused by\b|\bsince\b|\bresulting in\b|\bled to\b|\bafter\b|\bwhen\b|\btherefore\b|\bso\b|,|\./i;
-            const rawParts = cleanDesc.split(splitters).map(p => p.trim()).filter(p => p.length > 4);
+            // --- 1. IDENTIFY THE CORE ACTORS & ENTITIES ---
+            let objectInvolved = "equipment/material";
+            let hazardType = "generic hazard";
 
-            let event = rawParts[0] || "Incident occurred";
-            let cause1 = rawParts[1] || "Further investigation required to determine immediate cause";
-            let cause2 = rawParts[2] || "Investigate underlying contributing factors";
-            let cause3 = rawParts[3] || "Investigate systemic management gaps";
+            if (/(forklift|truck|vehicle|flt|crane)/.test(lower)) objectInvolved = "workplace vehicle";
+            if (/(machine|conveyor|press|pump|motor)/.test(lower)) objectInvolved = "machinery";
+            if (/(ladder|scaffold|roof|stairs)/.test(lower)) objectInvolved = "working at height equipment";
+            if (/(chemical|acid|solvent|oil|fluid|water)/.test(lower)) objectInvolved = "chemical/fluid";
+            if (/(gasket|valve|hose|pipe|wire)/.test(lower)) objectInvolved = "component/part";
 
-            const generatedWhys = [
-                `Why 1 (The Event): ${event.charAt(0).toUpperCase() + event.slice(1)}`,
-                `Why 2 (Immediate Cause): ${cause1.charAt(0).toUpperCase() + cause1.slice(1)}`,
-                `Why 3 (Contributing Factor): ${cause2.charAt(0).toUpperCase() + cause2.slice(1)}`,
-                `Why 4 (Systemic Factor): ${cause3.charAt(0).toUpperCase() + cause3.slice(1)}`,
-                `Why 5 (Root Cause): Breakdown in safety management controls regarding the above factors.`
-            ];
+            if (/(slip|trip|fall|puddle)/.test(lower)) hazardType = "loss of traction/stability";
+            if (/(cut|laceration|amputation|crush|nip|entangle)/.test(lower)) hazardType = "contact with moving parts";
+            if (/(burn|fire|explosion|spark)/.test(lower)) hazardType = "uncontrolled thermal energy";
+            if (/(leak|spill|fume|inhale)/.test(lower)) hazardType = "loss of containment";
 
-            // 2. DYNAMIC FISHBONE MAPPING
+            // --- 2. EXTRACT CONTEXTUAL CLUES FOR FISHBONE ---
             const fishbone = { man: [], machine: [], material: [], method: [], environment: [] };
 
-            // Dictionary of categorization triggers
-            const dict = {
-                man: ['rushing', 'forgot', 'failed', 'ignored', 'worker', 'operator', 'john', 'employee', 'slip', 'trip', 'fall', 'technique', 'fatigue', 'unaware'],
-                machine: ['machine', 'equipment', 'broken', 'failed', 'blew', 'gasket', 'valve', 'forklift', 'truck', 'guard', 'sensor', 'brake', 'motor', 'leaked'],
-                material: ['fluid', 'oil', 'water', 'chemical', 'box', 'load', 'material', 'substance', 'gas', 'fume', 'sharp'],
-                method: ['complained', 'reported', 'weeks', 'days', 'procedure', 'permit', 'loto', 'training', 'schedule', 'maintenance', 'policy', 'rushed'],
-                environment: ['puddle', 'rain', 'weather', 'dark', 'lighting', 'noise', 'mud', 'slippery', 'wet', 'cold', 'hot', 'dust']
-            };
+            if (/(rushing|forgot|ignored|untrained|distracted|tired)/.test(lower)) {
+                fishbone.man.push("Behavioral deviation or lack of task awareness");
+            } else {
+                fishbone.man.push("Task execution error during standard operation");
+            }
 
-            // Analyze the actual chunks the user typed and slot them into the Fishbone
-            rawParts.forEach(part => {
-                const lowerPart = part.toLowerCase();
-                let categorized = false;
+            if (/(broken|failed|blew|snapped|missing|bypassed)/.test(lower)) {
+                fishbone.machine.push(`Failure/degradation of ${objectInvolved}`);
+            }
 
-                if (dict.man.some(w => lowerPart.includes(w))) { fishbone.man.push(part.charAt(0).toUpperCase() + part.slice(1)); categorized = true; }
-                if (dict.machine.some(w => lowerPart.includes(w))) { fishbone.machine.push(part.charAt(0).toUpperCase() + part.slice(1)); categorized = true; }
-                if (dict.material.some(w => lowerPart.includes(w))) { fishbone.material.push(part.charAt(0).toUpperCase() + part.slice(1)); categorized = true; }
-                if (dict.method.some(w => lowerPart.includes(w))) { fishbone.method.push(part.charAt(0).toUpperCase() + part.slice(1)); categorized = true; }
-                if (dict.environment.some(w => lowerPart.includes(w))) { fishbone.environment.push(part.charAt(0).toUpperCase() + part.slice(1)); categorized = true; }
+            if (/(complained|weeks|days|reported|maintenance|permit|loto)/.test(lower)) {
+                fishbone.method.push("Breakdown in defect reporting / CAPA escalation");
+                fishbone.method.push("Failure to follow established safe systems of work");
+            } else {
+                fishbone.method.push(`Inadequate risk assessment for task involving ${objectInvolved}`);
+            }
 
-                // If a chunk wasn't recognized by a keyword, default it to Method to ensure no context is lost
-                if (!categorized) fishbone.method.push(part.charAt(0).toUpperCase() + part.slice(1));
-            });
+            if (/(wet|dark|noise|weather|rain|cramped)/.test(lower)) {
+                fishbone.environment.push("Adverse environmental conditions impacting safety");
+            }
 
-            // Clean up Fishbone (deduplicate and add fallbacks)
+            // Ensure every category has at least one entry for a complete RCA
             Object.keys(fishbone).forEach(key => {
-                fishbone[key] = [...new Set(fishbone[key])];
-                if (fishbone[key].length === 0) fishbone[key] = ["No specific factors identified in description."];
-                else if (fishbone[key].length > 3) fishbone[key] = fishbone[key].slice(0, 3); // Limit to top 3 for clean UI
+                if (fishbone[key].length === 0) fishbone[key].push("No specific deviations identified in initial narrative");
             });
 
-            // 3. DYNAMIC FAULT TREE
+            // --- 3. SYNTHESIZE A PROFESSIONAL 5-WHY CHAIN ---
+            // We build the chain backwards from the root cause based on the extracted context.
+            let w1 = `The incident occurred due to a ${hazardType} involving ${objectInvolved}.`;
+            let w2 = `There was a failure in the primary control measure protecting the worker from the ${objectInvolved}.`;
+            let w3 = `The ${objectInvolved} was operating outside of normal/safe parameters.`;
+            let w4 = `Preventative maintenance, inspections, or pre-use checks failed to identify or correct the deviation.`;
+            let w5 = `Systemic gap in the safety management system regarding hazard identification and operational control.`;
+
+            // Adjust specific Whys if we detected a "Reported but Ignored" scenario
+            if (/(complained|reported)/.test(lower)) {
+                w4 = `Previous reports regarding the ${objectInvolved} were not actioned or escalated appropriately.`;
+                w5 = `Breakdown in the safety culture and the Corrective Action (CAPA) tracking process.`;
+            }
+
+            // Adjust specific Whys if it was a slip/trip
+            if (hazardType === "loss of traction/stability") {
+                w2 = `The walking/working surface was contaminated or obstructed.`;
+                w3 = `Failure to immediately identify and isolate the spill/hazard.`;
+            }
+
+            const generatedWhys = [
+                `Why 1 (The Event): ${w1}`,
+                `Why 2 (Immediate Cause): ${w2}`,
+                `Why 3 (Contributing Factor): ${w3}`,
+                `Why 4 (Systemic Factor): ${w4}`,
+                `Why 5 (Root Cause): ${w5}`
+            ];
+
+            // --- 4. BUILD THE FAULT TREE ---
             const generatedFTA = {
-                id: 1, label: `Top Event: ${event.substring(0, 35)}...`, type: 'AND',
+                id: 1, label: `Top Event: ${hazardType.toUpperCase()}`, type: 'AND',
                 children: [
                     {
-                        id: 2, label: `Immediate: ${cause1.substring(0, 35)}...`, type: 'OR',
+                        id: 2, label: `Immediate: ${fishbone.machine[0] !== "No specific deviations identified in initial narrative" ? fishbone.machine[0] : "Control Failure"}`, type: 'OR',
                         children: [
-                            { id: 4, label: `Condition: ${fishbone.environment[0] !== "No specific factors identified in description." ? fishbone.environment[0].substring(0, 25) : (fishbone.machine[0] || 'Unknown')}`, type: 'EVENT' },
-                            { id: 5, label: `Action: ${fishbone.man[0] !== "No specific factors identified in description." ? fishbone.man[0].substring(0, 25) : (fishbone.method[0] || 'Unknown')}`, type: 'EVENT' }
+                            { id: 4, label: `Condition: ${fishbone.environment[0] !== "No specific deviations identified in initial narrative" ? "Adverse Environment" : "Hazard Present"}`, type: 'EVENT' },
+                            { id: 5, label: `Action: ${fishbone.man[0]}`, type: 'EVENT' }
                         ]
                     }
                 ]
             };
 
-            // 4. DYNAMIC CAPA SUGGESTIONS
-            let dynamicCapa = [];
-            if (fishbone.machine[0] && !fishbone.machine[0].includes("No specific")) {
-                dynamicCapa.push({ act: `Inspect and resolve issue: ${fishbone.machine[0]}`, siteId: data.siteId, own: '', due: '', status: 'Open' });
-            }
-            if (fishbone.method[0] && !fishbone.method[0].includes("No specific")) {
-                dynamicCapa.push({ act: `Review procedures regarding: ${fishbone.method[0]}`, siteId: data.siteId, own: '', due: '', status: 'Open' });
-            }
-            if (dynamicCapa.length === 0) {
-                dynamicCapa.push({ act: `Conduct full investigation into: ${event}`, siteId: data.siteId, own: '', due: '', status: 'Open' });
+            // --- 5. SUGGEST CAPAs ---
+            let dynamicCapa = [
+                { act: `Review and update specific Risk Assessment for task involving ${objectInvolved}`, siteId: data.siteId, own: '', due: '', status: 'Open' },
+                { act: `Conduct safety stand-down regarding ${hazardType} hazards`, siteId: data.siteId, own: '', due: '', status: 'Open' }
+            ];
+
+            if (/(broken|failed|leak)/.test(lower)) {
+                dynamicCapa.push({ act: `Audit preventative maintenance schedule for all ${objectInvolved}s`, siteId: data.siteId, own: '', due: '', status: 'Open' });
             }
 
-            // 5. UPDATE REACT STATE
+            // --- 6. UPDATE REACT STATE ---
             setData(prev => ({
                 ...prev,
                 investigation: {
                     ...prev.investigation,
-                    rootCause: cause3 !== "Investigate systemic management gaps" ? `The root cause stems from: ${cause3.toLowerCase()}` : `The root cause involves systemic issues leading to: ${cause1.toLowerCase()}`,
-                    fiveWhys: [{ id: Date.now(), name: 'Contextual Auto-Analysis', whys: generatedWhys }],
+                    rootCause: w5,
+                    fiveWhys: [{ id: Date.now(), name: 'Inference Engine Analysis', whys: generatedWhys }],
                     fishbone: fishbone,
                     faultTree: generatedFTA
                 },
@@ -620,7 +636,7 @@ export default function Incidents() {
             setIsAnalyzing(false);
             alert("Contextual RCA Matrix Generated! Move to Step 3 to review the Auto-Analysis.");
 
-        }, 1500);
+        }, 1200);
     };
 
 
@@ -979,6 +995,13 @@ export default function Incidents() {
                                             </label>
                                         )}
                                     </div>
+
+                                    <div className="flex justify-end gap-3 mt-8 pt-6 border-t border-slate-800">
+                                        <button type="button" onClick={() => setView('repo')} className="text-slate-400 hover:text-white px-5 py-2.5 rounded-xl transition-colors font-bold text-sm">Cancel</button>
+                                        {canEditForm && (
+                                            <button type="button" onClick={saveData} disabled={saving} className="bg-gradient-to-r from-red-600 to-orange-600 hover:from-red-500 hover:to-orange-500 text-white font-bold px-10 py-4 rounded-xl shadow-lg shadow-red-900/50 flex items-center gap-3 transition-transform active:scale-95 text-sm uppercase tracking-widest disabled:opacity-50"><i className={`fas ${saving ? 'fa-spinner fa-spin' : 'fa-save'} text-lg`}></i> {saving ? 'Saving...' : 'Save Draft'}</button>
+                                        )}
+                                    </div>
                                 </div>
                             )}
 
@@ -1042,6 +1065,13 @@ export default function Incidents() {
                                             <textarea className="w-full flex-1 bg-slate-900 border border-slate-700 p-5 rounded-xl text-white focus:border-teal-500 outline-none resize-none custom-scroll text-sm shadow-inner min-h-[300px]" value={data.consultationSummary} onChange={e => setData({ ...data, consultationSummary: e.target.value })} placeholder="Summarize the investigation details, witness statements, and initial findings here..." disabled={!canEditForm}></textarea>
                                         </div>
                                     </div>
+
+                                    <div className="flex justify-end gap-3 mt-8 pt-6 border-t border-slate-800">
+                                        <button type="button" onClick={() => setView('repo')} className="text-slate-400 hover:text-white px-5 py-2.5 rounded-xl transition-colors font-bold text-sm">Cancel</button>
+                                        {canEditForm && (
+                                            <button type="button" onClick={saveData} disabled={saving} className="bg-gradient-to-r from-red-600 to-orange-600 hover:from-red-500 hover:to-orange-500 text-white font-bold px-10 py-4 rounded-xl shadow-lg shadow-red-900/50 flex items-center gap-3 transition-transform active:scale-95 text-sm uppercase tracking-widest disabled:opacity-50"><i className={`fas ${saving ? 'fa-spinner fa-spin' : 'fa-save'} text-lg`}></i> {saving ? 'Saving...' : 'Save Draft'}</button>
+                                        )}
+                                    </div>
                                 </div>
                             )}
 
@@ -1101,6 +1131,13 @@ export default function Incidents() {
                                             <label className="text-xs font-bold text-emerald-400 uppercase tracking-widest mb-4 flex items-center"><i className="fas fa-bullseye mr-2"></i> Final Root Cause Conclusion</label>
                                             <textarea rows="4" value={data.investigation?.rootCause || ''} onChange={e => setData({ ...data, investigation: { ...(data.investigation || {}), rootCause: e.target.value } })} disabled={!canEditForm} className="w-full bg-emerald-900/10 border border-emerald-500/30 rounded-xl p-5 text-sm text-emerald-100 focus:border-emerald-500 outline-none resize-none shadow-inner" placeholder="State the conclusive root cause based on the analysis above..."></textarea>
                                         </div>
+                                    </div>
+
+                                    <div className="flex justify-end gap-3 mt-8 pt-6 border-t border-slate-800">
+                                        <button type="button" onClick={() => setView('repo')} className="text-slate-400 hover:text-white px-5 py-2.5 rounded-xl transition-colors font-bold text-sm">Cancel</button>
+                                        {canEditForm && (
+                                            <button type="button" onClick={saveData} disabled={saving} className="bg-gradient-to-r from-red-600 to-orange-600 hover:from-red-500 hover:to-orange-500 text-white font-bold px-10 py-4 rounded-xl shadow-lg shadow-red-900/50 flex items-center gap-3 transition-transform active:scale-95 text-sm uppercase tracking-widest disabled:opacity-50"><i className={`fas ${saving ? 'fa-spinner fa-spin' : 'fa-save'} text-lg`}></i> {saving ? 'Saving...' : 'Save Draft'}</button>
+                                        )}
                                     </div>
                                 </div>
                             )}
@@ -1179,6 +1216,13 @@ export default function Incidents() {
                                                 </tbody>
                                             </table>
                                         </div>
+                                    </div>
+
+                                    <div className="flex justify-end gap-3 mt-8 pt-6 border-t border-slate-800">
+                                        <button type="button" onClick={() => setView('repo')} className="text-slate-400 hover:text-white px-5 py-2.5 rounded-xl transition-colors font-bold text-sm">Cancel</button>
+                                        {canEditForm && (
+                                            <button type="button" onClick={saveData} disabled={saving} className="bg-gradient-to-r from-red-600 to-orange-600 hover:from-red-500 hover:to-orange-500 text-white font-bold px-10 py-4 rounded-xl shadow-lg shadow-red-900/50 flex items-center gap-3 transition-transform active:scale-95 text-sm uppercase tracking-widest disabled:opacity-50"><i className={`fas ${saving ? 'fa-spinner fa-spin' : 'fa-save'} text-lg`}></i> {saving ? 'Saving...' : 'Save Draft'}</button>
+                                        )}
                                     </div>
                                 </div>
                             )}
