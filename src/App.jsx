@@ -27,6 +27,7 @@ import PTW from './pages/ptw';
 import LOTO from './pages/LOTO';
 import Health from './pages/Health';
 import MockDrill from './pages/MockDrill';
+import EmergencyEquipment from './pages/EmergencyEquipment';
 
 // --- Global Security Interceptor ---
 // Prevents unauthorized users from typing URLs directly into the browser
@@ -98,6 +99,8 @@ export default function App() {
                 <Route path="/loto" element={<ProtectedRoute><LOTO /></ProtectedRoute>} />
                 <Route path="/health-dashboard" element={<ProtectedRoute><Health /></ProtectedRoute>} />
                 <Route path="/mock-drill" element={<ProtectedRoute><MockDrill /></ProtectedRoute>} />
+                <Route path="/emergency-equipment" element={<EmergencyEquipment />} />
+
 
                 {/* Fallback Route: Catch broken URLs and safely redirect to Login/Dashboard */}
                 <Route path="*" element={<Navigate to="/" replace />} />

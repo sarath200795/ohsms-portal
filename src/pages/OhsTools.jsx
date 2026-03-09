@@ -9,6 +9,7 @@ const OHS_MODULES = [
     // Changed id from 'procedures' to 'standards' to link to Standards.jsx
     { id: 'standards', label: 'Site Standards & SOPs', desc: 'Document Control & Versioning', icon: 'fa-book-open', color: 'text-indigo-400' },
     { id: 'stakeholders', label: 'Stakeholder Management', desc: 'Needs & Expectations Tracker', icon: 'fa-users-viewfinder', color: 'text-teal-400' },
+    // --- NEW: Emergency Equipment ---
     { id: 'emergency-equipment', label: 'Emergency Equipment', desc: 'Fire, First Aid & Life Safety', icon: 'fa-fire-extinguisher', color: 'text-orange-500' }
 ];
 
