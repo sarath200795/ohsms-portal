@@ -1208,6 +1208,7 @@ export default function Risk() {
                     {/* FORM VIEW */}
                     {view === 'form' && (
                         <div className="space-y-8 animate-in slide-in-from-bottom-8 duration-500 pb-20 max-w-7xl mx-auto">
+                            {/* Top Action Bar */}
                             <div className="flex justify-between items-center mb-2">
                                 <div>
                                     <h2 className="text-3xl font-bold text-white mb-1"><i className="fas fa-clipboard-list text-blue-500 mr-3"></i> {formData.firebaseKey ? 'Edit Risk Assessment' : 'New Risk Assessment'}</h2>
@@ -1329,6 +1330,17 @@ export default function Risk() {
                                     )}
                                 </div>
                             </div>
+
+                            {/* Bottom Action Bar */}
+                            <div className="flex justify-end gap-3 mt-8 pt-6 border-t border-slate-800">
+                                <button type="button" onClick={() => setView('list')} className="text-slate-400 hover:text-white px-5 py-2.5 rounded-xl transition-colors font-bold text-sm">Cancel</button>
+                                {canEditForm && (
+                                    <button type="button" onClick={processSave} disabled={saving} className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white px-8 py-2.5 rounded-xl font-bold text-sm shadow-lg shadow-blue-900/30 transition-transform active:scale-95 flex items-center gap-2">
+                                        {saving ? <i className="fas fa-spinner fa-spin"></i> : <i className="fas fa-save"></i>} Save Assessment
+                                    </button>
+                                )}
+                            </div>
+
                         </div>
                     )}
                 </div>
