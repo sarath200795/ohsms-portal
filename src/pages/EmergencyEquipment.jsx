@@ -6,6 +6,19 @@ import { rtdb } from '../config/firebase';
 const TYPES = ['Fire Extinguisher', 'First Aid Kit', 'AED / Defibrillator', 'Eye Wash Station', 'Spill Kit', 'Evacuation Chair'];
 const STATUSES = ['Active', 'Needs Inspection', 'Out of Service', 'Missing'];
 
+// --- IS 2190 COMPLIANCE DATABASE ---
+// Defines Refill and Hydrostatic Pressure Test (HPT) frequencies in Years
+const FIRE_EXT_TYPES = [
+    { name: 'Water (Stored Pressure)', refillYears: 3, hptYears: 3 },
+    { name: 'Water (Gas Cartridge)', refillYears: 1, hptYears: 3 },
+    { name: 'Mechanical Foam (Stored Pressure)', refillYears: 3, hptYears: 3 },
+    { name: 'Mechanical Foam (Gas Cartridge)', refillYears: 1, hptYears: 3 },
+    { name: 'ABC Powder / DCP (Stored Pressure)', refillYears: 3, hptYears: 3 },
+    { name: 'ABC Powder / DCP (Gas Cartridge)', refillYears: 1, hptYears: 3 },
+    { name: 'Carbon Dioxide (CO2)', refillYears: 5, hptYears: 5 },
+    { name: 'Clean Agent / Halotron', refillYears: 3, hptYears: 3 }
+];
+
 export default function EmergencyEquipment() {
     const navigate = useNavigate();
     const location = useLocation();
@@ -15,12 +28,14 @@ export default function EmergencyEquipment() {
     const [sites, setSites] = useState([]);
     const [loading, setLoading] = useState(true);
 
-    const [view, setView] = useState('list'); // 'list' | 'form' | 'inspect'
+    const [view, setView] = useState('list');
     const [siteFilter, setSiteFilter] = useState('All');
 
     const [formData, setFormData] = useState({
         id: '', siteId: '', type: 'Fire Extinguisher', location: '', serialNumber: '',
-        lastInspection: new Date().toISOString().split('T')[0], nextInspection: '', status: 'Active', notes: ''
+        lastInspection: new Date().toISOString().split('T')[0], nextInspection: '', status: 'Active', notes: '',
+        // IS 2190 Specific Fields
+        extinguisherType: '', lastRefillDate: '', lastHptDate: '', nextRefillDate: '', nextHptDate: ''
     });
 
     const [inspectData, setInspectData] = useState(null);
@@ -62,7 +77,35 @@ export default function EmergencyEquipment() {
         fetchData();
     }, [navigate, location, view]);
 
-    // 2. Permissions & Filtering
+    // 2. IS 2190 AUTO-CALCULATION ENGINE
+    useEffect(() => {
+        if (formData.type === 'Fire Extinguisher' && formData.extinguisherType) {
+            const extConfig = FIRE_EXT_TYPES.find(t => t.name === formData.extinguisherType);
+            let newRefill = formData.nextRefillDate;
+            let newHpt = formData.nextHptDate;
+
+            if (extConfig) {
+                if (formData.lastRefillDate) {
+                    const d = new Date(formData.lastRefillDate);
+                    d.setFullYear(d.getFullYear() + extConfig.refillYears);
+                    newRefill = d.toISOString().split('T')[0];
+                } else { newRefill = ''; }
+
+                if (formData.lastHptDate) {
+                    const d = new Date(formData.lastHptDate);
+                    d.setFullYear(d.getFullYear() + extConfig.hptYears);
+                    newHpt = d.toISOString().split('T')[0];
+                } else { newHpt = ''; }
+            }
+
+            if (newRefill !== formData.nextRefillDate || newHpt !== formData.nextHptDate) {
+                setFormData(prev => ({ ...prev, nextRefillDate: newRefill, nextHptDate: newHpt }));
+            }
+        }
+    }, [formData.type, formData.extinguisherType, formData.lastRefillDate, formData.lastHptDate, formData.nextRefillDate, formData.nextHptDate]);
+
+
+    // 3. Permissions & Filtering
     const isGlobalUser = ['Global Owner', 'Global Manager', 'Owner', 'Admin'].includes(session?.role);
     const canEdit = ['Global Owner', 'Global Manager', 'Owner', 'Admin', 'Site Owner', 'Site Manager', 'HSE Rep'].includes(session?.role);
 
@@ -83,14 +126,27 @@ export default function EmergencyEquipment() {
         let actionNeeded = 0;
 
         visibleEquipment.forEach(e => {
-            if (e.status === 'Out of Service' || e.status === 'Missing' || e.status === 'Needs Inspection') actionNeeded++;
-            else if (e.nextInspection && new Date(e.nextInspection) <= thirtyDaysFromNow) expiringSoon++;
+            if (e.status === 'Out of Service' || e.status === 'Missing' || e.status === 'Needs Inspection') {
+                actionNeeded++;
+            } else {
+                let isExpiring = false;
+                // Routine inspection due
+                if (e.nextInspection && new Date(e.nextInspection) <= thirtyDaysFromNow) isExpiring = true;
+
+                // IS 2190 Checks
+                if (e.type === 'Fire Extinguisher') {
+                    if (e.nextRefillDate && new Date(e.nextRefillDate) <= thirtyDaysFromNow) isExpiring = true;
+                    if (e.nextHptDate && new Date(e.nextHptDate) <= thirtyDaysFromNow) isExpiring = true;
+                }
+
+                if (isExpiring) expiringSoon++;
+            }
         });
 
         return { total, expiringSoon, actionNeeded };
     }, [visibleEquipment]);
 
-    // 3. Handlers
+    // 4. Handlers
     const handleSave = async () => {
         if (!formData.type || !formData.location || !formData.siteId) return alert("Type, Location, and Site are required.");
 
@@ -128,15 +184,38 @@ export default function EmergencyEquipment() {
         }
     };
 
-    const getStatusBadge = (status, nextDate) => {
-        if (status === 'Out of Service' || status === 'Missing') return <span className="bg-red-900/30 text-red-400 border border-red-500/30 px-2 py-1 rounded text-[10px] font-bold uppercase tracking-widest">{status}</span>;
+    const getStatusBadge = (e) => {
+        if (e.status === 'Out of Service' || e.status === 'Missing') return <span className="bg-red-900/30 text-red-400 border border-red-500/30 px-2 py-1 rounded text-[10px] font-bold uppercase tracking-widest block w-fit">{e.status}</span>;
 
-        if (nextDate) {
-            const daysLeft = Math.ceil((new Date(nextDate) - new Date()) / (1000 * 60 * 60 * 24));
-            if (daysLeft < 0) return <span className="bg-red-900/30 text-red-400 border border-red-500/30 px-2 py-1 rounded text-[10px] font-bold uppercase tracking-widest animate-pulse">EXPIRED</span>;
-            if (daysLeft <= 30) return <span className="bg-orange-900/30 text-orange-400 border border-orange-500/30 px-2 py-1 rounded text-[10px] font-bold uppercase tracking-widest">DUE IN {daysLeft}d</span>;
+        let badges = [];
+        const today = new Date();
+        const thirtyDays = new Date();
+        thirtyDays.setDate(thirtyDays.getDate() + 30);
+
+        // Routine Inspection
+        if (e.nextInspection) {
+            const inspDate = new Date(e.nextInspection);
+            if (inspDate < today) badges.push(<span key="insp-exp" className="bg-red-900/30 text-red-400 border border-red-500/30 px-2 py-1 rounded text-[9px] font-bold uppercase tracking-widest animate-pulse">INSP EXPIRED</span>);
+            else if (inspDate <= thirtyDays) badges.push(<span key="insp-due" className="bg-orange-900/30 text-orange-400 border border-orange-500/30 px-2 py-1 rounded text-[9px] font-bold uppercase tracking-widest">INSP DUE SOON</span>);
         }
-        return <span className="bg-emerald-900/30 text-emerald-400 border border-emerald-500/30 px-2 py-1 rounded text-[10px] font-bold uppercase tracking-widest">Active</span>;
+
+        // IS 2190 checks
+        if (e.type === 'Fire Extinguisher') {
+            if (e.nextRefillDate) {
+                const refillDate = new Date(e.nextRefillDate);
+                if (refillDate < today) badges.push(<span key="refill-exp" className="bg-red-900/30 text-red-400 border border-red-500/30 px-2 py-1 rounded text-[9px] font-bold uppercase tracking-widest animate-pulse">REFILL OVERDUE</span>);
+                else if (refillDate <= thirtyDays) badges.push(<span key="refill-due" className="bg-orange-900/30 text-orange-400 border border-orange-500/30 px-2 py-1 rounded text-[9px] font-bold uppercase tracking-widest">REFILL DUE SOON</span>);
+            }
+            if (e.nextHptDate) {
+                const hptDate = new Date(e.nextHptDate);
+                if (hptDate < today) badges.push(<span key="hpt-exp" className="bg-red-900/30 text-red-400 border border-red-500/30 px-2 py-1 rounded text-[9px] font-bold uppercase tracking-widest animate-pulse">HPT OVERDUE</span>);
+                else if (hptDate <= thirtyDays) badges.push(<span key="hpt-due" className="bg-orange-900/30 text-orange-400 border border-orange-500/30 px-2 py-1 rounded text-[9px] font-bold uppercase tracking-widest">HPT DUE SOON</span>);
+            }
+        }
+
+        if (badges.length > 0) return <div className="flex flex-col gap-1 items-start">{badges}</div>;
+
+        return <span className="bg-emerald-900/30 text-emerald-400 border border-emerald-500/30 px-2 py-1 rounded text-[10px] font-bold uppercase tracking-widest block w-fit">Active & Compliant</span>;
     };
 
     if (loading) return <div className="h-screen flex items-center justify-center bg-slate-950 text-slate-400 animate-pulse font-['Space_Grotesk'] tracking-widest text-xs uppercase"><div className="w-8 h-8 border-2 border-slate-800 border-t-orange-500 rounded-full animate-spin mr-3"></div> Loading Registry...</div>;
@@ -154,16 +233,16 @@ export default function EmergencyEquipment() {
                 </div>
             </header>
 
-            <main className="flex-1 overflow-y-auto p-8 custom-scroll relative z-10 w-full">
+            <main className="flex-1 overflow-y-auto p-4 md:p-8 custom-scroll relative z-10 w-full">
                 <div className="max-w-6xl mx-auto animate-in fade-in duration-500 space-y-6 pb-20">
 
                     {/* Top Metrics */}
                     {view === 'list' && (
                         <>
-                            <div className="flex justify-between items-end mb-2">
+                            <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4 mb-2">
                                 <div>
                                     <h2 className="text-2xl font-bold text-white flex items-center gap-3">Facility Registry</h2>
-                                    <p className="text-sm text-slate-400">Inspection tracking for life-safety apparatus.</p>
+                                    <p className="text-sm text-slate-400">Inspection & compliance tracking for life-safety apparatus.</p>
                                 </div>
                                 <div className="flex gap-4 items-center">
                                     <div className="bg-slate-900 border border-slate-700 p-1.5 rounded-xl shadow-inner flex items-center gap-2">
@@ -172,7 +251,7 @@ export default function EmergencyEquipment() {
                                             {sites.filter(s => isGlobalUser || s.code === session?.assignedSite || (session?.accessibleSites || []).includes(s.code)).map(s => <option key={s.code} value={s.code}>{s.name}</option>)}
                                         </select>
                                     </div>
-                                    {canEdit && <button onClick={() => { setFormData({ id: '', siteId: siteFilter === 'All' ? '' : siteFilter, type: 'Fire Extinguisher', location: '', serialNumber: '', lastInspection: new Date().toISOString().split('T')[0], nextInspection: '', status: 'Active', notes: '' }); setView('form'); }} className="bg-gradient-to-tr from-orange-600 to-red-500 hover:from-orange-500 hover:to-red-400 text-white px-5 py-2.5 rounded-xl font-bold text-sm shadow-lg flex items-center gap-2 transition-transform active:scale-95"><i className="fas fa-plus"></i> Add Equipment</button>}
+                                    {canEdit && <button onClick={() => { setFormData({ id: '', siteId: siteFilter === 'All' ? '' : siteFilter, type: 'Fire Extinguisher', location: '', serialNumber: '', lastInspection: new Date().toISOString().split('T')[0], nextInspection: '', status: 'Active', notes: '', extinguisherType: '', lastRefillDate: '', lastHptDate: '', nextRefillDate: '', nextHptDate: '' }); setView('form'); }} className="bg-gradient-to-tr from-orange-600 to-red-500 hover:from-orange-500 hover:to-red-400 text-white px-5 py-2.5 rounded-xl font-bold text-sm shadow-lg flex items-center gap-2 transition-transform active:scale-95 whitespace-nowrap"><i className="fas fa-plus"></i> Add Equipment</button>}
                                 </div>
                             </div>
 
@@ -191,10 +270,10 @@ export default function EmergencyEquipment() {
                                 </div>
                             </div>
 
-                            <div className="bg-slate-900/50 rounded-2xl border border-slate-700 overflow-hidden shadow-xl">
-                                <table className="w-full text-left text-sm">
+                            <div className="bg-slate-900/50 rounded-2xl border border-slate-700 overflow-x-auto shadow-xl">
+                                <table className="w-full text-left text-sm min-w-[800px]">
                                     <thead className="bg-slate-950 border-b border-slate-800 text-[10px] uppercase tracking-widest font-bold text-slate-500">
-                                        <tr><th className="p-4 pl-6">Equipment & Site</th><th className="p-4">Location</th><th className="p-4">Last Checked</th><th className="p-4">Status / Next Due</th><th className="p-4 pr-6 text-right">Actions</th></tr>
+                                        <tr><th className="p-4 pl-6">Equipment & Site</th><th className="p-4">Location</th><th className="p-4">Last Checked</th><th className="p-4">Compliance Status</th><th className="p-4 pr-6 text-right">Actions</th></tr>
                                     </thead>
                                     <tbody className="divide-y divide-slate-800/50 text-slate-300">
                                         {visibleEquipment.map(e => (
@@ -210,10 +289,11 @@ export default function EmergencyEquipment() {
                                                         {e.type}
                                                     </div>
                                                     <div className="text-[10px] text-slate-500 mt-0.5">ID: {e.serialNumber || 'N/A'} | Site: <span className="font-bold text-blue-400">{e.siteId}</span></div>
+                                                    {e.type === 'Fire Extinguisher' && e.extinguisherType && <div className="text-[9px] text-orange-400/80 uppercase font-mono mt-1">{e.extinguisherType}</div>}
                                                 </td>
                                                 <td className="p-4 font-bold text-slate-400">{e.location}</td>
                                                 <td className="p-4 font-mono text-xs">{e.lastInspection || 'Unknown'}</td>
-                                                <td className="p-4">{getStatusBadge(e.status, e.nextInspection)}</td>
+                                                <td className="p-4 align-top py-4">{getStatusBadge(e)}</td>
                                                 <td className="p-4 pr-6 text-right">
                                                     {canEdit && (
                                                         <div className="flex justify-end gap-2">
@@ -234,28 +314,64 @@ export default function EmergencyEquipment() {
 
                     {/* Registration Form */}
                     {view === 'form' && (
-                        <div className="max-w-3xl mx-auto bg-slate-900/80 p-8 rounded-3xl border border-slate-700 shadow-2xl">
+                        <div className="max-w-4xl mx-auto bg-slate-900/80 p-6 md:p-8 rounded-3xl border border-slate-700 shadow-2xl animate-in slide-in-from-bottom-8 duration-300">
                             <div className="flex justify-between items-center mb-8 border-b border-slate-800 pb-4">
                                 <h3 className="text-xl font-bold text-white"><i className="fas fa-clipboard-list text-orange-500 mr-2"></i> {formData.firebaseKey ? 'Edit Equipment' : 'Register New Equipment'}</h3>
                                 <button onClick={() => setView('list')} className="text-slate-500 hover:text-white"><i className="fas fa-times text-xl"></i></button>
                             </div>
 
-                            <div className="grid grid-cols-2 gap-6 mb-6">
-                                <div>
-                                    <label className="text-[10px] uppercase font-bold text-slate-400 block mb-2">Equipment Type</label>
-                                    <select value={formData.type} onChange={e => setFormData({ ...formData, type: e.target.value })} className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-white outline-none focus:border-orange-500">
-                                        {TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-                                    </select>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                                <div className="md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-6 border-b border-slate-800 pb-6">
+                                    <div>
+                                        <label className="text-[10px] uppercase font-bold text-slate-400 block mb-2">Equipment Type</label>
+                                        <select value={formData.type} onChange={e => setFormData({ ...formData, type: e.target.value })} className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-white outline-none focus:border-orange-500">
+                                            {TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="text-[10px] uppercase font-bold text-slate-400 block mb-2">Site Allocation</label>
+                                        <select value={formData.siteId} onChange={e => setFormData({ ...formData, siteId: e.target.value })} className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-white outline-none focus:border-orange-500">
+                                            <option value="">Select Site...</option>
+                                            {sites.filter(s => isGlobalUser || s.code === session?.assignedSite || (session?.accessibleSites || []).includes(s.code)).map(s => <option key={s.code} value={s.code}>{s.name}</option>)}
+                                        </select>
+                                    </div>
                                 </div>
-                                <div>
-                                    <label className="text-[10px] uppercase font-bold text-slate-400 block mb-2">Site</label>
-                                    <select value={formData.siteId} onChange={e => setFormData({ ...formData, siteId: e.target.value })} className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-white outline-none focus:border-orange-500">
-                                        <option value="">Select Site...</option>
-                                        {sites.filter(s => isGlobalUser || s.code === session?.assignedSite || (session?.accessibleSites || []).includes(s.code)).map(s => <option key={s.code} value={s.code}>{s.name}</option>)}
-                                    </select>
-                                </div>
-                                <div className="col-span-2">
-                                    <label className="text-[10px] uppercase font-bold text-slate-400 block mb-2">Exact Location</label>
+
+                                {/* --- IS 2190 FIRE EXTINGUISHER SPECIFIC BLOCK --- */}
+                                {formData.type === 'Fire Extinguisher' && (
+                                    <div className="md:col-span-2 bg-red-950/20 p-6 rounded-2xl border border-red-500/30 mb-2 space-y-4 shadow-inner">
+                                        <div className="flex items-center gap-3 mb-2">
+                                            <div className="w-8 h-8 rounded-full bg-red-600 text-white flex items-center justify-center shadow-lg"><i className="fas fa-fire-extinguisher"></i></div>
+                                            <div>
+                                                <h4 className="text-sm font-bold text-red-400 uppercase tracking-widest">IS 2190:2010 Compliance Engine</h4>
+                                                <p className="text-[10px] text-red-300/70">Select the specific type to auto-calculate mandatory Refill & HPT intervals.</p>
+                                            </div>
+                                        </div>
+
+                                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                                            <div>
+                                                <label className="text-[10px] uppercase font-bold text-slate-300 block mb-2">Extinguisher Classification</label>
+                                                <select value={formData.extinguisherType || ''} onChange={e => setFormData({ ...formData, extinguisherType: e.target.value })} className="w-full bg-slate-950 border border-red-900/50 rounded-xl p-3 text-white outline-none focus:border-red-500 text-xs">
+                                                    <option value="">Select specific type...</option>
+                                                    {FIRE_EXT_TYPES.map(t => <option key={t.name} value={t.name}>{t.name}</option>)}
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <label className="text-[10px] uppercase font-bold text-slate-300 block mb-2">Date of Last Refill</label>
+                                                <input type="date" value={formData.lastRefillDate || ''} onChange={e => setFormData({ ...formData, lastRefillDate: e.target.value })} disabled={!formData.extinguisherType} className="w-full bg-slate-950 border border-red-900/50 rounded-xl p-3 text-white outline-none focus:border-red-500 font-mono text-xs disabled:opacity-50" />
+                                                {formData.nextRefillDate && <p className="text-[9px] text-orange-400 mt-1.5 font-bold uppercase tracking-widest"><i className="fas fa-magic mr-1"></i> Next Due: {formData.nextRefillDate}</p>}
+                                            </div>
+                                            <div>
+                                                <label className="text-[10px] uppercase font-bold text-slate-300 block mb-2">Date of Last HPT (Hydro-Test)</label>
+                                                <input type="date" value={formData.lastHptDate || ''} onChange={e => setFormData({ ...formData, lastHptDate: e.target.value })} disabled={!formData.extinguisherType} className="w-full bg-slate-950 border border-red-900/50 rounded-xl p-3 text-white outline-none focus:border-red-500 font-mono text-xs disabled:opacity-50" />
+                                                {formData.nextHptDate && <p className="text-[9px] text-orange-400 mt-1.5 font-bold uppercase tracking-widest"><i className="fas fa-magic mr-1"></i> Next Due: {formData.nextHptDate}</p>}
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+
+                                <div className="md:col-span-2">
+                                    <label className="text-[10px] uppercase font-bold text-slate-400 block mb-2">Exact Location on Site</label>
                                     <input value={formData.location} onChange={e => setFormData({ ...formData, location: e.target.value })} placeholder="e.g. Ground Floor Kitchen, Next to Exit A" className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-white outline-none focus:border-orange-500" />
                                 </div>
                                 <div>
@@ -263,20 +379,26 @@ export default function EmergencyEquipment() {
                                     <input value={formData.serialNumber} onChange={e => setFormData({ ...formData, serialNumber: e.target.value })} placeholder="e.g. FE-1042" className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-white outline-none focus:border-orange-500" />
                                 </div>
                                 <div>
-                                    <label className="text-[10px] uppercase font-bold text-slate-400 block mb-2">Current Status</label>
-                                    <select value={formData.status} onChange={e => setFormData({ ...formData, status: e.target.value })} className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-white outline-none focus:border-orange-500">
+                                    <label className="text-[10px] uppercase font-bold text-slate-400 block mb-2">Current Overall Status</label>
+                                    <select value={formData.status} onChange={e => setFormData({ ...formData, status: e.target.value })} className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-white outline-none focus:border-orange-500 font-bold">
                                         {STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
                                     </select>
                                 </div>
-                                <div>
-                                    <label className="text-[10px] uppercase font-bold text-slate-400 block mb-2">Date of Last Inspection</label>
-                                    <input type="date" value={formData.lastInspection} onChange={e => setFormData({ ...formData, lastInspection: e.target.value })} className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-white outline-none focus:border-orange-500 font-mono" />
+
+                                {/* Routine Inspection Details */}
+                                <div className="md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-6 bg-slate-950/30 p-5 rounded-2xl border border-slate-800">
+                                    <div className="md:col-span-2 text-xs font-bold text-blue-400 uppercase tracking-widest border-b border-slate-800 pb-2"><i className="fas fa-search mr-2"></i> Routine Visual Inspection</div>
+                                    <div>
+                                        <label className="text-[10px] uppercase font-bold text-slate-400 block mb-2">Date of Last Inspection</label>
+                                        <input type="date" value={formData.lastInspection} onChange={e => setFormData({ ...formData, lastInspection: e.target.value })} className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-white outline-none focus:border-blue-500 font-mono" />
+                                    </div>
+                                    <div>
+                                        <label className="text-[10px] uppercase font-bold text-slate-400 block mb-2">Next Inspection Due Date</label>
+                                        <input type="date" value={formData.nextInspection} onChange={e => setFormData({ ...formData, nextInspection: e.target.value })} className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-white outline-none focus:border-blue-500 font-mono" />
+                                    </div>
                                 </div>
-                                <div>
-                                    <label className="text-[10px] uppercase font-bold text-slate-400 block mb-2">Next Inspection Due Date</label>
-                                    <input type="date" value={formData.nextInspection} onChange={e => setFormData({ ...formData, nextInspection: e.target.value })} className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-white outline-none focus:border-orange-500 font-mono" />
-                                </div>
-                                <div className="col-span-2">
+
+                                <div className="md:col-span-2">
                                     <label className="text-[10px] uppercase font-bold text-slate-400 block mb-2">Additional Notes</label>
                                     <textarea rows="2" value={formData.notes} onChange={e => setFormData({ ...formData, notes: e.target.value })} placeholder="Any specific details..." className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-white outline-none focus:border-orange-500 resize-none"></textarea>
                                 </div>
@@ -292,7 +414,7 @@ export default function EmergencyEquipment() {
                     {/* Quick Inspection Form */}
                     {view === 'inspect' && inspectData && (
                         <div className="max-w-xl mx-auto bg-slate-900/80 p-8 rounded-3xl border border-emerald-500/30 shadow-2xl animate-in zoom-in-95 duration-300">
-                            <h3 className="text-2xl font-bold text-emerald-400 mb-2 text-center"><i className="fas fa-clipboard-check mr-2"></i> Log Inspection</h3>
+                            <h3 className="text-2xl font-bold text-emerald-400 mb-2 text-center"><i className="fas fa-clipboard-check mr-2"></i> Log Routine Inspection</h3>
                             <p className="text-center text-slate-400 text-sm mb-8 font-bold">{inspectData.type} @ {inspectData.location}</p>
 
                             <div className="space-y-6 mb-8">
@@ -307,7 +429,7 @@ export default function EmergencyEquipment() {
                                     </select>
                                 </div>
                                 <div>
-                                    <label className="text-[10px] uppercase font-bold text-emerald-400 block mb-2">Next Due Date (Crucial)</label>
+                                    <label className="text-[10px] uppercase font-bold text-emerald-400 block mb-2">Next Routine Due Date</label>
                                     <input type="date" value={inspectData.nextDate} onChange={e => setInspectData({ ...inspectData, nextDate: e.target.value })} className="w-full bg-emerald-950/20 border border-emerald-500/50 rounded-xl p-4 text-emerald-300 outline-none focus:border-emerald-400 font-mono font-bold" />
                                 </div>
                                 <div>
