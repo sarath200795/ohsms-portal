@@ -6,7 +6,7 @@ import { rtdb } from '../config/firebase';
 const FREQUENCIES = ['Daily', 'Weekly', 'Monthly', 'Quarterly', 'Bi-Annually', 'Annually'];
 const STATUSES = ['Draft', 'Active', 'Inactive'];
 
-// --- SUB-COMPONENTS (FIXED: Added missing UserSelect to prevent CAPA crash) ---
+// --- SUB-COMPONENTS ---
 const UserSelect = ({ users, value, onChange, disabled, placeholder }) => (
     <select value={value} onChange={e => onChange(e.target.value)} disabled={disabled} className="w-full bg-slate-900 border border-slate-700 p-2.5 rounded-lg text-white text-xs outline-none focus:border-blue-500">
         <option value="">{placeholder || 'Select User...'}</option>
@@ -38,7 +38,7 @@ export default function Inspections() {
 
     const [session, setSession] = useState(null);
     const [loading, setLoading] = useState(true);
-    const [view, setView] = useState('calendar'); // 'calendar' | 'templates' | 'builder' | 'execute' | 'history'
+    const [view, setView] = useState('calendar');
 
     const [templates, setTemplates] = useState([]);
     const [records, setRecords] = useState([]);
@@ -46,8 +46,10 @@ export default function Inspections() {
     const [users, setUsers] = useState([]);
     const [siteFilter, setSiteFilter] = useState('All');
 
-    // Calendar State
+    // Calendar & Deferral State
     const [currentMonth, setCurrentMonth] = useState(new Date());
+    const [deferTask, setDeferTask] = useState(null);
+    const [deferDate, setDeferDate] = useState('');
 
     // Builder State
     const [editTemplate, setEditTemplate] = useState(null);
@@ -95,14 +97,26 @@ export default function Inspections() {
             const lastRecord = pastRecords[0];
 
             const nextDue = calculateNextDueDate(lastRecord?.completedAt, t.frequency, t.createdAt);
+            const originalDueString = nextDue.toISOString().split('T')[0];
+
+            let activeDueString = originalDueString;
+            let isDeferred = false;
+
+            // If a deferral exists for THIS specific cycle, apply it
+            if (t.deferredTo && t.deferredTo > (lastRecord?.completedAt?.split('T')[0] || '1970-01-01')) {
+                activeDueString = t.deferredTo;
+                isDeferred = true;
+            }
 
             tasks.push({
                 templateId: t.firebaseKey,
                 title: t.title,
                 siteId: t.siteId,
                 frequency: t.frequency,
-                dueDate: nextDue,
-                dueString: nextDue.toISOString().split('T')[0],
+                dueDate: new Date(activeDueString),
+                dueString: activeDueString,
+                originalDueString: originalDueString,
+                isDeferred: isDeferred,
                 lastCompleted: lastRecord ? lastRecord.completedAt : 'Never',
                 template: t
             });
@@ -132,7 +146,7 @@ export default function Inspections() {
                             const isOverdue = new Date(t.dueString) < new Date(new Date().toISOString().split('T')[0]);
                             return (
                                 <div key={idx} onClick={() => startInspection(t)} className={`text-[9px] p-1.5 rounded cursor-pointer truncate font-bold shadow-sm transition-transform hover:scale-105 ${isOverdue ? 'bg-red-500 text-white' : 'bg-lime-500 text-slate-950'}`} title={t.title}>
-                                    {t.title}
+                                    {t.title} {t.isDeferred && ' (Def)'}
                                 </div>
                             );
                         })}
@@ -142,6 +156,21 @@ export default function Inspections() {
         }
         return days;
     };
+
+    // --- DEFERRAL HANDLER ---
+    const handleDefer = async () => {
+        if (!deferDate) return alert("Please select a date to defer to.");
+        try {
+            await update(ref(rtdb, `organizations/${session.orgId}/inspectionTemplates/${deferTask.templateId}`), {
+                deferredTo: deferDate
+            });
+            setDeferTask(null);
+            setDeferDate('');
+        } catch (e) {
+            alert("Failed to defer inspection: " + e.message);
+        }
+    };
+
 
     // --- TEMPLATE BUILDER & MANAGEMENT HANDLERS ---
     const saveTemplate = async () => {
@@ -158,7 +187,7 @@ export default function Inspections() {
                 await push(ref(rtdb, `organizations/${session.orgId}/inspectionTemplates`), payload);
             }
             alert("Inspection Form Saved Successfully!");
-            setView('templates'); // Redirect to Template Manager View
+            setView('templates');
         } catch (e) { alert("Save failed: " + e.message); }
     };
 
@@ -197,36 +226,48 @@ export default function Inspections() {
         try {
             const completedAt = new Date().toISOString();
 
+            // Extract Observations to create CAPAs
             const generatedCapas = [];
             executingTask.template.fields.forEach(f => {
                 const response = inspectionForm[f.id];
                 if (response.raiseCapa && response.observation) {
+                    const actionText = `[Inspection: ${executingTask.title}] ${f.label} - ${response.observation}`;
                     generatedCapas.push({
-                        act: `[Inspection: ${executingTask.title}] ${f.label} - ${response.observation}`,
+                        act: actionText, action: actionText, desc: actionText,
                         siteId: executingTask.siteId,
-                        own: response.capaOwner || 'Unassigned',
+                        own: response.capaOwner || 'Unassigned', owner: response.capaOwner || 'Unassigned',
                         due: response.capaDue || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+                        dueDate: response.capaDue || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
                         status: 'Open',
-                        source: 'Inspection'
+                        source: 'Inspection Form',
+                        module: 'Inspections',
+                        date: new Date().toISOString().split('T')[0]
                     });
                 }
             });
 
+            // Save Record
             const recordPayload = {
                 templateId: executingTask.templateId,
                 templateTitle: executingTask.title,
                 siteId: executingTask.siteId,
                 inspector: session.name,
                 completedAt: completedAt,
-                responses: inspectionForm
+                responses: inspectionForm,
+                capa: generatedCapas
             };
-            await push(ref(rtdb, `organizations/${session.orgId}/inspectionRecords`), recordPayload);
 
+            const newRecordRef = push(ref(rtdb, `organizations/${session.orgId}/inspectionRecords`));
+            await update(newRecordRef, recordPayload);
+
+            // IMPORTANT: Clear any deferrals so the next cycle resets to normal
+            await update(ref(rtdb, `organizations/${session.orgId}/inspectionTemplates/${executingTask.templateId}`), { deferredTo: null });
+
+            // Save to CAPA Manager
             if (generatedCapas.length > 0) {
-                // Assuming standaloneCapas or standard CAPA processing exists
-                const capaPromises = generatedCapas.map(c => push(ref(rtdb, `organizations/${session.orgId}/capaRegister`), c));
+                const capaPromises = generatedCapas.map(c => push(ref(rtdb, `organizations/${session.orgId}/capas`), { ...c, parentId: newRecordRef.key }));
                 await Promise.all(capaPromises);
-                alert(`Inspection Completed! ${generatedCapas.length} Corrective Actions (CAPAs) were automatically generated.`);
+                alert(`Inspection Completed! ${generatedCapas.length} Corrective Actions (CAPAs) were pushed to the register.`);
             } else {
                 alert("Inspection Completed Successfully!");
             }
@@ -298,15 +339,26 @@ export default function Inspections() {
                                 <div className="bg-slate-900/50 rounded-2xl border border-red-500/30 p-6 shadow-lg">
                                     <h3 className="text-red-400 font-bold uppercase tracking-widest text-xs mb-4 flex items-center gap-2"><i className="fas fa-exclamation-circle"></i> Overdue / Action Required</h3>
                                     <div className="space-y-2">
-                                        {scheduledTasks.filter(t => new Date(t.dueString) < new Date(new Date().toISOString().split('T')[0])).map((t, i) => (
-                                            <div key={i} className="flex justify-between items-center bg-red-950/20 border border-red-900/50 p-3 rounded-xl">
-                                                <div>
-                                                    <div className="font-bold text-slate-200 text-sm">{t.title}</div>
-                                                    <div className="text-[10px] text-red-400">Due: {t.dueString} • Site: {t.siteId}</div>
+                                        {scheduledTasks.filter(t => new Date(t.dueString) < new Date(new Date().toISOString().split('T')[0])).map((t, i) => {
+                                            // Check if it can be deferred (Max 7 days from original due date)
+                                            const orig = new Date(t.originalDueString);
+                                            orig.setDate(orig.getDate() + 7);
+                                            const today = new Date(new Date().toISOString().split('T')[0]);
+                                            const canDefer = orig >= today && canEdit;
+
+                                            return (
+                                                <div key={i} className="flex justify-between items-center bg-red-950/20 border border-red-900/50 p-3 rounded-xl">
+                                                    <div>
+                                                        <div className="font-bold text-slate-200 text-sm">{t.title} {t.isDeferred && <span className="text-[9px] bg-red-900 text-red-300 px-1.5 py-0.5 rounded ml-2">DEFERRED</span>}</div>
+                                                        <div className="text-[10px] text-red-400">Due: {t.dueString} • Site: {t.siteId}</div>
+                                                    </div>
+                                                    <div className="flex gap-2">
+                                                        {canDefer && <button onClick={() => setDeferTask(t)} className="bg-slate-800 hover:bg-slate-700 border border-slate-600 text-slate-300 px-3 py-1.5 rounded-lg text-xs font-bold transition">Defer</button>}
+                                                        <button onClick={() => startInspection(t)} className="bg-red-600 hover:bg-red-500 text-white px-4 py-1.5 rounded-lg text-xs font-bold transition">Start</button>
+                                                    </div>
                                                 </div>
-                                                <button onClick={() => startInspection(t)} className="bg-red-600 hover:bg-red-500 text-white px-4 py-2 rounded-lg text-xs font-bold transition">Start</button>
-                                            </div>
-                                        ))}
+                                            )
+                                        })}
                                         {scheduledTasks.filter(t => new Date(t.dueString) < new Date(new Date().toISOString().split('T')[0])).length === 0 && <p className="text-slate-500 text-xs italic">No overdue inspections.</p>}
                                     </div>
                                 </div>
@@ -321,13 +373,43 @@ export default function Inspections() {
                                         }).map((t, i) => (
                                             <div key={i} className="flex justify-between items-center bg-lime-950/20 border border-lime-900/50 p-3 rounded-xl">
                                                 <div>
-                                                    <div className="font-bold text-slate-200 text-sm">{t.title}</div>
+                                                    <div className="font-bold text-slate-200 text-sm">{t.title} {t.isDeferred && <span className="text-[9px] bg-lime-900 text-lime-300 px-1.5 py-0.5 rounded ml-2">DEFERRED</span>}</div>
                                                     <div className="text-[10px] text-lime-400">Due: {t.dueString} • Site: {t.siteId}</div>
                                                 </div>
                                                 <button onClick={() => startInspection(t)} className="bg-lime-600 hover:bg-lime-500 text-slate-950 px-4 py-2 rounded-lg text-xs font-bold transition">Start Early</button>
                                             </div>
                                         ))}
                                     </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* --- DEFERRAL MODAL --- */}
+                    {deferTask && (
+                        <div className="fixed inset-0 bg-slate-950/80 z-[100] flex items-center justify-center p-4 backdrop-blur-md animate-in fade-in zoom-in-95 duration-200">
+                            <div className="bg-slate-900 border border-slate-700 p-8 rounded-3xl shadow-2xl w-full max-w-sm relative">
+                                <button onClick={() => { setDeferTask(null); setDeferDate(''); }} className="absolute top-4 right-4 text-slate-500 hover:text-white"><i className="fas fa-times"></i></button>
+                                <h3 className="text-xl font-bold text-white mb-2"><i className="fas fa-calendar-plus text-orange-400 mr-2"></i> Defer Inspection</h3>
+                                <p className="text-xs text-slate-400 mb-6 leading-relaxed">You can postpone <strong className="text-white">{deferTask.title}</strong> by a maximum of 7 days from its original due date (<span className="font-mono text-orange-400">{deferTask.originalDueString}</span>).</p>
+
+                                <label className="text-[10px] uppercase font-bold text-slate-500 block mb-2">New Target Date</label>
+                                <input
+                                    type="date"
+                                    value={deferDate}
+                                    onChange={e => setDeferDate(e.target.value)}
+                                    min={new Date().toISOString().split('T')[0]} // Cannot defer to the past
+                                    max={(() => {
+                                        const d = new Date(deferTask.originalDueString);
+                                        d.setDate(d.getDate() + 7);
+                                        return d.toISOString().split('T')[0];
+                                    })()}
+                                    className="w-full bg-slate-950 border border-slate-700 rounded-xl p-4 text-white outline-none focus:border-orange-500 font-mono mb-8 font-bold"
+                                />
+
+                                <div className="flex gap-3">
+                                    <button onClick={() => { setDeferTask(null); setDeferDate(''); }} className="flex-1 py-3 rounded-xl font-bold bg-slate-800 text-white hover:bg-slate-700 transition text-xs uppercase tracking-widest">Cancel</button>
+                                    <button onClick={handleDefer} className="flex-1 py-3 rounded-xl font-bold bg-orange-600 text-white shadow-lg shadow-orange-600/20 hover:bg-orange-500 transition text-xs uppercase tracking-widest">Confirm</button>
                                 </div>
                             </div>
                         </div>
@@ -497,6 +579,7 @@ export default function Inspections() {
                                                     <span className="text-xs font-bold text-white">Raise Corrective Action (CAPA)</span>
                                                 </label>
 
+                                                {/* ADDED USER SELECT HERE SO IT DOESN'T CRASH */}
                                                 {inspectionForm[f.id]?.raiseCapa && (
                                                     <div className="flex gap-4 p-3 bg-slate-900 rounded-lg border border-slate-700">
                                                         <div className="flex-1">
@@ -505,7 +588,7 @@ export default function Inspections() {
                                                         </div>
                                                         <div className="w-1/3">
                                                             <label className="text-[9px] uppercase font-bold text-slate-500 block mb-1">Due Date</label>
-                                                            <input type="date" value={inspectionForm[f.id]?.capaDue || ''} onChange={e => setInspectionForm({ ...inspectionForm, [f.id]: { ...inspectionForm[f.id], capaDue: e.target.value } })} className="w-full bg-slate-950 border border-slate-700 rounded p-2 text-xs text-white outline-none focus:border-orange-500 font-mono" />
+                                                            <input type="date" value={inspectionForm[f.id]?.capaDue || ''} onChange={e => setInspectionForm({ ...inspectionForm, [f.id]: { ...inspectionForm[f.id], capaDue: e.target.value } })} className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-xs text-white outline-none focus:border-orange-500 font-mono" />
                                                         </div>
                                                     </div>
                                                 )}
