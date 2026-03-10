@@ -3,9 +3,9 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { ref, get, push, update, remove } from 'firebase/database';
 import { rtdb } from '../config/firebase';
 import { QRCodeSVG } from 'qrcode.react';
-import * as XLSX from 'xlsx'; // Used for reading the uploaded file
-import ExcelJS from 'exceljs'; // NEW: Used for generating the template with dropdowns
-import { saveAs } from 'file-saver'; // NEW: Used to download the ExcelJS file
+import * as XLSX from 'xlsx';
+import ExcelJS from 'exceljs';
+import { saveAs } from 'file-saver';
 
 const TYPES = ['Fire Extinguisher', 'First Aid Kit', 'AED / Defibrillator', 'Eye Wash Station', 'Spill Kit', 'Evacuation Chair'];
 const STATUSES = ['Active', 'Needs Inspection', 'Out of Service', 'Missing'];
@@ -32,7 +32,11 @@ export default function EmergencyEquipment() {
     const [importing, setImporting] = useState(false);
 
     const [view, setView] = useState('list');
+
+    // --- ADVANCED FILTERS ---
     const [siteFilter, setSiteFilter] = useState('All');
+    const [typeFilter, setTypeFilter] = useState('All');
+    const [complianceFilter, setComplianceFilter] = useState('All');
 
     const [formData, setFormData] = useState({
         firebaseKey: null, assetId: '', siteId: '', type: 'Fire Extinguisher', location: '',
@@ -43,7 +47,6 @@ export default function EmergencyEquipment() {
     const [inspectData, setInspectData] = useState(null);
     const [printTagData, setPrintTagData] = useState(null);
 
-    // 1. Fetch Session & Data on Load
     useEffect(() => {
         const s = sessionStorage.getItem('isoSession');
         if (!s) { navigate('/'); return; }
@@ -97,7 +100,6 @@ export default function EmergencyEquipment() {
         fetchData();
     }, [navigate, location, view]);
 
-    // 2. IS 2190 AUTO-CALCULATION ENGINE
     useEffect(() => {
         if (formData.type === 'Fire Extinguisher' && formData.extinguisherType) {
             const extConfig = FIRE_EXT_TYPES.find(t => t.name === formData.extinguisherType);
@@ -124,28 +126,68 @@ export default function EmergencyEquipment() {
         }
     }, [formData.type, formData.extinguisherType, formData.lastRefillDate, formData.lastHptDate, formData.nextRefillDate, formData.nextHptDate]);
 
-    // 3. Permissions & Filtering
     const isGlobalUser = ['Global Owner', 'Global Manager', 'Owner', 'Admin'].includes(session?.role);
     const canEdit = ['Global Owner', 'Global Manager', 'Owner', 'Admin', 'Site Owner', 'Site Manager', 'HSE Rep'].includes(session?.role);
 
+    // --- FILTER ENGINE ---
     const visibleEquipment = useMemo(() => {
+        const today = new Date();
+        const todayStr = today.toISOString().split('T')[0];
+        const thirtyDays = new Date();
+        thirtyDays.setDate(today.getDate() + 30);
+        const thirtyDaysStr = thirtyDays.toISOString().split('T')[0];
+
         return equipment.filter(e => {
+            // 1. Site Filter
             if (!isGlobalUser && session?.assignedSite !== 'GLOBAL' && e.siteId !== session?.assignedSite && !(session?.accessibleSites || []).includes(e.siteId)) return false;
             if (siteFilter !== 'All' && e.siteId !== siteFilter) return false;
+
+            // 2. Type Filter
+            if (typeFilter !== 'All' && e.type !== typeFilter) return false;
+
+            // 3. Compliance Flag Filter
+            if (complianceFilter !== 'All') {
+                if (complianceFilter === 'Insp Overdue') {
+                    if (!e.nextInspection || e.nextInspection >= todayStr) return false;
+                }
+                else if (complianceFilter === 'Refill Overdue') {
+                    if (e.type !== 'Fire Extinguisher' || !e.nextRefillDate || e.nextRefillDate >= todayStr) return false;
+                }
+                else if (complianceFilter === 'HPT Overdue') {
+                    if (e.type !== 'Fire Extinguisher' || !e.nextHptDate || e.nextHptDate >= todayStr) return false;
+                }
+                else if (complianceFilter === 'Refill < 30 Days') {
+                    if (e.type !== 'Fire Extinguisher' || !e.nextRefillDate || e.nextRefillDate < todayStr || e.nextRefillDate > thirtyDaysStr) return false;
+                }
+                else if (complianceFilter === 'HPT < 30 Days') {
+                    if (e.type !== 'Fire Extinguisher' || !e.nextHptDate || e.nextHptDate < todayStr || e.nextHptDate > thirtyDaysStr) return false;
+                }
+            }
+
             return true;
         });
-    }, [equipment, siteFilter, isGlobalUser, session]);
+    }, [equipment, siteFilter, typeFilter, complianceFilter, isGlobalUser, session]);
 
     const stats = useMemo(() => {
         const today = new Date();
         const thirtyDaysFromNow = new Date(today.setDate(today.getDate() + 30));
 
-        let total = visibleEquipment.length;
+        let total = equipment.filter(e => siteFilter === 'All' || e.siteId === siteFilter).length;
         let expiringSoon = 0;
         let actionNeeded = 0;
 
-        visibleEquipment.forEach(e => {
-            if (e.status === 'Out of Service' || e.status === 'Missing' || e.status === 'Needs Inspection') {
+        equipment.filter(e => siteFilter === 'All' || e.siteId === siteFilter).forEach(e => {
+            let isAction = false;
+            if (e.status === 'Out of Service' || e.status === 'Missing' || e.status === 'Needs Inspection') isAction = true;
+
+            const now = new Date();
+            if (e.nextInspection && new Date(e.nextInspection) < now) isAction = true;
+            if (e.type === 'Fire Extinguisher') {
+                if (e.nextRefillDate && new Date(e.nextRefillDate) < now) isAction = true;
+                if (e.nextHptDate && new Date(e.nextHptDate) < now) isAction = true;
+            }
+
+            if (isAction) {
                 actionNeeded++;
             } else {
                 let isExpiring = false;
@@ -159,9 +201,9 @@ export default function EmergencyEquipment() {
         });
 
         return { total, expiringSoon, actionNeeded };
-    }, [visibleEquipment]);
+    }, [equipment, siteFilter]);
 
-    // 4. Handlers
+
     const handleSave = async () => {
         if (!formData.type || !formData.location || !formData.siteId) return alert("Type, Location, and Site are required.");
 
@@ -217,20 +259,17 @@ export default function EmergencyEquipment() {
         }
     };
 
-    // --- BULK IMPORT LOGIC WITH EXCELJS DROPDOWNS ---
     const downloadTemplate = async () => {
         const workbook = new ExcelJS.Workbook();
         const sheet = workbook.addWorksheet('Equipment_Upload_Template');
         const listSheet = workbook.addWorksheet('Allowed_Values');
 
-        // Populate the hidden sheet with dropdown options
         TYPES.forEach((t, i) => listSheet.getCell(`A${i + 1}`).value = t);
         FIRE_EXT_TYPES.forEach((t, i) => listSheet.getCell(`B${i + 1}`).value = t.name);
         STATUSES.forEach((s, i) => listSheet.getCell(`C${i + 1}`).value = s);
 
-        listSheet.state = 'hidden'; // Hide the reference sheet from users
+        listSheet.state = 'hidden';
 
-        // Setup Headers
         sheet.columns = [
             { header: 'Site ID (Req)', key: 'site', width: 15 },
             { header: 'Equipment Type (Req)', key: 'type', width: 25 },
@@ -244,36 +283,21 @@ export default function EmergencyEquipment() {
             { header: 'Notes', key: 'notes', width: 35 }
         ];
 
-        // Style Headers
         sheet.getRow(1).font = { bold: true };
         sheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE0E0E0' } };
 
-        // Apply Data Validation to the first 100 rows
         for (let i = 2; i <= 100; i++) {
-            sheet.getCell(`B${i}`).dataValidation = {
-                type: 'list', allowBlank: true, formulae: [`Allowed_Values!$A$1:$A$${TYPES.length}`]
-            };
-            sheet.getCell(`G${i}`).dataValidation = {
-                type: 'list', allowBlank: true, formulae: [`Allowed_Values!$B$1:$B$${FIRE_EXT_TYPES.length}`]
-            };
-            sheet.getCell(`E${i}`).dataValidation = {
-                type: 'list', allowBlank: true, formulae: [`Allowed_Values!$C$1:$C$${STATUSES.length}`]
-            };
+            sheet.getCell(`B${i}`).dataValidation = { type: 'list', allowBlank: true, formulae: [`Allowed_Values!$A$1:$A$${TYPES.length}`] };
+            sheet.getCell(`G${i}`).dataValidation = { type: 'list', allowBlank: true, formulae: [`Allowed_Values!$B$1:$B$${FIRE_EXT_TYPES.length}`] };
+            sheet.getCell(`E${i}`).dataValidation = { type: 'list', allowBlank: true, formulae: [`Allowed_Values!$C$1:$C$${STATUSES.length}`] };
         }
 
-        // Add Example Rows
         sheet.addRow({
             site: 'HQ-01', type: 'Fire Extinguisher', loc: 'Main Lobby Exit', asset: 'HQ-LOB-101',
             status: 'Active', insp: '2025-01-15', extType: 'ABC Powder / DCP (Stored Pressure)',
             refill: '2023-05-10', hpt: '2023-05-10', notes: 'Mounted securely.'
         });
-        sheet.addRow({
-            site: 'HQ-01', type: 'First Aid Kit', loc: 'Break Room Wall', asset: '',
-            status: 'Active', insp: '2025-02-01', extType: '',
-            refill: '', hpt: '', notes: 'Leave ID blank to auto-generate'
-        });
 
-        // Trigger Download
         const buffer = await workbook.xlsx.writeBuffer();
         saveAs(new Blob([buffer]), "Emergency_Equipment_Upload_Template.xlsx");
     };
@@ -316,7 +340,6 @@ export default function EmergencyEquipment() {
                     const eqType = row[typeCol];
                     const location = row[locCol];
 
-                    // Skip invalid rows gracefully
                     if (!siteId || !eqType || !location) return;
 
                     const formatDate = (val) => {
@@ -338,7 +361,6 @@ export default function EmergencyEquipment() {
                     let nextRefill = '';
                     let nextHpt = '';
 
-                    // Apply IS 2190 Logic
                     if (eqType === 'Fire Extinguisher' && extType) {
                         const extConfig = FIRE_EXT_TYPES.find(t => t.name === extType);
                         if (extConfig) {
@@ -397,26 +419,24 @@ export default function EmergencyEquipment() {
         if (e.status === 'Out of Service' || e.status === 'Missing') return <span className="bg-red-900/30 text-red-400 border border-red-500/30 px-2 py-1 rounded text-[10px] font-bold uppercase tracking-widest block w-fit">{e.status}</span>;
 
         let badges = [];
-        const today = new Date();
+        const todayStr = new Date().toISOString().split('T')[0];
         const thirtyDays = new Date();
         thirtyDays.setDate(thirtyDays.getDate() + 30);
+        const thirtyDaysStr = thirtyDays.toISOString().split('T')[0];
 
         if (e.nextInspection) {
-            const inspDate = new Date(e.nextInspection);
-            if (inspDate < today) badges.push(<span key="insp-exp" className="bg-red-900/30 text-red-400 border border-red-500/30 px-2 py-1 rounded text-[9px] font-bold uppercase tracking-widest animate-pulse">INSP EXPIRED</span>);
-            else if (inspDate <= thirtyDays) badges.push(<span key="insp-due" className="bg-orange-900/30 text-orange-400 border border-orange-500/30 px-2 py-1 rounded text-[9px] font-bold uppercase tracking-widest">INSP DUE SOON</span>);
+            if (e.nextInspection < todayStr) badges.push(<span key="insp-exp" className="bg-red-900/30 text-red-400 border border-red-500/30 px-2 py-1 rounded text-[9px] font-bold uppercase tracking-widest animate-pulse">INSP EXPIRED</span>);
+            else if (e.nextInspection <= thirtyDaysStr) badges.push(<span key="insp-due" className="bg-orange-900/30 text-orange-400 border border-orange-500/30 px-2 py-1 rounded text-[9px] font-bold uppercase tracking-widest">INSP DUE SOON</span>);
         }
 
         if (e.type === 'Fire Extinguisher') {
             if (e.nextRefillDate) {
-                const refillDate = new Date(e.nextRefillDate);
-                if (refillDate < today) badges.push(<span key="refill-exp" className="bg-red-900/30 text-red-400 border border-red-500/30 px-2 py-1 rounded text-[9px] font-bold uppercase tracking-widest animate-pulse">REFILL OVERDUE</span>);
-                else if (refillDate <= thirtyDays) badges.push(<span key="refill-due" className="bg-orange-900/30 text-orange-400 border border-orange-500/30 px-2 py-1 rounded text-[9px] font-bold uppercase tracking-widest">REFILL DUE SOON</span>);
+                if (e.nextRefillDate < todayStr) badges.push(<span key="refill-exp" className="bg-red-900/30 text-red-400 border border-red-500/30 px-2 py-1 rounded text-[9px] font-bold uppercase tracking-widest animate-pulse">REFILL OVERDUE</span>);
+                else if (e.nextRefillDate <= thirtyDaysStr) badges.push(<span key="refill-due" className="bg-orange-900/30 text-orange-400 border border-orange-500/30 px-2 py-1 rounded text-[9px] font-bold uppercase tracking-widest">REFILL DUE SOON</span>);
             }
             if (e.nextHptDate) {
-                const hptDate = new Date(e.nextHptDate);
-                if (hptDate < today) badges.push(<span key="hpt-exp" className="bg-red-900/30 text-red-400 border border-red-500/30 px-2 py-1 rounded text-[9px] font-bold uppercase tracking-widest animate-pulse">HPT OVERDUE</span>);
-                else if (hptDate <= thirtyDays) badges.push(<span key="hpt-due" className="bg-orange-900/30 text-orange-400 border border-orange-500/30 px-2 py-1 rounded text-[9px] font-bold uppercase tracking-widest">HPT DUE SOON</span>);
+                if (e.nextHptDate < todayStr) badges.push(<span key="hpt-exp" className="bg-red-900/30 text-red-400 border border-red-500/30 px-2 py-1 rounded text-[9px] font-bold uppercase tracking-widest animate-pulse">HPT OVERDUE</span>);
+                else if (e.nextHptDate <= thirtyDaysStr) badges.push(<span key="hpt-due" className="bg-orange-900/30 text-orange-400 border border-orange-500/30 px-2 py-1 rounded text-[9px] font-bold uppercase tracking-widest">HPT DUE SOON</span>);
             }
         }
 
@@ -446,7 +466,7 @@ export default function EmergencyEquipment() {
             <main className="flex-1 overflow-y-auto p-4 md:p-8 custom-scroll relative z-10 w-full no-print">
                 <div className="max-w-7xl mx-auto animate-in fade-in duration-500 space-y-6 pb-20">
 
-                    {/* Top Metrics */}
+                    {/* Top Metrics & Filters */}
                     {view === 'list' && (
                         <>
                             <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4 mb-2">
@@ -454,18 +474,10 @@ export default function EmergencyEquipment() {
                                     <h2 className="text-2xl font-bold text-white flex items-center gap-3">Facility Registry</h2>
                                     <p className="text-sm text-slate-400">QR-Enabled inspection tracking for life-safety apparatus.</p>
                                 </div>
-                                <div className="flex gap-4 items-center">
-                                    <div className="bg-slate-900 border border-slate-700 p-1.5 rounded-xl shadow-inner flex items-center gap-2">
-                                        <select value={siteFilter} onChange={e => { setSiteFilter(e.target.value); sessionStorage.setItem('isoCurrentSite', e.target.value); }} className="bg-slate-950 text-white text-xs font-bold px-4 py-2 rounded-lg outline-none">
-                                            {(isGlobalUser || sites.length > 1) && <option value="All">All Authorized Sites</option>}
-                                            {sites.filter(s => isGlobalUser || s.code === session?.assignedSite || (session?.accessibleSites || []).includes(s.code)).map(s => <option key={s.code} value={s.code}>{s.name}</option>)}
-                                        </select>
-                                    </div>
-                                    {canEdit && <button onClick={() => { setFormData({ id: '', siteId: siteFilter === 'All' ? '' : siteFilter, type: 'Fire Extinguisher', location: '', assetId: '', lastInspection: new Date().toISOString().split('T')[0], nextInspection: '', status: 'Active', notes: '', extinguisherType: '', lastRefillDate: '', lastHptDate: '', nextRefillDate: '', nextHptDate: '' }); setView('form'); }} className="bg-gradient-to-tr from-orange-600 to-red-500 hover:from-orange-500 hover:to-red-400 text-white px-5 py-2.5 rounded-xl font-bold text-sm shadow-lg flex items-center gap-2 transition-transform active:scale-95 whitespace-nowrap"><i className="fas fa-plus"></i> Add Equipment</button>}
-                                </div>
+                                {canEdit && <button onClick={() => { setFormData({ id: '', siteId: siteFilter === 'All' ? '' : siteFilter, type: 'Fire Extinguisher', location: '', assetId: '', lastInspection: new Date().toISOString().split('T')[0], nextInspection: '', status: 'Active', notes: '', extinguisherType: '', lastRefillDate: '', lastHptDate: '', nextRefillDate: '', nextHptDate: '' }); setView('form'); }} className="bg-gradient-to-tr from-orange-600 to-red-500 hover:from-orange-500 hover:to-red-400 text-white px-5 py-2.5 rounded-xl font-bold text-sm shadow-lg flex items-center gap-2 transition-transform active:scale-95 whitespace-nowrap"><i className="fas fa-plus"></i> Add Equipment</button>}
                             </div>
 
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-2">
                                 <div className="bg-slate-900/80 p-6 rounded-2xl border border-slate-700 shadow-lg flex items-center justify-between border-l-4 border-l-blue-500">
                                     <div><p className="text-[10px] uppercase font-bold text-slate-400 tracking-widest mb-1">Total Registered</p><h3 className="text-3xl font-black text-white">{stats.total}</h3></div>
                                     <div className="w-12 h-12 bg-blue-500/10 rounded-full flex items-center justify-center text-blue-400 text-xl"><i className="fas fa-clipboard-list"></i></div>
@@ -477,6 +489,38 @@ export default function EmergencyEquipment() {
                                 <div className="bg-slate-900/80 p-6 rounded-2xl border border-slate-700 shadow-lg flex items-center justify-between border-l-4 border-l-red-500">
                                     <div><p className="text-[10px] uppercase font-bold text-slate-400 tracking-widest mb-1">Action Required</p><h3 className="text-3xl font-black text-red-500">{stats.actionNeeded}</h3></div>
                                     <div className="w-12 h-12 bg-red-500/10 rounded-full flex items-center justify-center text-red-500 text-xl"><i className="fas fa-exclamation-triangle"></i></div>
+                                </div>
+                            </div>
+
+                            {/* SMART FILTER BAR */}
+                            <div className="bg-slate-900/50 p-4 rounded-2xl border border-slate-700 flex flex-wrap gap-4 items-end shadow-inner">
+                                <div>
+                                    <label className="text-[9px] font-bold text-slate-500 uppercase tracking-widest block mb-1">Facility / Site</label>
+                                    <select value={siteFilter} onChange={e => { setSiteFilter(e.target.value); sessionStorage.setItem('isoCurrentSite', e.target.value); }} className="bg-slate-950 border border-slate-700 text-white text-xs font-bold px-3 py-2 rounded-lg outline-none focus:border-blue-500 min-w-[150px]">
+                                        {(isGlobalUser || sites.length > 1) && <option value="All">All Authorized Sites</option>}
+                                        {sites.filter(s => isGlobalUser || s.code === session?.assignedSite || (session?.accessibleSites || []).includes(s.code)).map(s => <option key={s.code} value={s.code}>{s.name}</option>)}
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="text-[9px] font-bold text-slate-500 uppercase tracking-widest block mb-1">Equipment Type</label>
+                                    <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)} className="bg-slate-950 border border-slate-700 text-white text-xs font-bold px-3 py-2 rounded-lg outline-none focus:border-blue-500 min-w-[180px]">
+                                        <option value="All">All Types</option>
+                                        {TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="text-[9px] font-bold text-orange-400 uppercase tracking-widest block mb-1">Compliance Action Required</label>
+                                    <select value={complianceFilter} onChange={e => setComplianceFilter(e.target.value)} className="bg-orange-950/20 border border-orange-500/30 text-orange-400 text-xs font-bold px-3 py-2 rounded-lg outline-none focus:border-orange-500 min-w-[200px]">
+                                        <option value="All">Show All</option>
+                                        <option value="Insp Overdue">Routine Insp. Overdue</option>
+                                        <option value="Refill Overdue">Refill Overdue</option>
+                                        <option value="HPT Overdue">HPT Overdue</option>
+                                        <option value="Refill < 30 Days">Refill Due &lt; 30 Days</option>
+                                        <option value="HPT < 30 Days">HPT Due &lt; 30 Days</option>
+                                    </select>
+                                </div>
+                                <div className="ml-auto text-xs text-slate-500 font-bold bg-slate-950 px-3 py-2 rounded-lg border border-slate-800">
+                                    Showing {visibleEquipment.length} item{visibleEquipment.length !== 1 ? 's' : ''}
                                 </div>
                             </div>
 
@@ -518,7 +562,7 @@ export default function EmergencyEquipment() {
                                                 </td>
                                             </tr>
                                         ))}
-                                        {visibleEquipment.length === 0 && <tr><td colSpan="5" className="p-10 text-center text-slate-500 italic border-t border-slate-800">No equipment registered for this site filter.</td></tr>}
+                                        {visibleEquipment.length === 0 && <tr><td colSpan="5" className="p-10 text-center text-slate-500 italic border-t border-slate-800">No equipment registered matching these filters.</td></tr>}
                                     </tbody>
                                 </table>
                             </div>
