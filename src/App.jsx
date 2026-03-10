@@ -20,6 +20,7 @@ import Standards from './pages/Standards';
 import Capa from './pages/Capa';
 import Training from './pages/Training';
 import Improvement from './pages/Improvement';
+import Contractors from './pages/Contractors';
 
 // --- Import OHS Specialized Tools ---
 import OhsTools from './pages/OhsTools';
@@ -103,6 +104,7 @@ export default function App() {
                 <Route path="/mock-drill" element={<ProtectedRoute><MockDrill /></ProtectedRoute>} />
                 <Route path="/emergency-equipment" element={<EmergencyEquipment />} />
                 <Route path="/inspections" element={<Inspections />} />
+                <Route path="/contractors" element={<Contractors />} />
 
 
                 {/* Fallback Route: Catch broken URLs and safely redirect to Login/Dashboard */}
