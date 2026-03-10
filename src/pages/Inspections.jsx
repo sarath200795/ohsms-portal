@@ -2,6 +2,9 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { ref, get, push, update, remove } from 'firebase/database';
 import { rtdb } from '../config/firebase';
+import * as XLSX from 'xlsx';
+import ExcelJS from 'exceljs';
+import { saveAs } from 'file-saver';
 
 const FREQUENCIES = ['Daily', 'Weekly', 'Monthly', 'Quarterly', 'Bi-Annually', 'Annually'];
 const STATUSES = ['Draft', 'Active', 'Inactive'];
@@ -38,7 +41,7 @@ export default function Inspections() {
 
     const [session, setSession] = useState(null);
     const [loading, setLoading] = useState(true);
-    const [view, setView] = useState('calendar');
+    const [view, setView] = useState('calendar'); // 'calendar' | 'templates' | 'builder' | 'execute' | 'history' | 'view-record'
 
     const [templates, setTemplates] = useState([]);
     const [records, setRecords] = useState([]);
@@ -54,9 +57,10 @@ export default function Inspections() {
     // Builder State
     const [editTemplate, setEditTemplate] = useState(null);
 
-    // Execution State
+    // Execution & View State
     const [executingTask, setExecutingTask] = useState(null);
     const [inspectionForm, setInspectionForm] = useState({});
+    const [viewingRecord, setViewingRecord] = useState(null);
 
     useEffect(() => {
         const s = sessionStorage.getItem('isoSession');
@@ -89,40 +93,50 @@ export default function Inspections() {
     const isGlobalUser = ['Global Owner', 'Global Manager', 'Owner', 'Admin'].includes(session?.role);
     const canEdit = ['Global Owner', 'Global Manager', 'Owner', 'Admin', 'Site Owner', 'Site Manager'].includes(session?.role);
 
-    // --- SCHEDULING ENGINE ---
+    // --- SCHEDULING ENGINE (WITH GLOBAL EXPLOSION) ---
     const scheduledTasks = useMemo(() => {
         const tasks = [];
-        templates.filter(t => t.status === 'Active' && (siteFilter === 'All' || t.siteId === siteFilter || t.siteId === 'GLOBAL')).forEach(t => {
-            const pastRecords = records.filter(r => r.templateId === t.firebaseKey).sort((a, b) => new Date(b.completedAt) - new Date(a.completedAt));
-            const lastRecord = pastRecords[0];
+        const activeTemplates = templates.filter(t => t.status === 'Active');
 
-            const nextDue = calculateNextDueDate(lastRecord?.completedAt, t.frequency, t.createdAt);
-            const originalDueString = nextDue.toISOString().split('T')[0];
-
-            let activeDueString = originalDueString;
-            let isDeferred = false;
-
-            // If a deferral exists for THIS specific cycle, apply it
-            if (t.deferredTo && t.deferredTo > (lastRecord?.completedAt?.split('T')[0] || '1970-01-01')) {
-                activeDueString = t.deferredTo;
-                isDeferred = true;
+        activeTemplates.forEach(t => {
+            let targetSites = [];
+            if (t.siteId === 'GLOBAL') {
+                targetSites = siteFilter === 'All' ? sites.map(s => s.code) : [siteFilter];
+            } else if (siteFilter === 'All' || t.siteId === siteFilter) {
+                targetSites = [t.siteId];
             }
 
-            tasks.push({
-                templateId: t.firebaseKey,
-                title: t.title,
-                siteId: t.siteId,
-                frequency: t.frequency,
-                dueDate: new Date(activeDueString),
-                dueString: activeDueString,
-                originalDueString: originalDueString,
-                isDeferred: isDeferred,
-                lastCompleted: lastRecord ? lastRecord.completedAt : 'Never',
-                template: t
+            targetSites.forEach(targetSiteId => {
+                const pastRecords = records.filter(r => r.templateId === t.firebaseKey && r.siteId === targetSiteId).sort((a, b) => new Date(b.completedAt) - new Date(a.completedAt));
+                const lastRecord = pastRecords[0];
+
+                const nextDue = calculateNextDueDate(lastRecord?.completedAt, t.frequency, t.createdAt);
+                const originalDueString = nextDue.toISOString().split('T')[0];
+
+                let activeDueString = originalDueString;
+                let isDeferred = false;
+
+                if (t.deferredTo && t.deferredTo > (lastRecord?.completedAt?.split('T')[0] || '1970-01-01')) {
+                    activeDueString = t.deferredTo;
+                    isDeferred = true;
+                }
+
+                tasks.push({
+                    templateId: t.firebaseKey,
+                    title: t.title,
+                    siteId: targetSiteId,
+                    frequency: t.frequency,
+                    dueDate: new Date(activeDueString),
+                    dueString: activeDueString,
+                    originalDueString: originalDueString,
+                    isDeferred: isDeferred,
+                    lastCompleted: lastRecord ? lastRecord.completedAt : 'Never',
+                    template: t
+                });
             });
         });
         return tasks.sort((a, b) => a.dueDate - b.dueDate);
-    }, [templates, records, siteFilter]);
+    }, [templates, records, siteFilter, sites]);
 
     // --- CALENDAR LOGIC ---
     const daysInMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 0).getDate();
@@ -135,17 +149,26 @@ export default function Inspections() {
 
         for (let day = 1; day <= daysInMonth; day++) {
             const dateStr = `${currentMonth.getFullYear()}-${String(currentMonth.getMonth() + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-            const tasksToday = scheduledTasks.filter(t => t.dueString === dateStr);
             const isToday = new Date().toISOString().split('T')[0] === dateStr;
+
+            const tasksToday = scheduledTasks.filter(t => t.dueString === dateStr);
+            const completedToday = records.filter(r => r.completedAt.split('T')[0] === dateStr && (siteFilter === 'All' || r.siteId === siteFilter));
 
             days.push(
                 <div key={day} className={`p-2 border border-slate-700 min-h-[100px] flex flex-col ${isToday ? 'bg-blue-900/20' : 'bg-slate-900/60'}`}>
                     <div className={`text-right text-xs font-bold mb-1 ${isToday ? 'text-blue-400' : 'text-slate-500'}`}>{day}</div>
                     <div className="flex-1 space-y-1 overflow-y-auto custom-scroll pr-1">
+
+                        {completedToday.map((r, idx) => (
+                            <div key={`comp-${idx}`} onClick={() => { setViewingRecord(r); setView('view-record'); }} className="text-[9px] p-1.5 rounded cursor-pointer truncate font-bold shadow-sm transition-transform hover:scale-105 bg-emerald-900/40 text-emerald-400 border border-emerald-500/30" title={`Completed: ${r.templateTitle}`}>
+                                <i className="fas fa-check-circle mr-1"></i> {r.templateTitle}
+                            </div>
+                        ))}
+
                         {tasksToday.map((t, idx) => {
                             const isOverdue = new Date(t.dueString) < new Date(new Date().toISOString().split('T')[0]);
                             return (
-                                <div key={idx} onClick={() => startInspection(t)} className={`text-[9px] p-1.5 rounded cursor-pointer truncate font-bold shadow-sm transition-transform hover:scale-105 ${isOverdue ? 'bg-red-500 text-white' : 'bg-lime-500 text-slate-950'}`} title={t.title}>
+                                <div key={`due-${idx}`} onClick={() => startInspection(t)} className={`text-[9px] p-1.5 rounded cursor-pointer truncate font-bold shadow-sm transition-transform hover:scale-105 ${isOverdue ? 'bg-red-500 text-white' : 'bg-lime-500 text-slate-950'}`} title={t.title}>
                                     {t.title} {t.isDeferred && ' (Def)'}
                                 </div>
                             );
@@ -157,7 +180,6 @@ export default function Inspections() {
         return days;
     };
 
-    // --- DEFERRAL HANDLER ---
     const handleDefer = async () => {
         if (!deferDate) return alert("Please select a date to defer to.");
         try {
@@ -210,13 +232,97 @@ export default function Inspections() {
         }
     };
 
+    // --- BULK EXCEL QUESTION IMPORT ---
+    const downloadQuestionTemplate = async () => {
+        const workbook = new ExcelJS.Workbook();
+        const sheet = workbook.addWorksheet('Inspection_Questions');
+        const listSheet = workbook.addWorksheet('Allowed_Values');
+
+        // Populate hidden sheet for dropdowns
+        const questionTypes = ['Pass/Fail', 'Text Input', 'Number'];
+        questionTypes.forEach((t, i) => listSheet.getCell(`A${i + 1}`).value = t);
+        listSheet.state = 'hidden';
+
+        sheet.columns = [
+            { header: 'Question / Check Requirement (Required)', key: 'question', width: 60 },
+            { header: 'Answer Type (Required)', key: 'type', width: 25 }
+        ];
+
+        sheet.getRow(1).font = { bold: true };
+        sheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE0E0E0' } };
+
+        for (let i = 2; i <= 200; i++) {
+            sheet.getCell(`B${i}`).dataValidation = {
+                type: 'list', allowBlank: false, formulae: [`Allowed_Values!$A$1:$A$${questionTypes.length}`]
+            };
+        }
+
+        // Example rows
+        sheet.addRow({ question: 'Are fire exits clear and unobstructed?', type: 'Pass/Fail' });
+        sheet.addRow({ question: 'Current pressure reading of compressor?', type: 'Number' });
+        sheet.addRow({ question: 'General observations of the work area:', type: 'Text Input' });
+
+        const buffer = await workbook.xlsx.writeBuffer();
+        saveAs(new Blob([buffer]), "Inspection_Questions_Template.xlsx");
+    };
+
+    const handleQuestionImport = (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = (evt) => {
+            try {
+                const bstr = evt.target.result;
+                const wb = XLSX.read(bstr, { type: 'binary' });
+                const wsname = wb.SheetNames[0];
+                const ws = wb.Sheets[wsname];
+                const data = XLSX.utils.sheet_to_json(ws);
+
+                if (data.length === 0) throw new Error("Excel sheet is empty.");
+
+                const newFields = [];
+                data.forEach((row, idx) => {
+                    const keys = Object.keys(row);
+                    const qKey = keys.find(k => k.toLowerCase().includes('question') || k.toLowerCase().includes('requirement'));
+                    const tKey = keys.find(k => k.toLowerCase().includes('type'));
+
+                    const questionText = row[qKey];
+                    if (!questionText) return;
+
+                    let qType = row[tKey] || 'Pass/Fail';
+                    if (!['Pass/Fail', 'Text Input', 'Number'].includes(qType)) qType = 'Pass/Fail';
+
+                    newFields.push({
+                        id: `imported-${Date.now()}-${idx}-${Math.random().toString(36).substr(2, 5)}`,
+                        label: questionText,
+                        type: qType
+                    });
+                });
+
+                if (newFields.length > 0) {
+                    setEditTemplate(prev => ({
+                        ...prev,
+                        fields: [...(prev.fields || []), ...newFields]
+                    }));
+                    alert(`Successfully imported ${newFields.length} questions!`);
+                } else {
+                    alert("No valid questions found. Please check the column headers.");
+                }
+            } catch (err) {
+                alert("Failed to parse Excel file. \n" + err.message);
+            }
+            e.target.value = null;
+        };
+        reader.readAsBinaryString(file);
+    };
 
     // --- EXECUTION HANDLERS ---
     const startInspection = (task) => {
         setExecutingTask(task);
         const initForm = {};
         task.template.fields.forEach(f => {
-            initForm[f.id] = { answer: '', observation: '', raiseCapa: false, capaOwner: '', capaDue: '' };
+            initForm[f.id] = { label: f.label, answer: '', observation: '', raiseCapa: false, capaOwner: '', capaDue: '' };
         });
         setInspectionForm(initForm);
         setView('execute');
@@ -226,7 +332,6 @@ export default function Inspections() {
         try {
             const completedAt = new Date().toISOString();
 
-            // Extract Observations to create CAPAs
             const generatedCapas = [];
             executingTask.template.fields.forEach(f => {
                 const response = inspectionForm[f.id];
@@ -246,7 +351,6 @@ export default function Inspections() {
                 }
             });
 
-            // Save Record
             const recordPayload = {
                 templateId: executingTask.templateId,
                 templateTitle: executingTask.title,
@@ -260,10 +364,8 @@ export default function Inspections() {
             const newRecordRef = push(ref(rtdb, `organizations/${session.orgId}/inspectionRecords`));
             await update(newRecordRef, recordPayload);
 
-            // IMPORTANT: Clear any deferrals so the next cycle resets to normal
             await update(ref(rtdb, `organizations/${session.orgId}/inspectionTemplates/${executingTask.templateId}`), { deferredTo: null });
 
-            // Save to CAPA Manager
             if (generatedCapas.length > 0) {
                 const capaPromises = generatedCapas.map(c => push(ref(rtdb, `organizations/${session.orgId}/capas`), { ...c, parentId: newRecordRef.key }));
                 await Promise.all(capaPromises);
@@ -282,10 +384,10 @@ export default function Inspections() {
     if (loading) return <div className="h-screen flex items-center justify-center bg-slate-950 text-slate-400 animate-pulse font-['Space_Grotesk'] tracking-widest text-xs uppercase"><div className="w-8 h-8 border-2 border-slate-800 border-t-lime-500 rounded-full animate-spin mr-3"></div> Loading Engine...</div>;
 
     return (
-        <div className="flex flex-col h-screen bg-slate-950 font-['Space_Grotesk'] text-slate-200 overflow-hidden relative">
-            <div className="absolute top-0 left-0 w-[600px] h-[600px] bg-lime-600/10 rounded-full blur-[120px] pointer-events-none z-0"></div>
+        <div className="flex flex-col h-screen bg-slate-950 font-['Space_Grotesk'] text-slate-200 overflow-hidden relative print:h-auto print:overflow-visible">
+            <div className="absolute top-0 left-0 w-[600px] h-[600px] bg-lime-600/10 rounded-full blur-[120px] pointer-events-none z-0 no-print"></div>
 
-            <header className="h-16 px-6 flex items-center justify-between z-20 backdrop-blur-sm bg-slate-900/50 border-b border-slate-800">
+            <header className="h-16 px-6 flex items-center justify-between z-20 backdrop-blur-sm bg-slate-900/50 border-b border-slate-800 no-print">
                 <div className="flex items-center gap-4">
                     <button onClick={() => navigate('/dashboard')} className="text-slate-400 hover:text-white transition-colors flex items-center gap-2"><i className="fas fa-arrow-left"></i> Hub</button>
                     <div className="h-6 w-px bg-slate-700 mx-2"></div>
@@ -299,7 +401,7 @@ export default function Inspections() {
                 </div>
             </header>
 
-            <main className="flex-1 overflow-y-auto p-4 md:p-8 custom-scroll relative z-10 w-full">
+            <main className="flex-1 overflow-y-auto p-4 md:p-8 custom-scroll relative z-10 w-full no-print">
                 <div className="max-w-7xl mx-auto animate-in fade-in duration-500 pb-20">
 
                     {/* --- CALENDAR VIEW --- */}
@@ -340,7 +442,6 @@ export default function Inspections() {
                                     <h3 className="text-red-400 font-bold uppercase tracking-widest text-xs mb-4 flex items-center gap-2"><i className="fas fa-exclamation-circle"></i> Overdue / Action Required</h3>
                                     <div className="space-y-2">
                                         {scheduledTasks.filter(t => new Date(t.dueString) < new Date(new Date().toISOString().split('T')[0])).map((t, i) => {
-                                            // Check if it can be deferred (Max 7 days from original due date)
                                             const orig = new Date(t.originalDueString);
                                             orig.setDate(orig.getDate() + 7);
                                             const today = new Date(new Date().toISOString().split('T')[0]);
@@ -398,7 +499,7 @@ export default function Inspections() {
                                     type="date"
                                     value={deferDate}
                                     onChange={e => setDeferDate(e.target.value)}
-                                    min={new Date().toISOString().split('T')[0]} // Cannot defer to the past
+                                    min={new Date().toISOString().split('T')[0]}
                                     max={(() => {
                                         const d = new Date(deferTask.originalDueString);
                                         d.setDate(d.getDate() + 7);
@@ -444,7 +545,7 @@ export default function Inspections() {
                                                         value={t.status}
                                                         onChange={(e) => updateTemplateStatus(t.firebaseKey, e.target.value)}
                                                         className={`bg-slate-950 border rounded-lg px-3 py-1.5 text-xs font-bold outline-none cursor-pointer ${t.status === 'Active' ? 'border-lime-500/50 text-lime-400' :
-                                                            t.status === 'Draft' ? 'border-slate-600 text-slate-400' : 'border-red-500/50 text-red-400'
+                                                                t.status === 'Draft' ? 'border-slate-600 text-slate-400' : 'border-red-500/50 text-red-400'
                                                             }`}
                                                     >
                                                         {STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
@@ -463,7 +564,7 @@ export default function Inspections() {
                         </div>
                     )}
 
-                    {/* --- TEMPLATE BUILDER VIEW --- */}
+                    {/* --- TEMPLATE BUILDER VIEW (WITH EXCEL IMPORT) --- */}
                     {view === 'builder' && editTemplate && (
                         <div className="max-w-4xl mx-auto bg-slate-900/80 p-8 rounded-3xl border border-slate-700 shadow-2xl animate-in zoom-in-95 duration-300">
                             <div className="flex justify-between items-center mb-8 border-b border-slate-800 pb-4">
@@ -503,9 +604,18 @@ export default function Inspections() {
                             </div>
 
                             <div className="bg-slate-950/50 p-6 rounded-2xl border border-slate-800 shadow-inner">
-                                <div className="flex justify-between items-center mb-6 border-b border-slate-800 pb-2">
+                                <div className="flex flex-col md:flex-row justify-between md:items-center gap-4 mb-6 border-b border-slate-800 pb-4">
                                     <h3 className="text-sm font-bold text-white uppercase tracking-widest"><i className="fas fa-list-ul text-blue-400 mr-2"></i> Form Questions</h3>
-                                    <button onClick={() => setEditTemplate({ ...editTemplate, fields: [...editTemplate.fields, { id: Date.now().toString(), label: '', type: 'Pass/Fail' }] })} className="text-[10px] bg-blue-900/30 text-blue-400 hover:bg-blue-600 hover:text-white px-3 py-1.5 rounded-lg border border-blue-500/30 font-bold uppercase transition-colors"><i className="fas fa-plus mr-1"></i> Add Question</button>
+
+                                    {/* BULK IMPORT BUTTONS */}
+                                    <div className="flex items-center gap-2">
+                                        <button type="button" onClick={downloadQuestionTemplate} className="text-[9px] bg-slate-800 text-slate-300 hover:text-white px-3 py-1.5 rounded-lg border border-slate-700 font-bold uppercase transition-colors"><i className="fas fa-download mr-1"></i> Template</button>
+                                        <div className="relative">
+                                            <input type="file" accept=".xlsx, .xls, .csv" onChange={handleQuestionImport} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" title="Upload Questions" />
+                                            <button type="button" className="text-[9px] bg-emerald-900/30 text-emerald-400 hover:bg-emerald-600 hover:text-white px-3 py-1.5 rounded-lg border border-emerald-500/30 font-bold uppercase transition-colors"><i className="fas fa-upload mr-1"></i> Upload</button>
+                                        </div>
+                                        <button type="button" onClick={() => setEditTemplate({ ...editTemplate, fields: [...editTemplate.fields, { id: Date.now().toString(), label: '', type: 'Pass/Fail' }] })} className="text-[9px] bg-blue-900/30 text-blue-400 hover:bg-blue-600 hover:text-white px-3 py-1.5 rounded-lg border border-blue-500/30 font-bold uppercase transition-colors"><i className="fas fa-plus mr-1"></i> Add Manual</button>
+                                    </div>
                                 </div>
 
                                 <div className="space-y-3">
@@ -518,16 +628,16 @@ export default function Inspections() {
                                                 <option>Text Input</option>
                                                 <option>Number</option>
                                             </select>
-                                            <button onClick={() => { const n = editTemplate.fields.filter((_, i) => i !== idx); setEditTemplate({ ...editTemplate, fields: n }); }} className="w-8 h-8 rounded bg-red-900/20 text-red-500 hover:bg-red-600 hover:text-white transition-colors opacity-0 group-hover:opacity-100 flex items-center justify-center"><i className="fas fa-trash"></i></button>
+                                            <button type="button" onClick={() => { const n = editTemplate.fields.filter((_, i) => i !== idx); setEditTemplate({ ...editTemplate, fields: n }); }} className="w-8 h-8 rounded bg-red-900/20 text-red-500 hover:bg-red-600 hover:text-white transition-colors opacity-0 group-hover:opacity-100 flex items-center justify-center"><i className="fas fa-trash"></i></button>
                                         </div>
                                     ))}
-                                    {editTemplate.fields.length === 0 && <div className="text-center p-8 text-slate-500 italic border-2 border-dashed border-slate-700 rounded-xl">No questions added yet.</div>}
+                                    {editTemplate.fields.length === 0 && <div className="text-center p-8 text-slate-500 italic border-2 border-dashed border-slate-700 rounded-xl">No questions added yet. You can manually add them or bulk import from Excel.</div>}
                                 </div>
                             </div>
 
                             <div className="flex justify-end gap-4 pt-8 mt-4 border-t border-slate-800">
-                                <button onClick={() => setView('templates')} className="px-8 py-3 bg-slate-800 text-white font-bold rounded-xl hover:bg-slate-700 transition">Cancel</button>
-                                <button onClick={saveTemplate} className="px-10 py-3 bg-lime-500 text-slate-950 font-black uppercase tracking-widest rounded-xl hover:bg-lime-400 transition shadow-lg shadow-lime-500/20"><i className="fas fa-save mr-2"></i> Save Template</button>
+                                <button type="button" onClick={() => setView('templates')} className="px-8 py-3 bg-slate-800 text-white font-bold rounded-xl hover:bg-slate-700 transition">Cancel</button>
+                                <button type="button" onClick={saveTemplate} className="px-10 py-3 bg-lime-500 text-slate-950 font-black uppercase tracking-widest rounded-xl hover:bg-lime-400 transition shadow-lg shadow-lime-500/20"><i className="fas fa-save mr-2"></i> Save Template</button>
                             </div>
                         </div>
                     )}
@@ -568,7 +678,7 @@ export default function Inspections() {
                                             </div>
                                         </div>
 
-                                        {/* Observation & CAPA Block (Auto-opens on Fail, or manual) */}
+                                        {/* Observation & CAPA Block */}
                                         {(inspectionForm[f.id]?.answer === 'Fail' || inspectionForm[f.id]?.observation !== undefined) && (
                                             <div className="mt-4 bg-orange-950/20 border border-orange-500/30 p-4 rounded-xl animate-in fade-in slide-in-from-top-2">
                                                 <label className="text-[10px] uppercase font-bold text-orange-400 block mb-2"><i className="fas fa-exclamation-triangle mr-1"></i> Defect / Observation Notes</label>
@@ -579,7 +689,6 @@ export default function Inspections() {
                                                     <span className="text-xs font-bold text-white">Raise Corrective Action (CAPA)</span>
                                                 </label>
 
-                                                {/* ADDED USER SELECT HERE SO IT DOESN'T CRASH */}
                                                 {inspectionForm[f.id]?.raiseCapa && (
                                                     <div className="flex gap-4 p-3 bg-slate-900 rounded-lg border border-slate-700">
                                                         <div className="flex-1">
@@ -622,15 +731,13 @@ export default function Inspections() {
                             <div className="bg-slate-900/50 rounded-2xl border border-slate-700 overflow-hidden shadow-xl">
                                 <table className="w-full text-left text-sm text-slate-300">
                                     <thead className="bg-slate-950 border-b border-slate-800 text-[10px] uppercase tracking-widest font-bold text-slate-500">
-                                        <tr><th className="p-4 pl-6">Date</th><th className="p-4">Inspection Type</th><th className="p-4">Site</th><th className="p-4">Inspector</th><th className="p-4 text-center">Score / Issues</th></tr>
+                                        <tr><th className="p-4 pl-6">Date</th><th className="p-4">Inspection Type</th><th className="p-4">Site</th><th className="p-4">Inspector</th><th className="p-4 text-center">Score / Issues</th><th className="p-4 pr-6 text-right">Actions</th></tr>
                                     </thead>
                                     <tbody className="divide-y divide-slate-800/50">
-                                        {records.sort((a, b) => new Date(b.completedAt) - new Date(a.completedAt)).map(r => {
-                                            const totalQs = Object.keys(r.responses || {}).length;
+                                        {records.filter(r => siteFilter === 'All' || r.siteId === siteFilter).sort((a, b) => new Date(b.completedAt) - new Date(a.completedAt)).map(r => {
                                             const fails = Object.values(r.responses || {}).filter(res => res.answer === 'Fail').length;
-
                                             return (
-                                                <tr key={r.firebaseKey} className="hover:bg-slate-800/40">
+                                                <tr key={r.firebaseKey} className="hover:bg-slate-800/40 transition-colors">
                                                     <td className="p-4 pl-6 font-mono text-xs">{new Date(r.completedAt).toLocaleString()}</td>
                                                     <td className="p-4 font-bold text-white">{r.templateTitle}</td>
                                                     <td className="p-4">{r.siteId}</td>
@@ -641,16 +748,121 @@ export default function Inspections() {
                                                             : <span className="bg-emerald-900/30 text-emerald-400 border border-emerald-500/30 px-3 py-1 rounded-lg text-xs font-bold">100% Pass</span>
                                                         }
                                                     </td>
+                                                    <td className="p-4 pr-6 text-right">
+                                                        <button onClick={() => { setViewingRecord(r); setView('view-record'); }} className="bg-slate-800 hover:bg-slate-700 text-white px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-widest transition shadow"><i className="fas fa-eye"></i></button>
+                                                    </td>
                                                 </tr>
                                             )
                                         })}
-                                        {records.length === 0 && <tr><td colSpan="5" className="p-8 text-center italic text-slate-500">No inspection history found.</td></tr>}
+                                        {records.filter(r => siteFilter === 'All' || r.siteId === siteFilter).length === 0 && <tr><td colSpan="6" className="p-8 text-center italic text-slate-500">No inspection history found.</td></tr>}
                                     </tbody>
                                 </table>
                             </div>
                         </div>
                     )}
 
+                    {/* --- COMPLETED RECORD PDF VIEW --- */}
+                    {view === 'view-record' && viewingRecord && (
+                        <div className="absolute inset-0 z-[100] bg-slate-950 overflow-y-auto print:bg-white print:text-black">
+                            <div className="max-w-4xl mx-auto p-8 pt-12 print:p-0">
+                                {/* Control Bar (Hidden on Print) */}
+                                <div className="flex justify-between items-center mb-8 no-print bg-slate-900 p-4 rounded-2xl border border-slate-800 shadow-xl sticky top-4 z-50">
+                                    <button onClick={() => setView('history')} className="text-slate-400 hover:text-white font-bold flex items-center gap-2"><i className="fas fa-arrow-left"></i> Back</button>
+                                    <button onClick={() => window.print()} className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-2.5 rounded-xl font-bold uppercase tracking-widest shadow flex items-center gap-2 transition-transform active:scale-95"><i className="fas fa-print"></i> Save as PDF</button>
+                                </div>
+
+                                {/* Formal Report Layout */}
+                                <div className="bg-white text-black p-10 rounded-xl shadow-2xl print:shadow-none print:border-none border border-slate-700 print:p-0">
+                                    <div className="border-b-4 border-black pb-6 mb-8 flex justify-between items-end">
+                                        <div>
+                                            <div className="text-xs font-bold text-gray-500 tracking-widest mb-1">ISO 45001 OHSMS - FORMAL RECORD</div>
+                                            <h1 className="text-3xl font-black uppercase m-0 leading-tight">{viewingRecord.templateTitle}</h1>
+                                        </div>
+                                        <div className="text-right">
+                                            <p className="text-sm font-bold m-0 text-gray-600">ID: {viewingRecord.firebaseKey}</p>
+                                        </div>
+                                    </div>
+
+                                    <div className="grid grid-cols-2 gap-6 mb-10 text-sm border-2 border-black p-6 bg-gray-50">
+                                        <div>
+                                            <p className="text-gray-500 font-bold uppercase text-[10px] tracking-widest mb-1">Facility / Site</p>
+                                            <p className="font-black text-lg m-0">{viewingRecord.siteId}</p>
+                                        </div>
+                                        <div>
+                                            <p className="text-gray-500 font-bold uppercase text-[10px] tracking-widest mb-1">Inspection Date</p>
+                                            <p className="font-mono font-bold text-base m-0">{new Date(viewingRecord.completedAt).toLocaleString()}</p>
+                                        </div>
+                                        <div>
+                                            <p className="text-gray-500 font-bold uppercase text-[10px] tracking-widest mb-1">Inspector</p>
+                                            <p className="font-bold text-base m-0">{viewingRecord.inspector}</p>
+                                        </div>
+                                        <div>
+                                            <p className="text-gray-500 font-bold uppercase text-[10px] tracking-widest mb-1">Result Summary</p>
+                                            <p className="font-bold text-base m-0">
+                                                {Object.values(viewingRecord.responses || {}).filter(r => r.answer === 'Fail').length} Defects Found
+                                            </p>
+                                        </div>
+                                    </div>
+
+                                    <h3 className="text-sm font-black uppercase border-b-2 border-black pb-2 mb-6">Inspection Findings</h3>
+
+                                    <table className="w-full text-sm border-collapse mb-10">
+                                        <thead>
+                                            <tr className="bg-gray-200">
+                                                <th className="border border-black p-3 text-left w-2/3">Check Item</th>
+                                                <th className="border border-black p-3 text-center w-1/3">Result / Notes</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {Object.entries(viewingRecord.responses || {}).map(([id, data], idx) => (
+                                                <tr key={id}>
+                                                    <td className="border border-black p-4 font-medium align-top">
+                                                        <span className="font-bold mr-2">{idx + 1}.</span> {data.label}
+                                                    </td>
+                                                    <td className="border border-black p-4 align-top">
+                                                        <div className="flex justify-center mb-2">
+                                                            <span className={`px-3 py-1 font-black uppercase tracking-widest text-xs border-2 ${data.answer === 'Pass' ? 'border-green-600 text-green-700 bg-green-50' : data.answer === 'Fail' ? 'border-red-600 text-red-700 bg-red-50' : 'border-gray-500 text-gray-600 bg-gray-100'}`}>
+                                                                {data.answer || 'N/A'}
+                                                            </span>
+                                                        </div>
+                                                        {data.observation && (
+                                                            <div className="mt-3 text-xs bg-gray-100 p-2 border-l-4 border-black italic">
+                                                                <strong className="not-italic block mb-1">Notes:</strong> {data.observation}
+                                                            </div>
+                                                        )}
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+
+                                    {/* CAPA Summary */}
+                                    {(viewingRecord.capa && viewingRecord.capa.length > 0) && (
+                                        <div className="mb-10 page-break-inside-avoid">
+                                            <h3 className="text-sm font-black uppercase border-b-2 border-black pb-2 mb-4 bg-red-50 p-2">Auto-Generated Actions (CAPA)</h3>
+                                            <div className="space-y-4">
+                                                {viewingRecord.capa.map((c, i) => (
+                                                    <div key={i} className="border border-black p-4 text-xs flex gap-4 bg-gray-50">
+                                                        <div className="font-bold text-red-600 text-lg">{i + 1}.</div>
+                                                        <div className="flex-1">
+                                                            <p className="font-bold mb-2 text-sm">{c.desc}</p>
+                                                            <p className="m-0 text-gray-600">Assigned To: <strong className="text-black">{c.owner}</strong> | Due: <strong className="font-mono text-black">{c.dueDate}</strong></p>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    <div className="mt-16 pt-8 border-t-2 border-dashed border-gray-400 text-center text-xs text-gray-500 page-break-inside-avoid">
+                                        <div className="w-64 border-b-2 border-black mx-auto mb-2 h-10"></div>
+                                        <p className="font-bold uppercase tracking-widest text-black">Digital Signature: {viewingRecord.inspector}</p>
+                                        <p>Date Signed: {new Date(viewingRecord.completedAt).toLocaleString()}</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
                 </div>
             </main>
         </div>
