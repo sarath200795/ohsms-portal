@@ -25,13 +25,6 @@ const addMonths = (dateStr, months) => {
     return d.toISOString().split('T')[0];
 };
 
-const fileToBase64 = (file) => new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.readAsDataURL(file);
-    reader.onload = () => resolve(reader.result);
-    reader.onerror = error => reject(error);
-});
-
 export default function Training() {
     const navigate = useNavigate();
     const location = useLocation();
@@ -79,7 +72,6 @@ export default function Training() {
         if (!s) { navigate('/'); return; }
         const sess = JSON.parse(s);
 
-        // 1. STRICT MODULE GUARD
         const isGlobalAdmin = ['Global Owner', 'Global Manager', 'Owner', 'Admin'].includes(sess.role);
         const hasModuleAccess = isGlobalAdmin || (sess.accessibleModules || []).includes('Training');
 
@@ -91,7 +83,6 @@ export default function Training() {
 
         setSession(sess);
 
-        // 2. STRICT RBAC MATRIX
         const canDel = ['Global Owner', 'Owner', 'Admin', 'Site Owner'].includes(sess.role);
         const canEditCr = ['Global Owner', 'Global Manager', 'Owner', 'Admin', 'Site Owner', 'Site Manager', 'User'].includes(sess.role);
 
@@ -101,7 +92,6 @@ export default function Training() {
             canEditCreate: canEditCr
         });
 
-        // 3. SYNCHRONIZED SITE PERSISTENCE
         const params = new URLSearchParams(location.search);
         const urlSite = params.get('site');
 
@@ -149,6 +139,7 @@ export default function Training() {
 
                     // --- INTELLIGENT CAPA SCANNER ---
                     const parsedCapas = [];
+                    // Strictly match training-related keywords to avoid pulling irrelevant tasks
                     const checkDesc = (desc) => /\b(train|training|retrain|retraining|awareness|educate|briefing|toolbox|tbt|teach|instruct|coach|guide|demonstrate|learn|explain|review|drill|session|course)\b/i.test(desc);
 
                     const parseStandardCapa = (collection, sourceName, dbNode) => {
@@ -174,9 +165,11 @@ export default function Training() {
                         });
                     };
 
+                    // Scan traditional sources
                     parseStandardCapa(orgData.incidents, 'Incident', 'incidents');
                     parseStandardCapa(orgData.mockDrills, 'Emergency Drill', 'mockDrills');
 
+                    // Scan Audits
                     if (orgData.audits) {
                         Object.entries(orgData.audits).forEach(([key, item]) => {
                             if (item.findings) {
@@ -201,6 +194,7 @@ export default function Training() {
                         });
                     }
 
+                    // Scan Consultations
                     if (orgData.consultations) {
                         Object.entries(orgData.consultations).forEach(([key, item]) => {
                             if (item.actions) {
@@ -214,6 +208,32 @@ export default function Training() {
                                             due: act.deadline || act.due || 'N/A', status: act.status || 'Open',
                                             siteId: item.siteId || 'Global',
                                             dbPath: `organizations/${sess.orgId}/consultations/${key}/actions/${idx}`
+                                        });
+                                    }
+                                });
+                            }
+                        });
+                    }
+
+                    // --- NEW: SCAN INSPECTIONS FOR TRAINING TASKS ---
+                    if (orgData.inspectionRecords) {
+                        Object.entries(orgData.inspectionRecords).forEach(([key, record]) => {
+                            if (record.capa && Array.isArray(record.capa)) {
+                                record.capa.forEach((act, idx) => {
+                                    if (!act) return;
+                                    const desc = act.desc || act.act || act.action || '';
+                                    if (checkDesc(desc)) {
+                                        parsedCapas.push({
+                                            uid: `INSP-${key}-${idx}`,
+                                            source: 'Inspection',
+                                            sourceId: record.templateTitle || 'Inspection',
+                                            desc,
+                                            owner: act.owner || act.own || 'Unassigned',
+                                            due: act.dueDate || act.due || 'N/A',
+                                            status: act.status || 'Open',
+                                            siteId: act.siteId || record.siteId || 'Global',
+                                            contextDesc: `Inspection finding from: ${record.templateTitle}`,
+                                            dbPath: `organizations/${sess.orgId}/inspectionRecords/${key}/capa/${idx}`
                                         });
                                     }
                                 });
@@ -304,7 +324,6 @@ export default function Training() {
         const sortedTrainings = [...trainings].sort((a, b) => new Date(a.date) - new Date(b.date));
 
         sortedTrainings.forEach(t => {
-            // Only parse trainings we are authorized to "see" based on RLS
             if (!isGlobalUser && !allowedSiteCodes.has(t.siteId)) return;
 
             if (t.attendees) {
@@ -363,7 +382,6 @@ export default function Training() {
         let merged = users.map(u => ({ id: u.id, name: u.name, role: u.role, assignedSite: u.assignedSite, accessibleSites: u.accessibleSites }));
 
         trainings.forEach(t => {
-            // Apply RLS filter to external users fetched from training rosters
             if (!isGlobalUser && !allowedSiteCodes.has(t.siteId)) return;
 
             if (t.attendees) {
@@ -375,11 +393,9 @@ export default function Training() {
             }
         });
 
-        // Apply UI Filter
         if (matrixSiteFilter !== 'All') {
             merged = merged.filter(u => u.assignedSite === matrixSiteFilter || (u.accessibleSites && u.accessibleSites.includes(matrixSiteFilter)) || (u.id === 'External' && u.assignedSite === matrixSiteFilter));
         } else if (!isGlobalUser) {
-            // If they are on "All Sites" but aren't global, only show users from their allowed sites
             merged = merged.filter(u => allowedSiteCodes.has(u.assignedSite) || (u.accessibleSites && u.accessibleSites.some(s => allowedSiteCodes.has(s))));
         }
 
@@ -402,9 +418,7 @@ export default function Training() {
     const pendingTrainingCapas = useMemo(() => {
         return trainingCapas.filter(c => {
             if (c.status === 'Closed') return false;
-            // RLS Guard
             if (!isGlobalUser && !allowedSiteCodes.has(c.siteId) && c.siteId !== 'Global') return false;
-            // UI Filter Guard
             if (filterSite !== 'All' && c.siteId !== filterSite && c.source !== 'Incident') return false;
 
             return true;
@@ -466,8 +480,11 @@ export default function Training() {
 
         const today = new Date().toISOString().split('T')[0];
         let initialContent = '';
+
         if (capaItem.source === 'Incident') {
             initialContent = `=== CROSS-REFERENCE INCIDENT ID: ${capaItem.sourceId} ===\n\nINCIDENT EVENT DETAILS:\n${capaItem.contextDesc}\n\nTRAINING AGENDA:\n[Please detail the corrective training provided to prevent recurrence...]`;
+        } else if (capaItem.source === 'Inspection') {
+            initialContent = `=== CROSS-REFERENCE INSPECTION: ${capaItem.sourceId} ===\n\nOBSERVATION DETAILS:\n${capaItem.contextDesc}\n\nTRAINING AGENDA:\n[Please detail the corrective training provided to correct this inspection failure...]`;
         } else {
             initialContent = `Fulfilling CAPA for ${capaItem.source} (Ref: ${capaItem.sourceId})`;
         }
