@@ -761,7 +761,7 @@ export default function Inspections() {
 
                     {/* --- COMPLETED RECORD PDF VIEW --- */}
                     {view === 'view-record' && viewingRecord && (
-                        <div className="absolute inset-0 z-[100] bg-slate-950 overflow-y-auto print:bg-white print:text-black">
+                        <div className="absolute inset-0 z-[100] bg-slate-950 overflow-y-auto print:static print:inset-auto print:overflow-visible print:bg-white print:text-black print:h-auto">
                             <div className="max-w-4xl mx-auto p-8 pt-12 print:p-0">
                                 {/* Control Bar (Hidden on Print) */}
                                 <div className="flex justify-between items-center mb-8 no-print bg-slate-900 p-4 rounded-2xl border border-slate-800 shadow-xl sticky top-4 z-50">
