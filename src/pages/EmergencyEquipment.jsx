@@ -3,7 +3,9 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { ref, get, push, update, remove } from 'firebase/database';
 import { rtdb } from '../config/firebase';
 import { QRCodeSVG } from 'qrcode.react';
-import * as XLSX from 'xlsx'; // Needed for Bulk Import
+import * as XLSX from 'xlsx'; // Used for reading the uploaded file
+import ExcelJS from 'exceljs'; // NEW: Used for generating the template with dropdowns
+import { saveAs } from 'file-saver'; // NEW: Used to download the ExcelJS file
 
 const TYPES = ['Fire Extinguisher', 'First Aid Kit', 'AED / Defibrillator', 'Eye Wash Station', 'Spill Kit', 'Evacuation Chair'];
 const STATUSES = ['Active', 'Needs Inspection', 'Out of Service', 'Missing'];
@@ -29,7 +31,7 @@ export default function EmergencyEquipment() {
     const [loading, setLoading] = useState(true);
     const [importing, setImporting] = useState(false);
 
-    const [view, setView] = useState('list'); // 'list' | 'form' | 'inspect' | 'import'
+    const [view, setView] = useState('list');
     const [siteFilter, setSiteFilter] = useState('All');
 
     const [formData, setFormData] = useState({
@@ -215,16 +217,65 @@ export default function EmergencyEquipment() {
         }
     };
 
-    // --- BULK IMPORT LOGIC ---
-    const downloadTemplate = () => {
-        const headers = ["Site ID (Required)", "Equipment Type (Required)", "Location (Required)", "Asset/Serial ID (Optional)", "Status", "Last Inspection Date (YYYY-MM-DD)", "Extinguisher Type (IS 2190)", "Last Refill Date (YYYY-MM-DD)", "Last HPT Date (YYYY-MM-DD)", "Notes"];
-        const example1 = ["HQ-01", "Fire Extinguisher", "Main Lobby Exit", "HQ-LOB-101", "Active", "2025-01-15", "ABC Powder / DCP (Stored Pressure)", "2023-05-10", "2023-05-10", "Mounted securely."];
-        const example2 = ["HQ-01", "First Aid Kit", "Break Room Wall", "", "Active", "2025-02-01", "", "", "", "Fully stocked."];
+    // --- BULK IMPORT LOGIC WITH EXCELJS DROPDOWNS ---
+    const downloadTemplate = async () => {
+        const workbook = new ExcelJS.Workbook();
+        const sheet = workbook.addWorksheet('Equipment_Upload_Template');
+        const listSheet = workbook.addWorksheet('Allowed_Values');
 
-        const ws = XLSX.utils.aoa_to_sheet([headers, example1, example2]);
-        const wb = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(wb, ws, "Equipment_Upload_Template");
-        XLSX.writeFile(wb, "Emergency_Equipment_Upload_Template.xlsx");
+        // Populate the hidden sheet with dropdown options
+        TYPES.forEach((t, i) => listSheet.getCell(`A${i + 1}`).value = t);
+        FIRE_EXT_TYPES.forEach((t, i) => listSheet.getCell(`B${i + 1}`).value = t.name);
+        STATUSES.forEach((s, i) => listSheet.getCell(`C${i + 1}`).value = s);
+
+        listSheet.state = 'hidden'; // Hide the reference sheet from users
+
+        // Setup Headers
+        sheet.columns = [
+            { header: 'Site ID (Req)', key: 'site', width: 15 },
+            { header: 'Equipment Type (Req)', key: 'type', width: 25 },
+            { header: 'Location (Req)', key: 'loc', width: 30 },
+            { header: 'Asset/Serial ID', key: 'asset', width: 20 },
+            { header: 'Status', key: 'status', width: 15 },
+            { header: 'Last Inspection', key: 'insp', width: 20 },
+            { header: 'Extinguisher Type (IS 2190)', key: 'extType', width: 35 },
+            { header: 'Last Refill Date', key: 'refill', width: 20 },
+            { header: 'Last HPT Date', key: 'hpt', width: 20 },
+            { header: 'Notes', key: 'notes', width: 35 }
+        ];
+
+        // Style Headers
+        sheet.getRow(1).font = { bold: true };
+        sheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE0E0E0' } };
+
+        // Apply Data Validation to the first 100 rows
+        for (let i = 2; i <= 100; i++) {
+            sheet.getCell(`B${i}`).dataValidation = {
+                type: 'list', allowBlank: true, formulae: [`Allowed_Values!$A$1:$A$${TYPES.length}`]
+            };
+            sheet.getCell(`G${i}`).dataValidation = {
+                type: 'list', allowBlank: true, formulae: [`Allowed_Values!$B$1:$B$${FIRE_EXT_TYPES.length}`]
+            };
+            sheet.getCell(`E${i}`).dataValidation = {
+                type: 'list', allowBlank: true, formulae: [`Allowed_Values!$C$1:$C$${STATUSES.length}`]
+            };
+        }
+
+        // Add Example Rows
+        sheet.addRow({
+            site: 'HQ-01', type: 'Fire Extinguisher', loc: 'Main Lobby Exit', asset: 'HQ-LOB-101',
+            status: 'Active', insp: '2025-01-15', extType: 'ABC Powder / DCP (Stored Pressure)',
+            refill: '2023-05-10', hpt: '2023-05-10', notes: 'Mounted securely.'
+        });
+        sheet.addRow({
+            site: 'HQ-01', type: 'First Aid Kit', loc: 'Break Room Wall', asset: '',
+            status: 'Active', insp: '2025-02-01', extType: '',
+            refill: '', hpt: '', notes: 'Leave ID blank to auto-generate'
+        });
+
+        // Trigger Download
+        const buffer = await workbook.xlsx.writeBuffer();
+        saveAs(new Blob([buffer]), "Emergency_Equipment_Upload_Template.xlsx");
     };
 
     const handleExcelImport = (e) => {
@@ -239,7 +290,6 @@ export default function EmergencyEquipment() {
                 const wb = XLSX.read(bstr, { type: 'binary' });
                 const wsname = wb.SheetNames[0];
                 const ws = wb.Sheets[wsname];
-                // Use raw:false to get formatted strings for dates instead of Excel serial numbers
                 const data = XLSX.utils.sheet_to_json(ws, { raw: false });
 
                 if (data.length === 0) throw new Error("Excel sheet is empty.");
@@ -247,7 +297,7 @@ export default function EmergencyEquipment() {
                 const updates = {};
                 let count = 0;
 
-                data.forEach((row, index) => {
+                data.forEach((row) => {
                     const keys = Object.keys(row);
                     const getCol = (keywords) => keys.find(k => keywords.some(kw => k.toLowerCase().includes(kw)));
 
@@ -269,14 +319,13 @@ export default function EmergencyEquipment() {
                     // Skip invalid rows gracefully
                     if (!siteId || !eqType || !location) return;
 
-                    // Standardize dates
                     const formatDate = (val) => {
                         if (!val) return '';
                         try { return new Date(val).toISOString().split('T')[0]; } catch (e) { return ''; }
                     };
 
                     let assetId = row[assetCol];
-                    if (!assetId) {
+                    if (!assetId || assetId.includes('auto-generate')) {
                         const locPrefix = location.replace(/[^a-zA-Z0-9]/g, '').substring(0, 3).toUpperCase();
                         const randomNum = Math.floor(1000 + Math.random() * 9000);
                         assetId = `${siteId}-${locPrefix}-${randomNum}`;
@@ -306,31 +355,22 @@ export default function EmergencyEquipment() {
                         }
                     }
 
-                    // Default Next Inspection to 1 month from Last Inspection
                     const lastInsp = formatDate(row[inspCol]) || new Date().toISOString().split('T')[0];
                     const nInspDate = new Date(lastInsp);
                     nInspDate.setMonth(nInspDate.getMonth() + 1);
                     const nextInsp = nInspDate.toISOString().split('T')[0];
 
                     const newItem = {
-                        siteId,
-                        type: eqType,
-                        location,
-                        assetId,
+                        siteId, type: eqType, location, assetId,
                         status: row[statusCol] || 'Active',
-                        lastInspection: lastInsp,
-                        nextInspection: nextInsp,
-                        extinguisherType: extType,
-                        lastRefillDate: lastRefill,
-                        nextRefillDate: nextRefill,
-                        lastHptDate: lastHpt,
-                        nextHptDate: nextHpt,
+                        lastInspection: lastInsp, nextInspection: nextInsp,
+                        extinguisherType: extType, lastRefillDate: lastRefill, nextRefillDate: nextRefill,
+                        lastHptDate: lastHpt, nextHptDate: nextHpt,
                         notes: row[notesCol] || 'Imported via Bulk Upload',
                         updatedBy: session.name || session.email,
                         lastUpdated: new Date().toISOString()
                     };
 
-                    // Prepare batch update
                     const newKey = push(ref(rtdb, `organizations/${session.orgId}/emergencyEquipment`)).key;
                     updates[`organizations/${session.orgId}/emergencyEquipment/${newKey}`] = newItem;
                     count++;
@@ -339,16 +379,16 @@ export default function EmergencyEquipment() {
                 if (count > 0) {
                     await update(ref(rtdb), updates);
                     alert(`Successfully imported ${count} equipment records! IS 2190 dates calculated automatically.`);
-                    setView('list'); // will trigger a re-fetch
+                    setView('list');
                 } else {
-                    alert("No valid rows found. Please ensure Site, Type, and Location columns are filled.");
+                    alert("No valid rows found. Please ensure Site, Equipment Type, and Location columns are filled.");
                 }
 
             } catch (err) {
                 alert("Failed to parse Excel file. Please check the format.\n" + err.message);
             }
             setImporting(false);
-            e.target.value = null; // Reset file input
+            e.target.value = null;
         };
         reader.readAsBinaryString(file);
     };
@@ -616,7 +656,7 @@ export default function EmergencyEquipment() {
                                     <h3 className="text-emerald-400 font-bold uppercase tracking-widest text-sm flex items-center gap-2"><i className="fas fa-info-circle"></i> Standard Upload Format</h3>
                                     <button type="button" onClick={downloadTemplate} className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs px-5 py-2.5 rounded-xl font-bold flex items-center gap-2 transition-transform active:scale-95 shadow-lg"><i className="fas fa-download"></i> Download Template</button>
                                 </div>
-                                <p className="text-sm text-slate-400 mb-6">To ensure accurate mapping and automated IS 2190 calculations, your uploaded file must contain column headers matching the structure below.</p>
+                                <p className="text-sm text-slate-400 mb-6">To ensure accurate mapping and automated IS 2190 calculations, your uploaded file must contain column headers matching the structure below. <strong className="text-white">Note: The downloaded template contains native Excel Dropdowns for Equipment Types to prevent typos.</strong></p>
 
                                 <div className="overflow-x-auto custom-scroll pb-4">
                                     <table className="w-full text-left text-xs text-slate-300 border border-slate-700 whitespace-nowrap bg-slate-950 rounded-xl overflow-hidden">
