@@ -238,7 +238,6 @@ export default function Inspections() {
         const sheet = workbook.addWorksheet('Inspection_Questions');
         const listSheet = workbook.addWorksheet('Allowed_Values');
 
-        // Populate hidden sheet for dropdowns
         const questionTypes = ['Pass/Fail', 'Text Input', 'Number'];
         questionTypes.forEach((t, i) => listSheet.getCell(`A${i + 1}`).value = t);
         listSheet.state = 'hidden';
@@ -257,7 +256,6 @@ export default function Inspections() {
             };
         }
 
-        // Example rows
         sheet.addRow({ question: 'Are fire exits clear and unobstructed?', type: 'Pass/Fail' });
         sheet.addRow({ question: 'Current pressure reading of compressor?', type: 'Number' });
         sheet.addRow({ question: 'General observations of the work area:', type: 'Text Input' });
@@ -351,6 +349,7 @@ export default function Inspections() {
                 }
             });
 
+            // Save Record (Capa array is embedded here for Capa.jsx to read)
             const recordPayload = {
                 templateId: executingTask.templateId,
                 templateTitle: executingTask.title,
@@ -364,12 +363,11 @@ export default function Inspections() {
             const newRecordRef = push(ref(rtdb, `organizations/${session.orgId}/inspectionRecords`));
             await update(newRecordRef, recordPayload);
 
+            // Clear any deferrals so the next cycle resets to normal
             await update(ref(rtdb, `organizations/${session.orgId}/inspectionTemplates/${executingTask.templateId}`), { deferredTo: null });
 
             if (generatedCapas.length > 0) {
-                const capaPromises = generatedCapas.map(c => push(ref(rtdb, `organizations/${session.orgId}/capas`), { ...c, parentId: newRecordRef.key }));
-                await Promise.all(capaPromises);
-                alert(`Inspection Completed! ${generatedCapas.length} Corrective Actions (CAPAs) were pushed to the register.`);
+                alert(`Inspection Completed! ${generatedCapas.length} Corrective Actions (CAPAs) were automatically added to the Global CAPA Register.`);
             } else {
                 alert("Inspection Completed Successfully!");
             }
@@ -545,7 +543,7 @@ export default function Inspections() {
                                                         value={t.status}
                                                         onChange={(e) => updateTemplateStatus(t.firebaseKey, e.target.value)}
                                                         className={`bg-slate-950 border rounded-lg px-3 py-1.5 text-xs font-bold outline-none cursor-pointer ${t.status === 'Active' ? 'border-lime-500/50 text-lime-400' :
-                                                                t.status === 'Draft' ? 'border-slate-600 text-slate-400' : 'border-red-500/50 text-red-400'
+                                                            t.status === 'Draft' ? 'border-slate-600 text-slate-400' : 'border-red-500/50 text-red-400'
                                                             }`}
                                                     >
                                                         {STATUSES.map(s => <option key={s} value={s}>{s}</option>)}

@@ -116,7 +116,7 @@ export default function Capa() {
                                     status: act.status || 'Open',
                                     siteId: inc.siteId || 'Global',
                                     closureComment: act.closureComment || null,
-                                    closureEvidence: act.closureEvidence || null, // FETCH EVIDENCE
+                                    closureEvidence: act.closureEvidence || null,
                                     closedAt: act.closedAt || null,
                                     closedBy: act.closedBy || null,
                                     dbPath: inc.capa ? `organizations/${orgId}/incidents/${key}/capa/${idx}` : `organizations/${orgId}/incidents/${key}/investigation/capa/${idx}`
@@ -142,7 +142,7 @@ export default function Capa() {
                                         status: find.response.capaStatus || 'Open',
                                         siteId: aud.siteId || aud.taskDetails?.siteId || 'Global',
                                         closureComment: find.response.closureComment || null,
-                                        closureEvidence: find.response.closureEvidence || null, // FETCH EVIDENCE
+                                        closureEvidence: find.response.closureEvidence || null,
                                         closedAt: find.response.closedAt || null,
                                         closedBy: find.response.closedBy || null,
                                         dbPath: `organizations/${orgId}/auditFindings/${key}/findings/${fIdx}/response`
@@ -169,7 +169,7 @@ export default function Capa() {
                                     status: act.status || 'Open',
                                     siteId: drill.siteId || 'Global',
                                     closureComment: act.closureComment || null,
-                                    closureEvidence: act.closureEvidence || null, // FETCH EVIDENCE
+                                    closureEvidence: act.closureEvidence || null,
                                     closedAt: act.closedAt || null,
                                     closedBy: act.closedBy || null,
                                     dbPath: `organizations/${orgId}/mockDrills/${key}/capa/${idx}`
@@ -195,7 +195,7 @@ export default function Capa() {
                                     status: act.status || 'Open',
                                     siteId: meet.siteId || 'Global',
                                     closureComment: act.closureComment || null,
-                                    closureEvidence: act.closureEvidence || null, // FETCH EVIDENCE
+                                    closureEvidence: act.closureEvidence || null,
                                     closedAt: act.closedAt || null,
                                     closedBy: act.closedBy || null,
                                     dbPath: `organizations/${orgId}/consultations/${key}/actions/${idx}`
@@ -223,7 +223,7 @@ export default function Capa() {
                                     status: act.status,
                                     siteId: act.siteId || imp.siteId || 'Global',
                                     closureComment: act.closureComment || null,
-                                    closureEvidence: act.closureEvidence || null, // FETCH EVIDENCE
+                                    closureEvidence: act.closureEvidence || null,
                                     closedAt: act.closedAt || null,
                                     closedBy: act.closedBy || null,
                                     dbPath: `organizations/${orgId}/improvements/${key}/actions/${idx}`
@@ -240,10 +240,36 @@ export default function Capa() {
                                 status: imp.status,
                                 siteId: imp.siteId || 'Global',
                                 closureComment: imp.closureComment || null,
-                                closureEvidence: imp.closureEvidence || null, // FETCH EVIDENCE
+                                closureEvidence: imp.closureEvidence || null,
                                 closedAt: imp.closedAt || null,
                                 closedBy: imp.closedBy || null,
                                 dbPath: `organizations/${orgId}/improvements/${key}`
+                            });
+                        }
+                    });
+                }
+
+                // 6. ROUTINE INSPECTIONS (NEW INTEGRATION)
+                if (data.inspectionRecords) {
+                    Object.entries(data.inspectionRecords).forEach(([key, record]) => {
+                        if (record.capa && Array.isArray(record.capa)) {
+                            record.capa.forEach((act, idx) => {
+                                if (!act) return;
+                                allActions.push({
+                                    uid: `INSP-${key}-${idx}`,
+                                    source: 'Inspection',
+                                    sourceId: record.templateTitle || 'Inspection',
+                                    desc: act.desc || act.act || act.action || 'No Description',
+                                    owner: act.owner || act.own || 'Unassigned',
+                                    due: act.dueDate || act.due || 'N/A',
+                                    status: act.status || 'Open',
+                                    siteId: act.siteId || record.siteId || 'Global',
+                                    closureComment: act.closureComment || null,
+                                    closureEvidence: act.closureEvidence || null,
+                                    closedAt: act.closedAt || null,
+                                    closedBy: act.closedBy || null,
+                                    dbPath: `organizations/${orgId}/inspectionRecords/${key}/capa/${idx}`
+                                });
                             });
                         }
                     });
@@ -534,6 +560,7 @@ export default function Capa() {
                                 <option value="All" className="bg-slate-900 text-white">All Sources</option>
                                 <option value="Incident" className="bg-slate-900 text-white">Incidents</option>
                                 <option value="Audit" className="bg-slate-900 text-white">Audits</option>
+                                <option value="Inspection" className="bg-slate-900 text-white">Inspections</option>
                                 <option value="Emergency Drill" className="bg-slate-900 text-white">Drills</option>
                                 <option value="Consultation" className="bg-slate-900 text-white">Meetings</option>
                                 <option value="Improvement" className="bg-slate-900 text-white">Improvements</option>
@@ -570,7 +597,11 @@ export default function Capa() {
                                         return (
                                             <tr key={act.uid} className="hover:bg-slate-800/60 transition-colors">
                                                 <td className="p-5 pl-6 align-top">
-                                                    <span className={`px-3 py-1.5 rounded-lg text-[9px] font-bold uppercase tracking-widest border shadow-sm ${act.source === 'Incident' ? 'text-orange-400 bg-orange-900/20 border-orange-500/30' : act.source === 'Audit' ? 'text-emerald-400 bg-emerald-900/20 border-emerald-500/30' : 'text-blue-400 bg-blue-900/20 border-blue-500/30'}`}>
+                                                    <span className={`px-3 py-1.5 rounded-lg text-[9px] font-bold uppercase tracking-widest border shadow-sm ${act.source === 'Incident' ? 'text-orange-400 bg-orange-900/20 border-orange-500/30' :
+                                                            act.source === 'Audit' ? 'text-emerald-400 bg-emerald-900/20 border-emerald-500/30' :
+                                                                act.source === 'Inspection' ? 'text-lime-400 bg-lime-900/20 border-lime-500/30' :
+                                                                    'text-blue-400 bg-blue-900/20 border-blue-500/30'
+                                                        }`}>
                                                         {act.source}
                                                     </span>
                                                 </td>
