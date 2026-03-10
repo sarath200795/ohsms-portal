@@ -6,10 +6,18 @@ import { rtdb } from '../config/firebase';
 const FREQUENCIES = ['Daily', 'Weekly', 'Monthly', 'Quarterly', 'Bi-Annually', 'Annually'];
 const STATUSES = ['Draft', 'Active', 'Inactive'];
 
+// --- SUB-COMPONENTS (FIXED: Added missing UserSelect to prevent CAPA crash) ---
+const UserSelect = ({ users, value, onChange, disabled, placeholder }) => (
+    <select value={value} onChange={e => onChange(e.target.value)} disabled={disabled} className="w-full bg-slate-900 border border-slate-700 p-2.5 rounded-lg text-white text-xs outline-none focus:border-blue-500">
+        <option value="">{placeholder || 'Select User...'}</option>
+        {users.map(u => <option key={u.id} value={u.name || u.email}>{u.name || u.email} ({u.role || 'User'})</option>)}
+    </select>
+);
+
 // --- DATE MATH UTILITIES ---
 const calculateNextDueDate = (lastDateStr, frequency, createdDateStr) => {
     const baseDate = lastDateStr ? new Date(lastDateStr) : new Date(createdDateStr || Date.now());
-    if (isNaN(baseDate.getTime())) return new Date(); // Fallback
+    if (isNaN(baseDate.getTime())) return new Date();
 
     const nextDate = new Date(baseDate);
     switch (frequency) {
@@ -19,7 +27,7 @@ const calculateNextDueDate = (lastDateStr, frequency, createdDateStr) => {
         case 'Quarterly': nextDate.setMonth(nextDate.getMonth() + 3); break;
         case 'Bi-Annually': nextDate.setMonth(nextDate.getMonth() + 6); break;
         case 'Annually': nextDate.setFullYear(nextDate.getFullYear() + 1); break;
-        default: nextDate.setMonth(nextDate.getMonth() + 1); // Default Monthly
+        default: nextDate.setMonth(nextDate.getMonth() + 1);
     }
     return nextDate;
 };
@@ -30,7 +38,7 @@ export default function Inspections() {
 
     const [session, setSession] = useState(null);
     const [loading, setLoading] = useState(true);
-    const [view, setView] = useState('calendar'); // 'calendar' | 'builder' | 'execute' | 'history'
+    const [view, setView] = useState('calendar'); // 'calendar' | 'templates' | 'builder' | 'execute' | 'history'
 
     const [templates, setTemplates] = useState([]);
     const [records, setRecords] = useState([]);
@@ -45,8 +53,8 @@ export default function Inspections() {
     const [editTemplate, setEditTemplate] = useState(null);
 
     // Execution State
-    const [executingTask, setExecutingTask] = useState(null); // The scheduled task we are doing
-    const [inspectionForm, setInspectionForm] = useState({}); // Stores answers & observations
+    const [executingTask, setExecutingTask] = useState(null);
+    const [inspectionForm, setInspectionForm] = useState({});
 
     useEffect(() => {
         const s = sessionStorage.getItem('isoSession');
@@ -80,11 +88,9 @@ export default function Inspections() {
     const canEdit = ['Global Owner', 'Global Manager', 'Owner', 'Admin', 'Site Owner', 'Site Manager'].includes(session?.role);
 
     // --- SCHEDULING ENGINE ---
-    // Calculates what is due based on templates and past records
     const scheduledTasks = useMemo(() => {
         const tasks = [];
         templates.filter(t => t.status === 'Active' && (siteFilter === 'All' || t.siteId === siteFilter || t.siteId === 'GLOBAL')).forEach(t => {
-            // Find most recent completed record for this template
             const pastRecords = records.filter(r => r.templateId === t.firebaseKey).sort((a, b) => new Date(b.completedAt) - new Date(a.completedAt));
             const lastRecord = pastRecords[0];
 
@@ -137,7 +143,7 @@ export default function Inspections() {
         return days;
     };
 
-    // --- TEMPLATE BUILDER HANDLERS ---
+    // --- TEMPLATE BUILDER & MANAGEMENT HANDLERS ---
     const saveTemplate = async () => {
         if (!editTemplate.title || !editTemplate.siteId) return alert("Title and Site are required.");
         if (editTemplate.fields.length === 0) return alert("Please add at least one inspection question.");
@@ -151,15 +157,34 @@ export default function Inspections() {
             } else {
                 await push(ref(rtdb, `organizations/${session.orgId}/inspectionTemplates`), payload);
             }
-            alert("Inspection Template Saved!");
-            setView('calendar');
+            alert("Inspection Form Saved Successfully!");
+            setView('templates'); // Redirect to Template Manager View
         } catch (e) { alert("Save failed: " + e.message); }
     };
+
+    const updateTemplateStatus = async (key, newStatus) => {
+        try {
+            await update(ref(rtdb, `organizations/${session.orgId}/inspectionTemplates/${key}`), { status: newStatus });
+            setTemplates(prev => prev.map(t => t.firebaseKey === key ? { ...t, status: newStatus } : t));
+        } catch (e) {
+            alert("Failed to update status");
+        }
+    };
+
+    const deleteTemplate = async (key) => {
+        if (!window.confirm("Are you sure you want to permanently delete this inspection form?")) return;
+        try {
+            await remove(ref(rtdb, `organizations/${session.orgId}/inspectionTemplates/${key}`));
+            setTemplates(prev => prev.filter(t => t.firebaseKey !== key));
+        } catch (e) {
+            alert("Failed to delete template");
+        }
+    };
+
 
     // --- EXECUTION HANDLERS ---
     const startInspection = (task) => {
         setExecutingTask(task);
-        // Initialize form state mapping
         const initForm = {};
         task.template.fields.forEach(f => {
             initForm[f.id] = { answer: '', observation: '', raiseCapa: false, capaOwner: '', capaDue: '' };
@@ -172,7 +197,6 @@ export default function Inspections() {
         try {
             const completedAt = new Date().toISOString();
 
-            // 1. Extract Observations to create CAPAs
             const generatedCapas = [];
             executingTask.template.fields.forEach(f => {
                 const response = inspectionForm[f.id];
@@ -188,7 +212,6 @@ export default function Inspections() {
                 }
             });
 
-            // 2. Save Inspection Record
             const recordPayload = {
                 templateId: executingTask.templateId,
                 templateTitle: executingTask.title,
@@ -199,12 +222,9 @@ export default function Inspections() {
             };
             await push(ref(rtdb, `organizations/${session.orgId}/inspectionRecords`), recordPayload);
 
-            // 3. Save CAPAs (if any) to a central node or embed them. We will embed them in the main "capaRegister" if it exists, or local.
-            // For simplicity in this module, we push to a generalized CAPA node or standard incidents.
             if (generatedCapas.length > 0) {
-                // Here we simulate pushing to the central CAPA DB you use in Incident/Risk.
-                // Assuming you have an 'independentCapas' node or similar.
-                const capaPromises = generatedCapas.map(c => push(ref(rtdb, `organizations/${session.orgId}/standaloneCapas`), c));
+                // Assuming standaloneCapas or standard CAPA processing exists
+                const capaPromises = generatedCapas.map(c => push(ref(rtdb, `organizations/${session.orgId}/capaRegister`), c));
                 await Promise.all(capaPromises);
                 alert(`Inspection Completed! ${generatedCapas.length} Corrective Actions (CAPAs) were automatically generated.`);
             } else {
@@ -234,7 +254,7 @@ export default function Inspections() {
                 <div className="flex bg-slate-900 border border-slate-800 p-1.5 rounded-xl shadow-inner">
                     <button onClick={() => setView('calendar')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-widest transition-all ${view === 'calendar' ? 'bg-lime-500 text-slate-950 shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}><i className="fas fa-calendar-alt mr-1"></i> Schedule</button>
                     <button onClick={() => setView('history')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-widest transition-all ${view === 'history' ? 'bg-lime-500 text-slate-950 shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}><i className="fas fa-history mr-1"></i> History</button>
-                    {canEdit && <button onClick={() => { setEditTemplate({ id: '', title: '', desc: '', siteId: siteFilter === 'All' ? '' : siteFilter, frequency: 'Monthly', status: 'Draft', fields: [] }); setView('builder'); }} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-widest transition-all ${view === 'builder' ? 'bg-lime-500 text-slate-950 shadow-lg' : 'text-lime-400 hover:text-lime-300 hover:bg-slate-800'}`}><i className="fas fa-tools mr-1"></i> Form Builder</button>}
+                    {canEdit && <button onClick={() => setView('templates')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-widest transition-all ${view === 'templates' || view === 'builder' ? 'bg-lime-500 text-slate-950 shadow-lg' : 'text-lime-400 hover:text-lime-300 hover:bg-slate-800'}`}><i className="fas fa-layer-group mr-1"></i> Manage Forms</button>}
                 </div>
             </header>
 
@@ -313,12 +333,60 @@ export default function Inspections() {
                         </div>
                     )}
 
+                    {/* --- MANAGE TEMPLATES VIEW --- */}
+                    {view === 'templates' && (
+                        <div className="max-w-6xl mx-auto space-y-6">
+                            <div className="flex justify-between items-end mb-6">
+                                <div>
+                                    <h2 className="text-3xl font-bold text-white mb-2">Form Templates</h2>
+                                    <p className="text-sm text-slate-400">Create forms and set frequencies to drive the automated calendar.</p>
+                                </div>
+                                <button onClick={() => { setEditTemplate({ id: '', title: '', desc: '', siteId: siteFilter === 'All' ? '' : siteFilter, frequency: 'Monthly', status: 'Draft', fields: [] }); setView('builder'); }} className="bg-lime-500 hover:bg-lime-400 text-slate-950 font-bold px-5 py-3 rounded-xl shadow-lg shadow-lime-500/20 transition-transform active:scale-95 flex items-center gap-2 text-sm">
+                                    <i className="fas fa-plus"></i> Create New Form
+                                </button>
+                            </div>
+
+                            <div className="bg-slate-900/50 rounded-3xl border border-slate-700 overflow-hidden shadow-xl">
+                                <table className="w-full text-left text-sm text-slate-300">
+                                    <thead className="bg-slate-950 border-b border-slate-800 text-[10px] uppercase tracking-widest font-bold text-slate-500">
+                                        <tr><th className="p-5 pl-6">Form Title</th><th className="p-5">Site Target</th><th className="p-5">Frequency</th><th className="p-5">Live Status</th><th className="p-5 pr-6 text-right">Actions</th></tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-800/50">
+                                        {templates.filter(t => siteFilter === 'All' || t.siteId === siteFilter || t.siteId === 'GLOBAL').map(t => (
+                                            <tr key={t.firebaseKey} className="hover:bg-slate-800/40">
+                                                <td className="p-5 pl-6 font-bold text-white text-base">{t.title}</td>
+                                                <td className="p-5">{t.siteId}</td>
+                                                <td className="p-5 font-mono text-lime-400">{t.frequency}</td>
+                                                <td className="p-5">
+                                                    <select
+                                                        value={t.status}
+                                                        onChange={(e) => updateTemplateStatus(t.firebaseKey, e.target.value)}
+                                                        className={`bg-slate-950 border rounded-lg px-3 py-1.5 text-xs font-bold outline-none cursor-pointer ${t.status === 'Active' ? 'border-lime-500/50 text-lime-400' :
+                                                            t.status === 'Draft' ? 'border-slate-600 text-slate-400' : 'border-red-500/50 text-red-400'
+                                                            }`}
+                                                    >
+                                                        {STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+                                                    </select>
+                                                </td>
+                                                <td className="p-5 pr-6 text-right flex justify-end gap-2">
+                                                    <button onClick={() => { setEditTemplate(t); setView('builder'); }} className="bg-slate-800 hover:bg-slate-700 text-white w-9 h-9 rounded-lg flex items-center justify-center transition-colors border border-slate-600"><i className="fas fa-edit"></i></button>
+                                                    <button onClick={() => deleteTemplate(t.firebaseKey)} className="bg-red-900/20 hover:bg-red-600 text-red-500 hover:text-white w-9 h-9 rounded-lg flex items-center justify-center transition-colors border border-red-500/30"><i className="fas fa-trash-alt"></i></button>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                        {templates.filter(t => siteFilter === 'All' || t.siteId === siteFilter || t.siteId === 'GLOBAL').length === 0 && <tr><td colSpan="5" className="p-12 text-center text-slate-500 italic">No inspection templates found. Create one to get started.</td></tr>}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    )}
+
                     {/* --- TEMPLATE BUILDER VIEW --- */}
                     {view === 'builder' && editTemplate && (
                         <div className="max-w-4xl mx-auto bg-slate-900/80 p-8 rounded-3xl border border-slate-700 shadow-2xl animate-in zoom-in-95 duration-300">
                             <div className="flex justify-between items-center mb-8 border-b border-slate-800 pb-4">
                                 <h2 className="text-2xl font-bold text-lime-400 flex items-center gap-3"><i className="fas fa-tools"></i> {editTemplate.firebaseKey ? 'Edit Form Template' : 'New Inspection Form'}</h2>
-                                <button onClick={() => setView('calendar')} className="text-slate-500 hover:text-white"><i className="fas fa-times text-xl"></i></button>
+                                <button onClick={() => setView('templates')} className="text-slate-500 hover:text-white"><i className="fas fa-times text-xl"></i></button>
                             </div>
 
                             <div className="grid grid-cols-2 gap-6 mb-8">
@@ -376,7 +444,7 @@ export default function Inspections() {
                             </div>
 
                             <div className="flex justify-end gap-4 pt-8 mt-4 border-t border-slate-800">
-                                <button onClick={() => setView('calendar')} className="px-8 py-3 bg-slate-800 text-white font-bold rounded-xl hover:bg-slate-700 transition">Cancel</button>
+                                <button onClick={() => setView('templates')} className="px-8 py-3 bg-slate-800 text-white font-bold rounded-xl hover:bg-slate-700 transition">Cancel</button>
                                 <button onClick={saveTemplate} className="px-10 py-3 bg-lime-500 text-slate-950 font-black uppercase tracking-widest rounded-xl hover:bg-lime-400 transition shadow-lg shadow-lime-500/20"><i className="fas fa-save mr-2"></i> Save Template</button>
                             </div>
                         </div>
