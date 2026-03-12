@@ -4,13 +4,27 @@ import { ref, get, push, update, remove } from 'firebase/database';
 import { rtdb } from '../config/firebase';
 import * as XLSX from 'xlsx';
 
-// --- BULLETPROOF DATA ENGINE ---
-// This prevents React from crashing if Firebase returns an Object instead of an Array
+// --- DATA SAFETY ENGINE ---
+// Strictly forces Firebase Objects back into Arrays to prevent React crashes
 const safeArr = (val) => {
     if (!val) return [];
     if (Array.isArray(val)) return val.filter(Boolean);
     if (typeof val === 'object') return Object.values(val).filter(Boolean);
     return [];
+};
+
+const parseContractors = (dataObj) => {
+    if (!dataObj) return [];
+    return Object.entries(dataObj).map(([k, v]) => ({
+        ...v, // Spread first to get base values
+        firebaseKey: k,
+        // Force overwrite lists to guarantee they are Arrays
+        documents: safeArr(v.documents),
+        workers: safeArr(v.workers),
+        trainings: safeArr(v.trainings),
+        incidents: safeArr(v.incidents),
+        nonCompliances: safeArr(v.nonCompliances)
+    }));
 };
 
 // --- INDIAN LEGAL COMPLIANCE MAPPING ---
@@ -58,7 +72,7 @@ export default function Contractors() {
     // Form State (Section 1)
     const [formData, setFormData] = useState({
         id: '', siteId: '', companyName: '', contactPerson: '', email: '', phone: '',
-        serviceType: 'General / Housekeeping', notes: '',
+        serviceType: 'General / Housekeeping', notes: '', status: 'Pending Review',
         documents: getMandatoryDocs('General / Housekeeping'),
         workers: [], trainings: [], incidents: [], nonCompliances: []
     });
@@ -101,17 +115,7 @@ export default function Contractors() {
                 if (snap.exists()) {
                     const data = snap.val();
                     if (data.contractors) {
-                        // Ensure base arrays exist to prevent mapping crashes
-                        const parsedVendors = Object.entries(data.contractors).map(([k, v]) => ({
-                            firebaseKey: k,
-                            documents: safeArr(v.documents),
-                            workers: safeArr(v.workers),
-                            trainings: safeArr(v.trainings),
-                            incidents: safeArr(v.incidents),
-                            nonCompliances: safeArr(v.nonCompliances),
-                            ...v
-                        }));
-                        setContractors(parsedVendors);
+                        setContractors(parseContractors(data.contractors));
                     }
                     if (data.sites) setSites(Object.keys(data.sites).map(key => ({ code: data.sites[key].code || key, name: data.sites[key].name || key })));
                 }
@@ -194,9 +198,8 @@ export default function Contractors() {
             alert("Vendor Registered/Updated Successfully!");
 
             const snap = await get(ref(rtdb, `organizations/${session.orgId}`));
-            if (snap.exists()) {
-                const parsedVendors = Object.entries(snap.val().contractors || {}).map(([k, v]) => ({ firebaseKey: k, ...v }));
-                setContractors(parsedVendors);
+            if (snap.exists() && snap.val().contractors) {
+                setContractors(parseContractors(snap.val().contractors));
             }
 
             setView('compliance');
@@ -209,8 +212,33 @@ export default function Contractors() {
     const updateVendorDB = async (vendorKey, payload) => {
         try {
             await update(ref(rtdb, `organizations/${session.orgId}/contractors/${vendorKey}`), payload);
-            setContractors(prev => prev.map(c => c.firebaseKey === vendorKey ? { ...c, ...payload } : c));
-            setActiveVendor(prev => ({ ...prev, ...payload }));
+
+            // Sync Local State perfectly by forcing Arrays
+            setContractors(prev => prev.map(c => {
+                if (c.firebaseKey === vendorKey) {
+                    return {
+                        ...c,
+                        ...payload,
+                        documents: payload.documents ? safeArr(payload.documents) : safeArr(c.documents),
+                        workers: payload.workers ? safeArr(payload.workers) : safeArr(c.workers),
+                        trainings: payload.trainings ? safeArr(payload.trainings) : safeArr(c.trainings),
+                        incidents: payload.incidents ? safeArr(payload.incidents) : safeArr(c.incidents),
+                        nonCompliances: payload.nonCompliances ? safeArr(payload.nonCompliances) : safeArr(c.nonCompliances)
+                    };
+                }
+                return c;
+            }));
+
+            if (activeVendor && activeVendor.firebaseKey === vendorKey) {
+                setActiveVendor(prev => ({
+                    ...prev,
+                    ...payload,
+                    documents: payload.documents ? safeArr(payload.documents) : safeArr(prev.documents),
+                    trainings: payload.trainings ? safeArr(payload.trainings) : safeArr(prev.trainings),
+                    incidents: payload.incidents ? safeArr(payload.incidents) : safeArr(prev.incidents),
+                    nonCompliances: payload.nonCompliances ? safeArr(payload.nonCompliances) : safeArr(prev.nonCompliances)
+                }));
+            }
         } catch (e) { alert("Failed to update database."); }
     };
 
@@ -260,11 +288,11 @@ export default function Contractors() {
                     <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-indigo-500 to-blue-600 flex items-center justify-center text-white font-bold shadow-lg"><i className="fas fa-hard-hat"></i></div>
                     <h1 className="text-base font-bold text-white hidden md:block uppercase tracking-wide">Contractor Safety</h1>
                 </div>
-                <div className="flex bg-slate-900 border border-slate-800 p-1.5 rounded-xl shadow-inner gap-1">
-                    <button onClick={() => { setFormData({ id: '', siteId: siteFilter === 'All' ? '' : siteFilter, companyName: '', contactPerson: '', email: '', phone: '', serviceType: 'General / Housekeeping', documents: getMandatoryDocs('General / Housekeeping'), workers: [], trainings: [], incidents: [], nonCompliances: [] }); setView('register'); }} className={`px-4 py-2 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all ${view === 'register' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}><i className="fas fa-user-plus mr-1"></i> 1. Register</button>
-                    <button onClick={() => setView('compliance')} className={`px-4 py-2 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all ${view === 'compliance' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}><i className="fas fa-file-contract mr-1"></i> 2. Compliance</button>
-                    <button onClick={() => setView('training')} className={`px-4 py-2 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all ${view === 'training' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}><i className="fas fa-graduation-cap mr-1"></i> 3. Training</button>
-                    <button onClick={() => setView('incidents')} className={`px-4 py-2 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all ${view === 'incidents' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}><i className="fas fa-exclamation-triangle mr-1"></i> 4. Incidents & NC</button>
+                <div className="flex bg-slate-900 border border-slate-800 p-1.5 rounded-xl shadow-inner gap-1 overflow-x-auto custom-scroll">
+                    <button onClick={() => { setFormData({ id: '', siteId: siteFilter === 'All' ? '' : siteFilter, companyName: '', contactPerson: '', email: '', phone: '', serviceType: 'General / Housekeeping', documents: getMandatoryDocs('General / Housekeeping'), workers: [], trainings: [], incidents: [], nonCompliances: [] }); setView('register'); }} className={`px-4 py-2 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all whitespace-nowrap ${view === 'register' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}><i className="fas fa-user-plus mr-1"></i> 1. Register</button>
+                    <button onClick={() => setView('compliance')} className={`px-4 py-2 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all whitespace-nowrap ${view === 'compliance' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}><i className="fas fa-file-contract mr-1"></i> 2. Compliance</button>
+                    <button onClick={() => setView('training')} className={`px-4 py-2 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all whitespace-nowrap ${view === 'training' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}><i className="fas fa-graduation-cap mr-1"></i> 3. Training</button>
+                    <button onClick={() => setView('incidents')} className={`px-4 py-2 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all whitespace-nowrap ${view === 'incidents' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}><i className="fas fa-exclamation-triangle mr-1"></i> 4. Incidents & NC</button>
                 </div>
             </header>
 
@@ -273,12 +301,12 @@ export default function Contractors() {
 
                     {/* --- GLOBAL FILTERS --- */}
                     {view !== 'register' && (
-                        <div className="flex justify-between items-center mb-6 bg-slate-900/50 p-4 rounded-2xl border border-slate-800">
+                        <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 bg-slate-900/50 p-4 rounded-2xl border border-slate-800 gap-4">
                             <div>
                                 <h2 className="text-2xl font-bold text-white">{view === 'compliance' ? 'Vendor Compliance Status' : view === 'training' ? 'Contractor Training Records' : 'Incidents & Non-Compliance'}</h2>
                                 <p className="text-xs text-slate-400 uppercase tracking-widest mt-1">Select a vendor below to manage records.</p>
                             </div>
-                            <select value={siteFilter} onChange={e => { setSiteFilter(e.target.value); sessionStorage.setItem('isoCurrentSite', e.target.value); }} className="bg-slate-950 border border-slate-700 text-white text-xs font-bold px-4 py-2.5 rounded-xl outline-none shadow-inner">
+                            <select value={siteFilter} onChange={e => { setSiteFilter(e.target.value); sessionStorage.setItem('isoCurrentSite', e.target.value); }} className="bg-slate-950 border border-slate-700 text-white text-xs font-bold px-4 py-2.5 rounded-xl outline-none shadow-inner w-full md:w-auto">
                                 {(isGlobalUser || sites.length > 1) && <option value="All">All Authorized Sites</option>}
                                 {visibleSites.map(s => <option key={s.code} value={s.code}>{s.name}</option>)}
                             </select>
@@ -396,7 +424,7 @@ export default function Contractors() {
                     {/* SECTION 2: VENDOR COMPLIANCE STATUS */}
                     {/* ===================================================================== */}
                     {view === 'compliance' && (
-                        <div className="bg-slate-900/50 rounded-2xl border border-slate-700 overflow-hidden shadow-xl">
+                        <div className="bg-slate-900/50 rounded-2xl border border-slate-700 overflow-x-auto shadow-xl">
                             <table className="w-full text-left text-sm min-w-[1000px]">
                                 <thead className="bg-slate-950 border-b border-slate-800 text-[10px] uppercase tracking-widest font-bold text-slate-500">
                                     <tr><th className="p-4 pl-6">Vendor Details</th><th className="p-4">Service Type</th><th className="p-4">Legal Status</th><th className="p-4">Documents</th><th className="p-4 pr-6 text-right">Actions</th></tr>
@@ -439,25 +467,29 @@ export default function Contractors() {
                     {/* SECTION 3: TRAINING RECORDS */}
                     {/* ===================================================================== */}
                     {view === 'training' && (
-                        <div className="bg-slate-900/50 rounded-2xl border border-slate-700 overflow-hidden shadow-xl">
+                        <div className="bg-slate-900/50 rounded-2xl border border-slate-700 overflow-x-auto shadow-xl">
                             <table className="w-full text-left text-sm min-w-[1000px]">
                                 <thead className="bg-slate-950 border-b border-slate-800 text-[10px] uppercase tracking-widest font-bold text-slate-500">
                                     <tr><th className="p-4 pl-6">Vendor Details</th><th className="p-4">Employees</th><th className="p-4">Training Sessions Logged</th><th className="p-4 pr-6 text-right">Actions</th></tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-800/50 text-slate-300">
-                                    {visibleContractors.map(c => (
-                                        <tr key={c.firebaseKey} className="hover:bg-slate-800/40 transition-colors">
-                                            <td className="p-4 pl-6">
-                                                <div className="font-bold text-white text-base">{c.companyName}</div>
-                                                <div className="text-[10px] text-slate-500 mt-1 uppercase tracking-widest">Site: <span className="text-indigo-400 font-bold">{c.siteId}</span></div>
-                                            </td>
-                                            <td className="p-4 font-mono font-bold text-slate-300">{safeArr(c.workers).length} Reg.</td>
-                                            <td className="p-4 font-mono font-bold text-blue-400">{safeArr(c.trainings).length} Sessions</td>
-                                            <td className="p-4 pr-6 text-right">
-                                                <button onClick={() => { setActiveVendor(c); setModalType('training'); }} className="bg-blue-900/30 hover:bg-blue-600 border border-blue-500/30 text-blue-400 hover:text-white px-4 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-colors"><i className="fas fa-graduation-cap mr-1"></i> Manage Training</button>
-                                            </td>
-                                        </tr>
-                                    ))}
+                                    {visibleContractors.map(c => {
+                                        const workersCount = safeArr(c.workers).length;
+                                        const trainingCount = safeArr(c.trainings).length;
+                                        return (
+                                            <tr key={c.firebaseKey} className="hover:bg-slate-800/40 transition-colors">
+                                                <td className="p-4 pl-6">
+                                                    <div className="font-bold text-white text-base">{c.companyName}</div>
+                                                    <div className="text-[10px] text-slate-500 mt-1 uppercase tracking-widest">Site: <span className="text-indigo-400 font-bold">{c.siteId}</span></div>
+                                                </td>
+                                                <td className="p-4 font-mono font-bold text-slate-300">{workersCount} Reg.</td>
+                                                <td className="p-4 font-mono font-bold text-blue-400">{trainingCount} Sessions</td>
+                                                <td className="p-4 pr-6 text-right">
+                                                    <button onClick={() => { setActiveVendor(c); setModalType('training'); }} className="bg-blue-900/30 hover:bg-blue-600 border border-blue-500/30 text-blue-400 hover:text-white px-4 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-colors"><i className="fas fa-graduation-cap mr-1"></i> Manage Training</button>
+                                                </td>
+                                            </tr>
+                                        );
+                                    })}
                                     {visibleContractors.length === 0 && <tr><td colSpan="4" className="p-12 text-center text-slate-500 italic">No vendors found.</td></tr>}
                                 </tbody>
                             </table>
@@ -468,7 +500,7 @@ export default function Contractors() {
                     {/* SECTION 4: INCIDENTS & NON-COMPLIANCE */}
                     {/* ===================================================================== */}
                     {view === 'incidents' && (
-                        <div className="bg-slate-900/50 rounded-2xl border border-slate-700 overflow-hidden shadow-xl">
+                        <div className="bg-slate-900/50 rounded-2xl border border-slate-700 overflow-x-auto shadow-xl">
                             <table className="w-full text-left text-sm min-w-[1000px]">
                                 <thead className="bg-slate-950 border-b border-slate-800 text-[10px] uppercase tracking-widest font-bold text-slate-500">
                                     <tr><th className="p-4 pl-6">Vendor Details</th><th className="p-4 text-center">Injuries / Incidents</th><th className="p-4 text-center">Non-Compliances (NC)</th><th className="p-4 pr-6 text-right">Actions</th></tr>
