@@ -5,7 +5,7 @@ import { rtdb } from '../config/firebase';
 import * as XLSX from 'xlsx';
 
 // --- DATA SAFETY ENGINE ---
-// Forces Firebase Objects back into Arrays to prevent React crashes
+// Strictly forces Firebase Objects back into Arrays to prevent React crashes
 const toArray = (val) => {
     if (!val) return [];
     return Array.isArray(val) ? val : Object.values(val);
@@ -130,7 +130,7 @@ export default function Contractors() {
         if (uploadedDocs.length < requiredDocs.length) return { label: 'Partially Complied', color: 'text-yellow-400 bg-yellow-900/20 border-yellow-500/30' };
 
         const hasExpired = uploadedDocs.some(d => d.expiryDate && new Date(d.expiryDate) < new Date());
-        if (hasExpired) return { label: 'Partially Complied (Expired Docs)', color: 'text-yellow-400 bg-yellow-900/20 border-yellow-500/30' };
+        if (hasExpired) return { label: 'Partially Complied (Expired)', color: 'text-yellow-400 bg-yellow-900/20 border-yellow-500/30' };
 
         return { label: 'Complied', color: 'text-emerald-400 bg-emerald-900/20 border-emerald-500/30' };
     };
@@ -224,7 +224,7 @@ export default function Contractors() {
     const addIncidentRecord = () => {
         if (!newRecord.desc) return alert("Description required.");
         const rec = { ...newRecord, id: Date.now().toString() };
-        if (newRecord.type.includes('Injury') || newRecord.type.includes('Near Miss')) {
+        if ((newRecord.type || '').includes('Injury') || (newRecord.type || '').includes('Near Miss')) {
             updateVendorDB(activeVendor.firebaseKey, { incidents: [...toArray(activeVendor.incidents), rec] });
         } else {
             updateVendorDB(activeVendor.firebaseKey, { nonCompliances: [...toArray(activeVendor.nonCompliances), rec] });
@@ -367,7 +367,7 @@ export default function Contractors() {
                                                 {canEdit && <button onClick={() => removeWorker(w.id)} className="absolute bottom-2 right-2 text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"><i className="fas fa-trash-alt"></i></button>}
                                             </div>
                                         ))}
-                                        {(!formData.workers || toArray(formData.workers).length === 0) && <div className="text-center p-4 text-slate-500 italic text-xs">No employees registered yet.</div>}
+                                        {toArray(formData.workers).length === 0 && <div className="text-center p-4 text-slate-500 italic text-xs">No employees registered yet.</div>}
                                     </div>
                                 </div>
                             </div>
@@ -635,11 +635,11 @@ export default function Contractors() {
                                         <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4">Event History</h4>
                                         <div className="flex-1 overflow-y-auto custom-scroll pr-2 space-y-3">
                                             {[...toArray(activeVendor.incidents), ...toArray(activeVendor.nonCompliances)]
-                                                .sort((a, b) => new Date(b.date) - new Date(a.date))
+                                                .sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0))
                                                 .map(rec => (
-                                                    <div key={rec.id} className={`p-4 rounded-xl border ${rec.type.includes('NC') || rec.type.includes('Violation') ? 'bg-orange-950/20 border-orange-500/30' : 'bg-red-950/20 border-red-500/30'}`}>
+                                                    <div key={rec.id} className={`p-4 rounded-xl border ${(rec.type || '').includes('NC') || (rec.type || '').includes('Violation') ? 'bg-orange-950/20 border-orange-500/30' : 'bg-red-950/20 border-red-500/30'}`}>
                                                         <div className="flex justify-between items-start mb-2">
-                                                            <div className={`font-bold text-xs uppercase tracking-widest ${rec.type.includes('NC') || rec.type.includes('Violation') ? 'text-orange-400' : 'text-red-400'}`}>{rec.type}</div>
+                                                            <div className={`font-bold text-xs uppercase tracking-widest ${(rec.type || '').includes('NC') || (rec.type || '').includes('Violation') ? 'text-orange-400' : 'text-red-400'}`}>{rec.type}</div>
                                                             <div className="text-[10px] font-mono text-slate-400 bg-slate-950 px-2 py-1 rounded">{rec.date}</div>
                                                         </div>
                                                         <div className="text-xs text-slate-300 leading-relaxed">{rec.desc}</div>
