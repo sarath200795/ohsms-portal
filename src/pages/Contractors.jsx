@@ -4,11 +4,13 @@ import { ref, get, push, update, remove } from 'firebase/database';
 import { rtdb } from '../config/firebase';
 import * as XLSX from 'xlsx';
 
-// --- DATA SAFETY ENGINE ---
-// Strictly forces Firebase Objects back into Arrays to prevent React crashes
-const toArray = (val) => {
+// --- BULLETPROOF DATA ENGINE ---
+// This prevents React from crashing if Firebase returns an Object instead of an Array
+const safeArr = (val) => {
     if (!val) return [];
-    return Array.isArray(val) ? val : Object.values(val);
+    if (Array.isArray(val)) return val.filter(Boolean);
+    if (typeof val === 'object') return Object.values(val).filter(Boolean);
+    return [];
 };
 
 // --- INDIAN LEGAL COMPLIANCE MAPPING ---
@@ -98,10 +100,22 @@ export default function Contractors() {
                 const snap = await get(ref(rtdb, `organizations/${sess.orgId}`));
                 if (snap.exists()) {
                     const data = snap.val();
-                    if (data.contractors) setContractors(Object.entries(data.contractors).map(([k, v]) => ({ firebaseKey: k, ...v })));
+                    if (data.contractors) {
+                        // Ensure base arrays exist to prevent mapping crashes
+                        const parsedVendors = Object.entries(data.contractors).map(([k, v]) => ({
+                            firebaseKey: k,
+                            documents: safeArr(v.documents),
+                            workers: safeArr(v.workers),
+                            trainings: safeArr(v.trainings),
+                            incidents: safeArr(v.incidents),
+                            nonCompliances: safeArr(v.nonCompliances),
+                            ...v
+                        }));
+                        setContractors(parsedVendors);
+                    }
                     if (data.sites) setSites(Object.keys(data.sites).map(key => ({ code: data.sites[key].code || key, name: data.sites[key].name || key })));
                 }
-            } catch (err) { console.error(err); } finally { setLoading(false); }
+            } catch (err) { console.error("Data Fetch Error:", err); } finally { setLoading(false); }
         };
         fetchData();
     }, [navigate, location]);
@@ -119,7 +133,7 @@ export default function Contractors() {
 
     // --- COMPLIANCE CALCULATOR ---
     const getComplianceStatus = (docsData) => {
-        const docs = toArray(docsData);
+        const docs = safeArr(docsData);
         if (docs.length === 0) return { label: 'Not Complied', color: 'text-red-400 bg-red-900/20 border-red-500/30' };
 
         const requiredDocs = docs.filter(d => d.isMandatory || d.status === 'Requested');
@@ -157,12 +171,12 @@ export default function Contractors() {
 
     const addWorker = () => {
         if (!newWorker.name || !newWorker.competence) return alert("Name and Competence required.");
-        setFormData(prev => ({ ...prev, workers: [...toArray(prev.workers), { ...newWorker, id: Date.now().toString() }] }));
+        setFormData(prev => ({ ...prev, workers: [...safeArr(prev.workers), { ...newWorker, id: Date.now().toString() }] }));
         setNewWorker({ name: '', role: 'Worker', competence: '', proof: null });
     };
 
     const removeWorker = (id) => {
-        setFormData(prev => ({ ...prev, workers: toArray(prev.workers).filter(w => w.id !== id) }));
+        setFormData(prev => ({ ...prev, workers: safeArr(prev.workers).filter(w => w.id !== id) }));
     };
 
     const saveVendorRegistration = async () => {
@@ -180,7 +194,10 @@ export default function Contractors() {
             alert("Vendor Registered/Updated Successfully!");
 
             const snap = await get(ref(rtdb, `organizations/${session.orgId}`));
-            if (snap.exists()) setContractors(Object.entries(snap.val().contractors || {}).map(([k, v]) => ({ firebaseKey: k, ...v })));
+            if (snap.exists()) {
+                const parsedVendors = Object.entries(snap.val().contractors || {}).map(([k, v]) => ({ firebaseKey: k, ...v }));
+                setContractors(parsedVendors);
+            }
 
             setView('compliance');
         } catch (e) { alert("Save failed: " + e.message); }
@@ -197,37 +214,34 @@ export default function Contractors() {
         } catch (e) { alert("Failed to update database."); }
     };
 
-    // Docs
     const handleDocUpload = async (docId, file) => {
         if (file.size > 2097152) return alert("File exceeds 2MB limit.");
         const b64 = await fileToBase64(file);
-        const updatedDocs = toArray(activeVendor.documents).map(d => d.id === docId ? { ...d, file: b64, fileName: file.name, status: 'Uploaded' } : d);
+        const updatedDocs = safeArr(activeVendor.documents).map(d => d.id === docId ? { ...d, file: b64, fileName: file.name, status: 'Uploaded' } : d);
         updateVendorDB(activeVendor.firebaseKey, { documents: updatedDocs });
     };
 
     const requestAdditionalDoc = () => {
         if (!newDocReq) return;
         const newDoc = { id: Date.now().toString(), type: 'Requested', name: newDocReq, isMandatory: false, status: 'Requested' };
-        updateVendorDB(activeVendor.firebaseKey, { documents: [...toArray(activeVendor.documents), newDoc] });
+        updateVendorDB(activeVendor.firebaseKey, { documents: [...safeArr(activeVendor.documents), newDoc] });
         setNewDocReq('');
     };
 
-    // Training
     const addTrainingRecord = () => {
         if (!newTraining.topic || !newTraining.attendees) return alert("Topic and Attendees required.");
         const trn = { ...newTraining, id: Date.now().toString() };
-        updateVendorDB(activeVendor.firebaseKey, { trainings: [...toArray(activeVendor.trainings), trn] });
+        updateVendorDB(activeVendor.firebaseKey, { trainings: [...safeArr(activeVendor.trainings), trn] });
         setNewTraining({ topic: '', date: new Date().toISOString().split('T')[0], attendees: '' });
     };
 
-    // Incidents & NC
     const addIncidentRecord = () => {
         if (!newRecord.desc) return alert("Description required.");
         const rec = { ...newRecord, id: Date.now().toString() };
         if ((newRecord.type || '').includes('Injury') || (newRecord.type || '').includes('Near Miss')) {
-            updateVendorDB(activeVendor.firebaseKey, { incidents: [...toArray(activeVendor.incidents), rec] });
+            updateVendorDB(activeVendor.firebaseKey, { incidents: [...safeArr(activeVendor.incidents), rec] });
         } else {
-            updateVendorDB(activeVendor.firebaseKey, { nonCompliances: [...toArray(activeVendor.nonCompliances), rec] });
+            updateVendorDB(activeVendor.firebaseKey, { nonCompliances: [...safeArr(activeVendor.nonCompliances), rec] });
         }
         setNewRecord({ type: 'Injury / Accident', date: new Date().toISOString().split('T')[0], desc: '', status: 'Open' });
     };
@@ -325,7 +339,7 @@ export default function Contractors() {
                                         <div className="text-indigo-400 font-bold uppercase tracking-widest text-[10px] mb-2"><i className="fas fa-info-circle mr-1"></i> India Statutory Requirements</div>
                                         <p className="text-slate-300 leading-relaxed mb-3">Based on <strong className="text-white">{formData.serviceType}</strong>, the following documents will be automatically required in Section 2:</p>
                                         <ul className="list-disc pl-5 text-slate-400 text-xs space-y-1">
-                                            {toArray(formData.documents).map((d, i) => <li key={i}>{d.name}</li>)}
+                                            {safeArr(formData.documents).map((d, i) => <li key={i}>{d.name}</li>)}
                                         </ul>
                                     </div>
                                 </div>
@@ -355,7 +369,7 @@ export default function Contractors() {
                                     )}
 
                                     <div className="flex-1 overflow-y-auto custom-scroll pr-2 space-y-2">
-                                        {toArray(formData.workers).map(w => (
+                                        {safeArr(formData.workers).map(w => (
                                             <div key={w.id} className="flex flex-col p-3 rounded-xl border border-slate-700 bg-slate-900 shadow-sm relative group">
                                                 <div className="flex justify-between items-start">
                                                     <div>
@@ -367,7 +381,7 @@ export default function Contractors() {
                                                 {canEdit && <button onClick={() => removeWorker(w.id)} className="absolute bottom-2 right-2 text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"><i className="fas fa-trash-alt"></i></button>}
                                             </div>
                                         ))}
-                                        {toArray(formData.workers).length === 0 && <div className="text-center p-4 text-slate-500 italic text-xs">No employees registered yet.</div>}
+                                        {safeArr(formData.workers).length === 0 && <div className="text-center p-4 text-slate-500 italic text-xs">No employees registered yet.</div>}
                                     </div>
                                 </div>
                             </div>
@@ -389,7 +403,7 @@ export default function Contractors() {
                                 </thead>
                                 <tbody className="divide-y divide-slate-800/50 text-slate-300">
                                     {visibleContractors.map(c => {
-                                        const docsArr = toArray(c.documents);
+                                        const docsArr = safeArr(c.documents);
                                         const statusObj = getComplianceStatus(docsArr);
                                         const totalDocs = docsArr.length;
                                         const uploadedDocs = docsArr.filter(d => d.file || d.status === 'Uploaded').length;
@@ -437,8 +451,8 @@ export default function Contractors() {
                                                 <div className="font-bold text-white text-base">{c.companyName}</div>
                                                 <div className="text-[10px] text-slate-500 mt-1 uppercase tracking-widest">Site: <span className="text-indigo-400 font-bold">{c.siteId}</span></div>
                                             </td>
-                                            <td className="p-4 font-mono font-bold text-slate-300">{toArray(c.workers).length} Reg.</td>
-                                            <td className="p-4 font-mono font-bold text-blue-400">{toArray(c.trainings).length} Sessions</td>
+                                            <td className="p-4 font-mono font-bold text-slate-300">{safeArr(c.workers).length} Reg.</td>
+                                            <td className="p-4 font-mono font-bold text-blue-400">{safeArr(c.trainings).length} Sessions</td>
                                             <td className="p-4 pr-6 text-right">
                                                 <button onClick={() => { setActiveVendor(c); setModalType('training'); }} className="bg-blue-900/30 hover:bg-blue-600 border border-blue-500/30 text-blue-400 hover:text-white px-4 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-colors"><i className="fas fa-graduation-cap mr-1"></i> Manage Training</button>
                                             </td>
@@ -461,8 +475,8 @@ export default function Contractors() {
                                 </thead>
                                 <tbody className="divide-y divide-slate-800/50 text-slate-300">
                                     {visibleContractors.map(c => {
-                                        const incCount = toArray(c.incidents).length;
-                                        const ncCount = toArray(c.nonCompliances).length;
+                                        const incCount = safeArr(c.incidents).length;
+                                        const ncCount = safeArr(c.nonCompliances).length;
 
                                         return (
                                             <tr key={c.firebaseKey} className="hover:bg-slate-800/40 transition-colors">
@@ -502,7 +516,7 @@ export default function Contractors() {
                                 <p className="text-slate-400 text-sm font-bold mb-6">{activeVendor.companyName}</p>
 
                                 <div className="flex-1 overflow-y-auto custom-scroll pr-2 space-y-4 mb-6">
-                                    {toArray(activeVendor.documents).map(doc => (
+                                    {safeArr(activeVendor.documents).map(doc => (
                                         <div key={doc.id} className="bg-slate-950 p-4 rounded-xl border border-slate-800 flex justify-between items-center">
                                             <div>
                                                 <div className="text-sm font-bold text-white flex items-center gap-2">
@@ -523,7 +537,7 @@ export default function Contractors() {
                                                 )}
                                                 {canEdit && !doc.isMandatory && (
                                                     <button onClick={() => {
-                                                        const newDocs = toArray(activeVendor.documents).filter(d => d.id !== doc.id);
+                                                        const newDocs = safeArr(activeVendor.documents).filter(d => d.id !== doc.id);
                                                         updateVendorDB(activeVendor.firebaseKey, { documents: newDocs });
                                                     }} className="text-slate-500 hover:text-red-500"><i className="fas fa-times"></i></button>
                                                 )}
@@ -577,8 +591,8 @@ export default function Contractors() {
                                     <div className="bg-slate-950 p-6 rounded-2xl border border-slate-800 shadow-inner flex flex-col overflow-hidden">
                                         <h4 className="text-xs font-bold text-blue-400 uppercase tracking-widest mb-4">Training History</h4>
                                         <div className="flex-1 overflow-y-auto custom-scroll pr-2 space-y-3">
-                                            {toArray(activeVendor.trainings).map(t => (
-                                                <div key={t.id} className="bg-slate-900 border border-slate-700 p-4 rounded-xl">
+                                            {safeArr(activeVendor.trainings).map((t, idx) => (
+                                                <div key={t.id || idx} className="bg-slate-900 border border-slate-700 p-4 rounded-xl">
                                                     <div className="flex justify-between items-start mb-2">
                                                         <div className="font-bold text-sm text-white">{t.topic}</div>
                                                         <div className="text-[10px] font-mono text-slate-400 bg-slate-950 px-2 py-1 rounded">{t.date}</div>
@@ -586,7 +600,7 @@ export default function Contractors() {
                                                     <div className="text-xs text-slate-400 italic">Attendees: {t.attendees}</div>
                                                 </div>
                                             ))}
-                                            {toArray(activeVendor.trainings).length === 0 && <div className="text-slate-500 italic text-sm text-center mt-10">No training recorded yet.</div>}
+                                            {safeArr(activeVendor.trainings).length === 0 && <div className="text-slate-500 italic text-sm text-center mt-10">No training recorded yet.</div>}
                                         </div>
                                     </div>
                                 </div>
@@ -634,10 +648,10 @@ export default function Contractors() {
                                     <div className="bg-slate-950 p-6 rounded-2xl border border-slate-800 shadow-inner flex flex-col overflow-hidden">
                                         <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4">Event History</h4>
                                         <div className="flex-1 overflow-y-auto custom-scroll pr-2 space-y-3">
-                                            {[...toArray(activeVendor.incidents), ...toArray(activeVendor.nonCompliances)]
-                                                .sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0))
-                                                .map(rec => (
-                                                    <div key={rec.id} className={`p-4 rounded-xl border ${(rec.type || '').includes('NC') || (rec.type || '').includes('Violation') ? 'bg-orange-950/20 border-orange-500/30' : 'bg-red-950/20 border-red-500/30'}`}>
+                                            {[...safeArr(activeVendor.incidents), ...safeArr(activeVendor.nonCompliances)]
+                                                .sort((a, b) => new Date(b.date || '1970-01-01') - new Date(a.date || '1970-01-01'))
+                                                .map((rec, idx) => (
+                                                    <div key={rec.id || idx} className={`p-4 rounded-xl border ${(rec.type || '').includes('NC') || (rec.type || '').includes('Violation') ? 'bg-orange-950/20 border-orange-500/30' : 'bg-red-950/20 border-red-500/30'}`}>
                                                         <div className="flex justify-between items-start mb-2">
                                                             <div className={`font-bold text-xs uppercase tracking-widest ${(rec.type || '').includes('NC') || (rec.type || '').includes('Violation') ? 'text-orange-400' : 'text-red-400'}`}>{rec.type}</div>
                                                             <div className="text-[10px] font-mono text-slate-400 bg-slate-950 px-2 py-1 rounded">{rec.date}</div>
@@ -645,7 +659,7 @@ export default function Contractors() {
                                                         <div className="text-xs text-slate-300 leading-relaxed">{rec.desc}</div>
                                                     </div>
                                                 ))}
-                                            {(toArray(activeVendor.incidents).length === 0 && toArray(activeVendor.nonCompliances).length === 0) && <div className="text-emerald-500 italic font-bold text-sm text-center mt-10"><i className="fas fa-shield-alt mr-2"></i>Excellent! No events recorded.</div>}
+                                            {(safeArr(activeVendor.incidents).length === 0 && safeArr(activeVendor.nonCompliances).length === 0) && <div className="text-emerald-500 italic font-bold text-sm text-center mt-10"><i className="fas fa-shield-alt mr-2"></i>Excellent! No events recorded.</div>}
                                         </div>
                                     </div>
                                 </div>
