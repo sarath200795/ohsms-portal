@@ -19,10 +19,7 @@ const parseContractors = (dataObj) => {
         ...v,
         firebaseKey: k,
         documents: safeArr(v.documents),
-        workers: safeArr(v.workers),
-        trainings: safeArr(v.trainings),
-        incidents: safeArr(v.incidents),
-        nonCompliances: safeArr(v.nonCompliances)
+        workers: safeArr(v.workers)
     }));
 };
 
@@ -61,7 +58,7 @@ export default function Contractors() {
 
     const [session, setSession] = useState(null);
     const [loading, setLoading] = useState(true);
-    const [view, setView] = useState('register'); // 'register' | 'compliance' | 'training' | 'incidents'
+    const [view, setView] = useState('register'); // 'register' | 'compliance'
 
     const [contractors, setContractors] = useState([]);
     const [sites, setSites] = useState([]);
@@ -73,20 +70,17 @@ export default function Contractors() {
         id: '', siteId: '', companyName: '', contactPerson: '', email: '', phone: '',
         serviceType: 'General / Housekeeping', notes: '', status: 'Pending Review',
         documents: getMandatoryDocs('General / Housekeeping'),
-        workers: [], trainings: [], incidents: [], nonCompliances: []
+        workers: []
     });
 
     const [newWorker, setNewWorker] = useState({ name: '', role: 'Worker', competence: '', proof: null, inductionDate: '' });
 
-    // Modal States (Sections 2, 3, 4)
+    // Modal States (Section 2)
     const [activeVendor, setActiveVendor] = useState(null);
-    const [modalType, setModalType] = useState(null); // 'docs' | 'workers' | 'training' | 'incident'
+    const [modalType, setModalType] = useState(null); // 'docs' | 'workers'
 
     // Sub-form states for Modals
     const [newDocReq, setNewDocReq] = useState('');
-    const [newTraining, setNewTraining] = useState({ topic: '', date: new Date().toISOString().split('T')[0], duration: '1 Hour', trainer: '', attendees: [] });
-    const [newAttendeeName, setNewAttendeeName] = useState('');
-    const [newRecord, setNewRecord] = useState({ type: 'Injury / Accident', date: new Date().toISOString().split('T')[0], desc: '', status: 'Open' });
 
     useEffect(() => {
         const s = sessionStorage.getItem('isoSession');
@@ -114,7 +108,9 @@ export default function Contractors() {
                 const snap = await get(ref(rtdb, `organizations/${sess.orgId}`));
                 if (snap.exists()) {
                     const data = snap.val();
-                    if (data.contractors) setContractors(parseContractors(data.contractors));
+                    if (data.contractors) {
+                        setContractors(parseContractors(data.contractors));
+                    }
                     if (data.sites) setSites(Object.keys(data.sites).map(key => ({ code: data.sites[key].code || key, name: data.sites[key].name || key })));
                 }
             } catch (err) { console.error("Data Fetch Error:", err); } finally { setLoading(false); }
@@ -169,7 +165,11 @@ export default function Contractors() {
     // --- SECTION 1: REGISTRATION HANDLERS ---
     const handleServiceTypeChange = (e) => {
         const type = e.target.value;
-        setFormData(prev => ({ ...prev, serviceType: type, documents: getMandatoryDocs(type) }));
+        setFormData(prev => ({
+            ...prev,
+            serviceType: type,
+            documents: getMandatoryDocs(type)
+        }));
     };
 
     const handleWorkerProofUpload = async (e) => {
@@ -210,25 +210,26 @@ export default function Contractors() {
             if (snap.exists() && snap.val().contractors) {
                 setContractors(parseContractors(snap.val().contractors));
             }
+
             setView('compliance');
         } catch (e) { alert("Save failed: " + e.message); }
         setSaving(false);
     };
 
-    // --- MODAL & ACTION HANDLERS ---
+
+    // --- MODAL HANDLERS ---
     const updateVendorDB = async (vendorKey, payload) => {
         try {
             await update(ref(rtdb, `organizations/${session.orgId}/contractors/${vendorKey}`), payload);
+
+            // Sync Local State perfectly by forcing Arrays
             setContractors(prev => prev.map(c => {
                 if (c.firebaseKey === vendorKey) {
                     return {
                         ...c,
                         ...payload,
                         documents: payload.documents ? safeArr(payload.documents) : safeArr(c.documents),
-                        workers: payload.workers ? safeArr(payload.workers) : safeArr(c.workers),
-                        trainings: payload.trainings ? safeArr(payload.trainings) : safeArr(c.trainings),
-                        incidents: payload.incidents ? safeArr(payload.incidents) : safeArr(c.incidents),
-                        nonCompliances: payload.nonCompliances ? safeArr(payload.nonCompliances) : safeArr(c.nonCompliances)
+                        workers: payload.workers ? safeArr(payload.workers) : safeArr(c.workers)
                     };
                 }
                 return c;
@@ -239,10 +240,7 @@ export default function Contractors() {
                     ...prev,
                     ...payload,
                     documents: payload.documents ? safeArr(payload.documents) : safeArr(prev.documents),
-                    workers: payload.workers ? safeArr(payload.workers) : safeArr(prev.workers),
-                    trainings: payload.trainings ? safeArr(payload.trainings) : safeArr(prev.trainings),
-                    incidents: payload.incidents ? safeArr(payload.incidents) : safeArr(prev.incidents),
-                    nonCompliances: payload.nonCompliances ? safeArr(payload.nonCompliances) : safeArr(prev.nonCompliances)
+                    workers: payload.workers ? safeArr(payload.workers) : safeArr(prev.workers)
                 }));
             }
         } catch (e) { alert("Failed to update database."); }
@@ -263,82 +261,6 @@ export default function Contractors() {
         setNewDocReq('');
     };
 
-    // Training
-    const handleAddAttendeeToTraining = () => {
-        if (!newAttendeeName.trim()) return;
-        if (newTraining.attendees.includes(newAttendeeName.trim())) return alert("Attendee is already added to this session.");
-        setNewTraining(prev => ({ ...prev, attendees: [...prev.attendees, newAttendeeName.trim()] }));
-        setNewAttendeeName('');
-    };
-
-    const addTrainingRecord = async () => {
-        if (!newTraining.topic || newTraining.attendees.length === 0) return alert("Topic and at least one attendee required.");
-
-        const d = new Date(newTraining.date);
-        d.setMonth(d.getMonth() + 6); // 6 Months standard contractor induction expiry
-        const expDate = d.toISOString().split('T')[0];
-        const trnId = `TRN-CONT-${Date.now().toString().slice(-6)}`;
-
-        // 1. Sync to Global Training Module
-        const globalTrainingRecord = {
-            id: trnId,
-            siteId: activeVendor.siteId,
-            topic: newTraining.topic,
-            date: newTraining.date,
-            expiryDate: expDate,
-            type: 'External / Contractor',
-            trainer: newTraining.trainer || 'Contractor Supervisor',
-            duration: newTraining.duration || '1 Hour',
-            contractorId: activeVendor.firebaseKey,
-            contractorName: activeVendor.companyName,
-            attendees: newTraining.attendees.map(name => {
-                const matchedWorker = safeArr(activeVendor.workers).find(w => w.name === name);
-                return { userId: 'External', name: name, role: matchedWorker ? matchedWorker.role : 'Contractor Worker', status: 'Attended' };
-            }),
-            updatedBy: session.name,
-            lastUpdated: new Date().toISOString()
-        };
-
-        // 2. Cross-reference Induction Check
-        let updatedWorkers = safeArr(activeVendor.workers);
-        const isInduction = newTraining.topic.toLowerCase().includes('induction');
-
-        if (isInduction) {
-            updatedWorkers = updatedWorkers.map(w => {
-                if (newTraining.attendees.includes(w.name)) return { ...w, inductionDate: newTraining.date };
-                return w;
-            });
-        }
-
-        const localTrn = { id: trnId, topic: newTraining.topic, date: newTraining.date, attendees: newTraining.attendees.join(', ') };
-
-        try {
-            await push(ref(rtdb, `organizations/${session.orgId}/trainings`), globalTrainingRecord);
-            await updateVendorDB(activeVendor.firebaseKey, {
-                trainings: [...safeArr(activeVendor.trainings), localTrn],
-                workers: updatedWorkers // Triggers the induction compliance closure
-            });
-
-            alert(isInduction ? "Induction Saved! Workers compliance updated and synced globally." : "Training logged successfully and synced globally!");
-            setNewTraining({ topic: '', date: new Date().toISOString().split('T')[0], duration: '1 Hour', trainer: '', attendees: [] });
-            setNewAttendeeName('');
-        } catch (e) {
-            alert("Failed to log training: " + e.message);
-        }
-    };
-
-    // Incidents & NC
-    const addIncidentRecord = () => {
-        if (!newRecord.desc) return alert("Description required.");
-        const rec = { ...newRecord, id: Date.now().toString() };
-        if ((newRecord.type || '').includes('Injury') || (newRecord.type || '').includes('Near Miss')) {
-            updateVendorDB(activeVendor.firebaseKey, { incidents: [...safeArr(activeVendor.incidents), rec] });
-        } else {
-            updateVendorDB(activeVendor.firebaseKey, { nonCompliances: [...safeArr(activeVendor.nonCompliances), rec] });
-        }
-        setNewRecord({ type: 'Injury / Accident', date: new Date().toISOString().split('T')[0], desc: '', status: 'Open' });
-    };
-
     if (loading) return <div className="h-screen flex items-center justify-center bg-slate-950 text-indigo-400 animate-pulse font-['Space_Grotesk'] tracking-widest text-xs uppercase"><div className="w-8 h-8 border-2 border-slate-800 border-t-indigo-500 rounded-full animate-spin mr-3"></div> Loading Contractors...</div>;
 
     return (
@@ -353,10 +275,8 @@ export default function Contractors() {
                     <h1 className="text-base font-bold text-white hidden md:block uppercase tracking-wide">Contractor Safety</h1>
                 </div>
                 <div className="flex bg-slate-900 border border-slate-800 p-1.5 rounded-xl shadow-inner gap-1 overflow-x-auto custom-scroll">
-                    <button onClick={() => { setFormData({ id: '', siteId: siteFilter === 'All' ? '' : siteFilter, companyName: '', contactPerson: '', email: '', phone: '', serviceType: 'General / Housekeeping', documents: getMandatoryDocs('General / Housekeeping'), workers: [], trainings: [], incidents: [], nonCompliances: [] }); setView('register'); }} className={`px-4 py-2 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all whitespace-nowrap ${view === 'register' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}><i className="fas fa-user-plus mr-1"></i> 1. Register</button>
+                    <button onClick={() => { setFormData({ id: '', siteId: siteFilter === 'All' ? '' : siteFilter, companyName: '', contactPerson: '', email: '', phone: '', serviceType: 'General / Housekeeping', documents: getMandatoryDocs('General / Housekeeping'), workers: [] }); setView('register'); }} className={`px-4 py-2 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all whitespace-nowrap ${view === 'register' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}><i className="fas fa-user-plus mr-1"></i> 1. Register</button>
                     <button onClick={() => setView('compliance')} className={`px-4 py-2 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all whitespace-nowrap ${view === 'compliance' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}><i className="fas fa-file-contract mr-1"></i> 2. Compliance</button>
-                    <button onClick={() => setView('training')} className={`px-4 py-2 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all whitespace-nowrap ${view === 'training' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}><i className="fas fa-graduation-cap mr-1"></i> 3. Training</button>
-                    <button onClick={() => setView('incidents')} className={`px-4 py-2 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all whitespace-nowrap ${view === 'incidents' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}><i className="fas fa-exclamation-triangle mr-1"></i> 4. Incidents & NC</button>
                 </div>
             </header>
 
@@ -367,7 +287,7 @@ export default function Contractors() {
                     {view !== 'register' && (
                         <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 bg-slate-900/50 p-4 rounded-2xl border border-slate-800 gap-4">
                             <div>
-                                <h2 className="text-2xl font-bold text-white">{view === 'compliance' ? 'Vendor Compliance Status' : view === 'training' ? 'Contractor Training Records' : 'Incidents & Non-Compliance'}</h2>
+                                <h2 className="text-2xl font-bold text-white">Vendor Compliance Status</h2>
                                 <p className="text-xs text-slate-400 uppercase tracking-widest mt-1">Select a vendor below to manage records.</p>
                             </div>
                             <select value={siteFilter} onChange={e => { setSiteFilter(e.target.value); sessionStorage.setItem('isoCurrentSite', e.target.value); }} className="bg-slate-950 border border-slate-700 text-white text-xs font-bold px-4 py-2.5 rounded-xl outline-none shadow-inner w-full md:w-auto">
@@ -378,12 +298,12 @@ export default function Contractors() {
                     )}
 
                     {/* ===================================================================== */}
-                    {/* SECTION 1: REGISTER / EDIT VENDOR FORM */}
+                    {/* SECTION 1: REGISTER VENDOR */}
                     {/* ===================================================================== */}
                     {view === 'register' && (
                         <div className="bg-slate-900/80 p-6 md:p-8 rounded-3xl border border-slate-700 shadow-2xl animate-in slide-in-from-bottom-8 duration-300">
                             <div className="flex justify-between items-center mb-8 border-b border-slate-800 pb-4">
-                                <h3 className="text-2xl font-bold text-white flex items-center gap-3"><i className="fas fa-building text-indigo-500"></i> {formData.firebaseKey ? 'Edit Vendor Profile' : 'Section 1: Vendor Registration'}</h3>
+                                <h3 className="text-2xl font-bold text-white flex items-center gap-3"><i className="fas fa-building text-indigo-500"></i> {formData.firebaseKey ? 'Edit Vendor Profile' : 'Vendor Registration'}</h3>
                                 {formData.firebaseKey && <button onClick={() => setView('compliance')} className="text-slate-500 hover:text-white"><i className="fas fa-times text-xl"></i></button>}
                             </div>
 
@@ -426,6 +346,7 @@ export default function Contractors() {
                                         </div>
                                     </div>
 
+                                    {/* Auto-Generated Mandatory Docs Warning */}
                                     <div className="bg-indigo-950/20 p-5 rounded-2xl border border-indigo-500/30 text-sm">
                                         <div className="text-indigo-400 font-bold uppercase tracking-widest text-[10px] mb-2"><i className="fas fa-info-circle mr-1"></i> India Statutory Requirements</div>
                                         <p className="text-slate-300 leading-relaxed mb-3">Based on <strong className="text-white">{formData.serviceType}</strong>, the following documents will be automatically required in Section 2:</p>
@@ -516,7 +437,7 @@ export default function Contractors() {
                                                 </td>
                                                 <td className="p-4 pr-6 text-right">
                                                     <div className="flex justify-end gap-2">
-                                                        <button onClick={() => { setActiveVendor(c); setModalType('docs'); }} className="bg-indigo-600/20 hover:bg-indigo-600 border border-indigo-500/30 text-indigo-400 hover:text-white px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-colors shadow-sm"><i className="fas fa-folder-open mr-1"></i> Docs</button>
+                                                        <button onClick={() => { setActiveVendor(c); setModalType('docs'); }} className="bg-indigo-600/20 hover:bg-indigo-600 border border-indigo-500/30 text-indigo-400 hover:text-white px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-colors shadow-sm"><i className="fas fa-folder-open mr-1"></i> Manage Docs</button>
                                                         <button onClick={() => { setActiveVendor(c); setModalType('workers'); }} className="bg-purple-600/20 hover:bg-purple-600 border border-purple-500/30 text-purple-400 hover:text-white px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-colors shadow-sm"><i className="fas fa-users-cog mr-1"></i> Roster</button>
                                                         {canEdit && <button onClick={() => { setFormData(c); setView('register'); }} className="bg-slate-800 hover:bg-slate-700 text-white px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-colors shadow-sm border border-slate-600"><i className="fas fa-edit"></i> Edit</button>}
                                                     </div>
@@ -525,85 +446,6 @@ export default function Contractors() {
                                         )
                                     })}
                                     {visibleContractors.length === 0 && <tr><td colSpan="5" className="p-12 text-center text-slate-500 italic">No vendors found. Please register one in Section 1.</td></tr>}
-                                </tbody>
-                            </table>
-                        </div>
-                    )}
-
-                    {/* ===================================================================== */}
-                    {/* SECTION 3: TRAINING RECORDS */}
-                    {/* ===================================================================== */}
-                    {view === 'training' && (
-                        <div className="bg-slate-900/50 rounded-2xl border border-slate-700 overflow-x-auto shadow-xl">
-                            <table className="w-full text-left text-sm min-w-[1000px]">
-                                <thead className="bg-slate-950 border-b border-slate-800 text-[10px] uppercase tracking-widest font-bold text-slate-500">
-                                    <tr><th className="p-4 pl-6">Vendor Details</th><th className="p-4">Employees</th><th className="p-4">Induction Status</th><th className="p-4">Training Sessions</th><th className="p-4 pr-6 text-right">Actions</th></tr>
-                                </thead>
-                                <tbody className="divide-y divide-slate-800/50 text-slate-300">
-                                    {visibleContractors.map(c => {
-                                        const workersArr = safeArr(c.workers);
-                                        const pendingInductions = workersArr.filter(w => !w.inductionDate).length;
-
-                                        return (
-                                            <tr key={c.firebaseKey} className="hover:bg-slate-800/40 transition-colors">
-                                                <td className="p-4 pl-6">
-                                                    <div className="font-bold text-white text-base">{c.companyName}</div>
-                                                    <div className="text-[10px] text-slate-500 mt-1 uppercase tracking-widest">Site: <span className="text-indigo-400 font-bold">{c.siteId}</span></div>
-                                                </td>
-                                                <td className="p-4 font-mono font-bold text-slate-300">{workersArr.length} Reg.</td>
-                                                <td className="p-4">
-                                                    {pendingInductions > 0 ? (
-                                                        <span className="text-[9px] bg-orange-900/30 text-orange-400 border border-orange-500/30 px-2 py-1 rounded font-bold uppercase tracking-widest flex items-center w-fit animate-pulse"><i className="fas fa-exclamation-triangle mr-1"></i> {pendingInductions} Pending</span>
-                                                    ) : (
-                                                        <span className="text-[9px] bg-emerald-900/30 text-emerald-400 border border-emerald-500/30 px-2 py-1 rounded font-bold uppercase tracking-widest flex items-center w-fit"><i className="fas fa-check-circle mr-1"></i> Fully Inducted</span>
-                                                    )}
-                                                </td>
-                                                <td className="p-4 font-mono font-bold text-blue-400">{safeArr(c.trainings).length} Sessions</td>
-                                                <td className="p-4 pr-6 text-right">
-                                                    <button onClick={() => { setActiveVendor(c); setModalType('training'); }} className="bg-blue-900/30 hover:bg-blue-600 border border-blue-500/30 text-blue-400 hover:text-white px-4 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-colors"><i className="fas fa-graduation-cap mr-1"></i> Manage</button>
-                                                </td>
-                                            </tr>
-                                        );
-                                    })}
-                                    {visibleContractors.length === 0 && <tr><td colSpan="5" className="p-12 text-center text-slate-500 italic">No vendors found.</td></tr>}
-                                </tbody>
-                            </table>
-                        </div>
-                    )}
-
-                    {/* ===================================================================== */}
-                    {/* SECTION 4: INCIDENTS & NON-COMPLIANCE */}
-                    {/* ===================================================================== */}
-                    {view === 'incidents' && (
-                        <div className="bg-slate-900/50 rounded-2xl border border-slate-700 overflow-x-auto shadow-xl">
-                            <table className="w-full text-left text-sm min-w-[1000px]">
-                                <thead className="bg-slate-950 border-b border-slate-800 text-[10px] uppercase tracking-widest font-bold text-slate-500">
-                                    <tr><th className="p-4 pl-6">Vendor Details</th><th className="p-4 text-center">Injuries / Incidents</th><th className="p-4 text-center">Non-Compliances (NC)</th><th className="p-4 pr-6 text-right">Actions</th></tr>
-                                </thead>
-                                <tbody className="divide-y divide-slate-800/50 text-slate-300">
-                                    {visibleContractors.map(c => {
-                                        const incCount = safeArr(c.incidents).length;
-                                        const ncCount = safeArr(c.nonCompliances).length;
-
-                                        return (
-                                            <tr key={c.firebaseKey} className="hover:bg-slate-800/40 transition-colors">
-                                                <td className="p-4 pl-6">
-                                                    <div className="font-bold text-white text-base">{c.companyName}</div>
-                                                    <div className="text-[10px] text-slate-500 mt-1 uppercase tracking-widest">Site: <span className="text-indigo-400 font-bold">{c.siteId}</span></div>
-                                                </td>
-                                                <td className="p-4 text-center">
-                                                    <span className={`font-mono font-bold px-3 py-1 rounded-lg ${incCount > 0 ? 'bg-red-900/30 text-red-400 border border-red-500/30' : 'text-slate-500'}`}>{incCount}</span>
-                                                </td>
-                                                <td className="p-4 text-center">
-                                                    <span className={`font-mono font-bold px-3 py-1 rounded-lg ${ncCount > 0 ? 'bg-orange-900/30 text-orange-400 border border-orange-500/30' : 'text-slate-500'}`}>{ncCount}</span>
-                                                </td>
-                                                <td className="p-4 pr-6 text-right">
-                                                    <button onClick={() => { setActiveVendor(c); setModalType('incident'); }} className="bg-red-900/20 hover:bg-red-600 border border-red-500/30 text-red-400 hover:text-white px-4 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-colors"><i className="fas fa-exclamation-triangle mr-1"></i> Log / View</button>
-                                                </td>
-                                            </tr>
-                                        )
-                                    })}
-                                    {visibleContractors.length === 0 && <tr><td colSpan="4" className="p-12 text-center text-slate-500 italic">No vendors found.</td></tr>}
                                 </tbody>
                             </table>
                         </div>
@@ -663,7 +505,7 @@ export default function Contractors() {
                         </div>
                     )}
 
-                    {/* MODAL 1.5: MANAGE WORKERS ROSTER POST-REGISTRATION */}
+                    {/* MODAL 2: MANAGE WORKERS ROSTER POST-REGISTRATION */}
                     {activeVendor && modalType === 'workers' && (
                         <div className="fixed inset-0 z-[100] bg-black/80 flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in">
                             <div className="bg-slate-900 border border-slate-700 p-8 rounded-3xl shadow-2xl max-w-4xl w-full relative max-h-[90vh] flex flex-col">
@@ -735,160 +577,6 @@ export default function Contractors() {
                                                 </div>
                                             ))}
                                             {safeArr(activeVendor.workers).length === 0 && <div className="text-center p-6 text-slate-500 italic text-sm">No employees registered yet. Use the form above to add workers.</div>}
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    )}
-
-                    {/* MODAL 2: TRAINING */}
-                    {activeVendor && modalType === 'training' && (
-                        <div className="fixed inset-0 z-[100] bg-black/80 flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in">
-                            <div className="bg-slate-900 border border-slate-700 p-8 rounded-3xl shadow-2xl max-w-4xl w-full relative max-h-[90vh] flex flex-col">
-                                <button onClick={() => setActiveVendor(null)} className="absolute top-6 right-6 text-slate-500 hover:text-white"><i className="fas fa-times text-xl"></i></button>
-                                <h3 className="text-2xl font-bold text-white mb-1"><i className="fas fa-graduation-cap text-blue-400 mr-2"></i> Contractor Training Log</h3>
-                                <p className="text-slate-400 text-sm font-bold mb-6">{activeVendor.companyName}</p>
-
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 flex-1 overflow-hidden">
-                                    {/* Left: Log New */}
-                                    {canEdit && (
-                                        <div className="bg-slate-950 p-6 rounded-2xl border border-slate-800 shadow-inner flex flex-col">
-                                            <h4 className="text-xs font-bold text-blue-400 uppercase tracking-widest mb-4">Log New Training</h4>
-
-                                            <div className="flex-1 overflow-y-auto custom-scroll pr-2 space-y-4">
-                                                <div>
-                                                    <label className="text-[10px] uppercase font-bold text-slate-500 block mb-1">Topic / Course</label>
-                                                    <input value={newTraining.topic} onChange={e => setNewTraining({ ...newTraining, topic: e.target.value })} className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-sm text-white outline-none focus:border-blue-500" placeholder="e.g. Site Safety Induction" />
-                                                </div>
-
-                                                <div className="grid grid-cols-2 gap-4">
-                                                    <div>
-                                                        <label className="text-[10px] uppercase font-bold text-slate-500 block mb-1">Date</label>
-                                                        <input type="date" value={newTraining.date} onChange={e => setNewTraining({ ...newTraining, date: e.target.value })} className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-sm text-white outline-none focus:border-blue-500 font-mono" />
-                                                    </div>
-                                                    <div>
-                                                        <label className="text-[10px] uppercase font-bold text-slate-500 block mb-1">Duration</label>
-                                                        <input value={newTraining.duration} onChange={e => setNewTraining({ ...newTraining, duration: e.target.value })} className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-sm text-white outline-none focus:border-blue-500" placeholder="e.g. 1 Hour" />
-                                                    </div>
-                                                </div>
-
-                                                <div>
-                                                    <label className="text-[10px] uppercase font-bold text-slate-500 block mb-1">Trainer Name</label>
-                                                    <input value={newTraining.trainer} onChange={e => setNewTraining({ ...newTraining, trainer: e.target.value })} className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-sm text-white outline-none focus:border-blue-500" placeholder="Instructor / Supervisor" />
-                                                </div>
-
-                                                <div className="bg-slate-900 border border-slate-700 p-4 rounded-xl">
-                                                    <label className="text-[10px] uppercase font-bold text-slate-500 block mb-2">Add Attendees</label>
-
-                                                    <div className="flex gap-2 mb-2">
-                                                        <select value={newAttendeeName} onChange={e => setNewAttendeeName(e.target.value)} className="flex-1 bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-sm text-white outline-none focus:border-blue-500">
-                                                            <option value="">Select registered worker...</option>
-                                                            {safeArr(activeVendor.workers).map(w => (
-                                                                <option key={w.id} value={w.name}>
-                                                                    {w.name} ({w.role}) {!w.inductionDate ? '⚠️ PENDING INDUCTION' : ''}
-                                                                </option>
-                                                            ))}
-                                                        </select>
-                                                        <button onClick={handleAddAttendeeToTraining} className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 rounded-lg font-bold transition-colors shadow-sm"><i className="fas fa-plus"></i></button>
-                                                    </div>
-
-                                                    <div className="flex gap-2">
-                                                        <input value={newAttendeeName} onChange={e => setNewAttendeeName(e.target.value)} placeholder="Or type custom name manually..." className="flex-1 bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-sm text-white outline-none focus:border-blue-500" />
-                                                        <button onClick={handleAddAttendeeToTraining} className="bg-blue-600 hover:bg-blue-500 text-white px-4 rounded-lg font-bold transition-colors shadow-sm"><i className="fas fa-plus"></i></button>
-                                                    </div>
-
-                                                    <div className="mt-4 flex flex-wrap gap-2">
-                                                        {newTraining.attendees.map((att, idx) => (
-                                                            <div key={idx} className="bg-slate-800 border border-slate-600 text-xs px-3 py-1.5 rounded-full flex items-center gap-2 shadow-inner">
-                                                                {att}
-                                                                <button onClick={() => setNewTraining(prev => ({ ...prev, attendees: prev.attendees.filter((_, i) => i !== idx) }))} className="text-slate-400 hover:text-red-400 transition-colors"><i className="fas fa-times"></i></button>
-                                                            </div>
-                                                        ))}
-                                                        {newTraining.attendees.length === 0 && <span className="text-[10px] text-slate-500 italic block mt-1">No attendees added yet.</span>}
-                                                    </div>
-                                                </div>
-                                            </div>
-
-                                            <div className="pt-4 border-t border-slate-800 mt-2">
-                                                <button onClick={addTrainingRecord} className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white py-3.5 rounded-xl font-bold uppercase tracking-widest text-xs transition-transform active:scale-95 shadow-lg">Log & Sync to Global Training</button>
-                                            </div>
-                                        </div>
-                                    )}
-
-                                    {/* Right: History */}
-                                    <div className="bg-slate-950 p-6 rounded-2xl border border-slate-800 shadow-inner flex flex-col overflow-hidden">
-                                        <h4 className="text-xs font-bold text-blue-400 uppercase tracking-widest mb-4">Training History</h4>
-                                        <div className="flex-1 overflow-y-auto custom-scroll pr-2 space-y-3">
-                                            {safeArr(activeVendor.trainings).sort((a, b) => new Date(b.date) - new Date(a.date)).map((t, idx) => (
-                                                <div key={t.id || idx} className="bg-slate-900 border border-slate-700 p-4 rounded-xl shadow-sm">
-                                                    <div className="flex justify-between items-start mb-2">
-                                                        <div className="font-bold text-sm text-white">{t.topic}</div>
-                                                        <div className="text-[10px] font-mono text-blue-400 bg-blue-900/20 border border-blue-500/30 px-2 py-1 rounded">{t.date}</div>
-                                                    </div>
-                                                    <div className="text-xs text-slate-400 leading-relaxed"><span className="font-bold text-slate-500 mr-1">Attendees:</span> {t.attendees}</div>
-                                                </div>
-                                            ))}
-                                            {safeArr(activeVendor.trainings).length === 0 && <div className="text-slate-500 italic text-sm text-center mt-10">No training recorded yet.</div>}
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    )}
-
-                    {/* MODAL 3: INCIDENTS & NC */}
-                    {activeVendor && modalType === 'incident' && (
-                        <div className="fixed inset-0 z-[100] bg-black/80 flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in">
-                            <div className="bg-slate-900 border border-slate-700 p-8 rounded-3xl shadow-2xl max-w-4xl w-full relative max-h-[90vh] flex flex-col">
-                                <button onClick={() => setActiveVendor(null)} className="absolute top-6 right-6 text-slate-500 hover:text-white"><i className="fas fa-times text-xl"></i></button>
-                                <h3 className="text-2xl font-bold text-white mb-1"><i className="fas fa-exclamation-triangle text-red-500 mr-2"></i> Incidents & Non-Compliance</h3>
-                                <p className="text-slate-400 text-sm font-bold mb-6">{activeVendor.companyName}</p>
-
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 flex-1 overflow-hidden">
-                                    {/* Left: Log New */}
-                                    {canEdit && (
-                                        <div className="bg-slate-950 p-6 rounded-2xl border border-slate-800 shadow-inner flex flex-col">
-                                            <h4 className="text-xs font-bold text-red-400 uppercase tracking-widest mb-4">Log Event</h4>
-                                            <div className="space-y-4">
-                                                <div>
-                                                    <label className="text-[10px] uppercase font-bold text-slate-500 block mb-1">Event Type</label>
-                                                    <select value={newRecord.type} onChange={e => setNewRecord({ ...newRecord, type: e.target.value })} className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-sm font-bold text-white outline-none focus:border-red-500">
-                                                        <option>Injury / Accident</option>
-                                                        <option>Near Miss</option>
-                                                        <option>Safety Rule Violation (NC)</option>
-                                                        <option>Environmental NC</option>
-                                                    </select>
-                                                </div>
-                                                <div>
-                                                    <label className="text-[10px] uppercase font-bold text-slate-500 block mb-1">Date Occurred</label>
-                                                    <input type="date" value={newRecord.date} onChange={e => setNewRecord({ ...newRecord, date: e.target.value })} className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-sm text-white outline-none focus:border-red-500 font-mono" />
-                                                </div>
-                                                <div>
-                                                    <label className="text-[10px] uppercase font-bold text-slate-500 block mb-1">Description & Actions Taken</label>
-                                                    <textarea value={newRecord.desc} onChange={e => setNewRecord({ ...newRecord, desc: e.target.value })} rows="4" className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-sm text-white outline-none focus:border-red-500 resize-none" placeholder="Provide details of the event and immediate corrections..."></textarea>
-                                                </div>
-                                                <button onClick={addIncidentRecord} className="w-full bg-red-600 hover:bg-red-500 text-white py-3 rounded-xl font-bold uppercase tracking-widest text-xs transition-colors shadow">Save Record</button>
-                                            </div>
-                                        </div>
-                                    )}
-
-                                    {/* Right: History */}
-                                    <div className="bg-slate-950 p-6 rounded-2xl border border-slate-800 shadow-inner flex flex-col overflow-hidden">
-                                        <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4">Event History</h4>
-                                        <div className="flex-1 overflow-y-auto custom-scroll pr-2 space-y-3">
-                                            {[...safeArr(activeVendor.incidents), ...safeArr(activeVendor.nonCompliances)]
-                                                .sort((a, b) => new Date(b.date || '1970-01-01') - new Date(a.date || '1970-01-01'))
-                                                .map((rec, idx) => (
-                                                    <div key={rec.id || idx} className={`p-4 rounded-xl border ${(rec.type || '').includes('NC') || (rec.type || '').includes('Violation') ? 'bg-orange-950/20 border-orange-500/30' : 'bg-red-950/20 border-red-500/30'}`}>
-                                                        <div className="flex justify-between items-start mb-2">
-                                                            <div className={`font-bold text-xs uppercase tracking-widest ${(rec.type || '').includes('NC') || (rec.type || '').includes('Violation') ? 'text-orange-400' : 'text-red-400'}`}>{rec.type}</div>
-                                                            <div className="text-[10px] font-mono text-slate-400 bg-slate-950 px-2 py-1 rounded">{rec.date}</div>
-                                                        </div>
-                                                        <div className="text-xs text-slate-300 leading-relaxed">{rec.desc}</div>
-                                                    </div>
-                                                ))}
-                                            {(safeArr(activeVendor.incidents).length === 0 && safeArr(activeVendor.nonCompliances).length === 0) && <div className="text-emerald-500 italic font-bold text-sm text-center mt-10"><i className="fas fa-shield-alt mr-2"></i>Excellent! No events recorded.</div>}
                                         </div>
                                     </div>
                                 </div>
