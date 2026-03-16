@@ -2,10 +2,8 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { ref, get, push, update, remove } from 'firebase/database';
 import { rtdb } from '../config/firebase';
-import * as XLSX from 'xlsx';
 
-// --- DATA SAFETY ENGINE ---
-// Strictly forces Firebase Objects back into Arrays to prevent React crashes
+// --- BULLETPROOF DATA ENGINE ---
 const safeArr = (val) => {
     if (!val) return [];
     if (Array.isArray(val)) return val.filter(Boolean);
@@ -142,33 +140,36 @@ export default function Contractors() {
 
     const visibleContractors = useMemo(() => {
         return contractors.filter(c => {
-            if (!isGlobalUser && session?.assignedSite !== 'GLOBAL' && c.siteId !== session?.assignedSite && !(session?.accessibleSites || []).includes(c.siteId)) return false;
+            if (!isGlobalUser && session?.assignedSite !== 'GLOBAL' && c.siteId !== session?.assignedSite && !safeArr(session?.accessibleSites).includes(c.siteId)) return false;
             if (siteFilter !== 'All' && c.siteId !== siteFilter) return false;
             return true;
         });
     }, [contractors, siteFilter, isGlobalUser, session]);
 
-    // --- WORKER PROFILE EXTRACTOR ---
-    // Flattens all workers from all contractors and links their trainings/injuries
+    // --- BULLETPROOF WORKER PROFILE EXTRACTOR ---
     const allWorkers = useMemo(() => {
         let list = [];
         visibleContractors.forEach(c => {
             if (workerCompanyFilter !== 'All' && c.firebaseKey !== workerCompanyFilter) return;
 
             safeArr(c.workers).forEach(w => {
-                // Find Trainings from Global Module (Matching external name)
+                const wNameStr = typeof w.name === 'string' ? w.name.toLowerCase() : '';
+                if (!wNameStr) return; // Skip corrupted empty worker entries
+
                 const wTrainings = globalTrainings.filter(t =>
-                    safeArr(t.attendees).some(a => (a.name || '').toLowerCase() === (w.name || '').toLowerCase() && a.status === 'Attended')
+                    safeArr(t.attendees).some(a => {
+                        const aName = typeof a === 'object' ? (a.name || '') : (typeof a === 'string' ? a : '');
+                        return aName.toLowerCase() === wNameStr && (typeof a === 'object' ? a.status === 'Attended' : true);
+                    })
                 );
 
-                // Find Injuries from Contractor Incident Log (Checks if worker name is in the description)
                 const wInjuries = safeArr(c.incidents).filter(inc =>
-                    inc.desc && w.name && inc.desc.toLowerCase().includes(w.name.toLowerCase())
+                    typeof inc.desc === 'string' && inc.desc.toLowerCase().includes(wNameStr)
                 );
 
                 list.push({
                     ...w,
-                    companyName: c.companyName,
+                    companyName: c.companyName || 'Unknown Vendor',
                     contractorId: c.firebaseKey,
                     trainingsList: wTrainings,
                     injuriesList: wInjuries
@@ -288,7 +289,7 @@ export default function Contractors() {
         setNewDocReq('');
     };
 
-    // PROFILE ACTION (Section 2 - Modal)
+    // Profile action (Section 2 - Modal)
     const addWorkerToProfile = () => {
         if (!newWorker.name || !newWorker.competence) return alert("Name and Competence required.");
         const updatedWorkers = [...safeArr(activeVendor.workers), { ...newWorker, id: Date.now().toString(), inductionDate: '' }];
@@ -376,7 +377,7 @@ export default function Contractors() {
                                                         <select value={formData.siteId} onChange={e => setFormData({ ...formData, siteId: e.target.value })} disabled={!canEdit} className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-white outline-none focus:border-indigo-500">
                                                             <option value="">Select Site...</option>
                                                             <option value="GLOBAL">Global / All Sites</option>
-                                                            {sites.filter(s => isGlobalUser || s.code === session?.assignedSite || (session?.accessibleSites || []).includes(s.code)).map(s => <option key={s.code} value={s.code}>{s.name}</option>)}
+                                                            {sites.filter(s => isGlobalUser || s.code === session?.assignedSite || safeArr(session?.accessibleSites).includes(s.code)).map(s => <option key={s.code} value={s.code}>{s.name}</option>)}
                                                         </select>
                                                     </div>
                                                     <div>
@@ -441,7 +442,7 @@ export default function Contractors() {
                                                             <div className="text-sm font-bold text-white">{w.name} <span className="text-[9px] bg-slate-800 px-2 py-0.5 rounded ml-2 font-normal tracking-widest text-slate-400">{w.role}</span></div>
                                                             <div className="text-[10px] text-blue-300 mt-1"><i className="fas fa-certificate mr-1"></i> {w.competence}</div>
                                                         </div>
-                                                        {w.proof && <a href={w.proof} target="_blank" rel="noreferrer" className="text-[10px] bg-emerald-900/30 text-emerald-400 px-2 py-1 rounded border border-emerald-500/30 hover:bg-emerald-600 hover:text-white transition-colors"><i className="fas fa-eye"></i> View Proof</a>}
+                                                        {w.proof && <a href={w.proof} target="_blank" rel="noreferrer" className="text-[10px] bg-emerald-900/30 text-emerald-400 px-2 py-1 rounded border border-emerald-500/30 hover:bg-emerald-600 hover:text-white transition-colors"><i className="fas fa-file-medical"></i> View Doc</a>}
                                                     </div>
                                                     {canEdit && <button onClick={() => removeWorker(w.id)} className="absolute bottom-2 right-2 text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"><i className="fas fa-trash-alt"></i></button>}
                                                 </div>
@@ -477,7 +478,7 @@ export default function Contractors() {
                                             return (
                                                 <tr key={c.firebaseKey} className="hover:bg-slate-800/40 transition-colors">
                                                     <td className="p-4 pl-6">
-                                                        <div className="font-bold text-white text-base">{c.companyName}</div>
+                                                        <div className="font-bold text-white text-base">{c.companyName || 'Unnamed Vendor'}</div>
                                                         <div className="text-[10px] text-slate-500 mt-1 uppercase tracking-widest"><i className="fas fa-user mr-1"></i> {c.contactPerson || 'N/A'} | <i className="fas fa-phone mr-1"></i> {c.phone || 'N/A'}</div>
                                                     </td>
                                                     <td className="p-4 font-medium text-slate-400">{c.serviceType}</td>
@@ -673,7 +674,7 @@ export default function Contractors() {
                                     <h4 className="text-xs font-bold text-orange-400 uppercase tracking-widest border-b border-slate-800 pb-2 mb-4"><i className="fas fa-clipboard-list mr-2"></i> Work Permits (PTW)</h4>
                                     <div className="flex-1 overflow-y-auto custom-scroll pr-2 space-y-3">
                                         {/* Find permits for this contractor globally */}
-                                        {globalPermits.filter(p => p.contractorId === activeVendor.firebaseKey || (p.contractorName && p.contractorName.toLowerCase() === activeVendor.companyName.toLowerCase())).map((p, idx) => (
+                                        {globalPermits.filter(p => p.contractorId === activeVendor.firebaseKey || (p.contractorName && activeVendor.companyName && p.contractorName.toLowerCase() === activeVendor.companyName.toLowerCase())).map((p, idx) => (
                                             <div key={idx} className={`p-3 rounded-xl border shadow-sm ${p.status === 'Closed' ? 'bg-slate-900 border-slate-700 opacity-60' : 'bg-orange-950/20 border-orange-500/30'}`}>
                                                 <div className="flex justify-between items-start mb-1">
                                                     <div className="text-[10px] font-bold uppercase tracking-widest text-orange-400">{p.permitType}</div>
@@ -686,7 +687,7 @@ export default function Contractors() {
                                                 </div>
                                             </div>
                                         ))}
-                                        {globalPermits.filter(p => p.contractorId === activeVendor.firebaseKey || (p.contractorName && p.contractorName.toLowerCase() === activeVendor.companyName.toLowerCase())).length === 0 && (
+                                        {globalPermits.filter(p => p.contractorId === activeVendor.firebaseKey || (p.contractorName && activeVendor.companyName && p.contractorName.toLowerCase() === activeVendor.companyName.toLowerCase())).length === 0 && (
                                             <div className="text-center text-slate-500 text-xs italic mt-4">No permits found for this contractor.</div>
                                         )}
                                     </div>
@@ -747,8 +748,8 @@ export default function Contractors() {
                                         {/* Other Trainings */}
                                         {safeArr(activeWorker.trainingsList).map((t, idx) => (
                                             <div key={idx} className="p-3 rounded-xl border border-slate-700 bg-slate-900 shadow-sm">
-                                                <div className="text-sm font-bold text-blue-300">{t.topic}</div>
-                                                <div className="text-[10px] font-mono text-slate-500 mt-1">Date: {t.date} | Exp: <span className="text-emerald-400">{t.expiryDate}</span></div>
+                                                <div className="text-sm font-bold text-blue-300">{t.topic || 'Training Session'}</div>
+                                                <div className="text-[10px] font-mono text-slate-500 mt-1">Date: {t.date || 'N/A'} | Exp: <span className="text-emerald-400">{t.expiryDate || 'N/A'}</span></div>
                                             </div>
                                         ))}
                                         {safeArr(activeWorker.trainingsList).length === 0 && (
@@ -765,13 +766,13 @@ export default function Contractors() {
                                             <div key={idx} className="p-4 rounded-xl border border-red-500/30 bg-red-950/20 shadow-sm">
                                                 <div className="flex justify-between items-start mb-2">
                                                     <div className="font-bold text-xs uppercase tracking-widest text-red-400">{inc.type || 'Incident'}</div>
-                                                    <div className="text-[10px] font-mono text-slate-400 bg-slate-950 px-2 py-1 rounded">{inc.date}</div>
+                                                    <div className="text-[10px] font-mono text-slate-400 bg-slate-950 px-2 py-1 rounded">{inc.date || 'Unknown Date'}</div>
                                                 </div>
-                                                <div className="text-xs text-slate-300 leading-relaxed">{inc.desc}</div>
+                                                <div className="text-xs text-slate-300 leading-relaxed">{inc.desc || 'No description provided.'}</div>
                                             </div>
                                         ))}
                                         {safeArr(activeWorker.injuriesList).length === 0 && (
-                                            <div className="text-center text-emerald-500 font-bold text-sm mt-10"><i className="fas fa-shield-alt mr-2"></i>Zero Incidents Recorded!</div>
+                                            <div className="text-center text-emerald-500 font-bold text-sm mt-10"><i className="fas fa-shield-check mr-2"></i>Zero Incidents Recorded!</div>
                                         )}
                                     </div>
                                 </div>
@@ -781,6 +782,6 @@ export default function Contractors() {
                     </div>
                 )}
             </div>
-        </div >
+        </>
     );
 }
