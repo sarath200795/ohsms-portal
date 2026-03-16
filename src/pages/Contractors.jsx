@@ -16,9 +16,8 @@ const safeArr = (val) => {
 const parseContractors = (dataObj) => {
     if (!dataObj) return [];
     return Object.entries(dataObj).map(([k, v]) => ({
-        ...v, // Spread first to get base values
+        ...v,
         firebaseKey: k,
-        // Force overwrite lists to guarantee they are Arrays
         documents: safeArr(v.documents),
         workers: safeArr(v.workers),
         trainings: safeArr(v.trainings),
@@ -62,7 +61,7 @@ export default function Contractors() {
 
     const [session, setSession] = useState(null);
     const [loading, setLoading] = useState(true);
-    const [view, setView] = useState('register'); // 'register' | 'compliance' | 'training' | 'incidents'
+    const [view, setView] = useState('register');
 
     const [contractors, setContractors] = useState([]);
     const [sites, setSites] = useState([]);
@@ -81,7 +80,7 @@ export default function Contractors() {
 
     // Modal States (Sections 2, 3, 4)
     const [activeVendor, setActiveVendor] = useState(null);
-    const [modalType, setModalType] = useState(null); // 'docs' | 'training' | 'incident'
+    const [modalType, setModalType] = useState(null);
 
     // Sub-form states for Modals
     const [newDocReq, setNewDocReq] = useState('');
@@ -126,6 +125,25 @@ export default function Contractors() {
 
     const isGlobalUser = ['Global Owner', 'Global Manager', 'Owner', 'Admin'].includes(session?.role);
     const canEdit = ['Global Owner', 'Global Manager', 'Owner', 'Admin', 'Site Owner', 'Site Manager'].includes(session?.role);
+
+    // ==========================================
+    // MISSING VISIBLE SITES LOGIC RESTORED HERE
+    // ==========================================
+    const allowedSiteCodes = useMemo(() => {
+        if (!session) return new Set();
+        const codes = new Set([session.assignedSite, ...(session.accessibleSites || [])].filter(Boolean));
+        if (!isGlobalUser) {
+            codes.delete('GLOBAL');
+            codes.delete('All');
+        }
+        return codes;
+    }, [session, isGlobalUser]);
+
+    const visibleSites = useMemo(() => {
+        if (isGlobalUser) return sites;
+        return sites.filter(s => allowedSiteCodes.has(s.code));
+    }, [sites, isGlobalUser, allowedSiteCodes]);
+    // ==========================================
 
     const visibleContractors = useMemo(() => {
         return contractors.filter(c => {
@@ -213,7 +231,6 @@ export default function Contractors() {
         try {
             await update(ref(rtdb, `organizations/${session.orgId}/contractors/${vendorKey}`), payload);
 
-            // Sync Local State perfectly by forcing Arrays
             setContractors(prev => prev.map(c => {
                 if (c.firebaseKey === vendorKey) {
                     return {
