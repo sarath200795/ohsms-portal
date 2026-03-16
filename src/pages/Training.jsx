@@ -5,6 +5,7 @@ import { rtdb } from '../config/firebase';
 import * as XLSX from 'xlsx';
 
 // --- DATA SAFETY ENGINE ---
+// Strictly forces Firebase Objects back into Arrays to prevent React crashes
 const safeArr = (val) => {
     if (!val) return [];
     if (Array.isArray(val)) return val.filter(Boolean);
@@ -126,10 +127,17 @@ export default function Training() {
                 if (snap.exists()) {
                     const orgData = snap.val();
 
-                    if (orgData.trainings) setTrainings(Object.entries(orgData.trainings).map(([k, v]) => ({ firebaseKey: k, ...v })));
+                    // ROOT SAFETY ENGINE: Intercept and force Array formatting on load
+                    if (orgData.trainings) {
+                        setTrainings(Object.entries(orgData.trainings).map(([k, v]) => ({
+                            ...v, firebaseKey: k, attendees: safeArr(v.attendees)
+                        })));
+                    }
 
                     if (orgData.contractors) {
-                        setContractors(Object.entries(orgData.contractors).map(([k, v]) => ({ firebaseKey: k, ...v })));
+                        setContractors(Object.entries(orgData.contractors).map(([k, v]) => ({
+                            ...v, firebaseKey: k, workers: safeArr(v.workers)
+                        })));
                     }
 
                     if (orgData.sites) {
@@ -140,7 +148,10 @@ export default function Training() {
 
                     if (orgData.users) {
                         setUsers(Object.entries(orgData.users)
-                            .map(([k, v]) => ({ id: k, name: v.name || v.email || 'System Owner', ...v }))
+                            .map(([k, v]) => ({
+                                ...v, id: k, name: v.name || v.email || 'System Owner',
+                                accessibleSites: safeArr(v.accessibleSites)
+                            }))
                             .filter(u => u.status !== 'Inactive' && u.status !== 'Deleted'));
                     }
 
@@ -259,8 +270,8 @@ export default function Training() {
     const availableWorkersForForm = useMemo(() => {
         if (data.targetAudience === 'Internal') {
             return users.filter(u => {
-                const isGlobalUsr = u.role === 'Owner' || u.role === 'Lead Auditor' || u.assignedSite === 'GLOBAL' || (u.accessibleSites && u.accessibleSites.includes('GLOBAL'));
-                return isGlobalUsr || !data.siteId || u.assignedSite === data.siteId || (u.accessibleSites && u.accessibleSites.includes(data.siteId));
+                const isGlobalUsr = u.role === 'Owner' || u.role === 'Lead Auditor' || u.assignedSite === 'GLOBAL' || safeArr(u.accessibleSites).includes('GLOBAL');
+                return isGlobalUsr || !data.siteId || u.assignedSite === data.siteId || safeArr(u.accessibleSites).includes(data.siteId);
             });
         } else {
             if (!data.contractorId) return [];
@@ -285,7 +296,7 @@ export default function Training() {
             if (!isGlobalUser && !allowedSiteCodes.has(t.siteId)) return;
 
             if (t.attendees) {
-                t.attendees.forEach(att => {
+                safeArr(t.attendees).forEach(att => {
                     if (att.status === 'Attended') {
                         const key = `${att.name}_${t.topic}`;
                         const expDate = t.expiryDate || addMonths(t.date, 6);
@@ -340,7 +351,7 @@ export default function Training() {
 
         // 1. Add Internal Users
         users.forEach(u => merged.push({
-            id: u.id, name: u.name, role: u.role, assignedSite: u.assignedSite, accessibleSites: u.accessibleSites, type: 'Internal'
+            id: u.id, name: u.name, role: u.role, assignedSite: u.assignedSite, accessibleSites: safeArr(u.accessibleSites), type: 'Internal'
         }));
 
         // 2. Add Contractor Workers (Injecting them into the Matrix)
@@ -354,9 +365,9 @@ export default function Training() {
 
         // Matrix Site Filter
         if (matrixSiteFilter !== 'All') {
-            merged = merged.filter(u => u.assignedSite === matrixSiteFilter || (u.accessibleSites && u.accessibleSites.includes(matrixSiteFilter)));
+            merged = merged.filter(u => u.assignedSite === matrixSiteFilter || safeArr(u.accessibleSites).includes(matrixSiteFilter));
         } else if (!isGlobalUser) {
-            merged = merged.filter(u => allowedSiteCodes.has(u.assignedSite) || (u.accessibleSites && u.accessibleSites.some(s => allowedSiteCodes.has(s))));
+            merged = merged.filter(u => allowedSiteCodes.has(u.assignedSite) || safeArr(u.accessibleSites).some(s => allowedSiteCodes.has(s)));
         }
 
         // Matrix Contractor/Internal Filter
@@ -379,8 +390,13 @@ export default function Training() {
         const alerts = Object.values(certifications).filter(c => c.status !== 'Valid').sort((a, b) => new Date(a.expiryDate) - new Date(b.expiryDate));
         if (filterSite === 'All') return alerts;
         return alerts.filter(a => {
-            const u = users.find(x => x.name === a.userName) || contractors.flatMap(c => safeArr(c.workers)).find(w => w.name === a.userName);
-            return u && (u.assignedSite === filterSite || (u.accessibleSites && u.accessibleSites.includes(filterSite)));
+            const intUser = users.find(x => x.name === a.userName);
+            if (intUser) return intUser.assignedSite === filterSite || safeArr(intUser.accessibleSites).includes(filterSite);
+
+            const contWorker = contractors.find(c => safeArr(c.workers).some(w => w.name === a.userName));
+            if (contWorker) return contWorker.siteId === filterSite || contWorker.siteId === 'GLOBAL';
+
+            return false;
         });
     }, [certifications, filterSite, users, contractors]);
 
@@ -468,16 +484,16 @@ export default function Training() {
     const addAttendee = (type) => {
         if (type === 'external_manual') {
             if (!externalName.trim()) return alert("Enter external trainee name.");
-            if (data.attendees.some(a => a.name.toLowerCase() === externalName.trim().toLowerCase())) return alert("Already added.");
+            if (safeArr(data.attendees).some(a => a.name.toLowerCase() === externalName.trim().toLowerCase())) return alert("Already added.");
             const newAttendee = { userId: 'External', name: externalName.trim(), role: 'External / Contractor', status: 'Attended' };
-            setData(prev => ({ ...prev, attendees: [...prev.attendees, newAttendee] }));
+            setData(prev => ({ ...prev, attendees: [...safeArr(prev.attendees), newAttendee] }));
             setExternalName('');
         } else {
             if (!selectedUserToAdd) return;
             const workerObj = availableWorkersForForm.find(w => w.id === selectedUserToAdd || w.name === selectedUserToAdd);
             if (!workerObj) return;
 
-            if (data.attendees.some(a => a.name === workerObj.name)) return alert("Already added to the list.");
+            if (safeArr(data.attendees).some(a => a.name === workerObj.name)) return alert("Already added to the list.");
 
             const newAttendee = {
                 userId: data.targetAudience === 'Internal' ? workerObj.id : 'External',
@@ -485,12 +501,12 @@ export default function Training() {
                 role: data.targetAudience === 'Internal' ? (workerObj.role || 'Employee') : `${workerObj.role} (Contractor)`,
                 status: 'Attended'
             };
-            setData(prev => ({ ...prev, attendees: [...prev.attendees, newAttendee] }));
+            setData(prev => ({ ...prev, attendees: [...safeArr(prev.attendees), newAttendee] }));
             setSelectedUserToAdd('');
         }
     };
 
-    const removeAttendee = (index) => { setData(prev => ({ ...prev, attendees: data.attendees.filter((_, i) => i !== index) })); };
+    const removeAttendee = (index) => { setData(prev => ({ ...prev, attendees: safeArr(data.attendees).filter((_, i) => i !== index) })); };
 
     const saveData = async () => {
         if (!canEditForm) return alert("Security Error: You do not have permission to create or edit records for this site.");
@@ -508,23 +524,20 @@ export default function Training() {
         if (data.linkedCapa) payload.sourceCapaRef = data.linkedCapa.uid;
 
         try {
-            // Save to Master Trainings Node
             if (data.firebaseKey) {
                 await update(ref(rtdb, `organizations/${session.orgId}/trainings/${data.firebaseKey}`), payload);
             } else {
                 await push(ref(rtdb, `organizations/${session.orgId}/trainings`), payload);
             }
 
-            // Sync Induction Dates back to Contractor Module if applicable
             if (data.targetAudience === 'Contractor' && data.contractorId) {
                 const cRef = ref(rtdb, `organizations/${session.orgId}/contractors/${data.contractorId}`);
                 const cSnap = await get(cRef);
                 if (cSnap.exists()) {
                     const cData = cSnap.val();
                     let workers = safeArr(cData.workers);
-                    const attendedNames = data.attendees.filter(a => a.status === 'Attended').map(a => a.name);
+                    const attendedNames = safeArr(data.attendees).filter(a => a.status === 'Attended').map(a => a.name);
 
-                    // If it is an Induction, update the induction dates for those workers
                     if (data.topic.toLowerCase().includes('induction')) {
                         workers = workers.map(w => {
                             if (attendedNames.includes(w.name) && (!w.inductionDate || w.inductionDate === 'Pending' || w.inductionDate === '')) {
@@ -535,15 +548,12 @@ export default function Training() {
                         await update(cRef, { workers });
                     }
 
-                    // Add quick reference log to Contractor profile
                     const localTrn = { id: newId, topic: data.topic, date: data.date, attendees: attendedNames.join(', ') };
                     await update(cRef, { trainings: [...safeArr(cData.trainings), localTrn] });
                 }
             }
 
-            // Close Linked CAPA
             if (isContractorInduction) {
-                // The induction logic above handles the closure implicitly because the scanner will no longer find 'Pending' workers
                 alert("Contractor Training Logged! Any pending worker inductions have been updated.");
             } else if (linkedCapaPath) {
                 await update(ref(rtdb, linkedCapaPath), { status: 'Closed' });
@@ -554,7 +564,9 @@ export default function Training() {
 
             const dbRef = ref(rtdb, `organizations/${session.orgId}/trainings`);
             const snap = await get(dbRef);
-            if (snap.exists()) setTrainings(Object.entries(snap.val()).map(([k, v]) => ({ firebaseKey: k, ...v })));
+            if (snap.exists()) {
+                setTrainings(Object.entries(snap.val()).map(([k, v]) => ({ ...v, firebaseKey: k, attendees: safeArr(v.attendees) })));
+            }
 
             setView('repo');
         } catch (e) {
@@ -565,6 +577,98 @@ export default function Training() {
 
     const triggerPrint = (record) => { setPrintData(record); setTimeout(() => window.print(), 800); };
 
+    const renderCalendar = () => {
+        const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
+        const firstDayIndex = new Date(currentYear, currentMonth, 1).getDay();
+
+        const days = [];
+        for (let i = 0; i < firstDayIndex; i++) days.push(<div key={`empty-${i}`} className="p-2 border-r border-b border-slate-700 bg-slate-900/20 min-h-[120px]"></div>);
+
+        for (let d = 1; d <= daysInMonth; d++) {
+            const dateStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+
+            const dayTrainings = trainings.filter(t => t.date === dateStr && (calendarSiteFilter === 'All' || t.siteId === calendarSiteFilter) && (isGlobalUser || allowedSiteCodes.has(t.siteId)));
+
+            const dayExpirations = Object.values(certifications).filter(c => c.expiryDate === dateStr);
+            const dayExpirationsFiltered = dayExpirations.filter(exp => {
+                if (calendarSiteFilter === 'All') return true;
+
+                const intUser = users.find(x => x.name === exp.userName);
+                if (intUser) return intUser.assignedSite === calendarSiteFilter || safeArr(intUser.accessibleSites).includes(calendarSiteFilter);
+
+                const contWorker = contractors.find(c => safeArr(c.workers).some(w => w.name === exp.userName));
+                if (contWorker) return contWorker.siteId === calendarSiteFilter || contWorker.siteId === 'GLOBAL';
+
+                return false;
+            });
+
+            const dayCapas = trainingCapas.filter(c => c.due === dateStr && c.status !== 'Closed' && (calendarSiteFilter === 'All' || c.siteId === calendarSiteFilter || c.source === 'Incident') && (isGlobalUser || allowedSiteCodes.has(c.siteId) || c.siteId === 'Global'));
+
+            days.push(
+                <div key={d} className="p-2 border-r border-b border-slate-700 bg-slate-800 hover:bg-slate-700/80 transition min-h-[120px] flex flex-col">
+                    <span className="font-bold text-slate-400 block text-right mb-1">{d}</span>
+                    <div className="flex-1 space-y-1 overflow-y-auto custom-scroll max-h-[90px] pr-1">
+                        {dayTrainings.map((t, i) => (
+                            <div key={`t-${i}`} className="text-[9px] bg-blue-500/20 text-blue-300 p-1 rounded leading-tight border border-blue-500/30 truncate cursor-pointer shadow-sm hover:bg-blue-600/40" title={`${t.topic} (${safeArr(t.attendees).length} trained)`} onClick={() => { setData({ ...t, attendees: safeArr(t.attendees) }); setView('form'); }}>
+                                <i className="fas fa-check-circle mr-1"></i> {t.topic}
+                            </div>
+                        ))}
+                        {dayExpirationsFiltered.map((exp, i) => (
+                            <div key={`e-${i}`} className="text-[9px] bg-red-500/20 text-red-300 p-1 rounded leading-tight border border-red-500/30 truncate shadow-sm hover:bg-red-600/40 cursor-pointer" title={`${exp.userName}'s ${exp.topic} expires!`} onClick={() => initiateRetraining(exp.topic, [exp])}>
+                                <i className="fas fa-exclamation-triangle mr-1"></i> Exp: {exp.userName.split(' ')[0]}
+                            </div>
+                        ))}
+                        {dayCapas.map((capa, i) => (
+                            <div key={`c-${i}`} className="text-[9px] bg-orange-500/20 text-orange-300 p-1 rounded leading-tight border border-orange-500/30 truncate shadow-sm hover:bg-orange-600/40 cursor-pointer" title={`CAPA Action: ${capa.desc}`} onClick={() => initiateCapaTraining(capa)}>
+                                <i className="fas fa-tasks mr-1"></i> Due: {capa.source}
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            );
+        }
+
+        const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+
+        return (
+            <div className="glass-panel p-6 rounded-xl animate-fade-in shadow-xl border border-slate-700">
+                <div className="flex justify-between items-center mb-6">
+                    <h2 className="text-2xl font-bold text-white"><i className="fas fa-calendar-alt text-blue-400 mr-2"></i> Training Calendar</h2>
+
+                    <div className="flex items-center gap-4">
+                        <div className="relative">
+                            <i className="fas fa-map-marker-alt absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-500"></i>
+                            <select value={calendarSiteFilter} onChange={handleCalendarSiteChange} className="w-40 text-xs bg-slate-900 border border-slate-700 rounded-lg shadow-inner pl-8 pr-2 py-2 appearance-none outline-none focus:border-blue-500 text-white">
+                                {(isGlobalUser || visibleSites.length > 1) && <option value="All">All Sites</option>}
+                                {visibleSites.map(s => <option key={s.code} value={s.code}>{s.name}</option>)}
+                            </select>
+                        </div>
+
+                        <div className="flex items-center gap-2 bg-slate-900 rounded-lg p-1 border border-slate-700 shadow-inner">
+                            <button onClick={() => { if (currentMonth === 0) { setCurrentMonth(11); setCurrentYear(y => y - 1) } else { setCurrentMonth(m => m - 1) } }} className="px-3 py-1 hover:bg-slate-700 rounded text-slate-300 transition-colors"><i className="fas fa-chevron-left"></i></button>
+                            <span className="font-bold w-32 text-center text-white">{monthNames[currentMonth]} {currentYear}</span>
+                            <button onClick={() => { if (currentMonth === 11) { setCurrentMonth(0); setCurrentYear(y => y + 1) } else { setCurrentMonth(m => m + 1) } }} className="px-3 py-1 hover:bg-slate-700 rounded text-slate-300 transition-colors"><i className="fas fa-chevron-right"></i></button>
+                        </div>
+                    </div>
+                </div>
+
+                <div className="flex gap-4 mb-4 text-xs">
+                    <div className="flex items-center gap-2"><span className="w-3 h-3 rounded bg-blue-500/50 border border-blue-500"></span> Completed</div>
+                    <div className="flex items-center gap-2"><span className="w-3 h-3 rounded bg-red-500/50 border border-red-500"></span> Expirations</div>
+                    <div className="flex items-center gap-2"><span className="w-3 h-3 rounded bg-orange-500/50 border border-orange-500"></span> CAPA Due</div>
+                </div>
+
+                <div className="grid grid-cols-7 border-t border-l border-slate-700 rounded-xl overflow-hidden bg-slate-900 shadow-xl">
+                    {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => (
+                        <div key={day} className="p-2 text-center text-xs font-bold text-slate-400 uppercase tracking-wider border-r border-b border-slate-700 bg-slate-950">
+                            {day}
+                        </div>
+                    ))}
+                    {days}
+                </div>
+            </div>
+        );
+    };
 
     if (loading) return (
         <div className="flex h-screen items-center justify-center text-white bg-slate-950 flex-col gap-4 font-['Space_Grotesk']">
@@ -774,7 +878,11 @@ export default function Training() {
                                                 {displayedTopics.map(t => {
                                                     const cell = getMatrixCell(u.name, u.role, t);
                                                     return (
-                                                        <td key={t} className="p-3 text-center border-r border-slate-800/50 relative group hover:bg-slate-800/80 transition-colors">
+                                                        <td key={t} className="p-3 text-center border-r border-slate-800/50 relative group hover:bg-slate-800/80 cursor-pointer transition-colors" onClick={() => {
+                                                            if (permissions.canEditCreate) {
+                                                                cell.status !== 'N/A' && cell.status !== 'Not Trained' ? initiateRetraining(t, [cell.certObj]) : initiateRetraining(t, [{ userName: u.name, userId: u.id, assignedSite: u.assignedSite }])
+                                                            }
+                                                        }}>
                                                             <div className={`px-2 py-1.5 rounded-lg text-[10px] font-bold border ${cell.color} w-full text-center shadow-sm tracking-wider uppercase`}>{cell.status}</div>
                                                             {cell.status !== 'Not Trained' && cell.status !== 'N/A' && (
                                                                 <div className="text-[9px] text-slate-400 mt-2 flex flex-col gap-1 opacity-60 group-hover:opacity-100 transition-opacity font-mono">
@@ -825,13 +933,13 @@ export default function Training() {
                                                 </td>
                                                 <td className="p-5 text-xs font-mono">{t.date}</td>
                                                 <td className="p-5 text-xs font-medium">{t.siteId}</td>
-                                                <td className="p-5 font-bold text-emerald-400"><span className="bg-emerald-900/20 border border-emerald-500/30 px-2 py-1 rounded-lg">{t.attendees ? t.attendees.filter(a => a.status === 'Attended').length : 0} passed</span></td>
+                                                <td className="p-5 font-bold text-emerald-400"><span className="bg-emerald-900/20 border border-emerald-500/30 px-2 py-1 rounded-lg">{safeArr(t.attendees).filter(a => a.status === 'Attended').length} passed</span></td>
                                                 <td className="p-5 pr-6 text-right flex justify-end gap-3">
                                                     <button type="button" onClick={() => triggerPrint(t)} className="text-blue-400 hover:text-white bg-blue-900/20 hover:bg-blue-600 px-3 py-1.5 rounded-lg transition-colors border border-blue-500/30" title="Print Register"><i className="fas fa-print"></i></button>
                                                     {permissions.canEditCreate ? (
-                                                        <button type="button" onClick={() => { setData(t); setView('form'); }} className="text-purple-400 hover:text-white bg-purple-900/20 hover:bg-purple-600 px-3 py-1.5 rounded-lg transition-colors border border-purple-500/30 font-bold text-[10px] uppercase tracking-widest" title="Edit">Edit</button>
+                                                        <button type="button" onClick={() => { setData({ ...t, attendees: safeArr(t.attendees) }); setView('form'); }} className="text-purple-400 hover:text-white bg-purple-900/20 hover:bg-purple-600 px-3 py-1.5 rounded-lg transition-colors border border-purple-500/30 font-bold text-[10px] uppercase tracking-widest" title="Edit">Edit</button>
                                                     ) : (
-                                                        <button type="button" onClick={() => { setData(t); setView('form'); }} className="text-slate-400 hover:text-white bg-slate-800 hover:bg-slate-700 px-3 py-1.5 rounded-lg transition-colors border border-slate-600 font-bold text-[10px] uppercase tracking-widest" title="View">View</button>
+                                                        <button type="button" onClick={() => { setData({ ...t, attendees: safeArr(t.attendees) }); setView('form'); }} className="text-slate-400 hover:text-white bg-slate-800 hover:bg-slate-700 px-3 py-1.5 rounded-lg transition-colors border border-slate-600 font-bold text-[10px] uppercase tracking-widest" title="View">View</button>
                                                     )}
                                                     {permissions.canDelete && <button type="button" onClick={() => handleDelete(t)} className="text-slate-400 hover:text-white bg-slate-800 hover:bg-red-600 px-3 py-1.5 rounded-lg transition-colors" title="Delete"><i className="fas fa-trash-alt"></i></button>}
                                                 </td>
@@ -940,7 +1048,7 @@ export default function Training() {
                                     {/* Attendees Section */}
                                     <div className="bg-slate-900/50 rounded-2xl p-8 border border-slate-800 shadow-inner flex flex-col h-[650px]">
                                         <div className="flex justify-between items-center mb-6 border-b border-slate-700 pb-3">
-                                            <h3 className="font-bold text-white uppercase tracking-widest text-xs flex items-center gap-2"><i className="fas fa-users text-emerald-400"></i> Attendance Roster <span className="bg-emerald-600/30 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded text-[10px] ml-2">{data.attendees ? data.attendees.length : 0}</span></h3>
+                                            <h3 className="font-bold text-white uppercase tracking-widest text-xs flex items-center gap-2"><i className="fas fa-users text-emerald-400"></i> Attendance Roster <span className="bg-emerald-600/30 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded text-[10px] ml-2">{data.attendees ? safeArr(data.attendees).length : 0}</span></h3>
                                         </div>
 
                                         {canEditForm && (
@@ -973,7 +1081,7 @@ export default function Training() {
                                                     <tr><th className="p-4">Name</th><th className="p-4 hidden sm:table-cell">Role</th><th className="p-4">Status</th><th className="p-4 w-10 text-center"></th></tr>
                                                 </thead>
                                                 <tbody className="divide-y divide-slate-800/80">
-                                                    {data.attendees && data.attendees.map((att, idx) => (
+                                                    {safeArr(data.attendees).map((att, idx) => (
                                                         <tr key={idx} className="hover:bg-slate-800/50 transition-colors">
                                                             <td className="p-4 font-bold text-white">
                                                                 {att.name}
@@ -981,14 +1089,14 @@ export default function Training() {
                                                             </td>
                                                             <td className="p-4 text-xs text-slate-400 hidden sm:table-cell">{att.role}</td>
                                                             <td className="p-4">
-                                                                <select value={att.status} onChange={e => { const newAtt = [...data.attendees]; newAtt[idx].status = e.target.value; setData({ ...data, attendees: newAtt }); }} disabled={!canEditForm} className={`text-xs py-1.5 px-3 border outline-none rounded-lg font-bold cursor-pointer transition-colors shadow-sm ${att.status === 'Attended' ? 'bg-emerald-950/50 text-emerald-400 border-emerald-500/30 focus:border-emerald-500' : 'bg-red-950/50 text-red-400 border-red-500/30 focus:border-red-500'}`}>
+                                                                <select value={att.status} onChange={e => { const newAtt = [...safeArr(data.attendees)]; newAtt[idx].status = e.target.value; setData({ ...data, attendees: newAtt }); }} disabled={!canEditForm} className={`text-xs py-1.5 px-3 border outline-none rounded-lg font-bold cursor-pointer transition-colors shadow-sm ${att.status === 'Attended' ? 'bg-emerald-950/50 text-emerald-400 border-emerald-500/30 focus:border-emerald-500' : 'bg-red-950/50 text-red-400 border-red-500/30 focus:border-red-500'}`}>
                                                                     <option>Attended</option><option>Absent</option>
                                                                 </select>
                                                             </td>
                                                             <td className="p-4 text-center">{canEditForm && <button type="button" onClick={() => removeAttendee(idx)} className="text-red-500 hover:text-white bg-red-900/20 hover:bg-red-600 w-8 h-8 rounded-lg flex items-center justify-center transition-colors"><i className="fas fa-trash-alt"></i></button>}</td>
                                                         </tr>
                                                     ))}
-                                                    {(!data.attendees || data.attendees.length === 0) && <tr><td colSpan="4" className="p-12 text-center text-slate-500 italic text-sm">No trainees added to roster.</td></tr>}
+                                                    {(!data.attendees || safeArr(data.attendees).length === 0) && <tr><td colSpan="4" className="p-12 text-center text-slate-500 italic text-sm">No trainees added to roster.</td></tr>}
                                                 </tbody>
                                             </table>
                                         </div>
@@ -1068,7 +1176,7 @@ export default function Training() {
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {printData.attendees && printData.attendees.filter(a => a.status !== 'Absent').map((att, i) => (
+                                    {safeArr(printData.attendees).filter(a => a.status !== 'Absent').map((att, i) => (
                                         <tr key={i}>
                                             <td className="border border-black p-3 text-center font-bold">{i + 1}</td>
                                             <td className="border border-black p-3 font-bold">{att.name} {att.userId === 'External' ? '(Contractor/EXT)' : ''}</td>
@@ -1076,7 +1184,7 @@ export default function Training() {
                                             <td className="border border-black p-3 h-[40px]"></td>
                                         </tr>
                                     ))}
-                                    {(!printData.attendees || printData.attendees.length === 0) && (
+                                    {(!printData.attendees || safeArr(printData.attendees).length === 0) && (
                                         <tr><td colSpan="4" className="border border-black p-8 text-center italic text-gray-500">No attendees recorded for this session.</td></tr>
                                     )}
                                 </tbody>
