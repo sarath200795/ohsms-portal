@@ -565,92 +565,6 @@ export default function Training() {
 
     const triggerPrint = (record) => { setPrintData(record); setTimeout(() => window.print(), 800); };
 
-    const renderCalendar = () => {
-        const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
-        const firstDayIndex = new Date(currentYear, currentMonth, 1).getDay();
-
-        const days = [];
-        for (let i = 0; i < firstDayIndex; i++) days.push(<div key={`empty-${i}`} className="p-2 border-r border-b border-slate-700 bg-slate-900/20 min-h-[120px]"></div>);
-
-        for (let d = 1; d <= daysInMonth; d++) {
-            const dateStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-
-            const dayTrainings = trainings.filter(t => t.date === dateStr && (calendarSiteFilter === 'All' || t.siteId === calendarSiteFilter) && (isGlobalUser || allowedSiteCodes.has(t.siteId)));
-
-            const dayExpirations = Object.values(certifications).filter(c => c.expiryDate === dateStr);
-            const dayExpirationsFiltered = dayExpirations.filter(exp => {
-                if (calendarSiteFilter === 'All') return true;
-                const u = users.find(x => x.name === exp.userName);
-                return u && (u.assignedSite === calendarSiteFilter || (u.accessibleSites && u.accessibleSites.includes(calendarSiteFilter)));
-            });
-
-            const dayCapas = trainingCapas.filter(c => c.due === dateStr && c.status !== 'Closed' && (calendarSiteFilter === 'All' || c.siteId === calendarSiteFilter || c.source === 'Incident') && (isGlobalUser || allowedSiteCodes.has(c.siteId) || c.siteId === 'Global'));
-
-            days.push(
-                <div key={d} className="p-2 border-r border-b border-slate-700 bg-slate-800 hover:bg-slate-700/80 transition min-h-[120px] flex flex-col">
-                    <span className="font-bold text-slate-400 block text-right mb-1">{d}</span>
-                    <div className="flex-1 space-y-1 overflow-y-auto custom-scroll max-h-[90px] pr-1">
-                        {dayTrainings.map((t, i) => (
-                            <div key={`t-${i}`} className="text-[9px] bg-blue-500/20 text-blue-300 p-1 rounded leading-tight border border-blue-500/30 truncate cursor-pointer shadow-sm hover:bg-blue-600/40" title={`${t.topic} (${t.attendees?.length || 0} trained)`} onClick={() => { setData(t); setView('form'); }}>
-                                <i className="fas fa-check-circle mr-1"></i> {t.topic}
-                            </div>
-                        ))}
-                        {dayExpirationsFiltered.map((exp, i) => (
-                            <div key={`e-${i}`} className="text-[9px] bg-red-500/20 text-red-300 p-1 rounded leading-tight border border-red-500/30 truncate shadow-sm hover:bg-red-600/40 cursor-pointer" title={`${exp.userName}'s ${exp.topic} expires!`} onClick={() => initiateRetraining(exp.topic, [exp])}>
-                                <i className="fas fa-exclamation-triangle mr-1"></i> Exp: {exp.userName.split(' ')[0]}
-                            </div>
-                        ))}
-                        {dayCapas.map((capa, i) => (
-                            <div key={`c-${i}`} className="text-[9px] bg-orange-500/20 text-orange-300 p-1 rounded leading-tight border border-orange-500/30 truncate shadow-sm hover:bg-orange-600/40 cursor-pointer" title={`CAPA Action: ${capa.desc}`} onClick={() => initiateCapaTraining(capa)}>
-                                <i className="fas fa-tasks mr-1"></i> Due: {capa.source}
-                            </div>
-                        ))}
-                    </div>
-                </div>
-            );
-        }
-
-        const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-
-        return (
-            <div className="glass-panel p-6 rounded-xl animate-fade-in shadow-xl border border-slate-700">
-                <div className="flex justify-between items-center mb-6">
-                    <h2 className="text-2xl font-bold text-white"><i className="fas fa-calendar-alt text-blue-400 mr-2"></i> Training Calendar</h2>
-
-                    <div className="flex items-center gap-4">
-                        <div className="relative">
-                            <i className="fas fa-map-marker-alt absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-500"></i>
-                            <select value={calendarSiteFilter} onChange={handleCalendarSiteChange} className="w-40 text-xs bg-slate-900 border border-slate-700 rounded-lg shadow-inner pl-8 pr-2 py-2 appearance-none outline-none focus:border-blue-500 text-white">
-                                {(isGlobalUser || visibleSites.length > 1) && <option value="All">All Sites</option>}
-                                {visibleSites.map(s => <option key={s.code} value={s.code}>{s.name}</option>)}
-                            </select>
-                        </div>
-
-                        <div className="flex items-center gap-2 bg-slate-900 rounded-lg p-1 border border-slate-700 shadow-inner">
-                            <button onClick={() => { if (currentMonth === 0) { setCurrentMonth(11); setCurrentYear(y => y - 1) } else { setCurrentMonth(m => m - 1) } }} className="px-3 py-1 hover:bg-slate-700 rounded text-slate-300 transition-colors"><i className="fas fa-chevron-left"></i></button>
-                            <span className="font-bold w-32 text-center text-white">{monthNames[currentMonth]} {currentYear}</span>
-                            <button onClick={() => { if (currentMonth === 11) { setCurrentMonth(0); setCurrentYear(y => y + 1) } else { setCurrentMonth(m => m + 1) } }} className="px-3 py-1 hover:bg-slate-700 rounded text-slate-300 transition-colors"><i className="fas fa-chevron-right"></i></button>
-                        </div>
-                    </div>
-                </div>
-
-                <div className="flex gap-4 mb-4 text-xs">
-                    <div className="flex items-center gap-2"><span className="w-3 h-3 rounded bg-blue-500/50 border border-blue-500"></span> Completed</div>
-                    <div className="flex items-center gap-2"><span className="w-3 h-3 rounded bg-red-500/50 border border-red-500"></span> Expirations</div>
-                    <div className="flex items-center gap-2"><span className="w-3 h-3 rounded bg-orange-500/50 border border-orange-500"></span> CAPA Due</div>
-                </div>
-
-                <div className="grid grid-cols-7 border-t border-l border-slate-700 rounded-xl overflow-hidden bg-slate-900 shadow-xl">
-                    {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => (
-                        <div key={day} className="p-2 text-center text-xs font-bold text-slate-400 uppercase tracking-wider border-r border-b border-slate-700 bg-slate-950">
-                            {day}
-                        </div>
-                    ))}
-                    {days}
-                </div>
-            </div>
-        );
-    };
 
     if (loading) return (
         <div className="flex h-screen items-center justify-center text-white bg-slate-950 flex-col gap-4 font-['Space_Grotesk']">
@@ -682,7 +596,7 @@ export default function Training() {
                         <button type="button" onClick={() => setView('dashboard')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-widest transition-all ${view === 'dashboard' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}><i className="fas fa-chart-line mr-1"></i> Dashboard</button>
                         <button type="button" onClick={() => setView('matrix')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-widest transition-all ${view === 'matrix' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}><i className="fas fa-table mr-1"></i> Matrix</button>
                         <button type="button" onClick={() => setView('calendar')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-widest transition-all ${view === 'calendar' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}><i className="fas fa-calendar-alt mr-1"></i> Calendar</button>
-                        <button type="button" onClick={() => setView('repo')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-widest transition-all ${view === 'repo' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}><i className="fas fa-history mr-1"></i> History</button>
+                        <button type="button" onClick={() => setView('repo')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-widest transition-all ${view === 'repo' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}><i className="fas fa-history mr-1"></i> Logs</button>
                         {permissions.canEditCreate && (
                             <button type="button" onClick={() => {
                                 const today = new Date().toISOString().split('T')[0];
@@ -914,6 +828,11 @@ export default function Training() {
                                                 <td className="p-5 font-bold text-emerald-400"><span className="bg-emerald-900/20 border border-emerald-500/30 px-2 py-1 rounded-lg">{t.attendees ? t.attendees.filter(a => a.status === 'Attended').length : 0} passed</span></td>
                                                 <td className="p-5 pr-6 text-right flex justify-end gap-3">
                                                     <button type="button" onClick={() => triggerPrint(t)} className="text-blue-400 hover:text-white bg-blue-900/20 hover:bg-blue-600 px-3 py-1.5 rounded-lg transition-colors border border-blue-500/30" title="Print Register"><i className="fas fa-print"></i></button>
+                                                    {permissions.canEditCreate ? (
+                                                        <button type="button" onClick={() => { setData(t); setView('form'); }} className="text-purple-400 hover:text-white bg-purple-900/20 hover:bg-purple-600 px-3 py-1.5 rounded-lg transition-colors border border-purple-500/30 font-bold text-[10px] uppercase tracking-widest" title="Edit">Edit</button>
+                                                    ) : (
+                                                        <button type="button" onClick={() => { setData(t); setView('form'); }} className="text-slate-400 hover:text-white bg-slate-800 hover:bg-slate-700 px-3 py-1.5 rounded-lg transition-colors border border-slate-600 font-bold text-[10px] uppercase tracking-widest" title="View">View</button>
+                                                    )}
                                                     {permissions.canDelete && <button type="button" onClick={() => handleDelete(t)} className="text-slate-400 hover:text-white bg-slate-800 hover:bg-red-600 px-3 py-1.5 rounded-lg transition-colors" title="Delete"><i className="fas fa-trash-alt"></i></button>}
                                                 </td>
                                             </tr>
