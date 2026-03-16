@@ -84,7 +84,11 @@ export default function Contractors() {
 
     // Sub-form states for Modals
     const [newDocReq, setNewDocReq] = useState('');
-    const [newTraining, setNewTraining] = useState({ topic: '', date: new Date().toISOString().split('T')[0], attendees: '' });
+
+    // UPDATED: Training State specifically designed to link to the Global Training Module
+    const [newTraining, setNewTraining] = useState({ topic: '', date: new Date().toISOString().split('T')[0], duration: '1 Hour', trainer: '', attendees: [] });
+    const [newAttendeeName, setNewAttendeeName] = useState('');
+
     const [newRecord, setNewRecord] = useState({ type: 'Injury / Accident', date: new Date().toISOString().split('T')[0], desc: '', status: 'Open' });
 
     useEffect(() => {
@@ -126,9 +130,6 @@ export default function Contractors() {
     const isGlobalUser = ['Global Owner', 'Global Manager', 'Owner', 'Admin'].includes(session?.role);
     const canEdit = ['Global Owner', 'Global Manager', 'Owner', 'Admin', 'Site Owner', 'Site Manager'].includes(session?.role);
 
-    // ==========================================
-    // MISSING VISIBLE SITES LOGIC RESTORED HERE
-    // ==========================================
     const allowedSiteCodes = useMemo(() => {
         if (!session) return new Set();
         const codes = new Set([session.assignedSite, ...(session.accessibleSites || [])].filter(Boolean));
@@ -143,7 +144,6 @@ export default function Contractors() {
         if (isGlobalUser) return sites;
         return sites.filter(s => allowedSiteCodes.has(s.code));
     }, [sites, isGlobalUser, allowedSiteCodes]);
-    // ==========================================
 
     const visibleContractors = useMemo(() => {
         return contractors.filter(c => {
@@ -259,6 +259,7 @@ export default function Contractors() {
         } catch (e) { alert("Failed to update database."); }
     };
 
+    // Docs
     const handleDocUpload = async (docId, file) => {
         if (file.size > 2097152) return alert("File exceeds 2MB limit.");
         const b64 = await fileToBase64(file);
@@ -273,13 +274,74 @@ export default function Contractors() {
         setNewDocReq('');
     };
 
-    const addTrainingRecord = () => {
-        if (!newTraining.topic || !newTraining.attendees) return alert("Topic and Attendees required.");
-        const trn = { ...newTraining, id: Date.now().toString() };
-        updateVendorDB(activeVendor.firebaseKey, { trainings: [...safeArr(activeVendor.trainings), trn] });
-        setNewTraining({ topic: '', date: new Date().toISOString().split('T')[0], attendees: '' });
+    // --- TRAINING INTEGRATION ENGINE ---
+    const handleAddAttendeeToTraining = () => {
+        if (!newAttendeeName.trim()) return;
+        if (newTraining.attendees.includes(newAttendeeName.trim())) return alert("Attendee is already added to this session.");
+        setNewTraining(prev => ({ ...prev, attendees: [...prev.attendees, newAttendeeName.trim()] }));
+        setNewAttendeeName('');
     };
 
+    const addTrainingRecord = async () => {
+        if (!newTraining.topic || newTraining.attendees.length === 0) return alert("Topic and at least one attendee required.");
+
+        // Calculate Expiry Date automatically (6 months)
+        const d = new Date(newTraining.date);
+        d.setMonth(d.getMonth() + 6);
+        const expDate = d.toISOString().split('T')[0];
+
+        const trnId = `TRN-CONT-${Date.now().toString().slice(-6)}`;
+
+        // 1. Build the payload for the GLOBAL Training Module
+        const globalTrainingRecord = {
+            id: trnId,
+            siteId: activeVendor.siteId,
+            topic: newTraining.topic,
+            date: newTraining.date,
+            expiryDate: expDate,
+            type: 'External / Contractor',
+            trainer: newTraining.trainer || 'Contractor Supervisor',
+            duration: newTraining.duration || '1 Hour',
+            contractorId: activeVendor.firebaseKey,
+            contractorName: activeVendor.companyName,
+            attendees: newTraining.attendees.map(name => {
+                // Try to map to an actual registered worker to fetch their specific role
+                const matchedWorker = safeArr(activeVendor.workers).find(w => w.name === name);
+                return {
+                    userId: 'External',
+                    name: name,
+                    role: matchedWorker ? matchedWorker.role : 'Contractor Worker',
+                    status: 'Attended'
+                };
+            }),
+            updatedBy: session.name,
+            lastUpdated: new Date().toISOString()
+        };
+
+        // 2. Build the lightweight payload for the local Contractor Profile
+        const localTrn = {
+            id: trnId,
+            topic: newTraining.topic,
+            date: newTraining.date,
+            attendees: newTraining.attendees.join(', ') // Joined string for simple display in the modal
+        };
+
+        try {
+            // Push to Global Module
+            await push(ref(rtdb, `organizations/${session.orgId}/trainings`), globalTrainingRecord);
+
+            // Update Local Profile
+            await updateVendorDB(activeVendor.firebaseKey, { trainings: [...safeArr(activeVendor.trainings), localTrn] });
+
+            alert("Training logged successfully and synced with the Global Training Module!");
+            setNewTraining({ topic: '', date: new Date().toISOString().split('T')[0], duration: '1 Hour', trainer: '', attendees: [] });
+            setNewAttendeeName('');
+        } catch (e) {
+            alert("Failed to log training: " + e.message);
+        }
+    };
+
+    // Incidents & NC
     const addIncidentRecord = () => {
         if (!newRecord.desc) return alert("Description required.");
         const rec = { ...newRecord, id: Date.now().toString() };
@@ -605,7 +667,7 @@ export default function Contractors() {
                         </div>
                     )}
 
-                    {/* MODAL 2: TRAINING */}
+                    {/* MODAL 2: TRAINING LOG WITH GLOBAL INTEGRATION */}
                     {activeVendor && modalType === 'training' && (
                         <div className="fixed inset-0 z-[100] bg-black/80 flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in">
                             <div className="bg-slate-900 border border-slate-700 p-8 rounded-3xl shadow-2xl max-w-4xl w-full relative max-h-[90vh] flex flex-col">
@@ -618,20 +680,59 @@ export default function Contractors() {
                                     {canEdit && (
                                         <div className="bg-slate-950 p-6 rounded-2xl border border-slate-800 shadow-inner flex flex-col">
                                             <h4 className="text-xs font-bold text-blue-400 uppercase tracking-widest mb-4">Log New Training</h4>
-                                            <div className="space-y-4">
+
+                                            <div className="flex-1 overflow-y-auto custom-scroll pr-2 space-y-4">
                                                 <div>
                                                     <label className="text-[10px] uppercase font-bold text-slate-500 block mb-1">Topic / Course</label>
                                                     <input value={newTraining.topic} onChange={e => setNewTraining({ ...newTraining, topic: e.target.value })} className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-sm text-white outline-none focus:border-blue-500" placeholder="e.g. Site Safety Induction" />
                                                 </div>
-                                                <div>
-                                                    <label className="text-[10px] uppercase font-bold text-slate-500 block mb-1">Date</label>
-                                                    <input type="date" value={newTraining.date} onChange={e => setNewTraining({ ...newTraining, date: e.target.value })} className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-sm text-white outline-none focus:border-blue-500 font-mono" />
+
+                                                <div className="grid grid-cols-2 gap-4">
+                                                    <div>
+                                                        <label className="text-[10px] uppercase font-bold text-slate-500 block mb-1">Date</label>
+                                                        <input type="date" value={newTraining.date} onChange={e => setNewTraining({ ...newTraining, date: e.target.value })} className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-sm text-white outline-none focus:border-blue-500 font-mono" />
+                                                    </div>
+                                                    <div>
+                                                        <label className="text-[10px] uppercase font-bold text-slate-500 block mb-1">Duration</label>
+                                                        <input value={newTraining.duration} onChange={e => setNewTraining({ ...newTraining, duration: e.target.value })} className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-sm text-white outline-none focus:border-blue-500" placeholder="e.g. 1 Hour" />
+                                                    </div>
                                                 </div>
+
                                                 <div>
-                                                    <label className="text-[10px] uppercase font-bold text-slate-500 block mb-1">Attendees (Comma separated names)</label>
-                                                    <textarea value={newTraining.attendees} onChange={e => setNewTraining({ ...newTraining, attendees: e.target.value })} rows="3" className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-sm text-white outline-none focus:border-blue-500 resize-none" placeholder="John Doe, Jane Smith..."></textarea>
+                                                    <label className="text-[10px] uppercase font-bold text-slate-500 block mb-1">Trainer Name</label>
+                                                    <input value={newTraining.trainer} onChange={e => setNewTraining({ ...newTraining, trainer: e.target.value })} className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-sm text-white outline-none focus:border-blue-500" placeholder="Instructor / Supervisor" />
                                                 </div>
-                                                <button onClick={addTrainingRecord} className="w-full bg-blue-600 hover:bg-blue-500 text-white py-3 rounded-xl font-bold uppercase tracking-widest text-xs transition-colors shadow">Save Record</button>
+
+                                                <div className="bg-slate-900 border border-slate-700 p-4 rounded-xl">
+                                                    <label className="text-[10px] uppercase font-bold text-slate-500 block mb-2">Add Attendees (One-by-One)</label>
+
+                                                    <div className="flex gap-2 mb-2">
+                                                        <select value={newAttendeeName} onChange={e => setNewAttendeeName(e.target.value)} className="flex-1 bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-sm text-white outline-none focus:border-blue-500">
+                                                            <option value="">Select registered worker...</option>
+                                                            {safeArr(activeVendor.workers).map(w => <option key={w.id} value={w.name}>{w.name} ({w.role})</option>)}
+                                                        </select>
+                                                        <button onClick={handleAddAttendeeToTraining} className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 rounded-lg font-bold transition-colors shadow-sm"><i className="fas fa-plus"></i></button>
+                                                    </div>
+
+                                                    <div className="flex gap-2">
+                                                        <input value={newAttendeeName} onChange={e => setNewAttendeeName(e.target.value)} placeholder="Or type custom name manually..." className="flex-1 bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-sm text-white outline-none focus:border-blue-500" />
+                                                        <button onClick={handleAddAttendeeToTraining} className="bg-blue-600 hover:bg-blue-500 text-white px-4 rounded-lg font-bold transition-colors shadow-sm"><i className="fas fa-plus"></i></button>
+                                                    </div>
+
+                                                    <div className="mt-4 flex flex-wrap gap-2">
+                                                        {newTraining.attendees.map((att, idx) => (
+                                                            <div key={idx} className="bg-slate-800 border border-slate-600 text-xs px-3 py-1.5 rounded-full flex items-center gap-2 shadow-inner">
+                                                                {att}
+                                                                <button onClick={() => setNewTraining(prev => ({ ...prev, attendees: prev.attendees.filter((_, i) => i !== idx) }))} className="text-slate-400 hover:text-red-400 transition-colors"><i className="fas fa-times"></i></button>
+                                                            </div>
+                                                        ))}
+                                                        {newTraining.attendees.length === 0 && <span className="text-[10px] text-slate-500 italic block mt-1">No attendees added yet.</span>}
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            <div className="pt-4 border-t border-slate-800 mt-2">
+                                                <button onClick={addTrainingRecord} className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white py-3.5 rounded-xl font-bold uppercase tracking-widest text-xs transition-transform active:scale-95 shadow-lg">Log & Sync to Global Training</button>
                                             </div>
                                         </div>
                                     )}
@@ -640,13 +741,13 @@ export default function Contractors() {
                                     <div className="bg-slate-950 p-6 rounded-2xl border border-slate-800 shadow-inner flex flex-col overflow-hidden">
                                         <h4 className="text-xs font-bold text-blue-400 uppercase tracking-widest mb-4">Training History</h4>
                                         <div className="flex-1 overflow-y-auto custom-scroll pr-2 space-y-3">
-                                            {safeArr(activeVendor.trainings).map((t, idx) => (
-                                                <div key={t.id || idx} className="bg-slate-900 border border-slate-700 p-4 rounded-xl">
+                                            {safeArr(activeVendor.trainings).sort((a, b) => new Date(b.date) - new Date(a.date)).map((t, idx) => (
+                                                <div key={t.id || idx} className="bg-slate-900 border border-slate-700 p-4 rounded-xl shadow-sm">
                                                     <div className="flex justify-between items-start mb-2">
                                                         <div className="font-bold text-sm text-white">{t.topic}</div>
-                                                        <div className="text-[10px] font-mono text-slate-400 bg-slate-950 px-2 py-1 rounded">{t.date}</div>
+                                                        <div className="text-[10px] font-mono text-blue-400 bg-blue-900/20 border border-blue-500/30 px-2 py-1 rounded">{t.date}</div>
                                                     </div>
-                                                    <div className="text-xs text-slate-400 italic">Attendees: {t.attendees}</div>
+                                                    <div className="text-xs text-slate-400 leading-relaxed"><span className="font-bold text-slate-500 mr-1">Attendees:</span> {t.attendees}</div>
                                                 </div>
                                             ))}
                                             {safeArr(activeVendor.trainings).length === 0 && <div className="text-slate-500 italic text-sm text-center mt-10">No training recorded yet.</div>}
