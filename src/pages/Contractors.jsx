@@ -28,11 +28,11 @@ const parseContractors = (dataObj) => {
 const SERVICE_TYPES = ['General / Housekeeping', 'Construction / Civil', 'Electrical', 'Mechanical', 'Chemical / Hazardous'];
 
 const getMandatoryDocs = (serviceType) => {
+    // REMOVED Medical Fitness from Company Docs (It belongs to the individual workers now)
     const baseDocs = [
         { type: 'PF Registration', isMandatory: true, status: 'Pending' },
         { type: 'ESI / Workmen Compensation Policy', isMandatory: true, status: 'Pending' },
-        { type: 'Labour License (Form VI)', isMandatory: true, status: 'Pending' },
-        { type: 'Medical Fitness Certificates (Form 33)', isMandatory: true, status: 'Pending' }
+        { type: 'Labour License (Form VI)', isMandatory: true, status: 'Pending' }
     ];
 
     if (serviceType === 'Construction / Civil') {
@@ -202,17 +202,31 @@ export default function Contractors() {
         setFormData(prev => ({ ...prev, serviceType: type, documents: getMandatoryDocs(type) }));
     };
 
+    // FORM ACTION (Section 1)
     const handleWorkerProofUpload = async (e) => {
         const file = e.target.files[0];
         if (!file) return;
-        if (file.size > 2097152) return alert("File exceeds 2MB limit. Please upload a smaller medical/competence document.");
+        if (file.size > 2097152) return alert("File exceeds 2MB limit. Please upload a smaller document.");
         try {
             const b64 = await fileToBase64(file);
             setNewWorker(prev => ({ ...prev, proof: b64, proofName: file.name }));
         } catch (err) { alert("Failed to read file."); }
     };
 
-    // FORM ACTION (Section 1)
+    const handleExistingWorkerDocUploadForm = async (workerId, file) => {
+        if (!file) return;
+        if (file.size > 2097152) return alert("File exceeds 2MB limit.");
+        try {
+            const b64 = await fileToBase64(file);
+            setFormData(prev => ({
+                ...prev,
+                workers: safeArr(prev.workers).map(w =>
+                    w.id === workerId ? { ...w, proof: b64, proofName: file.name } : w
+                )
+            }));
+        } catch (err) { alert("Failed to process document."); }
+    };
+
     const addWorker = () => {
         if (!newWorker.name || !newWorker.competence) return alert("Name and Competence required.");
         setFormData(prev => ({ ...prev, workers: [...safeArr(prev.workers), { ...newWorker, id: Date.now().toString() }] }));
@@ -290,6 +304,18 @@ export default function Contractors() {
     };
 
     // Profile action (Section 2 - Modal)
+    const handleExistingWorkerDocUploadProfile = async (workerId, file) => {
+        if (!file) return;
+        if (file.size > 2097152) return alert("File exceeds 2MB limit.");
+        try {
+            const b64 = await fileToBase64(file);
+            const updatedWorkers = safeArr(activeVendor.workers).map(w =>
+                w.id === workerId ? { ...w, proof: b64, proofName: file.name } : w
+            );
+            updateVendorDB(activeVendor.firebaseKey, { workers: updatedWorkers });
+        } catch (err) { alert("Failed to process document."); }
+    };
+
     const addWorkerToProfile = () => {
         if (!newWorker.name || !newWorker.competence) return alert("Name and Competence required.");
         const updatedWorkers = [...safeArr(activeVendor.workers), { ...newWorker, id: Date.now().toString(), inductionDate: '' }];
@@ -400,7 +426,6 @@ export default function Contractors() {
                                             </div>
                                         </div>
 
-                                        {/* Auto-Generated Mandatory Docs Warning */}
                                         <div className="bg-indigo-950/20 p-5 rounded-2xl border border-indigo-500/30 text-sm">
                                             <div className="text-indigo-400 font-bold uppercase tracking-widest text-[10px] mb-2"><i className="fas fa-info-circle mr-1"></i> India Statutory Requirements</div>
                                             <p className="text-slate-300 leading-relaxed mb-3">Based on <strong className="text-white">{formData.serviceType}</strong>, the following documents will be auto-required in their profile:</p>
@@ -423,9 +448,9 @@ export default function Contractors() {
                                                 <div className="grid grid-cols-2 gap-2">
                                                     <input value={newWorker.competence} onChange={e => setNewWorker({ ...newWorker, competence: e.target.value })} placeholder="Competence (e.g. ITI, 5 Yrs Exp)" className="bg-slate-950 border border-slate-700 rounded-lg text-xs p-2.5 text-white outline-none focus:border-indigo-500" />
                                                     <div className="relative overflow-hidden">
-                                                        <input type="file" onChange={handleWorkerProofUpload} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" />
+                                                        <input type="file" onChange={handleWorkerProofUpload} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" title="Upload Medical / Competence Document" />
                                                         <div className={`w-full bg-slate-950 border border-slate-700 rounded-lg text-xs p-2.5 outline-none flex justify-between items-center ${newWorker.proof ? 'text-emerald-400' : 'text-slate-400'}`}>
-                                                            <span className="truncate">{newWorker.proofName || 'Upload Proof...'}</span>
+                                                            <span className="truncate">{newWorker.proofName || 'Med/Comp Doc...'}</span>
                                                             <i className="fas fa-upload"></i>
                                                         </div>
                                                     </div>
@@ -434,17 +459,46 @@ export default function Contractors() {
                                             </div>
                                         )}
 
-                                        <div className="flex-1 overflow-y-auto custom-scroll pr-2 space-y-2">
+                                        <div className="flex-1 overflow-y-auto custom-scroll pr-2 space-y-3">
                                             {safeArr(formData.workers).map(w => (
                                                 <div key={w.id} className="flex flex-col p-3 rounded-xl border border-slate-700 bg-slate-900 shadow-sm relative group">
                                                     <div className="flex justify-between items-start">
-                                                        <div>
+                                                        <div className="flex-1 pr-4">
                                                             <div className="text-sm font-bold text-white">{w.name} <span className="text-[9px] bg-slate-800 px-2 py-0.5 rounded ml-2 font-normal tracking-widest text-slate-400">{w.role}</span></div>
-                                                            <div className="text-[10px] text-blue-300 mt-1"><i className="fas fa-certificate mr-1"></i> {w.competence}</div>
+                                                            <div className="text-[10px] text-blue-300 mt-1 truncate"><i className="fas fa-certificate mr-1"></i> {w.competence}</div>
                                                         </div>
-                                                        {w.proof && <a href={w.proof} target="_blank" rel="noreferrer" className="text-[10px] bg-emerald-900/30 text-emerald-400 px-2 py-1 rounded border border-emerald-500/30 hover:bg-emerald-600 hover:text-white transition-colors"><i className="fas fa-file-medical"></i> View Doc</a>}
+                                                        {canEdit && <button onClick={() => removeWorker(w.id)} className="absolute top-3 right-3 text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"><i className="fas fa-trash-alt"></i></button>}
                                                     </div>
-                                                    {canEdit && <button onClick={() => removeWorker(w.id)} className="absolute bottom-2 right-2 text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"><i className="fas fa-trash-alt"></i></button>}
+
+                                                    <div className="mt-3 pt-2 border-t border-slate-800 flex justify-between items-center">
+                                                        <div>
+                                                            {!w.inductionDate || w.inductionDate === 'Pending' ? (
+                                                                <span className="text-[8px] text-orange-400 uppercase font-bold tracking-widest"><i className="fas fa-exclamation-triangle"></i> Pend Induction</span>
+                                                            ) : (
+                                                                <span className="text-[8px] text-emerald-400 uppercase font-bold tracking-widest"><i className="fas fa-check"></i> Inducted</span>
+                                                            )}
+                                                        </div>
+                                                        <div className="flex items-center gap-2">
+                                                            {w.proof ? (
+                                                                <div className="flex items-center gap-2">
+                                                                    <a href={w.proof} target="_blank" rel="noreferrer" className="text-[9px] bg-emerald-900/30 text-emerald-400 px-2 py-1 rounded border border-emerald-500/30 hover:bg-emerald-600 hover:text-white transition-colors whitespace-nowrap"><i className="fas fa-file-medical"></i> View</a>
+                                                                    {canEdit && (
+                                                                        <div className="relative overflow-hidden w-6 h-6 rounded bg-slate-800 border border-slate-600 flex items-center justify-center text-slate-400 hover:text-white cursor-pointer" title="Update Doc">
+                                                                            <input type="file" onChange={(e) => handleExistingWorkerDocUploadForm(w.id, e.target.files[0])} className="absolute inset-0 opacity-0 cursor-pointer z-10" />
+                                                                            <i className="fas fa-upload text-[10px]"></i>
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                            ) : (
+                                                                canEdit && (
+                                                                    <div className="relative overflow-hidden">
+                                                                        <input type="file" onChange={(e) => handleExistingWorkerDocUploadForm(w.id, e.target.files[0])} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" title="Upload Medical/Competence Doc" />
+                                                                        <div className="bg-orange-900/30 border border-orange-500/30 text-orange-400 text-[9px] px-2 py-1 text-center rounded uppercase font-bold cursor-pointer hover:bg-orange-600 hover:text-white transition-colors shadow-sm"><i className="fas fa-upload"></i> Upload Doc</div>
+                                                                    </div>
+                                                                )
+                                                            )}
+                                                        </div>
+                                                    </div>
                                                 </div>
                                             ))}
                                             {safeArr(formData.workers).length === 0 && <div className="text-center p-4 text-slate-500 italic text-xs">No employees registered yet.</div>}
@@ -645,23 +699,45 @@ export default function Contractors() {
                                         </div>
                                     )}
 
-                                    <div className="flex-1 overflow-y-auto custom-scroll pr-2 space-y-2">
+                                    <div className="flex-1 overflow-y-auto custom-scroll pr-2 space-y-3">
                                         {safeArr(activeVendor.workers).map(w => (
-                                            <div key={w.id} className="p-3 rounded-xl border border-slate-700 bg-slate-900 shadow-sm relative group">
-                                                <div className="text-sm font-bold text-white flex justify-between items-center">
-                                                    <div>
-                                                        {w.name} <span className="text-[9px] text-slate-400 font-normal ml-1">({w.role})</span>
+                                            <div key={w.id} className="flex flex-col p-3 rounded-xl border border-slate-700 bg-slate-900 shadow-sm relative group">
+                                                <div className="flex justify-between items-start">
+                                                    <div className="flex-1 pr-4">
+                                                        <div className="text-sm font-bold text-white">{w.name} <span className="text-[9px] bg-slate-800 px-2 py-0.5 rounded ml-2 font-normal tracking-widest text-slate-400">{w.role}</span></div>
+                                                        <div className="text-[10px] text-blue-300 mt-1 truncate"><i className="fas fa-certificate mr-1"></i> {w.competence}</div>
                                                     </div>
-                                                    {w.proof && <a href={w.proof} target="_blank" rel="noreferrer" className="text-[9px] bg-emerald-900/30 text-emerald-400 px-2 py-1 rounded border border-emerald-500/30 hover:bg-emerald-600 hover:text-white transition-colors whitespace-nowrap" title="Medical / Competence Doc"><i className="fas fa-file-medical"></i> View Doc</a>}
+                                                    {canEdit && <button onClick={() => removeWorkerFromProfile(w.id)} className="absolute top-3 right-3 text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"><i className="fas fa-trash-alt"></i></button>}
                                                 </div>
-                                                <div className="text-[10px] text-blue-300 mt-1 truncate"><i className="fas fa-certificate"></i> {w.competence}</div>
-                                                <div className="mt-2 flex justify-between items-center">
-                                                    {!w.inductionDate || w.inductionDate === 'Pending' ? (
-                                                        <span className="text-[8px] text-orange-400 uppercase font-bold tracking-widest"><i className="fas fa-exclamation-triangle"></i> Pend Induction</span>
-                                                    ) : (
-                                                        <span className="text-[8px] text-emerald-400 uppercase font-bold tracking-widest"><i className="fas fa-check"></i> Inducted</span>
-                                                    )}
-                                                    {canEdit && <button onClick={() => removeWorkerFromProfile(w.id)} className="text-red-500 hover:text-white opacity-0 group-hover:opacity-100 transition-opacity"><i className="fas fa-trash-alt text-xs"></i></button>}
+
+                                                <div className="mt-3 pt-2 border-t border-slate-800 flex justify-between items-center">
+                                                    <div>
+                                                        {!w.inductionDate || w.inductionDate === 'Pending' ? (
+                                                            <span className="text-[8px] text-orange-400 uppercase font-bold tracking-widest"><i className="fas fa-exclamation-triangle"></i> Pend Induction</span>
+                                                        ) : (
+                                                            <span className="text-[8px] text-emerald-400 uppercase font-bold tracking-widest"><i className="fas fa-check"></i> Inducted</span>
+                                                        )}
+                                                    </div>
+                                                    <div className="flex items-center gap-2">
+                                                        {w.proof ? (
+                                                            <div className="flex items-center gap-2">
+                                                                <a href={w.proof} target="_blank" rel="noreferrer" className="text-[9px] bg-emerald-900/30 text-emerald-400 px-2 py-1 rounded border border-emerald-500/30 hover:bg-emerald-600 hover:text-white transition-colors whitespace-nowrap"><i className="fas fa-file-medical"></i> View</a>
+                                                                {canEdit && (
+                                                                    <div className="relative overflow-hidden w-6 h-6 rounded bg-slate-800 border border-slate-600 flex items-center justify-center text-slate-400 hover:text-white cursor-pointer" title="Update Doc">
+                                                                        <input type="file" onChange={(e) => handleExistingWorkerDocUploadProfile(w.id, e.target.files[0])} className="absolute inset-0 opacity-0 cursor-pointer z-10" />
+                                                                        <i className="fas fa-upload text-[10px]"></i>
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        ) : (
+                                                            canEdit && (
+                                                                <div className="relative overflow-hidden">
+                                                                    <input type="file" onChange={(e) => handleExistingWorkerDocUploadProfile(w.id, e.target.files[0])} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" title="Upload Medical/Competence Doc" />
+                                                                    <div className="bg-orange-900/30 border border-orange-500/30 text-orange-400 text-[9px] px-2 py-1 text-center rounded uppercase font-bold cursor-pointer hover:bg-orange-600 hover:text-white transition-colors shadow-sm"><i className="fas fa-upload"></i> Upload Doc</div>
+                                                                </div>
+                                                            )
+                                                        )}
+                                                    </div>
                                                 </div>
                                             </div>
                                         ))}
@@ -674,7 +750,7 @@ export default function Contractors() {
                                     <h4 className="text-xs font-bold text-orange-400 uppercase tracking-widest border-b border-slate-800 pb-2 mb-4"><i className="fas fa-clipboard-list mr-2"></i> Work Permits (PTW)</h4>
                                     <div className="flex-1 overflow-y-auto custom-scroll pr-2 space-y-3">
                                         {/* Find permits for this contractor globally */}
-                                        {globalPermits.filter(p => p.contractorId === activeVendor.firebaseKey || (p.contractorName && activeVendor.companyName && p.contractorName.toLowerCase() === activeVendor.companyName.toLowerCase())).map((p, idx) => (
+                                        {globalPermits.filter(p => p.contractorId === activeVendor.firebaseKey || (p.contractorName && p.contractorName.toLowerCase() === activeVendor.companyName.toLowerCase())).map((p, idx) => (
                                             <div key={idx} className={`p-3 rounded-xl border shadow-sm ${p.status === 'Closed' ? 'bg-slate-900 border-slate-700 opacity-60' : 'bg-orange-950/20 border-orange-500/30'}`}>
                                                 <div className="flex justify-between items-start mb-1">
                                                     <div className="text-[10px] font-bold uppercase tracking-widest text-orange-400">{p.permitType}</div>
@@ -687,7 +763,7 @@ export default function Contractors() {
                                                 </div>
                                             </div>
                                         ))}
-                                        {globalPermits.filter(p => p.contractorId === activeVendor.firebaseKey || (p.contractorName && activeVendor.companyName && p.contractorName.toLowerCase() === activeVendor.companyName.toLowerCase())).length === 0 && (
+                                        {globalPermits.filter(p => p.contractorId === activeVendor.firebaseKey || (p.contractorName && p.contractorName.toLowerCase() === activeVendor.companyName.toLowerCase())).length === 0 && (
                                             <div className="text-center text-slate-500 text-xs italic mt-4">No permits found for this contractor.</div>
                                         )}
                                     </div>
