@@ -5,7 +5,6 @@ import { rtdb } from '../config/firebase';
 import * as XLSX from 'xlsx';
 
 // --- DATA SAFETY ENGINE ---
-// Strictly forces Firebase Objects back into Arrays to prevent React crashes
 const safeArr = (val) => {
     if (!val) return [];
     if (Array.isArray(val)) return val.filter(Boolean);
@@ -26,7 +25,6 @@ const parseContractors = (dataObj) => {
     }));
 };
 
-// --- INDIAN LEGAL COMPLIANCE MAPPING ---
 const SERVICE_TYPES = ['General / Housekeeping', 'Construction / Civil', 'Electrical', 'Mechanical', 'Chemical / Hazardous'];
 
 const getMandatoryDocs = (serviceType) => {
@@ -68,7 +66,6 @@ export default function Contractors() {
     const [siteFilter, setSiteFilter] = useState('All');
     const [saving, setSaving] = useState(false);
 
-    // Form State (Section 1)
     const [formData, setFormData] = useState({
         id: '', siteId: '', companyName: '', contactPerson: '', email: '', phone: '',
         serviceType: 'General / Housekeeping', notes: '', status: 'Pending Review',
@@ -76,19 +73,15 @@ export default function Contractors() {
         workers: [], trainings: [], incidents: [], nonCompliances: []
     });
 
-    const [newWorker, setNewWorker] = useState({ name: '', role: 'Worker', competence: '', proof: null });
+    // Induction date defaults to blank, forcing the Training Module to catch it!
+    const [newWorker, setNewWorker] = useState({ name: '', role: 'Worker', competence: '', proof: null, inductionDate: '' });
 
-    // Modal States (Sections 2, 3, 4)
     const [activeVendor, setActiveVendor] = useState(null);
     const [modalType, setModalType] = useState(null);
 
-    // Sub-form states for Modals
     const [newDocReq, setNewDocReq] = useState('');
-
-    // UPDATED: Training State specifically designed to link to the Global Training Module
     const [newTraining, setNewTraining] = useState({ topic: '', date: new Date().toISOString().split('T')[0], duration: '1 Hour', trainer: '', attendees: [] });
     const [newAttendeeName, setNewAttendeeName] = useState('');
-
     const [newRecord, setNewRecord] = useState({ type: 'Injury / Accident', date: new Date().toISOString().split('T')[0], desc: '', status: 'Open' });
 
     useEffect(() => {
@@ -117,9 +110,7 @@ export default function Contractors() {
                 const snap = await get(ref(rtdb, `organizations/${sess.orgId}`));
                 if (snap.exists()) {
                     const data = snap.val();
-                    if (data.contractors) {
-                        setContractors(parseContractors(data.contractors));
-                    }
+                    if (data.contractors) setContractors(parseContractors(data.contractors));
                     if (data.sites) setSites(Object.keys(data.sites).map(key => ({ code: data.sites[key].code || key, name: data.sites[key].name || key })));
                 }
             } catch (err) { console.error("Data Fetch Error:", err); } finally { setLoading(false); }
@@ -153,7 +144,6 @@ export default function Contractors() {
         });
     }, [contractors, siteFilter, isGlobalUser, session]);
 
-    // --- COMPLIANCE CALCULATOR ---
     const getComplianceStatus = (docsData) => {
         const docs = safeArr(docsData);
         if (docs.length === 0) return { label: 'Not Complied', color: 'text-red-400 bg-red-900/20 border-red-500/30' };
@@ -171,14 +161,9 @@ export default function Contractors() {
         return { label: 'Complied', color: 'text-emerald-400 bg-emerald-900/20 border-emerald-500/30' };
     };
 
-    // --- SECTION 1: REGISTRATION HANDLERS ---
     const handleServiceTypeChange = (e) => {
         const type = e.target.value;
-        setFormData(prev => ({
-            ...prev,
-            serviceType: type,
-            documents: getMandatoryDocs(type)
-        }));
+        setFormData(prev => ({ ...prev, serviceType: type, documents: getMandatoryDocs(type) }));
     };
 
     const handleWorkerProofUpload = async (e) => {
@@ -194,7 +179,7 @@ export default function Contractors() {
     const addWorker = () => {
         if (!newWorker.name || !newWorker.competence) return alert("Name and Competence required.");
         setFormData(prev => ({ ...prev, workers: [...safeArr(prev.workers), { ...newWorker, id: Date.now().toString() }] }));
-        setNewWorker({ name: '', role: 'Worker', competence: '', proof: null });
+        setNewWorker({ name: '', role: 'Worker', competence: '', proof: null, inductionDate: '' });
     };
 
     const removeWorker = (id) => {
@@ -219,18 +204,14 @@ export default function Contractors() {
             if (snap.exists() && snap.val().contractors) {
                 setContractors(parseContractors(snap.val().contractors));
             }
-
             setView('compliance');
         } catch (e) { alert("Save failed: " + e.message); }
         setSaving(false);
     };
 
-
-    // --- SECTIONS 2-4: MODAL HANDLERS ---
     const updateVendorDB = async (vendorKey, payload) => {
         try {
             await update(ref(rtdb, `organizations/${session.orgId}/contractors/${vendorKey}`), payload);
-
             setContractors(prev => prev.map(c => {
                 if (c.firebaseKey === vendorKey) {
                     return {
@@ -251,6 +232,7 @@ export default function Contractors() {
                     ...prev,
                     ...payload,
                     documents: payload.documents ? safeArr(payload.documents) : safeArr(prev.documents),
+                    workers: payload.workers ? safeArr(payload.workers) : safeArr(prev.workers),
                     trainings: payload.trainings ? safeArr(payload.trainings) : safeArr(prev.trainings),
                     incidents: payload.incidents ? safeArr(payload.incidents) : safeArr(prev.incidents),
                     nonCompliances: payload.nonCompliances ? safeArr(payload.nonCompliances) : safeArr(prev.nonCompliances)
@@ -259,7 +241,6 @@ export default function Contractors() {
         } catch (e) { alert("Failed to update database."); }
     };
 
-    // Docs
     const handleDocUpload = async (docId, file) => {
         if (file.size > 2097152) return alert("File exceeds 2MB limit.");
         const b64 = await fileToBase64(file);
@@ -274,7 +255,6 @@ export default function Contractors() {
         setNewDocReq('');
     };
 
-    // --- TRAINING INTEGRATION ENGINE ---
     const handleAddAttendeeToTraining = () => {
         if (!newAttendeeName.trim()) return;
         if (newTraining.attendees.includes(newAttendeeName.trim())) return alert("Attendee is already added to this session.");
@@ -285,14 +265,12 @@ export default function Contractors() {
     const addTrainingRecord = async () => {
         if (!newTraining.topic || newTraining.attendees.length === 0) return alert("Topic and at least one attendee required.");
 
-        // Calculate Expiry Date automatically (6 months)
         const d = new Date(newTraining.date);
-        d.setMonth(d.getMonth() + 6);
+        d.setMonth(d.getMonth() + 6); // 6 Months standard contractor induction expiry
         const expDate = d.toISOString().split('T')[0];
-
         const trnId = `TRN-CONT-${Date.now().toString().slice(-6)}`;
 
-        // 1. Build the payload for the GLOBAL Training Module
+        // 1. Sync to Global Training Module
         const globalTrainingRecord = {
             id: trnId,
             siteId: activeVendor.siteId,
@@ -305,35 +283,34 @@ export default function Contractors() {
             contractorId: activeVendor.firebaseKey,
             contractorName: activeVendor.companyName,
             attendees: newTraining.attendees.map(name => {
-                // Try to map to an actual registered worker to fetch their specific role
                 const matchedWorker = safeArr(activeVendor.workers).find(w => w.name === name);
-                return {
-                    userId: 'External',
-                    name: name,
-                    role: matchedWorker ? matchedWorker.role : 'Contractor Worker',
-                    status: 'Attended'
-                };
+                return { userId: 'External', name: name, role: matchedWorker ? matchedWorker.role : 'Contractor Worker', status: 'Attended' };
             }),
             updatedBy: session.name,
             lastUpdated: new Date().toISOString()
         };
 
-        // 2. Build the lightweight payload for the local Contractor Profile
-        const localTrn = {
-            id: trnId,
-            topic: newTraining.topic,
-            date: newTraining.date,
-            attendees: newTraining.attendees.join(', ') // Joined string for simple display in the modal
-        };
+        // 2. Cross-reference Induction Check
+        let updatedWorkers = safeArr(activeVendor.workers);
+        const isInduction = newTraining.topic.toLowerCase().includes('induction');
+
+        if (isInduction) {
+            updatedWorkers = updatedWorkers.map(w => {
+                if (newTraining.attendees.includes(w.name)) return { ...w, inductionDate: newTraining.date };
+                return w;
+            });
+        }
+
+        const localTrn = { id: trnId, topic: newTraining.topic, date: newTraining.date, attendees: newTraining.attendees.join(', ') };
 
         try {
-            // Push to Global Module
             await push(ref(rtdb, `organizations/${session.orgId}/trainings`), globalTrainingRecord);
+            await updateVendorDB(activeVendor.firebaseKey, {
+                trainings: [...safeArr(activeVendor.trainings), localTrn],
+                workers: updatedWorkers // Triggers the induction compliance closure
+            });
 
-            // Update Local Profile
-            await updateVendorDB(activeVendor.firebaseKey, { trainings: [...safeArr(activeVendor.trainings), localTrn] });
-
-            alert("Training logged successfully and synced with the Global Training Module!");
+            alert(isInduction ? "Induction Saved! Workers compliance updated and synced globally." : "Training logged successfully and synced globally!");
             setNewTraining({ topic: '', date: new Date().toISOString().split('T')[0], duration: '1 Hour', trainer: '', attendees: [] });
             setNewAttendeeName('');
         } catch (e) {
@@ -341,7 +318,6 @@ export default function Contractors() {
         }
     };
 
-    // Incidents & NC
     const addIncidentRecord = () => {
         if (!newRecord.desc) return alert("Description required.");
         const rec = { ...newRecord, id: Date.now().toString() };
@@ -352,7 +328,6 @@ export default function Contractors() {
         }
         setNewRecord({ type: 'Injury / Accident', date: new Date().toISOString().split('T')[0], desc: '', status: 'Open' });
     };
-
 
     if (loading) return <div className="h-screen flex items-center justify-center bg-slate-950 text-indigo-400 animate-pulse font-['Space_Grotesk'] tracking-widest text-xs uppercase"><div className="w-8 h-8 border-2 border-slate-800 border-t-indigo-500 rounded-full animate-spin mr-3"></div> Loading Contractors...</div>;
 
@@ -378,7 +353,6 @@ export default function Contractors() {
             <main className="flex-1 overflow-y-auto p-4 md:p-8 custom-scroll relative z-10 w-full">
                 <div className="max-w-6xl mx-auto animate-in fade-in duration-500 pb-20">
 
-                    {/* --- GLOBAL FILTERS --- */}
                     {view !== 'register' && (
                         <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 bg-slate-900/50 p-4 rounded-2xl border border-slate-800 gap-4">
                             <div>
@@ -392,9 +366,7 @@ export default function Contractors() {
                         </div>
                     )}
 
-                    {/* ===================================================================== */}
-                    {/* SECTION 1: REGISTER VENDOR */}
-                    {/* ===================================================================== */}
+                    {/* --- SECTION 1: REGISTER --- */}
                     {view === 'register' && (
                         <div className="bg-slate-900/80 p-6 md:p-8 rounded-3xl border border-slate-700 shadow-2xl animate-in slide-in-from-bottom-8 duration-300">
                             <div className="flex justify-between items-center mb-8 border-b border-slate-800 pb-4">
@@ -403,7 +375,6 @@ export default function Contractors() {
                             </div>
 
                             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
-                                {/* Profile */}
                                 <div className="space-y-6">
                                     <div className="bg-slate-950/50 p-6 rounded-2xl border border-slate-800 shadow-inner">
                                         <h4 className="text-xs font-bold text-indigo-400 uppercase tracking-widest border-b border-slate-800 pb-2 mb-4">Company Details</h4>
@@ -441,7 +412,6 @@ export default function Contractors() {
                                         </div>
                                     </div>
 
-                                    {/* Auto-Generated Mandatory Docs Warning */}
                                     <div className="bg-indigo-950/20 p-5 rounded-2xl border border-indigo-500/30 text-sm">
                                         <div className="text-indigo-400 font-bold uppercase tracking-widest text-[10px] mb-2"><i className="fas fa-info-circle mr-1"></i> India Statutory Requirements</div>
                                         <p className="text-slate-300 leading-relaxed mb-3">Based on <strong className="text-white">{formData.serviceType}</strong>, the following documents will be automatically required in Section 2:</p>
@@ -451,7 +421,6 @@ export default function Contractors() {
                                     </div>
                                 </div>
 
-                                {/* Employees & Competence */}
                                 <div className="bg-slate-950/50 p-6 rounded-2xl border border-slate-800 shadow-inner flex flex-col max-h-[550px]">
                                     <h4 className="text-xs font-bold text-indigo-400 uppercase tracking-widest border-b border-slate-800 pb-2 mb-4"><i className="fas fa-users-cog mr-2"></i> Employee Roster & Competence</h4>
 
@@ -480,8 +449,15 @@ export default function Contractors() {
                                             <div key={w.id} className="flex flex-col p-3 rounded-xl border border-slate-700 bg-slate-900 shadow-sm relative group">
                                                 <div className="flex justify-between items-start">
                                                     <div>
-                                                        <div className="text-sm font-bold text-white">{w.name} <span className="text-[9px] bg-slate-800 px-2 py-0.5 rounded ml-2 font-normal tracking-widest text-slate-400">{w.role}</span></div>
-                                                        <div className="text-[10px] text-blue-300 mt-1"><i className="fas fa-certificate mr-1"></i> {w.competence}</div>
+                                                        <div className="text-sm font-bold text-white flex items-center gap-2">
+                                                            {w.name}
+                                                            <span className="text-[9px] bg-slate-800 px-2 py-0.5 rounded font-normal tracking-widest text-slate-400">{w.role}</span>
+                                                        </div>
+                                                        <div className="flex items-center gap-3 mt-1.5">
+                                                            <div className="text-[10px] text-blue-300"><i className="fas fa-certificate mr-1"></i> {w.competence}</div>
+                                                            {!w.inductionDate && <span className="text-[9px] text-orange-400 bg-orange-900/30 border border-orange-500/30 px-1.5 py-0.5 rounded font-bold uppercase tracking-widest animate-pulse"><i className="fas fa-exclamation-triangle"></i> Pending Induction</span>}
+                                                            {w.inductionDate && <span className="text-[9px] text-emerald-400 bg-emerald-900/30 border border-emerald-500/30 px-1.5 py-0.5 rounded font-bold uppercase tracking-widest"><i className="fas fa-check-circle"></i> Inducted</span>}
+                                                        </div>
                                                     </div>
                                                     {w.proof && <a href={w.proof} target="_blank" rel="noreferrer" className="text-[10px] bg-emerald-900/30 text-emerald-400 px-2 py-1 rounded border border-emerald-500/30 hover:bg-emerald-600 hover:text-white transition-colors"><i className="fas fa-eye"></i> View Proof</a>}
                                                 </div>
@@ -499,9 +475,7 @@ export default function Contractors() {
                         </div>
                     )}
 
-                    {/* ===================================================================== */}
-                    {/* SECTION 2: VENDOR COMPLIANCE STATUS */}
-                    {/* ===================================================================== */}
+                    {/* --- SECTION 2: COMPLIANCE --- */}
                     {view === 'compliance' && (
                         <div className="bg-slate-900/50 rounded-2xl border border-slate-700 overflow-x-auto shadow-xl">
                             <table className="w-full text-left text-sm min-w-[1000px]">
@@ -542,42 +516,46 @@ export default function Contractors() {
                         </div>
                     )}
 
-                    {/* ===================================================================== */}
-                    {/* SECTION 3: TRAINING RECORDS */}
-                    {/* ===================================================================== */}
+                    {/* --- SECTION 3: TRAINING --- */}
                     {view === 'training' && (
                         <div className="bg-slate-900/50 rounded-2xl border border-slate-700 overflow-x-auto shadow-xl">
                             <table className="w-full text-left text-sm min-w-[1000px]">
                                 <thead className="bg-slate-950 border-b border-slate-800 text-[10px] uppercase tracking-widest font-bold text-slate-500">
-                                    <tr><th className="p-4 pl-6">Vendor Details</th><th className="p-4">Employees</th><th className="p-4">Training Sessions Logged</th><th className="p-4 pr-6 text-right">Actions</th></tr>
+                                    <tr><th className="p-4 pl-6">Vendor Details</th><th className="p-4">Employees</th><th className="p-4">Induction Status</th><th className="p-4">Training Sessions</th><th className="p-4 pr-6 text-right">Actions</th></tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-800/50 text-slate-300">
                                     {visibleContractors.map(c => {
-                                        const workersCount = safeArr(c.workers).length;
-                                        const trainingCount = safeArr(c.trainings).length;
+                                        const workersArr = safeArr(c.workers);
+                                        const pendingInductions = workersArr.filter(w => !w.inductionDate).length;
+
                                         return (
                                             <tr key={c.firebaseKey} className="hover:bg-slate-800/40 transition-colors">
                                                 <td className="p-4 pl-6">
                                                     <div className="font-bold text-white text-base">{c.companyName}</div>
                                                     <div className="text-[10px] text-slate-500 mt-1 uppercase tracking-widest">Site: <span className="text-indigo-400 font-bold">{c.siteId}</span></div>
                                                 </td>
-                                                <td className="p-4 font-mono font-bold text-slate-300">{workersCount} Reg.</td>
-                                                <td className="p-4 font-mono font-bold text-blue-400">{trainingCount} Sessions</td>
+                                                <td className="p-4 font-mono font-bold text-slate-300">{workersArr.length} Reg.</td>
+                                                <td className="p-4">
+                                                    {pendingInductions > 0 ? (
+                                                        <span className="text-[9px] bg-orange-900/30 text-orange-400 border border-orange-500/30 px-2 py-1 rounded font-bold uppercase tracking-widest flex items-center w-fit animate-pulse"><i className="fas fa-exclamation-triangle mr-1"></i> {pendingInductions} Pending</span>
+                                                    ) : (
+                                                        <span className="text-[9px] bg-emerald-900/30 text-emerald-400 border border-emerald-500/30 px-2 py-1 rounded font-bold uppercase tracking-widest flex items-center w-fit"><i className="fas fa-check-circle mr-1"></i> Fully Inducted</span>
+                                                    )}
+                                                </td>
+                                                <td className="p-4 font-mono font-bold text-blue-400">{safeArr(c.trainings).length} Sessions</td>
                                                 <td className="p-4 pr-6 text-right">
-                                                    <button onClick={() => { setActiveVendor(c); setModalType('training'); }} className="bg-blue-900/30 hover:bg-blue-600 border border-blue-500/30 text-blue-400 hover:text-white px-4 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-colors"><i className="fas fa-graduation-cap mr-1"></i> Manage Training</button>
+                                                    <button onClick={() => { setActiveVendor(c); setModalType('training'); }} className="bg-blue-900/30 hover:bg-blue-600 border border-blue-500/30 text-blue-400 hover:text-white px-4 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-colors"><i className="fas fa-graduation-cap mr-1"></i> Manage</button>
                                                 </td>
                                             </tr>
                                         );
                                     })}
-                                    {visibleContractors.length === 0 && <tr><td colSpan="4" className="p-12 text-center text-slate-500 italic">No vendors found.</td></tr>}
+                                    {visibleContractors.length === 0 && <tr><td colSpan="5" className="p-12 text-center text-slate-500 italic">No vendors found.</td></tr>}
                                 </tbody>
                             </table>
                         </div>
                     )}
 
-                    {/* ===================================================================== */}
-                    {/* SECTION 4: INCIDENTS & NON-COMPLIANCE */}
-                    {/* ===================================================================== */}
+                    {/* --- SECTION 4: INCIDENTS --- */}
                     {view === 'incidents' && (
                         <div className="bg-slate-900/50 rounded-2xl border border-slate-700 overflow-x-auto shadow-xl">
                             <table className="w-full text-left text-sm min-w-[1000px]">
@@ -612,7 +590,6 @@ export default function Contractors() {
                             </table>
                         </div>
                     )}
-
 
                     {/* ===================================================================== */}
                     {/* MODALS */}
@@ -667,7 +644,7 @@ export default function Contractors() {
                         </div>
                     )}
 
-                    {/* MODAL 2: TRAINING LOG WITH GLOBAL INTEGRATION */}
+                    {/* MODAL 2: TRAINING */}
                     {activeVendor && modalType === 'training' && (
                         <div className="fixed inset-0 z-[100] bg-black/80 flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in">
                             <div className="bg-slate-900 border border-slate-700 p-8 rounded-3xl shadow-2xl max-w-4xl w-full relative max-h-[90vh] flex flex-col">
@@ -676,7 +653,6 @@ export default function Contractors() {
                                 <p className="text-slate-400 text-sm font-bold mb-6">{activeVendor.companyName}</p>
 
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6 flex-1 overflow-hidden">
-                                    {/* Left: Log New */}
                                     {canEdit && (
                                         <div className="bg-slate-950 p-6 rounded-2xl border border-slate-800 shadow-inner flex flex-col">
                                             <h4 className="text-xs font-bold text-blue-400 uppercase tracking-widest mb-4">Log New Training</h4>
@@ -704,12 +680,16 @@ export default function Contractors() {
                                                 </div>
 
                                                 <div className="bg-slate-900 border border-slate-700 p-4 rounded-xl">
-                                                    <label className="text-[10px] uppercase font-bold text-slate-500 block mb-2">Add Attendees (One-by-One)</label>
+                                                    <label className="text-[10px] uppercase font-bold text-slate-500 block mb-2">Add Attendees</label>
 
                                                     <div className="flex gap-2 mb-2">
                                                         <select value={newAttendeeName} onChange={e => setNewAttendeeName(e.target.value)} className="flex-1 bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-sm text-white outline-none focus:border-blue-500">
                                                             <option value="">Select registered worker...</option>
-                                                            {safeArr(activeVendor.workers).map(w => <option key={w.id} value={w.name}>{w.name} ({w.role})</option>)}
+                                                            {safeArr(activeVendor.workers).map(w => (
+                                                                <option key={w.id} value={w.name}>
+                                                                    {w.name} ({w.role}) {!w.inductionDate ? '⚠️ PENDING INDUCTION' : ''}
+                                                                </option>
+                                                            ))}
                                                         </select>
                                                         <button onClick={handleAddAttendeeToTraining} className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 rounded-lg font-bold transition-colors shadow-sm"><i className="fas fa-plus"></i></button>
                                                     </div>

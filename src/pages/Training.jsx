@@ -4,6 +4,14 @@ import { ref, get, update, push, remove } from 'firebase/database';
 import { rtdb } from '../config/firebase';
 import * as XLSX from 'xlsx';
 
+// --- DATA SAFETY ENGINE ---
+const safeArr = (val) => {
+    if (!val) return [];
+    if (Array.isArray(val)) return val.filter(Boolean);
+    if (typeof val === 'object') return Object.values(val).filter(Boolean);
+    return [];
+};
+
 // --- GLOBALS & HELPERS ---
 const ROLE_REQUIREMENTS = {
     "Office Staff": ["Fire Safety", "First Aid"],
@@ -41,7 +49,6 @@ export default function Training() {
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
 
-    // RBAC & Filter State
     const [permissions, setPermissions] = useState({ viewOnly: false, canDelete: false, canEditCreate: false });
     const [filterSite, setFilterSite] = useState('All');
     const [matrixSiteFilter, setMatrixSiteFilter] = useState('All');
@@ -50,7 +57,6 @@ export default function Training() {
     const [currentMonth, setCurrentMonth] = useState(new Date().getMonth());
     const [currentYear, setCurrentYear] = useState(new Date().getFullYear());
 
-    // Matrix Tools
     const [searchTerm, setSearchTerm] = useState('');
     const [hiddenTopics, setHiddenTopics] = useState([]);
     const [isFilterOpen, setIsFilterOpen] = useState(false);
@@ -66,7 +72,6 @@ export default function Training() {
     const [selectedUserToAdd, setSelectedUserToAdd] = useState('');
     const [externalName, setExternalName] = useState('');
 
-    // --- LOAD DATA & CHECK SECURITY ---
     useEffect(() => {
         const s = sessionStorage.getItem('isoSession');
         if (!s) { navigate('/'); return; }
@@ -137,7 +142,6 @@ export default function Training() {
                             .filter(u => u.status !== 'Inactive' && u.status !== 'Deleted'));
                     }
 
-                    // --- INTELLIGENT CAPA SCANNER ---
                     const parsedCapas = [];
                     const checkDesc = (desc) => /\b(train|training|retrain|retraining|awareness|educate|briefing|toolbox|tbt|teach|instruct|coach|guide|demonstrate|learn|explain|review|drill|session|course)\b/i.test(desc);
 
@@ -236,6 +240,30 @@ export default function Training() {
                         });
                     }
 
+                    // --- NEW: VIRTUAL CAPA FOR CONTRACTOR INDUCTIONS ---
+                    if (orgData.contractors) {
+                        Object.entries(orgData.contractors).forEach(([key, contractor]) => {
+                            const workers = safeArr(contractor.workers);
+                            // Find workers without an induction date
+                            const pendingWorkers = workers.filter(w => !w.inductionDate || w.inductionDate === 'Pending' || w.inductionDate === '');
+
+                            if (pendingWorkers.length > 0) {
+                                parsedCapas.push({
+                                    uid: `CONT-IND-${key}`,
+                                    source: 'Contractor Induction',
+                                    sourceId: contractor.companyName,
+                                    desc: `Mandatory Site Induction for ${pendingWorkers.length} worker(s): ${pendingWorkers.map(w => w.name).join(', ')}`,
+                                    owner: contractor.contactPerson || 'Vendor',
+                                    due: new Date().toISOString().split('T')[0], // Due Immediately
+                                    status: 'Open',
+                                    siteId: contractor.siteId || 'Global',
+                                    contractorKey: key, // Keep reference to update later
+                                    pendingWorkersInfo: pendingWorkers.map(w => ({ id: w.id, name: w.name, role: w.role }))
+                                });
+                            }
+                        });
+                    }
+
                     setTrainingCapas(parsedCapas);
                 }
             } catch (error) {
@@ -255,9 +283,6 @@ export default function Training() {
         if (filterRef.current && !filterRef.current.contains(event.target)) setIsFilterOpen(false);
     };
 
-    // ==========================================
-    // 4. ROW LEVEL SECURITY (RLS) FILTERS
-    // ==========================================
     const role = session?.role || 'User';
     const isGlobalUser = ['Global Owner', 'Global Manager', 'Owner', 'Admin'].includes(role);
 
@@ -418,7 +443,6 @@ export default function Training() {
     }, [trainingCapas, filterSite, isGlobalUser, allowedSiteCodes]);
 
 
-    // --- ACTIONS ---
     const toggleTopicFilter = (t) => setHiddenTopics(prev => prev.includes(t) ? prev.filter(item => item !== t) : [...prev, t]);
     const selectAllTopics = () => setHiddenTopics([]);
     const clearAllTopics = () => setHiddenTopics(uniqueTopics);
@@ -472,11 +496,23 @@ export default function Training() {
 
         const today = new Date().toISOString().split('T')[0];
         let initialContent = '';
+        let prefilledAttendees = [];
 
         if (capaItem.source === 'Incident') {
             initialContent = `=== CROSS-REFERENCE INCIDENT ID: ${capaItem.sourceId} ===\n\nINCIDENT EVENT DETAILS:\n${capaItem.contextDesc}\n\nTRAINING AGENDA:\n[Please detail the corrective training provided to prevent recurrence...]`;
         } else if (capaItem.source === 'Inspection') {
             initialContent = `=== CROSS-REFERENCE INSPECTION: ${capaItem.sourceId} ===\n\nOBSERVATION DETAILS:\n${capaItem.contextDesc}\n\nTRAINING AGENDA:\n[Please detail the corrective training provided to correct this inspection failure...]`;
+        } else if (capaItem.source === 'Contractor Induction') {
+            // SPECIAL HANDLER FOR CONTRACTOR INDUCTIONS
+            initialContent = `=== CONTRACTOR SITE INDUCTION ===\n\nCompany: ${capaItem.sourceId}\nConducting mandatory site safety induction for pending contractor personnel.`;
+
+            // Auto-fill the workers that need induction
+            prefilledAttendees = (capaItem.pendingWorkersInfo || []).map(w => ({
+                userId: 'External',
+                name: w.name,
+                role: `${w.role} (Contractor)`,
+                status: 'Attended'
+            }));
         } else {
             initialContent = `Fulfilling CAPA for ${capaItem.source} (Ref: ${capaItem.sourceId})`;
         }
@@ -484,14 +520,14 @@ export default function Training() {
         setData({
             id: '',
             siteId: getSmartSiteDefault(capaItem.siteId),
-            topic: capaItem.desc,
+            topic: capaItem.source === 'Contractor Induction' ? 'Site Safety Induction' : capaItem.desc,
             content: initialContent,
             date: today,
             expiryDate: addMonths(today, 6),
             trainer: '',
-            type: 'Internal Tool Box Talk',
-            duration: '30 Mins',
-            attendees: [],
+            type: 'Internal Formal',
+            duration: '1 Hour',
+            attendees: prefilledAttendees,
             linkedCapa: capaItem
         });
         setView('form');
@@ -524,6 +560,8 @@ export default function Training() {
         const newId = data.id || `TRN-${Date.now().toString().slice(-6)}`;
 
         const linkedCapaPath = data.linkedCapa ? data.linkedCapa.dbPath : null;
+        const isContractorInduction = data.linkedCapa && data.linkedCapa.source === 'Contractor Induction';
+
         const payload = { ...data, id: newId };
         delete payload.linkedCapa;
         if (data.linkedCapa) payload.sourceCapaRef = data.linkedCapa.uid;
@@ -535,7 +573,31 @@ export default function Training() {
                 await push(ref(rtdb, `organizations/${session.orgId}/trainings`), payload);
             }
 
-            if (linkedCapaPath) {
+            // --- CROSS MODULE CLOSURE ENGINE ---
+            if (isContractorInduction) {
+                // If this training fulfills a contractor induction, update those workers in the DB directly
+                const cKey = data.linkedCapa.contractorKey;
+                const cRef = ref(rtdb, `organizations/${session.orgId}/contractors/${cKey}`);
+                const cSnap = await get(cRef);
+                if (cSnap.exists()) {
+                    const cData = cSnap.val();
+                    let workers = safeArr(cData.workers);
+                    const attendedNames = data.attendees.filter(a => a.status === 'Attended').map(a => a.name);
+
+                    workers = workers.map(w => {
+                        if (attendedNames.includes(w.name) && (!w.inductionDate || w.inductionDate === 'Pending')) {
+                            return { ...w, inductionDate: data.date };
+                        }
+                        return w;
+                    });
+                    await update(cRef, { workers });
+
+                    // Drop a quick reference into their local profile for the Modal View
+                    const localTrn = { id: newId, topic: data.topic, date: data.date, attendees: attendedNames.join(', ') };
+                    await update(cRef, { trainings: [...safeArr(cData.trainings), localTrn] });
+                }
+                alert("Training Saved! Contractor Worker Induction records have been automatically updated and closed.");
+            } else if (linkedCapaPath) {
                 await update(ref(rtdb, linkedCapaPath), { status: 'Closed' });
                 alert("Training Saved! The linked CAPA action has been automatically marked as 'Closed'.");
             } else {
@@ -562,9 +624,6 @@ export default function Training() {
         }
     };
 
-    const triggerPrint = (record) => { setPrintData(record); setTimeout(() => window.print(), 800); };
-
-    // --- CALENDAR RENDERER ---
     const renderCalendar = () => {
         const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
         const firstDayIndex = new Date(currentYear, currentMonth, 1).getDay();
@@ -653,7 +712,7 @@ export default function Training() {
     };
 
     if (loading) return (
-        <div className="h-screen flex items-center justify-center text-white bg-slate-950 flex-col gap-4 font-['Space_Grotesk']">
+        <div className="flex h-screen items-center justify-center text-white bg-slate-950 flex-col gap-4 font-['Space_Grotesk']">
             <i className="fas fa-circle-notch fa-spin text-4xl text-blue-500"></i>
             <p className="text-slate-400 font-bold uppercase tracking-widest text-sm">Loading Registry & Cross-Module Dependencies...</p>
         </div>
@@ -863,7 +922,7 @@ export default function Training() {
                                         {allMatrixRows.map(u => (
                                             <tr key={u.id || u.name} className="hover:bg-slate-800/40 transition-colors">
                                                 <td className="p-4 bg-slate-900/90 shadow-[2px_0_5px_rgba(0,0,0,0.5)] z-10 border-r border-slate-800 sticky left-0 group-hover:bg-slate-800/90 transition-colors">
-                                                    <div className="font-bold text-white text-sm">{u.name} {u.role === 'External / Contractor' && <span className="text-[8px] bg-purple-900/50 text-purple-300 px-1.5 py-0.5 rounded ml-2 font-bold border border-purple-500/50 uppercase tracking-widest">EXT</span>}</div>
+                                                    <div className="font-bold text-white text-sm">{u.name} {u.role && u.role.includes('Contractor') && <span className="text-[8px] bg-purple-900/50 text-purple-300 px-1.5 py-0.5 rounded ml-2 font-bold border border-purple-500/50 uppercase tracking-widest">EXT</span>}</div>
                                                     <div className="text-[10px] text-slate-500 mt-1 uppercase tracking-wider">{u.role}</div>
                                                 </td>
                                                 {displayedTopics.map(t => {
@@ -1021,7 +1080,7 @@ export default function Training() {
                                     {/* Attendees Section */}
                                     <div className="bg-slate-900/50 rounded-2xl p-8 border border-slate-800 shadow-inner flex flex-col h-[650px]">
                                         <div className="flex justify-between items-center mb-6 border-b border-slate-700 pb-3">
-                                            <h3 className="font-bold text-white uppercase tracking-widest text-xs flex items-center gap-2"><i className="fas fa-users text-purple-400"></i> Attendance Roster <span className="bg-purple-600 px-2 py-0.5 rounded text-[10px] ml-2">{data.attendees.length}</span></h3>
+                                            <h3 className="font-bold text-white uppercase tracking-widest text-xs flex items-center gap-2"><i className="fas fa-users text-purple-400"></i> Attendance Roster <span className="bg-purple-600 px-2 py-0.5 rounded text-[10px] ml-2">{data.attendees ? data.attendees.length : 0}</span></h3>
                                         </div>
 
                                         {canEditForm && (
@@ -1054,7 +1113,7 @@ export default function Training() {
                                                     <tr><th className="p-4">Name</th><th className="p-4 hidden sm:table-cell">Role</th><th className="p-4">Status</th><th className="p-4 w-10 text-center"></th></tr>
                                                 </thead>
                                                 <tbody className="divide-y divide-slate-800/80">
-                                                    {data.attendees.map((att, idx) => (
+                                                    {data.attendees && data.attendees.map((att, idx) => (
                                                         <tr key={idx} className="hover:bg-slate-800/50 transition-colors">
                                                             <td className="p-4 font-bold text-white">
                                                                 {att.name}
@@ -1069,7 +1128,7 @@ export default function Training() {
                                                             <td className="p-4 text-center">{canEditForm && <button type="button" onClick={() => removeAttendee(idx)} className="text-red-500 hover:text-white bg-red-900/20 hover:bg-red-600 w-8 h-8 rounded-lg flex items-center justify-center transition-colors"><i className="fas fa-trash-alt"></i></button>}</td>
                                                         </tr>
                                                     ))}
-                                                    {data.attendees.length === 0 && <tr><td colSpan="4" className="p-12 text-center text-slate-500 italic text-sm">No trainees added to roster.</td></tr>}
+                                                    {(!data.attendees || data.attendees.length === 0) && <tr><td colSpan="4" className="p-12 text-center text-slate-500 italic text-sm">No trainees added to roster.</td></tr>}
                                                 </tbody>
                                             </table>
                                         </div>
