@@ -33,6 +33,13 @@ const safeArrayParse = (data) => {
     }, []);
 };
 
+const safeArr = (val) => {
+    if (!val) return [];
+    if (Array.isArray(val)) return val.filter(Boolean);
+    if (typeof val === 'object') return Object.values(val).filter(Boolean);
+    return [];
+};
+
 // --- SUB-COMPONENTS ---
 const UserSelect = ({ users, value, onChange, disabled, placeholder }) => (
     <select value={value} onChange={e => onChange(e.target.value)} disabled={disabled} className="w-full bg-slate-900 border border-slate-700 p-2 rounded text-white text-xs outline-none focus:border-blue-500">
@@ -156,7 +163,9 @@ const IncidentRepository = ({ incidents, onEdit, onPrint, onDelete, permissions,
     }, [incidents]);
 
     const exportToExcel = () => {
-        const dataToExport = filteredData.map(({ id, date, time, siteId, type, severity, description }) => ({ ID: id, Date: date, Time: time, Site: siteId, Type: type, Severity: severity, Description: description }));
+        const dataToExport = filteredData.map(({ id, date, time, siteId, title, type, severity, affectedPersonName, affectedPersonType }) => ({
+            ID: id, Date: date, Time: time, Site: siteId, Title: title, Type: type, Severity: severity, Affected_Person: affectedPersonName, Person_Type: affectedPersonType
+        }));
         const ws = XLSX.utils.json_to_sheet(dataToExport);
         const wb = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(wb, ws, "Incidents");
@@ -211,7 +220,7 @@ const IncidentRepository = ({ incidents, onEdit, onPrint, onDelete, permissions,
             <div className="bg-slate-900/40 backdrop-blur-md rounded-xl overflow-hidden border border-slate-700 shadow-xl">
                 <table className="w-full text-left text-sm text-slate-300">
                     <thead className="bg-slate-950 text-xs uppercase font-bold text-slate-500 border-b border-slate-800">
-                        <tr><th className="p-4">Incident ID</th><th className="p-4">Date</th><th className="p-4">Type</th><th className="p-4">CAPA Progress</th><th className="p-4 text-center">HIRA Linked</th><th className="p-4 text-right">Actions</th></tr>
+                        <tr><th className="p-4">Incident ID</th><th className="p-4">Date</th><th className="p-4">Type</th><th className="p-4">Details & Person</th><th className="p-4 text-center">HIRA Linked</th><th className="p-4 text-right">Actions</th></tr>
                     </thead>
                     <tbody className="divide-y divide-slate-800/50">
                         {filteredData.map(inc => {
@@ -230,8 +239,13 @@ const IncidentRepository = ({ incidents, onEdit, onPrint, onDelete, permissions,
                                         <div className={`text-[10px] uppercase font-bold ${inc.severity === 'Level A' ? 'text-emerald-400' : inc.severity === 'Level B' ? 'text-blue-400' : inc.severity === 'Level C' ? 'text-orange-400' : 'text-red-500'}`}>{inc.severity}</div>
                                     </td>
                                     <td className="p-4">
-                                        <div className="flex justify-between text-[10px] mb-1 font-bold"><span>{closed}/{total} Closed</span><span>{Math.round(progress)}%</span></div>
-                                        <div className="w-full bg-slate-800 rounded-full h-1.5"><div className="bg-emerald-500 h-1.5 rounded-full shadow-[0_0_10px_rgba(16,185,129,0.5)]" style={{ width: `${progress}%` }}></div></div>
+                                        <div className="font-bold text-white mb-1 truncate max-w-[200px]">{inc.title || 'No Title'}</div>
+                                        {inc.affectedPersonName ? (
+                                            <div className="text-[10px] font-bold uppercase tracking-widest flex gap-2">
+                                                <span>{inc.affectedPersonName}</span>
+                                                {inc.affectedPersonType === 'Contractor' ? <span className="text-indigo-400">(EXT)</span> : <span className="text-emerald-400">(INT)</span>}
+                                            </div>
+                                        ) : <span className="text-slate-500 italic text-xs">No Person Injured</span>}
                                     </td>
                                     <td className="p-4 text-center">
                                         {inc.linkedHazards && inc.linkedHazards.length > 0 ? <span className="text-emerald-400 font-bold bg-emerald-900/20 px-2 py-1 rounded border border-emerald-500/20"><i className="fas fa-link mr-1"></i> {inc.linkedHazards.length}</span> : <span className="text-slate-600">-</span>}
@@ -278,6 +292,7 @@ export default function Incidents() {
     const [riskAssessments, setRiskAssessments] = useState([]);
     const [sites, setSites] = useState([]);
     const [users, setUsers] = useState([]);
+    const [contractors, setContractors] = useState([]);
 
     // Logic States
     const [seq, setSeq] = useState(0);
@@ -303,10 +318,12 @@ export default function Incidents() {
     const [newCapaDue, setNewCapaDue] = useState('');
     const [newCapaSite, setNewCapaSite] = useState('');
 
-    // THE MASTER INCIDENT DATA OBJECT
-    const [data, setData] = useState({
-        id: '', siteId: '', date: new Date().toISOString().split('T')[0], time: '',
-        type: 'Near Miss', equipmentInvolved: '', description: '', immediateAction: '', smartType: 'Fire & Explosion', severity: 'Level A',
+    // --- THE MASTER INCIDENT DATA OBJECT ---
+    const initialDataState = {
+        id: '', title: '', siteId: '', date: new Date().toISOString().split('T')[0], time: '',
+        type: 'Near Miss', severity: 'Level A', smartType: 'Fire & Explosion',
+        equipmentInvolved: '', description: '', immediateAction: '',
+        affectedPersonType: 'None', contractorId: '', affectedPersonId: '', affectedPersonName: '',
         imageEvidence: null, consultationSummary: '',
         investigationTeam: [],
         investigation: {
@@ -318,7 +335,9 @@ export default function Incidents() {
         capa: [], linkedHazards: [], riskUpdated: false,
         horizontalDeployment: false,
         manualOverrides: { type: false, severity: false, smartType: false }
-    });
+    };
+
+    const [data, setData] = useState(initialDataState);
 
     useEffect(() => {
         const s = sessionStorage.getItem('isoSession');
@@ -351,6 +370,7 @@ export default function Incidents() {
 
         const params = new URLSearchParams(location.search);
         const urlSite = params.get('site');
+        const autoOpenId = params.get('id');
 
         let storedSite = sessionStorage.getItem('isoCurrentSite');
         if (storedSite === 'GLOBAL') storedSite = 'All';
@@ -364,14 +384,13 @@ export default function Incidents() {
         setSiteFilter(ctxSite);
         sessionStorage.setItem('isoCurrentSite', ctxSite === 'All' ? 'GLOBAL' : ctxSite);
 
-        setData(prev => ({ ...prev, siteId: ctxSite !== 'All' ? ctxSite : ((sess.assignedSite !== 'GLOBAL') ? sess.assignedSite : '') }));
-
         const loadDatabases = async () => {
             try {
                 const dbRef = ref(rtdb, `organizations/${sess.orgId}`);
                 const snap = await get(dbRef);
 
                 let fetchedUsers = [];
+                let loadedIncidents = [];
 
                 if (snap.exists()) {
                     const orgData = snap.val();
@@ -385,11 +404,17 @@ export default function Incidents() {
 
                     if (orgData.incidents) {
                         const parsed = safeArrayParse(orgData.incidents);
-                        setIncidentsList(parsed.map(inc => ({
+                        loadedIncidents = parsed.map(inc => ({
                             ...inc,
                             investigation: inc.investigation || { fiveWhys: [], fishbone: {}, faultTree: null, rootCause: '' }
-                        })));
+                        }));
+                        setIncidentsList(loadedIncidents);
                     }
+
+                    if (orgData.contractors) {
+                        setContractors(Object.entries(orgData.contractors).map(([k, v]) => ({ ...v, firebaseKey: k, workers: safeArr(v.workers) })));
+                    }
+
                     if (orgData.riskAssessments) setRiskAssessments(Object.entries(orgData.riskAssessments).map(([k, v]) => ({ firebaseKey: k, ...v })));
 
                     if (orgData.users) {
@@ -405,6 +430,14 @@ export default function Incidents() {
                 }
                 setUsers(fetchedUsers);
                 setFbReady(true);
+
+                if (autoOpenId && loadedIncidents.length > 0) {
+                    const target = loadedIncidents.find(i => i.firebaseKey === autoOpenId);
+                    if (target) {
+                        handleEdit(target);
+                    }
+                }
+
             } catch (err) { console.error("Error loading databases:", err); }
         };
         loadDatabases();
@@ -443,6 +476,17 @@ export default function Incidents() {
         });
     }, [users, data.siteId, newCapaSite, data.horizontalDeployment]);
 
+    const activePersonnelList = useMemo(() => {
+        if (data.affectedPersonType === 'Internal') {
+            return users.filter(u => !data.siteId || u.assignedSite === data.siteId || safeArr(u.accessibleSites).includes(data.siteId));
+        } else if (data.affectedPersonType === 'Contractor') {
+            if (!data.contractorId) return [];
+            const vendor = contractors.find(c => c.firebaseKey === data.contractorId);
+            return safeArr(vendor?.workers);
+        }
+        return [];
+    }, [users, contractors, data.affectedPersonType, data.siteId, data.contractorId]);
+
     const canEditForm = useMemo(() => {
         if (!permissions.canEditCreate) return false;
         if (isGlobalUser) return true;
@@ -478,6 +522,18 @@ export default function Incidents() {
         if (!data.manualOverrides?.smartType) {
             let bestMatch = null;
             let maxScore = 0;
+            const SMART_DB = {
+                "Fire & Explosion": { keywords: ["fire", "burn", "explosion", "spark", "smoke", "flame"] },
+                "COSHH / Chemical Exposure": { keywords: ["chemical", "acid", "spill", "fume", "inhale", "toxic", "burn"] },
+                "Asbestos": { keywords: ["asbestos", "dust", "fibers", "insulation"] },
+                "Work at Height": { keywords: ["fall", "ladder", "scaffold", "roof", "dropped", "edge"] },
+                "Slips, Trips & Falls": { keywords: ["slip", "trip", "fall", "wet", "cable", "uneven"] },
+                "Manual Handling": { keywords: ["lift", "carry", "back", "strain", "heavy"] },
+                "Machinery & Equipment": { keywords: ["machine", "crush", "entangle", "guard", "cut", "blade"] },
+                "Workplace Transport / Vehicles": { keywords: ["vehicle", "forklift", "truck", "crash", "hit", "run over"] },
+                "Electrical Safety": { keywords: ["electric", "shock", "wire", "cable", "power", "electrocute"] }
+            };
+
             for (const category in SMART_DB) {
                 let score = 0;
                 const keywords = SMART_DB[category].keywords || [];
@@ -569,20 +625,17 @@ export default function Incidents() {
             });
 
             // --- 3. SYNTHESIZE A PROFESSIONAL 5-WHY CHAIN ---
-            // We build the chain backwards from the root cause based on the extracted context.
             let w1 = `The incident occurred due to a ${hazardType} involving ${objectInvolved}.`;
             let w2 = `There was a failure in the primary control measure protecting the worker from the ${objectInvolved}.`;
             let w3 = `The ${objectInvolved} was operating outside of normal/safe parameters.`;
             let w4 = `Preventative maintenance, inspections, or pre-use checks failed to identify or correct the deviation.`;
             let w5 = `Systemic gap in the safety management system regarding hazard identification and operational control.`;
 
-            // Adjust specific Whys if we detected a "Reported but Ignored" scenario
             if (/(complained|reported)/.test(lower)) {
                 w4 = `Previous reports regarding the ${objectInvolved} were not actioned or escalated appropriately.`;
                 w5 = `Breakdown in the safety culture and the Corrective Action (CAPA) tracking process.`;
             }
 
-            // Adjust specific Whys if it was a slip/trip
             if (hazardType === "loss of traction/stability") {
                 w2 = `The walking/working surface was contaminated or obstructed.`;
                 w3 = `Failure to immediately identify and isolate the spill/hazard.`;
@@ -663,7 +716,7 @@ export default function Incidents() {
 
     const saveData = async () => {
         if (!canEditForm) return alert("Security Error: You do not have permission to create or edit incidents for this site.");
-        if (!data.siteId) { alert("Please select a Site"); return; }
+        if (!data.siteId || !data.title) { alert("Please provide an Incident Title and select a Site."); return; }
 
         setSaving(true);
         try {
@@ -731,6 +784,7 @@ export default function Incidents() {
             updatedWhys = [{ id: Date.now(), name: 'Legacy Analysis', whys: updatedWhys }];
         }
         setData({
+            ...initialDataState, // Merge defaults in case older record is missing fields
             ...incident,
             horizontalDeployment: incident.horizontalDeployment || false,
             investigation: { ...incident.investigation, fiveWhys: updatedWhys },
@@ -901,7 +955,7 @@ export default function Incidents() {
                     </div>
                     <div className="flex bg-slate-900 border border-slate-800 p-1.5 rounded-xl shadow-inner">
                         {permissions.canEditCreate && (
-                            <button type="button" onClick={() => { setView('form'); setStep(1); setData({ id: '', siteId: (!isGlobalUser && allowedSites.length === 1) ? allowedSites[0].code : (siteFilter !== 'All' ? siteFilter : ''), date: new Date().toISOString().split('T')[0], time: '', type: 'Near Miss', equipmentInvolved: '', description: '', immediateAction: '', smartType: 'Fire & Explosion', severity: 'Level A', imageEvidence: null, consultationSummary: '', investigationTeam: [], investigation: { fiveWhys: [{ id: 1, name: 'Analysis Path 1', whys: ['', '', '', '', ''] }], fishbone: { man: [], machine: [], material: [], method: [], environment: [] }, faultTree: { id: 1, label: 'Top Event', type: 'AND', children: [] }, rootCause: '' }, capa: [], linkedHazards: [], riskUpdated: false, horizontalDeployment: false, manualOverrides: { type: false, severity: false, smartType: false } }); }} className={`px-6 py-2 rounded-lg text-xs font-bold uppercase tracking-widest transition-all ${view === 'form' ? 'bg-red-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}>New Report</button>
+                            <button type="button" onClick={() => { setView('form'); setStep(1); setData({ ...initialDataState, id: '', siteId: (!isGlobalUser && allowedSites.length === 1) ? allowedSites[0].code : (siteFilter !== 'All' ? siteFilter : '') }); }} className={`px-6 py-2 rounded-lg text-xs font-bold uppercase tracking-widest transition-all ${view === 'form' ? 'bg-red-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}>New Report</button>
                         )}
                         <button type="button" onClick={() => setView('repo')} className={`px-6 py-2 rounded-lg text-xs font-bold uppercase tracking-widest transition-all ${view === 'repo' ? 'bg-red-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}>Repository</button>
                     </div>
@@ -929,23 +983,27 @@ export default function Incidents() {
                                     <h2 className="text-xl font-bold text-red-400 mb-8 flex items-center gap-3 border-b border-red-500/20 pb-4 uppercase tracking-widest"><i className="fas fa-clipboard-list text-2xl"></i> 1. Initial Report Details</h2>
 
                                     <div className="grid grid-cols-2 md:grid-cols-4 gap-6 mb-8">
+                                        <div className="md:col-span-4">
+                                            <label className="text-[10px] uppercase font-bold text-slate-500 ml-1 mb-2 block">Incident Title *</label>
+                                            <input value={data.title} onChange={e => setData({ ...data, title: e.target.value })} disabled={!canEditForm} className="w-full bg-slate-900 border border-slate-700 rounded-xl p-4 text-white outline-none focus:border-red-500 font-bold" placeholder="e.g. Laceration to right hand during grinding" />
+                                        </div>
                                         <div>
-                                            <label className="text-[10px] uppercase font-bold text-slate-500 ml-1 mb-2 block">Site ID</label>
-                                            <select value={data.siteId} onChange={e => setData({ ...data, siteId: e.target.value })} disabled={!canEditForm || (!isGlobalUser && allowedSites.length <= 1)} className="w-full bg-slate-900 border border-slate-700 p-2.5 rounded-lg text-white text-xs outline-none focus:border-red-500">
+                                            <label className="text-[10px] uppercase font-bold text-slate-500 ml-1 mb-2 block">Site ID *</label>
+                                            <select value={data.siteId} onChange={e => setData({ ...data, siteId: e.target.value })} disabled={!canEditForm || (!isGlobalUser && allowedSites.length <= 1)} className="w-full bg-slate-900 border border-slate-700 p-3 rounded-lg text-white text-xs outline-none focus:border-red-500">
                                                 {(isGlobalUser || allowedSites.length > 1) && <option value="">Select Authorized Site...</option>}
                                                 {allowedSites.map(s => <option key={s.code} value={s.code}>{s.name} ({s.code})</option>)}
                                             </select>
                                         </div>
-                                        <div><label className="text-[10px] uppercase font-bold text-slate-500 ml-1 mb-2 block">Date</label><input type="date" value={data.date} onChange={e => setData({ ...data, date: e.target.value })} disabled={!canEditForm} className="w-full bg-slate-950 border border-slate-700 p-2.5 rounded-lg text-white text-xs outline-none focus:border-red-500" /></div>
-                                        <div><label className="text-[10px] uppercase font-bold text-slate-500 ml-1 mb-2 block">Time</label><input type="time" value={data.time} onChange={e => setData({ ...data, time: e.target.value })} disabled={!canEditForm} className="w-full bg-slate-950 border border-slate-700 p-2.5 rounded-lg text-white text-xs outline-none focus:border-red-500" /></div>
-                                        <div><label className="text-[10px] uppercase font-bold text-slate-500 ml-1 mb-2 block">Record ID</label><input value={data.id} className="w-full bg-slate-950/50 border border-slate-800 p-2.5 rounded-lg text-slate-500 text-xs font-mono" disabled /></div>
+                                        <div><label className="text-[10px] uppercase font-bold text-slate-500 ml-1 mb-2 block">Date *</label><input type="date" value={data.date} onChange={e => setData({ ...data, date: e.target.value })} disabled={!canEditForm} className="w-full bg-slate-950 border border-slate-700 p-3 rounded-lg text-white text-xs outline-none focus:border-red-500 font-mono" /></div>
+                                        <div><label className="text-[10px] uppercase font-bold text-slate-500 ml-1 mb-2 block">Time</label><input type="time" value={data.time} onChange={e => setData({ ...data, time: e.target.value })} disabled={!canEditForm} className="w-full bg-slate-950 border border-slate-700 p-3 rounded-lg text-white text-xs outline-none focus:border-red-500 font-mono" /></div>
+                                        <div><label className="text-[10px] uppercase font-bold text-slate-500 ml-1 mb-2 block">Record ID</label><input value={data.id} className="w-full bg-slate-950/50 border border-slate-800 p-3 rounded-lg text-slate-500 text-xs font-mono" disabled placeholder="Auto-generated" /></div>
 
-                                        <div><label className="text-[10px] uppercase font-bold text-purple-400 ml-1 mb-2 block">Smart Category (AI)</label><select value={data.smartType} onChange={e => setData({ ...data, smartType: e.target.value, manualOverrides: { ...data.manualOverrides, smartType: true } })} disabled={!canEditForm} className="w-full bg-purple-900/10 border border-purple-500/30 p-2.5 rounded-lg text-purple-300 font-bold text-xs outline-none focus:border-purple-500">{SMART_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}</select></div>
+                                        <div><label className="text-[10px] uppercase font-bold text-purple-400 ml-1 mb-2 block">Smart Category (AI)</label><select value={data.smartType} onChange={e => setData({ ...data, smartType: e.target.value, manualOverrides: { ...data.manualOverrides, smartType: true } })} disabled={!canEditForm} className="w-full bg-purple-900/10 border border-purple-500/30 p-3 rounded-lg text-purple-300 font-bold text-xs outline-none focus:border-purple-500">{SMART_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}</select></div>
 
-                                        <div><label className="text-[10px] uppercase font-bold text-slate-500 ml-1 mb-2 block">Incident Type</label><select value={data.type} onChange={e => setData({ ...data, type: e.target.value, manualOverrides: { ...data.manualOverrides, type: true } })} disabled={!canEditForm} className="w-full bg-slate-950 border border-slate-700 p-2.5 rounded-lg text-white text-xs outline-none focus:border-red-500"><option>Near Miss</option><option>Property Damage</option><option>First Aid injury</option><option>Lost Time injury</option><option>Reportable Injury</option></select></div>
-                                        <div><label className="text-[10px] uppercase font-bold text-slate-500 ml-1 mb-2 block">Severity</label><select value={data.severity} onChange={e => setData({ ...data, severity: e.target.value, manualOverrides: { ...data.manualOverrides, severity: true } })} disabled={!canEditForm} className="w-full bg-slate-950 border border-slate-700 p-2.5 rounded-lg text-white text-xs outline-none focus:border-red-500"><option>Level A</option><option>Level B</option><option>Level C</option><option>Level D</option></select></div>
+                                        <div><label className="text-[10px] uppercase font-bold text-slate-500 ml-1 mb-2 block">Incident Type</label><select value={data.type} onChange={e => setData({ ...data, type: e.target.value, manualOverrides: { ...data.manualOverrides, type: true } })} disabled={!canEditForm} className="w-full bg-slate-950 border border-slate-700 p-3 rounded-lg text-white text-xs outline-none focus:border-red-500"><option>Near Miss</option><option>Property Damage</option><option>First Aid injury</option><option>Lost Time injury</option><option>Reportable Injury</option></select></div>
+                                        <div><label className="text-[10px] uppercase font-bold text-slate-500 ml-1 mb-2 block">Severity</label><select value={data.severity} onChange={e => setData({ ...data, severity: e.target.value, manualOverrides: { ...data.manualOverrides, severity: true } })} disabled={!canEditForm} className="w-full bg-slate-950 border border-slate-700 p-3 rounded-lg text-white text-xs outline-none focus:border-red-500"><option>Level A</option><option>Level B</option><option>Level C</option><option>Level D</option></select></div>
 
-                                        <div><label className="text-[10px] uppercase font-bold text-slate-500 ml-1 mb-2 block">Equipment</label><input value={data.equipmentInvolved} onChange={e => setData({ ...data, equipmentInvolved: e.target.value })} disabled={!canEditForm} className="w-full bg-slate-950 border border-slate-700 p-2.5 rounded-lg text-white text-xs outline-none focus:border-red-500" placeholder="e.g., Forklift" /></div>
+                                        <div><label className="text-[10px] uppercase font-bold text-slate-500 ml-1 mb-2 block">Equipment</label><input value={data.equipmentInvolved} onChange={e => setData({ ...data, equipmentInvolved: e.target.value })} disabled={!canEditForm} className="w-full bg-slate-950 border border-slate-700 p-3 rounded-lg text-white text-xs outline-none focus:border-red-500" placeholder="e.g., Forklift" /></div>
                                     </div>
 
                                     {/* --- SMART CONTEXTUAL DESCRIPTION BLOCK --- */}
@@ -972,6 +1030,48 @@ export default function Incidents() {
                                                 </button>
                                             </div>
                                         )}
+                                    </div>
+
+                                    {/* AFFECTED PERSON CROSS-MODULE INTEGRATION */}
+                                    <div className="bg-indigo-950/20 p-6 rounded-2xl border border-indigo-500/30 shadow-inner mb-6">
+                                        <h4 className="text-xs font-bold text-indigo-400 uppercase tracking-widest border-b border-indigo-500/30 pb-2 mb-4"><i className="fas fa-user-injured mr-2"></i> Affected Personnel</h4>
+                                        <div className="space-y-4">
+                                            <div className="flex gap-4">
+                                                <label className="flex items-center gap-2 cursor-pointer text-sm font-bold text-slate-300">
+                                                    <input type="radio" name="pType" value="Internal" checked={data.affectedPersonType === 'Internal'} onChange={() => setData({ ...data, affectedPersonType: 'Internal', contractorId: '', affectedPersonId: '', affectedPersonName: '' })} disabled={!canEditForm} className="accent-indigo-500 w-4 h-4" /> Internal Staff
+                                                </label>
+                                                <label className="flex items-center gap-2 cursor-pointer text-sm font-bold text-slate-300">
+                                                    <input type="radio" name="pType" value="Contractor" checked={data.affectedPersonType === 'Contractor'} onChange={() => setData({ ...data, affectedPersonType: 'Contractor', affectedPersonId: '', affectedPersonName: '' })} disabled={!canEditForm} className="accent-indigo-500 w-4 h-4" /> Contractor / External
+                                                </label>
+                                                <label className="flex items-center gap-2 cursor-pointer text-sm font-bold text-slate-300">
+                                                    <input type="radio" name="pType" value="None" checked={data.affectedPersonType === 'None'} onChange={() => setData({ ...data, affectedPersonType: 'None', contractorId: '', affectedPersonId: '', affectedPersonName: '' })} disabled={!canEditForm} className="accent-indigo-500 w-4 h-4" /> None (Property/Env)
+                                                </label>
+                                            </div>
+
+                                            {data.affectedPersonType === 'Contractor' && (
+                                                <div>
+                                                    <label className="text-[10px] uppercase font-bold text-indigo-300 block mb-2">Select Vendor Company</label>
+                                                    <select value={data.contractorId} onChange={e => setData({ ...data, contractorId: e.target.value, affectedPersonId: '', affectedPersonName: '' })} disabled={!canEditForm} className="w-full bg-slate-900 border border-indigo-500/50 rounded-xl p-3 text-white outline-none focus:border-indigo-400">
+                                                        <option value="">Select Company...</option>
+                                                        {contractors.filter(c => !data.siteId || safeArr(c.allocatedSites).includes(data.siteId) || c.siteId === 'GLOBAL').map(c => <option key={c.firebaseKey} value={c.firebaseKey}>{c.companyName}</option>)}
+                                                    </select>
+                                                </div>
+                                            )}
+
+                                            {data.affectedPersonType !== 'None' && (
+                                                <div>
+                                                    <label className="text-[10px] uppercase font-bold text-indigo-300 block mb-2">Select Individual Worker</label>
+                                                    <select value={data.affectedPersonId} onChange={e => {
+                                                        const target = activePersonnelList.find(x => x.id === e.target.value);
+                                                        setData({ ...data, affectedPersonId: e.target.value, affectedPersonName: target ? (target.name || target.email) : '' });
+                                                    }} disabled={!canEditForm || (data.affectedPersonType === 'Contractor' && !data.contractorId)} className="w-full bg-slate-900 border border-indigo-500/50 rounded-xl p-3 text-white outline-none focus:border-indigo-400 font-bold">
+                                                        <option value="">Select Person...</option>
+                                                        {activePersonnelList.map(u => <option key={u.id} value={u.id}>{u.name || u.email} {u.role ? `(${u.role})` : ''}</option>)}
+                                                    </select>
+                                                    <p className="text-[10px] text-slate-500 mt-2 italic">Note: Selecting a contractor worker here will automatically sync this incident to their permanent ISO 45001 Safety Passport.</p>
+                                                </div>
+                                            )}
+                                        </div>
                                     </div>
 
                                     <div className="mb-6">
@@ -1424,6 +1524,9 @@ export default function Incidents() {
                         <table className="w-full text-sm border-none">
                             <tbody>
                                 <tr>
+                                    <td className="w-[15%] font-bold py-1">Incident Title:</td><td colSpan="3" className="w-[85%] py-1 font-bold text-lg">{printData.title}</td>
+                                </tr>
+                                <tr>
                                     <td className="w-[15%] font-bold py-1">Site / Location:</td><td className="w-[35%] py-1">{printData.siteId} {printData.horizontalDeployment && '(Horizontal Deployment)'}</td>
                                     <td className="w-[15%] font-bold py-1">Date & Time:</td><td className="w-[35%] py-1">{printData.date} @ {printData.time || 'N/A'}</td>
                                 </tr>
@@ -1434,6 +1537,12 @@ export default function Incidents() {
                                 <tr>
                                     <td className="w-[15%] font-bold py-1">Category:</td><td className="w-[35%] py-1">{printData.smartType}</td>
                                     <td className="w-[15%] font-bold py-1">Equipment Involved:</td><td className="w-[35%] py-1">{printData.equipmentInvolved || 'N/A'}</td>
+                                </tr>
+                                <tr>
+                                    <td className="w-[15%] font-bold py-1 border-t border-gray-300 mt-1 pt-2">Affected Person:</td>
+                                    <td colSpan="3" className="w-[85%] py-1 border-t border-gray-300 mt-1 pt-2">
+                                        {printData.affectedPersonName ? `${printData.affectedPersonName} (${printData.affectedPersonType})` : 'No Person Injured'}
+                                    </td>
                                 </tr>
                             </tbody>
                         </table>

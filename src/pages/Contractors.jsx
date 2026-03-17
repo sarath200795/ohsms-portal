@@ -18,10 +18,7 @@ const parseContractors = (dataObj) => {
         firebaseKey: k,
         allocatedSites: safeArr(v.allocatedSites).length > 0 ? safeArr(v.allocatedSites) : (v.siteId && v.siteId !== 'GLOBAL' ? [v.siteId] : []),
         documents: safeArr(v.documents),
-        workers: safeArr(v.workers).map(w => ({ ...w, additionalDocs: safeArr(w.additionalDocs) })),
-        trainings: safeArr(v.trainings),
-        incidents: safeArr(v.incidents),
-        nonCompliances: safeArr(v.nonCompliances)
+        workers: safeArr(v.workers).map(w => ({ ...w, additionalDocs: safeArr(w.additionalDocs) }))
     }));
 };
 
@@ -78,16 +75,19 @@ export default function Contractors() {
 
     const [session, setSession] = useState(null);
     const [loading, setLoading] = useState(true);
-    const [view, setView] = useState('register'); // 'register' | 'companies' | 'workers' | 'deployments'
+    const [view, setView] = useState('register');
 
     const [contractors, setContractors] = useState([]);
     const [sites, setSites] = useState([]);
     const [siteFilter, setSiteFilter] = useState('All');
     const [workerCompanyFilter, setWorkerCompanyFilter] = useState('All');
+    const [deploymentCompanyFilter, setDeploymentCompanyFilter] = useState('All');
     const [saving, setSaving] = useState(false);
 
+    // Global Cross-Module Data
     const [globalTrainings, setGlobalTrainings] = useState([]);
     const [globalPermits, setGlobalPermits] = useState([]);
+    const [globalIncidents, setGlobalIncidents] = useState([]);
 
     // Form State for Company
     const [formData, setFormData] = useState({
@@ -106,7 +106,6 @@ export default function Contractors() {
     const [modalType, setModalType] = useState(null);
     const [newDocReq, setNewDocReq] = useState('');
     const [newWorkerDocReq, setNewWorkerDocReq] = useState('');
-    const [newWorkerProfile, setNewWorkerProfile] = useState({ name: '', role: 'Worker', competence: '', deployedSite: '', proof: null, proofName: '', inductionDate: '' });
 
     useEffect(() => {
         const s = sessionStorage.getItem('isoSession');
@@ -138,6 +137,9 @@ export default function Contractors() {
                     if (data.sites) setSites(Object.keys(data.sites).map(key => ({ code: data.sites[key].code || key, name: data.sites[key].name || key })));
                     if (data.trainings) setGlobalTrainings(safeArr(data.trainings));
                     if (data.workPermits) setGlobalPermits(safeArr(data.workPermits));
+
+                    // Fetch Global Incidents for the integration
+                    if (data.incidents) setGlobalIncidents(Object.entries(data.incidents).map(([k, v]) => ({ ...v, firebaseKey: k })));
                 }
             } catch (err) { console.error(err); } finally { setLoading(false); }
         };
@@ -167,7 +169,7 @@ export default function Contractors() {
         });
     }, [contractors, siteFilter, isGlobalUser, session]);
 
-    // --- WORKER PROFILE EXTRACTOR ---
+    // --- INTEGRATED WORKER PROFILE EXTRACTOR ---
     const allWorkers = useMemo(() => {
         let list = [];
         visibleContractors.forEach(c => {
@@ -177,6 +179,7 @@ export default function Contractors() {
                 const wNameStr = typeof w.name === 'string' ? w.name.toLowerCase() : '';
                 if (!wNameStr) return;
 
+                // 1. Fetch Trainings
                 const wTrainings = globalTrainings.filter(t =>
                     safeArr(t.attendees).some(a => {
                         const aName = typeof a === 'object' ? (a.name || '') : (typeof a === 'string' ? a : '');
@@ -184,9 +187,16 @@ export default function Contractors() {
                     })
                 );
 
-                const wInjuries = safeArr(c.incidents).filter(inc =>
-                    typeof inc.desc === 'string' && inc.desc.toLowerCase().includes(wNameStr)
-                );
+                // 2. Fetch Incidents (NEW INTEGRATION)
+                const wInjuries = globalIncidents.filter(inc => {
+                    // Match by direct ID from the new Incident form
+                    if (inc.affectedPersonType === 'Contractor' && inc.affectedPersonId === w.id) return true;
+
+                    // Fallback string matching for older records
+                    if (typeof inc.description === 'string' && inc.description.toLowerCase().includes(wNameStr)) return true;
+                    if (typeof inc.affectedPersonName === 'string' && inc.affectedPersonName.toLowerCase() === wNameStr) return true;
+                    return false;
+                });
 
                 list.push({
                     ...w,
@@ -198,7 +208,7 @@ export default function Contractors() {
             });
         });
         return list.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
-    }, [visibleContractors, workerCompanyFilter, globalTrainings]);
+    }, [visibleContractors, workerCompanyFilter, globalTrainings, globalIncidents]);
 
 
     const getComplianceStatus = (docsData) => {
@@ -223,10 +233,7 @@ export default function Contractors() {
     const toggleAllocatedSite = (code) => {
         setFormData(prev => {
             const exists = prev.allocatedSites.includes(code);
-            return {
-                ...prev,
-                allocatedSites: exists ? prev.allocatedSites.filter(s => s !== code) : [...prev.allocatedSites, code]
-            };
+            return { ...prev, allocatedSites: exists ? prev.allocatedSites.filter(s => s !== code) : [...prev.allocatedSites, code] };
         });
     };
 
@@ -244,12 +251,7 @@ export default function Contractors() {
         if (!formData.companyName || formData.allocatedSites.length === 0) return alert("Company Name and at least one Site Allocation are required.");
         setSaving(true);
         try {
-            const payload = {
-                ...formData,
-                siteId: formData.allocatedSites[0], // Fallback primary site
-                updatedBy: session.name,
-                lastUpdated: new Date().toISOString()
-            };
+            const payload = { ...formData, siteId: formData.allocatedSites[0], updatedBy: session.name, lastUpdated: new Date().toISOString() };
             if (!payload.createdAt) payload.createdAt = new Date().toISOString();
 
             const keyToUpdate = formData.firebaseKey;
@@ -276,23 +278,13 @@ export default function Contractors() {
             await update(ref(rtdb, `organizations/${session.orgId}/contractors/${vendorKey}`), payload);
             setContractors(prev => prev.map(c => {
                 if (c.firebaseKey === vendorKey) {
-                    return {
-                        ...c, ...payload,
-                        allocatedSites: payload.allocatedSites ? safeArr(payload.allocatedSites) : safeArr(c.allocatedSites),
-                        documents: payload.documents ? safeArr(payload.documents) : safeArr(c.documents),
-                        workers: payload.workers ? safeArr(payload.workers) : safeArr(c.workers)
-                    };
+                    return { ...c, ...payload, allocatedSites: payload.allocatedSites ? safeArr(payload.allocatedSites) : safeArr(c.allocatedSites), documents: payload.documents ? safeArr(payload.documents) : safeArr(c.documents), workers: payload.workers ? safeArr(payload.workers) : safeArr(c.workers) };
                 }
                 return c;
             }));
 
             if (activeVendor && activeVendor.firebaseKey === vendorKey) {
-                setActiveVendor(prev => ({
-                    ...prev, ...payload,
-                    allocatedSites: payload.allocatedSites ? safeArr(payload.allocatedSites) : safeArr(prev.allocatedSites),
-                    documents: payload.documents ? safeArr(payload.documents) : safeArr(prev.documents),
-                    workers: payload.workers ? safeArr(payload.workers) : safeArr(prev.workers)
-                }));
+                setActiveVendor(prev => ({ ...prev, ...payload, allocatedSites: payload.allocatedSites ? safeArr(payload.allocatedSites) : safeArr(prev.allocatedSites), documents: payload.documents ? safeArr(payload.documents) : safeArr(prev.documents), workers: payload.workers ? safeArr(payload.workers) : safeArr(prev.workers) }));
             }
         } catch (e) { alert("Failed to update database."); }
     };
@@ -300,9 +292,7 @@ export default function Contractors() {
     const saveCompanyProfileEdit = () => {
         if (!editingVendor.companyName || safeArr(editingVendor.allocatedSites).length === 0) return alert("Company Name and Site Allocation required.");
         const payload = {
-            companyName: editingVendor.companyName,
-            allocatedSites: editingVendor.allocatedSites,
-            siteId: editingVendor.allocatedSites[0],
+            companyName: editingVendor.companyName, allocatedSites: editingVendor.allocatedSites, siteId: editingVendor.allocatedSites[0],
             serviceType: editingVendor.serviceType, goodsType: editingVendor.goodsType || '',
             contactPerson: editingVendor.contactPerson, phone: editingVendor.phone, email: editingVendor.email,
             updatedBy: session.name, lastUpdated: new Date().toISOString()
@@ -310,7 +300,6 @@ export default function Contractors() {
         updateVendorDB(activeVendor.firebaseKey, payload);
         setEditingVendor(null);
     };
-
 
     const handleDocUpload = async (docId, file) => {
         if (file.size > 2097152) return alert("File exceeds 2MB limit.");
@@ -334,15 +323,7 @@ export default function Contractors() {
         const snap = await get(vendorRef);
         if (snap.exists()) {
             const vData = snap.val();
-            const newWorkerObj = {
-                id: Date.now().toString(),
-                name: addWorkerData.name,
-                role: addWorkerData.role,
-                competence: addWorkerData.competence,
-                deployedSite: addWorkerData.deployedSite,
-                inductionDate: 'Pending',
-                additionalDocs: []
-            };
+            const newWorkerObj = { id: Date.now().toString(), name: addWorkerData.name, role: addWorkerData.role, competence: addWorkerData.competence, deployedSite: addWorkerData.deployedSite, inductionDate: 'Pending', additionalDocs: [] };
             const updatedWorkers = [...safeArr(vData.workers), newWorkerObj];
             await update(vendorRef, { workers: updatedWorkers });
 
@@ -365,7 +346,6 @@ export default function Contractors() {
         }
     };
 
-    // New Function for Deployment Tab Fast Edit
     const quickUpdateWorkerDeployment = async (contractorId, workerId, newSite) => {
         const vendor = contractors.find(c => c.firebaseKey === contractorId);
         if (vendor) {
@@ -496,7 +476,6 @@ export default function Contractors() {
                 <main className="flex-1 overflow-y-auto p-4 md:p-8 custom-scroll relative z-10 w-full print:hidden">
                     <div className="max-w-7xl mx-auto animate-in fade-in duration-500 pb-20">
 
-                        {/* --- GLOBAL FILTERS --- */}
                         {view !== 'register' && (
                             <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 bg-slate-900/50 p-4 rounded-2xl border border-slate-800 gap-4">
                                 <div>
@@ -511,7 +490,7 @@ export default function Contractors() {
                         )}
 
                         {/* ===================================================================== */}
-                        {/* SECTION 1: REGISTER NEW VENDOR ONLY */}
+                        {/* SECTION 1: REGISTER NEW VENDOR */}
                         {/* ===================================================================== */}
                         {view === 'register' && (
                             <div className="max-w-4xl mx-auto bg-slate-900/80 p-6 md:p-10 rounded-3xl border border-slate-700 shadow-2xl animate-in slide-in-from-bottom-8 duration-300">
@@ -547,14 +526,14 @@ export default function Contractors() {
                                             </select>
                                         </div>
 
-                                        {formData.serviceType === 'Supply of Goods' ? (
+                                        {formData.serviceType === 'Supply of Goods' && (
                                             <div className="bg-indigo-950/20 p-4 rounded-xl border border-indigo-500/30">
                                                 <label className="text-[10px] uppercase font-bold text-indigo-400 block mb-2 tracking-widest">Type of Goods Supplied *</label>
                                                 <select value={formData.goodsType} onChange={handleGoodsTypeChange} disabled={!canEdit} className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-white font-bold outline-none focus:border-indigo-500">
                                                     {GOODS_TYPES.map(t => <option key={t}>{t}</option>)}
                                                 </select>
                                             </div>
-                                        ) : <div></div>}
+                                        )}
 
                                         <div>
                                             <label className="text-[10px] uppercase font-bold text-slate-400 block mb-2 tracking-widest">Primary Contact Person</label>
@@ -596,9 +575,6 @@ export default function Contractors() {
                                         {visibleContractors.map(c => {
                                             const docsArr = safeArr(c.documents);
                                             const statusObj = getComplianceStatus(docsArr);
-                                            const totalDocs = docsArr.length;
-                                            const uploadedDocs = docsArr.filter(d => d.file || d.status === 'Uploaded').length;
-                                            const compliancePct = totalDocs === 0 ? 0 : Math.round((uploadedDocs / totalDocs) * 100);
 
                                             return (
                                                 <tr key={c.firebaseKey} className="hover:bg-slate-800/40 transition-colors">
@@ -614,12 +590,12 @@ export default function Contractors() {
                                                     </td>
                                                     <td className="p-4">
                                                         <div className="flex items-center gap-3">
-                                                            <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-[10px] border-2 ${compliancePct === 100 ? 'border-emerald-500 text-emerald-400 bg-emerald-950/30' : compliancePct > 50 ? 'border-yellow-500 text-yellow-400 bg-yellow-950/30' : 'border-red-500 text-red-400 bg-red-950/30'}`}>
-                                                                {compliancePct}%
+                                                            <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-[10px] border-2 ${statusObj.pct === 100 ? 'border-emerald-500 text-emerald-400 bg-emerald-950/30' : statusObj.pct > 50 ? 'border-yellow-500 text-yellow-400 bg-yellow-950/30' : 'border-red-500 text-red-400 bg-red-950/30'}`}>
+                                                                {statusObj.pct}%
                                                             </div>
                                                             <div>
                                                                 <div className={`text-[10px] font-bold uppercase tracking-widest ${statusObj.color.split(' ')[0]}`}>{statusObj.label}</div>
-                                                                <div className="text-xs font-mono text-slate-500">{uploadedDocs} / {totalDocs} Docs Verified</div>
+                                                                <div className="text-xs font-mono text-slate-500">{docsArr.filter(d => d.file || d.status === 'Uploaded').length} / {docsArr.length} Docs Verified</div>
                                                             </div>
                                                         </div>
                                                     </td>
@@ -644,9 +620,9 @@ export default function Contractors() {
                         {view === 'workers' && (
                             <div className="space-y-6">
                                 <div className="flex justify-between items-center mb-4">
-                                    <div className="flex items-center gap-2 bg-slate-900/50 p-2 rounded-xl border border-slate-800">
+                                    <div className="flex items-center gap-2 bg-slate-900/50 p-2 rounded-xl border border-slate-800 shadow-inner">
                                         <i className="fas fa-filter text-slate-500 ml-2"></i>
-                                        <select value={workerCompanyFilter} onChange={e => setWorkerCompanyFilter(e.target.value)} className="bg-slate-950 border border-slate-700 text-white text-xs font-bold px-4 py-2 rounded-lg outline-none w-64">
+                                        <select value={workerCompanyFilter} onChange={e => setWorkerCompanyFilter(e.target.value)} className="bg-slate-950 border border-slate-700 text-white text-xs font-bold px-4 py-2 rounded-lg outline-none w-64 shadow-inner">
                                             <option value="All">Filter by Company (All)</option>
                                             {visibleContractors.map(c => <option key={c.firebaseKey} value={c.firebaseKey}>{c.companyName}</option>)}
                                         </select>
@@ -658,18 +634,16 @@ export default function Contractors() {
                                 <div className="bg-slate-900/50 rounded-2xl border border-slate-700 overflow-x-auto shadow-xl">
                                     <table className="w-full text-left text-sm min-w-[1000px]">
                                         <thead className="bg-slate-950 border-b border-slate-800 text-[10px] uppercase tracking-widest font-bold text-slate-500">
-                                            <tr><th className="p-4 pl-6">Worker Details</th><th className="p-4">Deployed Site</th><th className="p-4">Docs Status</th><th className="p-4 text-center">Trainings</th><th className="p-4 text-center">Injuries</th><th className="p-4 pr-6 text-right">Actions</th></tr>
+                                            <tr><th className="p-4 pl-6">Worker Details</th><th className="p-4">Company</th><th className="p-4">Docs Status</th><th className="p-4 text-center">Trainings</th><th className="p-4 text-center">Injuries</th><th className="p-4 pr-6 text-right">Actions</th></tr>
                                         </thead>
                                         <tbody className="divide-y divide-slate-800/50 text-slate-300">
                                             {allWorkers.map((w, idx) => (
                                                 <tr key={idx} className="hover:bg-slate-800/40 transition-colors">
                                                     <td className="p-4 pl-6">
                                                         <div className="font-bold text-white text-base">{w.name}</div>
-                                                        <div className="text-[10px] text-slate-500 mt-1 uppercase tracking-widest">{w.role} | <span className="text-blue-300">{w.companyName}</span></div>
+                                                        <div className="text-[10px] text-slate-500 mt-1 uppercase tracking-widest">{w.role} | <span className="text-blue-300">{w.competence}</span></div>
                                                     </td>
-                                                    <td className="p-4 font-medium text-slate-400">
-                                                        {w.deployedSite ? <span className="bg-slate-950 border border-slate-700 px-2 py-1 rounded text-xs">{w.deployedSite}</span> : <span className="text-slate-500 italic text-xs">Unassigned</span>}
-                                                    </td>
+                                                    <td className="p-4 font-medium text-slate-400">{w.companyName}</td>
                                                     <td className="p-4">
                                                         <div className="flex flex-col gap-1">
                                                             {w.medDoc ? <span className="text-[8px] bg-emerald-900/30 text-emerald-400 px-2 py-0.5 rounded border border-emerald-500/30 w-fit uppercase font-bold"><i className="fas fa-check"></i> Med Fit</span> : <span className="text-[8px] bg-red-900/30 text-red-400 px-2 py-0.5 rounded border border-red-500/30 w-fit uppercase font-bold"><i className="fas fa-times"></i> Med Fit</span>}
@@ -695,7 +669,17 @@ export default function Contractors() {
                         {/* ===================================================================== */}
                         {view === 'deployments' && (
                             <div className="space-y-6">
-                                {visibleContractors.map(c => {
+                                <div className="flex justify-start mb-4">
+                                    <div className="flex items-center gap-2 bg-slate-900/50 p-2 rounded-xl border border-slate-800 shadow-inner">
+                                        <i className="fas fa-building text-slate-500 ml-2"></i>
+                                        <select value={deploymentCompanyFilter} onChange={e => setDeploymentCompanyFilter(e.target.value)} className="bg-slate-950 border border-slate-700 text-white text-xs font-bold px-4 py-2 rounded-lg outline-none w-64 shadow-inner">
+                                            <option value="All">Filter by Company (All)</option>
+                                            {visibleContractors.map(c => <option key={c.firebaseKey} value={c.firebaseKey}>{c.companyName}</option>)}
+                                        </select>
+                                    </div>
+                                </div>
+
+                                {visibleContractors.filter(c => deploymentCompanyFilter === 'All' || c.firebaseKey === deploymentCompanyFilter).map(c => {
                                     const cWorkers = safeArr(c.workers);
                                     if (cWorkers.length === 0) return null;
 
@@ -716,27 +700,38 @@ export default function Contractors() {
                                                 </div>
                                             </div>
 
-                                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                                                {cWorkers.map(w => (
-                                                    <div key={w.id} className="p-4 rounded-xl border border-slate-700 bg-slate-950 shadow-sm flex flex-col justify-between h-full">
-                                                        <div className="mb-4">
-                                                            <div className="font-bold text-white text-sm">{w.name}</div>
-                                                            <div className="text-[10px] text-slate-500 uppercase tracking-widest">{w.role}</div>
-                                                        </div>
-                                                        <div>
-                                                            <label className="text-[9px] uppercase font-bold text-slate-500 block mb-1">Current Deployment</label>
-                                                            <select
-                                                                value={w.deployedSite || ''}
-                                                                onChange={e => quickUpdateWorkerDeployment(c.firebaseKey, w.id, e.target.value)}
-                                                                disabled={!canEdit}
-                                                                className={`w-full bg-slate-900 border rounded-lg text-xs p-2 outline-none transition-colors font-bold ${w.deployedSite ? 'border-emerald-500/50 text-emerald-400' : 'border-red-500/50 text-red-400'}`}
-                                                            >
-                                                                <option value="">Unassigned / Pending</option>
-                                                                {safeArr(c.allocatedSites).map(s => <option key={s} value={s}>{s}</option>)}
-                                                            </select>
-                                                        </div>
-                                                    </div>
-                                                ))}
+                                            <div className="overflow-x-auto rounded-xl border border-slate-700 bg-slate-950 shadow-inner custom-scroll">
+                                                <table className="w-full text-left text-sm text-slate-300">
+                                                    <thead className="bg-slate-900/90 text-[10px] uppercase font-bold text-slate-500 border-b border-slate-700 tracking-widest">
+                                                        <tr>
+                                                            <th className="p-4 pl-6 w-1/3">Worker Details</th>
+                                                            <th className="p-4 w-1/4">Role / Competence</th>
+                                                            <th className="p-4 pr-6 w-1/3">Current Deployment Site</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody className="divide-y divide-slate-800/80">
+                                                        {cWorkers.map(w => (
+                                                            <tr key={w.id} className="hover:bg-slate-800/40 transition-colors">
+                                                                <td className="p-4 pl-6 font-bold text-white">{w.name}</td>
+                                                                <td className="p-4">
+                                                                    <div className="text-xs text-slate-300">{w.role}</div>
+                                                                    <div className="text-[9px] text-slate-500 mt-1 uppercase tracking-widest truncate max-w-[200px]">{w.competence}</div>
+                                                                </td>
+                                                                <td className="p-4 pr-6">
+                                                                    <select
+                                                                        value={w.deployedSite || ''}
+                                                                        onChange={e => quickUpdateWorkerDeployment(c.firebaseKey, w.id, e.target.value)}
+                                                                        disabled={!canEdit}
+                                                                        className={`w-full bg-slate-900 border rounded-lg text-xs p-2 outline-none transition-colors font-bold shadow-inner ${w.deployedSite ? 'border-emerald-500/50 text-emerald-400 focus:border-emerald-500' : 'border-red-500/50 text-red-400 focus:border-red-500'}`}
+                                                                    >
+                                                                        <option value="">Unassigned / Pending</option>
+                                                                        {safeArr(c.allocatedSites).map(s => <option key={s} value={s}>{s}</option>)}
+                                                                    </select>
+                                                                </td>
+                                                            </tr>
+                                                        ))}
+                                                    </tbody>
+                                                </table>
                                             </div>
                                         </div>
                                     )
@@ -1129,10 +1124,14 @@ export default function Contractors() {
                                             {safeArr(activeWorker.injuriesList).map((inc, idx) => (
                                                 <div key={idx} className="p-4 rounded-xl border border-red-500/30 bg-red-950/20 shadow-sm">
                                                     <div className="flex justify-between items-start mb-2">
-                                                        <div className="font-bold text-xs uppercase tracking-widest text-red-400">{inc.type || 'Incident'}</div>
-                                                        <div className="text-[10px] font-mono text-slate-400 bg-slate-950 px-2 py-1 rounded">{inc.date || 'Unknown Date'}</div>
+                                                        <div className="font-bold text-xs uppercase tracking-widest text-red-400">{inc.type || inc.incidentType || 'Incident'}</div>
+                                                        <div className="text-[10px] font-mono text-slate-400 bg-slate-950 px-2 py-1 rounded">{inc.date || inc.incidentDate || 'Unknown Date'}</div>
                                                     </div>
-                                                    <div className="text-xs text-slate-300 leading-relaxed">{inc.desc || 'No description provided.'}</div>
+                                                    <div className="text-xs text-white font-bold mb-1">{inc.title || ''}</div>
+                                                    <div className="text-xs text-slate-300 leading-relaxed">{inc.desc || inc.description || 'No description provided.'}</div>
+                                                    <div className="mt-3 text-right">
+                                                        <button onClick={() => navigate(`/incidents?id=${inc.firebaseKey}`)} className="text-[9px] bg-red-900/30 text-red-400 border border-red-500/30 px-2 py-1 rounded hover:bg-red-600 hover:text-white transition-colors uppercase font-bold tracking-widest">View Report</button>
+                                                    </div>
                                                 </div>
                                             ))}
                                             {safeArr(activeWorker.injuriesList).length === 0 && (
