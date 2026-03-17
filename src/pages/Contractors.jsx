@@ -94,7 +94,7 @@ export default function Contractors() {
     const [globalTrainings, setGlobalTrainings] = useState([]);
     const [globalPermits, setGlobalPermits] = useState([]);
 
-    // Form State
+    // Form State for Company
     const [formData, setFormData] = useState({
         id: '', siteId: '', companyName: '', contactPerson: '', email: '', phone: '',
         serviceType: 'General / Housekeeping', goodsType: 'PPE', notes: '', status: 'Pending Review',
@@ -102,7 +102,8 @@ export default function Contractors() {
         workers: []
     });
 
-    const [newWorker, setNewWorker] = useState({ name: '', role: 'Worker', competence: '', medDoc: null, medDocName: '', compDoc: null, compDocName: '', inductionDate: '', additionalDocs: [] });
+    // Form State for New Worker Modal
+    const [addWorkerData, setAddWorkerData] = useState({ contractorId: '', name: '', role: 'Worker', competence: '' });
 
     // Modals
     const [activeVendor, setActiveVendor] = useState(null);
@@ -234,27 +235,6 @@ export default function Contractors() {
         setFormData(prev => ({ ...prev, goodsType: gType, documents: getMandatoryDocs(prev.serviceType, gType) }));
     };
 
-    const handleWorkerFileUpload = async (e, type, targetSetter) => {
-        const file = e.target.files[0];
-        if (!file) return;
-        if (file.size > 2097152) return alert("File exceeds 2MB limit.");
-        try {
-            const b64 = await fileToBase64(file);
-            if (type === 'med') targetSetter(prev => ({ ...prev, medDoc: b64, medDocName: file.name }));
-            else targetSetter(prev => ({ ...prev, compDoc: b64, compDocName: file.name }));
-        } catch (err) { alert("Failed to read file."); }
-    };
-
-    const addWorkerToForm = () => {
-        if (!newWorker.name || !newWorker.competence) return alert("Name and Competence required.");
-        setFormData(prev => ({ ...prev, workers: [...safeArr(prev.workers), { ...newWorker, id: Date.now().toString() }] }));
-        setNewWorker({ name: '', role: 'Worker', competence: '', medDoc: null, medDocName: '', compDoc: null, compDocName: '', inductionDate: '', additionalDocs: [] });
-    };
-
-    const removeWorkerFromForm = (id) => {
-        setFormData(prev => ({ ...prev, workers: safeArr(prev.workers).filter(w => w.id !== id) }));
-    };
-
     const saveVendorRegistration = async () => {
         if (!formData.companyName || !formData.siteId) return alert("Company Name and Site are required.");
         setSaving(true);
@@ -332,38 +312,80 @@ export default function Contractors() {
         setNewDocReq('');
     };
 
-    // --- WORKER PROFILE ACTIONS ---
-    const addWorkerToProfile = () => {
-        if (!newWorker.name || !newWorker.competence) return alert("Name and Competence required.");
-        const updatedWorkers = [...safeArr(activeVendor.workers), { ...newWorker, id: Date.now().toString(), inductionDate: '', additionalDocs: [] }];
-        updateVendorDB(activeVendor.firebaseKey, { workers: updatedWorkers });
-        setNewWorker({ name: '', role: 'Worker', competence: '', medDoc: null, medDocName: '', compDoc: null, compDocName: '', inductionDate: '', additionalDocs: [] });
-    };
+    // --- WORKER ROSTER ACTIONS ---
+    const submitNewWorker = async () => {
+        if (!addWorkerData.contractorId || !addWorkerData.name || !addWorkerData.competence) return alert("Company, Name, and Competence are required.");
 
-    const removeWorkerFromProfile = (id) => {
-        if (window.confirm("Remove this worker from the roster?")) {
-            const updatedWorkers = safeArr(activeVendor.workers).filter(w => w.id !== id);
-            updateVendorDB(activeVendor.firebaseKey, { workers: updatedWorkers });
+        const vendorRef = ref(rtdb, `organizations/${session.orgId}/contractors/${addWorkerData.contractorId}`);
+        const snap = await get(vendorRef);
+        if (snap.exists()) {
+            const vData = snap.val();
+            const newWorkerObj = {
+                id: Date.now().toString(),
+                name: addWorkerData.name,
+                role: addWorkerData.role,
+                competence: addWorkerData.competence,
+                inductionDate: 'Pending',
+                additionalDocs: []
+            };
+            const updatedWorkers = [...safeArr(vData.workers), newWorkerObj];
+            await update(vendorRef, { workers: updatedWorkers });
+
+            const allSnap = await get(ref(rtdb, `organizations/${session.orgId}/contractors`));
+            if (allSnap.exists()) setContractors(parseContractors(allSnap.val()));
+
+            setModalType(null);
+            setAddWorkerData({ contractorId: '', name: '', role: 'Worker', competence: '' });
+            alert("Worker added successfully! You can now upload their documents from their profile.");
         }
     };
 
-    const handleExistingWorkerDocUploadProfile = async (workerId, file, type) => {
+    const removeWorkerFromProfile = (contractorId, workerId) => {
+        if (window.confirm("Remove this worker from the roster permanently?")) {
+            const vendor = contractors.find(c => c.firebaseKey === contractorId);
+            if (vendor) {
+                const updatedWorkers = safeArr(vendor.workers).filter(w => w.id !== workerId);
+                updateVendorDB(contractorId, { workers: updatedWorkers });
+            }
+        }
+    };
+
+    // --- INDIVIDUAL WORKER PROFILE ACTIONS ---
+    const handleWorkerCoreDocUpload = async (type, file) => {
         if (!file) return;
         if (file.size > 2097152) return alert("File exceeds 2MB limit.");
         try {
             const b64 = await fileToBase64(file);
-            const updatedWorkers = safeArr(activeVendor.workers).map(w => {
-                if (w.id === workerId) {
-                    if (type === 'med') return { ...w, medDoc: b64, medDocName: file.name };
-                    if (type === 'comp') return { ...w, compDoc: b64, compDocName: file.name };
-                }
-                return w;
-            });
-            updateVendorDB(activeVendor.firebaseKey, { workers: updatedWorkers });
+            const vendorRef = ref(rtdb, `organizations/${session.orgId}/contractors/${activeWorker.contractorId}`);
+            const snap = await get(vendorRef);
+
+            if (snap.exists()) {
+                const vData = snap.val();
+                const updatedWorkers = safeArr(vData.workers).map(w => {
+                    if (w.id === activeWorker.id) {
+                        const updatedWorker = { ...w };
+                        if (type === 'med') { updatedWorker.medDoc = b64; updatedWorker.medDocName = file.name; }
+                        if (type === 'comp') { updatedWorker.compDoc = b64; updatedWorker.compDocName = file.name; }
+                        return updatedWorker;
+                    }
+                    return w;
+                });
+
+                await update(vendorRef, { workers: updatedWorkers });
+
+                const allSnap = await get(ref(rtdb, `organizations/${session.orgId}/contractors`));
+                if (allSnap.exists()) setContractors(parseContractors(allSnap.val()));
+
+                setActiveWorker(prev => {
+                    const updated = { ...prev };
+                    if (type === 'med') { updated.medDoc = b64; updated.medDocName = file.name; }
+                    if (type === 'comp') { updated.compDoc = b64; updated.compDocName = file.name; }
+                    return updated;
+                });
+            }
         } catch (err) { alert("Failed to process document."); }
     };
 
-    // Worker Specific Additional Docs
     const requestAdditionalWorkerDoc = async () => {
         if (!newWorkerDocReq) return;
         const newDoc = { id: Date.now().toString(), name: newWorkerDocReq, status: 'Requested', file: null };
@@ -377,7 +399,6 @@ export default function Contractors() {
             );
             await update(vendorRef, { workers: updatedWorkers });
 
-            // Refresh local state
             const allSnap = await get(ref(rtdb, `organizations/${session.orgId}/contractors`));
             if (allSnap.exists()) setContractors(parseContractors(allSnap.val()));
 
@@ -450,6 +471,7 @@ export default function Contractors() {
                 <main className="flex-1 overflow-y-auto p-4 md:p-8 custom-scroll relative z-10 w-full print:hidden">
                     <div className="max-w-7xl mx-auto animate-in fade-in duration-500 pb-20">
 
+                        {/* --- GLOBAL FILTERS --- */}
                         {view !== 'register' && (
                             <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 bg-slate-900/50 p-4 rounded-2xl border border-slate-800 gap-4">
                                 <div>
@@ -463,12 +485,14 @@ export default function Contractors() {
                             </div>
                         )}
 
-                        {/* --- SECTION 1: REGISTER --- */}
+                        {/* ===================================================================== */}
+                        {/* SECTION 1: REGISTER NEW VENDOR ONLY */}
+                        {/* ===================================================================== */}
                         {view === 'register' && (
                             <div className="max-w-4xl mx-auto bg-slate-900/80 p-6 md:p-10 rounded-3xl border border-slate-700 shadow-2xl animate-in slide-in-from-bottom-8 duration-300">
                                 <div className="mb-8 border-b border-slate-800 pb-6">
-                                    <h3 className="text-3xl font-black text-white flex items-center gap-3"><i className="fas fa-building text-indigo-500"></i> New Vendor Registration</h3>
-                                    <p className="text-slate-400 text-sm mt-2">Create the company profile first. You can add their employees (Roster) later from the Company Profiles tab.</p>
+                                    <h3 className="text-3xl font-black text-white flex items-center gap-3"><i className="fas fa-building text-indigo-500"></i> Register New Vendor</h3>
+                                    <p className="text-slate-400 text-sm mt-2">Create the company profile first. You can add their employees (Roster) later from the Worker Profiles tab.</p>
                                 </div>
 
                                 <div className="bg-slate-950/50 p-8 rounded-2xl border border-slate-800 shadow-inner mb-8">
@@ -514,7 +538,7 @@ export default function Contractors() {
 
                                 <div className="bg-indigo-950/20 p-6 rounded-2xl border border-indigo-500/30 text-sm mb-8 shadow-inner">
                                     <div className="text-indigo-400 font-bold uppercase tracking-widest text-[10px] mb-3"><i className="fas fa-info-circle mr-1"></i> Pre-Configured Legal Requirements</div>
-                                    <p className="text-slate-300 leading-relaxed mb-4">Based on selecting <strong className="text-white bg-slate-900 px-2 py-1 rounded mx-1">{formData.serviceType} {formData.serviceType === 'Supply of Goods' && `(${formData.goodsType})`}</strong>, the following compliance documents will be auto-required in the vendor's profile:</p>
+                                    <p className="text-slate-300 leading-relaxed mb-4">Based on selecting <strong className="text-white bg-slate-900 px-2 py-1 rounded mx-1">{formData.serviceType} {formData.serviceType === 'Supply of Goods' && `(${formData.goodsType})`}</strong>, the following company compliance documents will be auto-required:</p>
                                     <div className="flex flex-wrap gap-2">
                                         {safeArr(formData.documents).map((d, i) => (
                                             <span key={i} className="bg-slate-900 border border-slate-700 text-slate-300 px-3 py-1.5 rounded-lg text-xs font-medium shadow-sm"><i className="fas fa-file-contract text-slate-500 mr-2"></i>{d.name}</span>
@@ -528,7 +552,9 @@ export default function Contractors() {
                             </div>
                         )}
 
-                        {/* --- SECTION 2: COMPANY PROFILES --- */}
+                        {/* ===================================================================== */}
+                        {/* SECTION 2: COMPANY PROFILES */}
+                        {/* ===================================================================== */}
                         {view === 'companies' && (
                             <div className="bg-slate-900/50 rounded-2xl border border-slate-700 overflow-x-auto shadow-xl">
                                 <table className="w-full text-left text-sm min-w-[1000px]">
@@ -576,10 +602,12 @@ export default function Contractors() {
                             </div>
                         )}
 
-                        {/* --- SECTION 3: WORKER PROFILES --- */}
+                        {/* ===================================================================== */}
+                        {/* SECTION 3: WORKER PROFILES */}
+                        {/* ===================================================================== */}
                         {view === 'workers' && (
                             <div className="space-y-6">
-                                <div className="flex justify-end mb-4">
+                                <div className="flex justify-between items-center mb-4">
                                     <div className="flex items-center gap-2 bg-slate-900/50 p-2 rounded-xl border border-slate-800">
                                         <i className="fas fa-filter text-slate-500 ml-2"></i>
                                         <select value={workerCompanyFilter} onChange={e => setWorkerCompanyFilter(e.target.value)} className="bg-slate-950 border border-slate-700 text-white text-xs font-bold px-4 py-2 rounded-lg outline-none w-64">
@@ -587,6 +615,9 @@ export default function Contractors() {
                                             {visibleContractors.map(c => <option key={c.firebaseKey} value={c.firebaseKey}>{c.companyName}</option>)}
                                         </select>
                                     </div>
+                                    {canEdit && (
+                                        <button onClick={() => setModalType('add_worker')} className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2.5 rounded-xl text-xs font-bold uppercase tracking-widest shadow-lg shadow-emerald-600/20 transition-transform active:scale-95"><i className="fas fa-user-plus mr-2"></i> Register Worker</button>
+                                    )}
                                 </div>
                                 <div className="bg-slate-900/50 rounded-2xl border border-slate-700 overflow-x-auto shadow-xl">
                                     <table className="w-full text-left text-sm min-w-[1000px]">
@@ -614,7 +645,7 @@ export default function Contractors() {
                                                     </td>
                                                 </tr>
                                             ))}
-                                            {allWorkers.length === 0 && <tr><td colSpan="6" className="p-12 text-center text-slate-500 italic">No workers found. Select a company and add workers to their roster.</td></tr>}
+                                            {allWorkers.length === 0 && <tr><td colSpan="6" className="p-12 text-center text-slate-500 italic">No workers found. Register a worker to get started.</td></tr>}
                                         </tbody>
                                     </table>
                                 </div>
@@ -627,6 +658,47 @@ export default function Contractors() {
                 {/* ===================================================================== */}
                 {/* MODALS */}
                 {/* ===================================================================== */}
+
+                {/* MODAL 0: ADD NEW WORKER */}
+                {modalType === 'add_worker' && (
+                    <div className="fixed inset-0 z-[100] bg-black/80 flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in">
+                        <div className="bg-slate-900 border border-slate-700 rounded-3xl shadow-2xl max-w-lg w-full p-8 relative">
+                            <button onClick={() => setModalType(null)} className="absolute top-6 right-6 text-slate-500 hover:text-white"><i className="fas fa-times text-xl"></i></button>
+                            <h3 className="text-2xl font-black text-emerald-400 mb-2"><i className="fas fa-user-plus mr-2"></i> Register New Worker</h3>
+                            <p className="text-slate-400 text-xs mb-6">Assign an employee to an existing contractor roster.</p>
+
+                            <div className="space-y-4">
+                                <div>
+                                    <label className="text-[10px] uppercase font-bold text-slate-500 block mb-1">Select Contractor Company *</label>
+                                    <select value={addWorkerData.contractorId} onChange={e => setAddWorkerData({ ...addWorkerData, contractorId: e.target.value })} className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-white outline-none focus:border-emerald-500 font-bold">
+                                        <option value="">Select Vendor...</option>
+                                        {visibleContractors.map(c => <option key={c.firebaseKey} value={c.firebaseKey}>{c.companyName}</option>)}
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="text-[10px] uppercase font-bold text-slate-500 block mb-1">Full Name *</label>
+                                    <input value={addWorkerData.name} onChange={e => setAddWorkerData({ ...addWorkerData, name: e.target.value })} placeholder="Worker Name" className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-white outline-none focus:border-emerald-500" />
+                                </div>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="text-[10px] uppercase font-bold text-slate-500 block mb-1">Role / Job Title</label>
+                                        <input value={addWorkerData.role} onChange={e => setAddWorkerData({ ...addWorkerData, role: e.target.value })} placeholder="e.g. Electrician" className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-white outline-none focus:border-emerald-500" />
+                                    </div>
+                                    <div>
+                                        <label className="text-[10px] uppercase font-bold text-slate-500 block mb-1">Competence *</label>
+                                        <input value={addWorkerData.competence} onChange={e => setAddWorkerData({ ...addWorkerData, competence: e.target.value })} placeholder="e.g. ITI Certified" className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-white outline-none focus:border-emerald-500" />
+                                    </div>
+                                </div>
+                                <p className="text-[10px] text-slate-500 italic mt-4">Note: Medical Fitness and Competence Documents can be uploaded directly from the worker's profile after registration.</p>
+                            </div>
+
+                            <div className="flex justify-end gap-3 mt-8 pt-4 border-t border-slate-800">
+                                <button onClick={() => setModalType(null)} className="px-6 py-2.5 rounded-xl text-xs font-bold text-slate-400 hover:text-white transition-colors">Cancel</button>
+                                <button onClick={submitNewWorker} className="bg-emerald-600 hover:bg-emerald-500 text-white px-8 py-2.5 rounded-xl text-xs font-bold uppercase tracking-widest shadow-lg transition-transform active:scale-95"><i className="fas fa-check mr-2"></i> Register</button>
+                            </div>
+                        </div>
+                    </div>
+                )}
 
                 {/* MODAL 1: COMPANY PROFILE (Consolidated Docs, Roster, Permits) */}
                 {activeVendor && modalType === 'company_profile' && (
@@ -705,39 +777,12 @@ export default function Contractors() {
                                     )}
                                 </div>
 
-                                {/* COLUMN 2: ROSTER (Upgraded to Two Docs) */}
+                                {/* COLUMN 2: ROSTER (Read Only view from Company Profile) */}
                                 <div className="bg-slate-950 p-6 rounded-2xl border border-slate-800 shadow-inner flex flex-col h-[70vh]">
                                     <h4 className="text-xs font-bold text-purple-400 uppercase tracking-widest border-b border-slate-800 pb-2 mb-4 flex justify-between items-center">
                                         <span><i className="fas fa-users-cog mr-2"></i> Employee Roster</span>
                                         <span className="bg-purple-900 text-purple-300 px-2 py-0.5 rounded">{safeArr(activeVendor.workers).length}</span>
                                     </h4>
-
-                                    {canEdit && (
-                                        <div className="mb-4 bg-slate-900 p-3 rounded-xl border border-slate-700 space-y-2">
-                                            <div className="grid grid-cols-2 gap-2">
-                                                <input value={newWorker.name} onChange={e => setNewWorker({ ...newWorker, name: e.target.value })} placeholder="Name" className="bg-slate-950 border border-slate-700 rounded text-xs p-2 text-white outline-none focus:border-purple-500" />
-                                                <input value={newWorker.role} onChange={e => setNewWorker({ ...newWorker, role: e.target.value })} placeholder="Role" className="bg-slate-950 border border-slate-700 rounded text-xs p-2 text-white outline-none focus:border-purple-500" />
-                                            </div>
-                                            <div className="grid grid-cols-2 gap-2">
-                                                <input value={newWorker.competence} onChange={e => setNewWorker({ ...newWorker, competence: e.target.value })} placeholder="Competence (ITI, etc)" className="col-span-2 bg-slate-950 border border-slate-700 rounded text-xs p-2 text-white outline-none focus:border-purple-500" />
-                                            </div>
-                                            <div className="grid grid-cols-2 gap-2">
-                                                <div className="relative overflow-hidden">
-                                                    <input type="file" onChange={(e) => handleWorkerFileUpload(e, 'med', setNewWorker)} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" title="Upload Medical Fitness Form 33" />
-                                                    <div className={`w-full bg-slate-950 border border-slate-700 rounded text-[9px] p-2 outline-none flex justify-center items-center font-bold uppercase tracking-wider ${newWorker.medDoc ? 'text-emerald-400 border-emerald-500/50' : 'text-slate-400'}`}>
-                                                        <i className="fas fa-upload mr-1"></i> {newWorker.medDoc ? 'Med Fit ✓' : 'Med Fit'}
-                                                    </div>
-                                                </div>
-                                                <div className="relative overflow-hidden">
-                                                    <input type="file" onChange={(e) => handleWorkerFileUpload(e, 'comp', setNewWorker)} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" title="Upload Competency Certificate" />
-                                                    <div className={`w-full bg-slate-950 border border-slate-700 rounded text-[9px] p-2 outline-none flex justify-center items-center font-bold uppercase tracking-wider ${newWorker.compDoc ? 'text-emerald-400 border-emerald-500/50' : 'text-slate-400'}`}>
-                                                        <i className="fas fa-upload mr-1"></i> {newWorker.compDoc ? 'Comp Doc ✓' : 'Comp Doc'}
-                                                    </div>
-                                                </div>
-                                            </div>
-                                            <button onClick={addWorkerToProfile} className="w-full bg-purple-600 hover:bg-purple-500 text-white mt-1 p-2 rounded text-xs font-bold uppercase tracking-widest transition-colors shadow"><i className="fas fa-plus mr-1"></i> Register Employee</button>
-                                        </div>
-                                    )}
 
                                     <div className="flex-1 overflow-y-auto custom-scroll pr-2 space-y-2">
                                         {safeArr(activeVendor.workers).map(w => (
@@ -747,18 +792,11 @@ export default function Contractors() {
                                                         {w.name} <span className="text-[9px] text-slate-400 font-normal ml-1">({w.role})</span>
                                                     </div>
                                                 </div>
+                                                <div className="text-[10px] text-blue-300 mt-1 truncate"><i className="fas fa-certificate"></i> {w.competence}</div>
 
                                                 <div className="mt-2 flex gap-2">
-                                                    {w.medDoc ? (
-                                                        <span className="text-[8px] bg-emerald-900/30 text-emerald-400 px-1.5 py-0.5 rounded border border-emerald-500/30 font-bold uppercase tracking-widest"><i className="fas fa-check"></i> Med Fit</span>
-                                                    ) : (
-                                                        <span className="text-[8px] bg-red-900/30 text-red-400 px-1.5 py-0.5 rounded border border-red-500/30 font-bold uppercase tracking-widest"><i className="fas fa-times"></i> Med Fit</span>
-                                                    )}
-                                                    {w.compDoc ? (
-                                                        <span className="text-[8px] bg-emerald-900/30 text-emerald-400 px-1.5 py-0.5 rounded border border-emerald-500/30 font-bold uppercase tracking-widest"><i className="fas fa-check"></i> Comp Doc</span>
-                                                    ) : (
-                                                        <span className="text-[8px] bg-red-900/30 text-red-400 px-1.5 py-0.5 rounded border border-red-500/30 font-bold uppercase tracking-widest"><i className="fas fa-times"></i> Comp Doc</span>
-                                                    )}
+                                                    {w.medDoc ? <span className="text-[8px] bg-emerald-900/30 text-emerald-400 px-1.5 py-0.5 rounded border border-emerald-500/30 uppercase font-bold"><i className="fas fa-check"></i> Med Fit</span> : <span className="text-[8px] bg-red-900/30 text-red-400 px-1.5 py-0.5 rounded border border-red-500/30 uppercase font-bold"><i className="fas fa-times"></i> Med Fit</span>}
+                                                    {w.compDoc ? <span className="text-[8px] bg-emerald-900/30 text-emerald-400 px-1.5 py-0.5 rounded border border-emerald-500/30 uppercase font-bold"><i className="fas fa-check"></i> Comp Doc</span> : <span className="text-[8px] bg-red-900/30 text-red-400 px-1.5 py-0.5 rounded border border-red-500/30 uppercase font-bold"><i className="fas fa-times"></i> Comp Doc</span>}
                                                 </div>
 
                                                 <div className="mt-3 pt-2 border-t border-slate-800 flex justify-between items-center">
@@ -773,7 +811,7 @@ export default function Contractors() {
                                                 </div>
                                             </div>
                                         ))}
-                                        {safeArr(activeVendor.workers).length === 0 && <div className="text-center text-slate-500 text-xs italic mt-4">No employees registered.</div>}
+                                        {safeArr(activeVendor.workers).length === 0 && <div className="text-center text-slate-500 text-xs italic mt-4">No employees registered. Add them from the Worker Profiles tab.</div>}
                                     </div>
                                 </div>
 
@@ -781,7 +819,8 @@ export default function Contractors() {
                                 <div className="bg-slate-950 p-6 rounded-2xl border border-slate-800 shadow-inner flex flex-col h-[70vh]">
                                     <h4 className="text-xs font-bold text-orange-400 uppercase tracking-widest border-b border-slate-800 pb-2 mb-4"><i className="fas fa-clipboard-list mr-2"></i> Work Permits (PTW)</h4>
                                     <div className="flex-1 overflow-y-auto custom-scroll pr-2 space-y-3">
-                                        {globalPermits.filter(p => p.contractorId === activeVendor.firebaseKey || (p.contractorName && activeVendor.companyName && p.contractorName.toLowerCase() === activeVendor.companyName.toLowerCase())).map((p, idx) => (
+                                        {/* Find permits for this contractor globally */}
+                                        {globalPermits.filter(p => p.contractorId === activeVendor.firebaseKey || (p.contractorName && p.contractorName.toLowerCase() === activeVendor.companyName.toLowerCase())).map((p, idx) => (
                                             <div key={idx} className={`p-3 rounded-xl border shadow-sm ${p.status === 'Closed' ? 'bg-slate-900 border-slate-700 opacity-60' : 'bg-orange-950/20 border-orange-500/30'}`}>
                                                 <div className="flex justify-between items-start mb-1">
                                                     <div className="text-[10px] font-bold uppercase tracking-widest text-orange-400">{p.permitType}</div>
@@ -794,7 +833,7 @@ export default function Contractors() {
                                                 </div>
                                             </div>
                                         ))}
-                                        {globalPermits.filter(p => p.contractorId === activeVendor.firebaseKey || (p.contractorName && activeVendor.companyName && p.contractorName.toLowerCase() === activeVendor.companyName.toLowerCase())).length === 0 && (
+                                        {globalPermits.filter(p => p.contractorId === activeVendor.firebaseKey || (p.contractorName && p.contractorName.toLowerCase() === activeVendor.companyName.toLowerCase())).length === 0 && (
                                             <div className="text-center text-slate-500 text-xs italic mt-4">No permits found for this contractor.</div>
                                         )}
                                     </div>
@@ -829,15 +868,45 @@ export default function Contractors() {
 
                                         <div className="flex flex-wrap gap-2">
                                             {activeWorker.medDoc ? (
-                                                <a href={activeWorker.medDoc} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 bg-emerald-900/30 text-emerald-400 border border-emerald-500/30 px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest hover:bg-emerald-600 hover:text-white transition-colors"><i className="fas fa-file-medical"></i> Medical Fitness (Form 33)</a>
+                                                <div className="flex items-center gap-1">
+                                                    <a href={activeWorker.medDoc} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 bg-emerald-900/30 text-emerald-400 border border-emerald-500/30 px-3 py-1.5 rounded-l-lg text-[10px] font-bold uppercase tracking-widest hover:bg-emerald-600 hover:text-white transition-colors"><i className="fas fa-file-medical"></i> Med Fitness</a>
+                                                    {canEdit && (
+                                                        <div className="relative overflow-hidden bg-slate-800 border border-slate-600 text-slate-400 hover:text-white cursor-pointer rounded-r-lg px-2 py-1.5 transition-colors" title="Update Doc">
+                                                            <input type="file" onChange={(e) => handleWorkerCoreDocUpload('med', e.target.files[0])} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" />
+                                                            <i className="fas fa-upload text-[10px]"></i>
+                                                        </div>
+                                                    )}
+                                                </div>
                                             ) : (
-                                                <span className="inline-flex items-center gap-2 bg-red-900/30 text-red-400 border border-red-500/30 px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest"><i className="fas fa-times-circle"></i> No Med Fitness Doc</span>
+                                                canEdit ? (
+                                                    <div className="relative overflow-hidden">
+                                                        <input type="file" onChange={(e) => handleWorkerCoreDocUpload('med', e.target.files[0])} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" title="Upload Medical Fitness Form 33" />
+                                                        <span className="inline-flex items-center gap-2 bg-red-900/30 text-red-400 border border-red-500/30 px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest cursor-pointer hover:bg-red-600 hover:text-white transition-colors"><i className="fas fa-upload"></i> Upload Med Fitness</span>
+                                                    </div>
+                                                ) : (
+                                                    <span className="inline-flex items-center gap-2 bg-red-900/30 text-red-400 border border-red-500/30 px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest"><i className="fas fa-times-circle"></i> No Med Fitness Doc</span>
+                                                )
                                             )}
 
                                             {activeWorker.compDoc ? (
-                                                <a href={activeWorker.compDoc} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 bg-blue-900/30 text-blue-400 border border-blue-500/30 px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest hover:bg-blue-600 hover:text-white transition-colors"><i className="fas fa-certificate"></i> Competence / License</a>
+                                                <div className="flex items-center gap-1">
+                                                    <a href={activeWorker.compDoc} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 bg-blue-900/30 text-blue-400 border border-blue-500/30 px-3 py-1.5 rounded-l-lg text-[10px] font-bold uppercase tracking-widest hover:bg-blue-600 hover:text-white transition-colors"><i className="fas fa-certificate"></i> Competence</a>
+                                                    {canEdit && (
+                                                        <div className="relative overflow-hidden bg-slate-800 border border-slate-600 text-slate-400 hover:text-white cursor-pointer rounded-r-lg px-2 py-1.5 transition-colors" title="Update Doc">
+                                                            <input type="file" onChange={(e) => handleWorkerCoreDocUpload('comp', e.target.files[0])} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" />
+                                                            <i className="fas fa-upload text-[10px]"></i>
+                                                        </div>
+                                                    )}
+                                                </div>
                                             ) : (
-                                                <span className="inline-flex items-center gap-2 bg-red-900/30 text-red-400 border border-red-500/30 px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest"><i className="fas fa-times-circle"></i> No Competence Doc</span>
+                                                canEdit ? (
+                                                    <div className="relative overflow-hidden">
+                                                        <input type="file" onChange={(e) => handleWorkerCoreDocUpload('comp', e.target.files[0])} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" title="Upload Competence Certificate" />
+                                                        <span className="inline-flex items-center gap-2 bg-red-900/30 text-red-400 border border-red-500/30 px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest cursor-pointer hover:bg-red-600 hover:text-white transition-colors"><i className="fas fa-upload"></i> Upload Competence</span>
+                                                    </div>
+                                                ) : (
+                                                    <span className="inline-flex items-center gap-2 bg-red-900/30 text-red-400 border border-red-500/30 px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest"><i className="fas fa-times-circle"></i> No Competence Doc</span>
+                                                )
                                             )}
                                         </div>
                                     </div>
