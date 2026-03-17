@@ -5,7 +5,6 @@ import { rtdb } from '../config/firebase';
 import * as XLSX from 'xlsx';
 
 // --- DATA SAFETY ENGINE ---
-// Strictly forces Firebase Objects back into Arrays to prevent React crashes
 const safeArr = (val) => {
     if (!val) return [];
     if (Array.isArray(val)) return val.filter(Boolean);
@@ -204,17 +203,35 @@ export default function Training() {
                         });
                     }
 
+                    // --- VENDOR INDUCTION SITE-MAPPING ENGINE ---
                     if (orgData.contractors) {
                         Object.entries(orgData.contractors).forEach(([key, contractor]) => {
                             const workers = safeArr(contractor.workers);
                             const pendingWorkers = workers.filter(w => !w.inductionDate || w.inductionDate === 'Pending' || w.inductionDate === '');
+
                             if (pendingWorkers.length > 0) {
-                                parsedCapas.push({
-                                    uid: `CONT-IND-${key}`, source: 'Contractor Induction', sourceId: contractor.companyName,
-                                    desc: `Mandatory Site Induction for ${pendingWorkers.length} worker(s): ${pendingWorkers.map(w => w.name).join(', ')}`,
-                                    owner: contractor.contactPerson || 'Vendor', due: new Date().toISOString().split('T')[0], status: 'Open',
-                                    siteId: contractor.siteId || 'Global', contractorKey: key,
-                                    pendingWorkersInfo: pendingWorkers.map(w => ({ id: w.id, name: w.name, role: w.role }))
+                                // Group workers by their specific Deployed Site
+                                const siteGroups = {};
+                                pendingWorkers.forEach(w => {
+                                    const dSite = w.deployedSite || safeArr(contractor.allocatedSites)[0] || contractor.siteId || 'GLOBAL';
+                                    if (!siteGroups[dSite]) siteGroups[dSite] = [];
+                                    siteGroups[dSite].push(w);
+                                });
+
+                                // Generate a separate Induction Training Task for each Deployment Site
+                                Object.entries(siteGroups).forEach(([dSite, sWorkers]) => {
+                                    parsedCapas.push({
+                                        uid: `CONT-IND-${key}-${dSite.replace(/\s+/g, '-')}`,
+                                        source: 'Contractor Induction',
+                                        sourceId: contractor.companyName,
+                                        desc: `Mandatory Site Safety Induction for ${sWorkers.length} worker(s) at ${dSite}: ${sWorkers.map(w => w.name).join(', ')}`,
+                                        owner: contractor.contactPerson || 'Vendor',
+                                        due: new Date().toISOString().split('T')[0], // Due Immediately
+                                        status: 'Open',
+                                        siteId: dSite, // Form will auto-select this specific site!
+                                        contractorKey: key,
+                                        pendingWorkersInfo: sWorkers.map(w => ({ id: w.id, name: w.name, role: w.role, deployedSite: dSite }))
+                                    });
                                 });
                             }
                         });
@@ -349,35 +366,30 @@ export default function Training() {
     const allMatrixRows = useMemo(() => {
         let merged = [];
 
-        // 1. Add Internal Users
         users.forEach(u => merged.push({
             id: u.id, name: u.name, role: u.role, assignedSite: u.assignedSite, accessibleSites: safeArr(u.accessibleSites), type: 'Internal'
         }));
 
-        // 2. Add Contractor Workers (Injecting them into the Matrix)
         contractors.forEach(c => {
             safeArr(c.workers).forEach(w => {
                 merged.push({
-                    id: w.id, name: w.name, role: `${w.role} (Contractor)`, assignedSite: c.siteId, type: 'Contractor', contractorId: c.firebaseKey, companyName: c.companyName
+                    id: w.id, name: w.name, role: `${w.role} (Contractor)`, assignedSite: w.deployedSite || c.siteId, type: 'Contractor', contractorId: c.firebaseKey, companyName: c.companyName
                 });
             });
         });
 
-        // Matrix Site Filter
         if (matrixSiteFilter !== 'All') {
             merged = merged.filter(u => u.assignedSite === matrixSiteFilter || safeArr(u.accessibleSites).includes(matrixSiteFilter));
         } else if (!isGlobalUser) {
             merged = merged.filter(u => allowedSiteCodes.has(u.assignedSite) || safeArr(u.accessibleSites).some(s => allowedSiteCodes.has(s)));
         }
 
-        // Matrix Contractor/Internal Filter
         if (matrixContractorFilter === 'Internal') {
             merged = merged.filter(u => u.type === 'Internal');
         } else if (matrixContractorFilter !== 'All') {
             merged = merged.filter(u => u.contractorId === matrixContractorFilter);
         }
 
-        // Search Filter
         if (searchTerm) {
             merged = merged.filter(u => u.name.toLowerCase().includes(searchTerm.toLowerCase()));
         }
@@ -394,7 +406,10 @@ export default function Training() {
             if (intUser) return intUser.assignedSite === filterSite || safeArr(intUser.accessibleSites).includes(filterSite);
 
             const contWorker = contractors.find(c => safeArr(c.workers).some(w => w.name === a.userName));
-            if (contWorker) return contWorker.siteId === filterSite || contWorker.siteId === 'GLOBAL';
+            if (contWorker) {
+                const w = safeArr(contWorker.workers).find(x => x.name === a.userName);
+                return (w && w.deployedSite === filterSite) || contWorker.siteId === filterSite;
+            }
 
             return false;
         });
@@ -437,7 +452,7 @@ export default function Training() {
             status: 'Attended'
         }));
 
-        let derivedSite = getSmartSiteDefault();
+        let derivedSite = usersToRetrain[0]?.assignedSite || getSmartSiteDefault();
         const today = new Date().toISOString().split('T')[0];
 
         setData({
@@ -465,7 +480,7 @@ export default function Training() {
         } else if (capaItem.source === 'Contractor Induction') {
             targetAudience = 'Contractor';
             contractorId = capaItem.contractorKey;
-            initialContent = `=== CONTRACTOR SITE INDUCTION ===\n\nCompany: ${capaItem.sourceId}\nConducting mandatory site safety induction for pending contractor personnel.`;
+            initialContent = `=== CONTRACTOR SITE INDUCTION ===\n\nCompany: ${capaItem.sourceId}\nConducting mandatory site safety induction for pending contractor personnel deployed at ${capaItem.siteId}.`;
             prefilledAttendees = (capaItem.pendingWorkersInfo || []).map(w => ({
                 userId: 'External', name: w.name, role: `${w.role} (Contractor)`, status: 'Attended'
             }));
@@ -474,7 +489,9 @@ export default function Training() {
         }
 
         setData({
-            id: '', siteId: getSmartSiteDefault(capaItem.siteId), topic: capaItem.source === 'Contractor Induction' ? 'Site Safety Induction' : capaItem.desc,
+            id: '',
+            siteId: capaItem.siteId || getSmartSiteDefault(), // Prefills exact deployed site
+            topic: capaItem.source === 'Contractor Induction' ? 'Site Safety Induction' : capaItem.desc, // Hardcodes Induction Title
             content: initialContent, date: today, expiryDate: addMonths(today, 6), trainer: '', type: 'Internal Formal', duration: '1 Hour',
             targetAudience, contractorId, attendees: prefilledAttendees, linkedCapa: capaItem
         });
@@ -597,7 +614,10 @@ export default function Training() {
                 if (intUser) return intUser.assignedSite === calendarSiteFilter || safeArr(intUser.accessibleSites).includes(calendarSiteFilter);
 
                 const contWorker = contractors.find(c => safeArr(c.workers).some(w => w.name === exp.userName));
-                if (contWorker) return contWorker.siteId === calendarSiteFilter || contWorker.siteId === 'GLOBAL';
+                if (contWorker) {
+                    const w = safeArr(contWorker.workers).find(x => x.name === exp.userName);
+                    return (w && w.deployedSite === calendarSiteFilter) || contWorker.siteId === calendarSiteFilter || contWorker.siteId === 'GLOBAL';
+                }
 
                 return false;
             });
@@ -821,7 +841,7 @@ export default function Training() {
                                         <select value={matrixContractorFilter} onChange={e => setMatrixContractorFilter(e.target.value)} className="bg-slate-950 border border-slate-700 rounded-xl pl-10 pr-4 py-2.5 text-xs font-bold text-purple-300 outline-none focus:border-purple-500 appearance-none shadow-inner w-52 truncate">
                                             <option value="All">All Personnel (Int & Ext)</option>
                                             <option value="Internal">Internal Employees Only</option>
-                                            {contractors.filter(c => matrixSiteFilter === 'All' || c.siteId === matrixSiteFilter || c.siteId === 'GLOBAL').map(c => (
+                                            {contractors.filter(c => matrixSiteFilter === 'All' || safeArr(c.allocatedSites).includes(matrixSiteFilter) || c.siteId === 'GLOBAL').map(c => (
                                                 <option key={c.firebaseKey} value={c.firebaseKey}>{c.companyName}</option>
                                             ))}
                                         </select>
@@ -878,11 +898,7 @@ export default function Training() {
                                                 {displayedTopics.map(t => {
                                                     const cell = getMatrixCell(u.name, u.role, t);
                                                     return (
-                                                        <td key={t} className="p-3 text-center border-r border-slate-800/50 relative group hover:bg-slate-800/80 cursor-pointer transition-colors" onClick={() => {
-                                                            if (permissions.canEditCreate) {
-                                                                cell.status !== 'N/A' && cell.status !== 'Not Trained' ? initiateRetraining(t, [cell.certObj]) : initiateRetraining(t, [{ userName: u.name, userId: u.id, assignedSite: u.assignedSite }])
-                                                            }
-                                                        }}>
+                                                        <td key={t} className="p-3 text-center border-r border-slate-800/50 relative group hover:bg-slate-800/80 transition-colors">
                                                             <div className={`px-2 py-1.5 rounded-lg text-[10px] font-bold border ${cell.color} w-full text-center shadow-sm tracking-wider uppercase`}>{cell.status}</div>
                                                             {cell.status !== 'Not Trained' && cell.status !== 'N/A' && (
                                                                 <div className="text-[9px] text-slate-400 mt-2 flex flex-col gap-1 opacity-60 group-hover:opacity-100 transition-opacity font-mono">
@@ -1015,7 +1031,7 @@ export default function Training() {
                                                 <label className="text-[10px] uppercase font-bold text-purple-400 block mb-2 tracking-widest ml-1"><i className="fas fa-building mr-1"></i> Contractor Company</label>
                                                 <select value={data.contractorId} onChange={e => setData({ ...data, contractorId: e.target.value, attendees: [] })} disabled={data.firebaseKey || !canEditForm} className="w-full text-sm font-bold text-white bg-slate-950 border border-slate-700 p-3 rounded-xl outline-none focus:border-purple-500 shadow-inner transition-colors">
                                                     <option value="">Select Vendor...</option>
-                                                    {contractors.filter(c => !data.siteId || c.siteId === data.siteId || c.siteId === 'GLOBAL').map(c => (
+                                                    {contractors.filter(c => !data.siteId || safeArr(c.allocatedSites).includes(data.siteId) || c.siteId === 'GLOBAL').map(c => (
                                                         <option key={c.firebaseKey} value={c.firebaseKey}>{c.companyName}</option>
                                                     ))}
                                                 </select>
@@ -1057,8 +1073,8 @@ export default function Training() {
                                                     <label className="text-[10px] uppercase font-bold text-slate-500 block mb-2 ml-1 tracking-widest">Select From Database</label>
                                                     <div className="flex gap-2">
                                                         <select value={selectedUserToAdd} onChange={e => setSelectedUserToAdd(e.target.value)} disabled={data.targetAudience === 'Contractor' && !data.contractorId} className="w-full text-sm font-bold text-white bg-slate-950 border border-slate-700 rounded-xl p-3 outline-none focus:border-emerald-500 shadow-inner transition-colors disabled:opacity-50">
-                                                            <option value="">{data.targetAudience === 'Contractor' && !data.contractorId ? 'Select Contractor Company first...' : `Select ${data.targetAudience} Personnel...`}</option>
-                                                            {availableWorkersForForm.map(u => (
+                                                            <option value="">{data.targetAudience === 'Contractor' && !data.contractorId ? 'Select Contractor Company first...' : `Select ${data.targetAudience} Personnel deployed at ${data.siteId}...`}</option>
+                                                            {availableWorkersForForm.filter(w => w.deployedSite === data.siteId || data.targetAudience === 'Internal').map(u => (
                                                                 <option key={u.id} value={u.name}>{u.name} ({u.role})</option>
                                                             ))}
                                                         </select>
