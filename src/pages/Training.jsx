@@ -78,7 +78,7 @@ export default function Contractors() {
 
     const [session, setSession] = useState(null);
     const [loading, setLoading] = useState(true);
-    const [view, setView] = useState('register'); // 'register' | 'companies' | 'workers' | 'deployments'
+    const [view, setView] = useState('register');
 
     const [contractors, setContractors] = useState([]);
     const [sites, setSites] = useState([]);
@@ -639,9 +639,9 @@ export default function Contractors() {
                         {view === 'workers' && (
                             <div className="space-y-6">
                                 <div className="flex justify-between items-center mb-4">
-                                    <div className="flex items-center gap-2 bg-slate-900/50 p-2 rounded-xl border border-slate-800">
+                                    <div className="flex items-center gap-2 bg-slate-900/50 p-2 rounded-xl border border-slate-800 shadow-inner">
                                         <i className="fas fa-filter text-slate-500 ml-2"></i>
-                                        <select value={workerCompanyFilter} onChange={e => setWorkerCompanyFilter(e.target.value)} className="bg-slate-950 border border-slate-700 text-white text-xs font-bold px-4 py-2 rounded-lg outline-none w-64">
+                                        <select value={workerCompanyFilter} onChange={e => setWorkerCompanyFilter(e.target.value)} className="bg-slate-950 border border-slate-700 text-white text-xs font-bold px-4 py-2 rounded-lg outline-none w-64 shadow-inner">
                                             <option value="All">Filter by Company (All)</option>
                                             {visibleContractors.map(c => <option key={c.firebaseKey} value={c.firebaseKey}>{c.companyName}</option>)}
                                         </select>
@@ -676,7 +676,7 @@ export default function Contractors() {
                                                     </td>
                                                 </tr>
                                             ))}
-                                            {allWorkers.length === 0 && <tr><td colSpan="6" className="p-12 text-center text-slate-500 italic">No workers found. Select a company and add workers to their roster.</td></tr>}
+                                            {allWorkers.length === 0 && <tr><td colSpan="6" className="p-12 text-center text-slate-500 italic">No workers found. Register a worker to get started.</td></tr>}
                                         </tbody>
                                     </table>
                                 </div>
