@@ -87,22 +87,18 @@ export default function Contractors() {
     const [deploymentCompanyFilter, setDeploymentCompanyFilter] = useState('All');
     const [saving, setSaving] = useState(false);
 
-    // Global Cross-Module Data
     const [globalTrainings, setGlobalTrainings] = useState([]);
     const [globalPermits, setGlobalPermits] = useState([]);
     const [globalIncidents, setGlobalIncidents] = useState([]);
 
-    // Form State for Company
     const [formData, setFormData] = useState({
         id: '', allocatedSites: [], companyName: '', contactPerson: '', email: '', phone: '',
         serviceType: 'General / Housekeeping', goodsType: 'PPE', notes: '', status: 'Pending Review',
         documents: getMandatoryDocs('General / Housekeeping'), workers: []
     });
 
-    // Form State for New Worker Modal
     const [addWorkerData, setAddWorkerData] = useState({ contractorId: '', name: '', role: 'Worker', competence: '', deployedSite: '' });
 
-    // Modals
     const [activeVendor, setActiveVendor] = useState(null);
     const [editingVendor, setEditingVendor] = useState(null);
     const [activeWorker, setActiveWorker] = useState(null);
@@ -140,13 +136,13 @@ export default function Contractors() {
                     if (data.sites) setSites(Object.keys(data.sites).map(key => ({ code: data.sites[key].code || key, name: data.sites[key].name || key })));
                     if (data.trainings) setGlobalTrainings(safeArr(data.trainings));
 
-                    // Fetch Permits
-                    if (data.workPermits) {
+                    // ACCURATE DB NODE: Fetch Permits from ptwRecords
+                    if (data.ptwRecords) {
                         let ptwArr = [];
-                        if (Array.isArray(data.workPermits)) {
-                            ptwArr = data.workPermits.filter(Boolean).map((v, i) => ({ ...v, firebaseKey: String(i) }));
+                        if (Array.isArray(data.ptwRecords)) {
+                            ptwArr = data.ptwRecords.filter(Boolean).map((v, i) => ({ ...v, firebaseKey: String(i) }));
                         } else {
-                            ptwArr = Object.entries(data.workPermits).map(([k, v]) => ({ ...v, firebaseKey: k }));
+                            ptwArr = Object.entries(data.ptwRecords).map(([k, v]) => ({ ...v, firebaseKey: k }));
                         }
                         setGlobalPermits(ptwArr);
                     }
@@ -960,14 +956,14 @@ export default function Contractors() {
                                         {globalPermits.filter(p => p.contractorId === activeVendor.firebaseKey || (p.contractorName && p.contractorName.toLowerCase() === activeVendor.companyName.toLowerCase())).map((p, idx) => (
                                             <div key={idx} className={`p-3 rounded-xl border shadow-sm ${p.status === 'Closed' ? 'bg-slate-900 border-slate-700 opacity-60' : 'bg-orange-950/20 border-orange-500/30'}`}>
                                                 <div className="flex justify-between items-start mb-1">
-                                                    <div className="text-[10px] font-bold uppercase tracking-widest text-orange-400">{p.permitType}</div>
+                                                    <div className="text-[10px] font-bold uppercase tracking-widest text-orange-400">{p.permitType || p.typeId}</div>
                                                     <div className="text-[9px] font-mono text-slate-500">{p.id || 'PTW'}</div>
                                                 </div>
-                                                <div className="text-xs text-white font-medium mb-2 leading-tight">{p.workDescription}</div>
+                                                <div className="text-xs text-white font-medium mb-2 leading-tight">{p.workDescription || p.description}</div>
 
                                                 {/* NON COMPLIANCES DISPLAY */}
                                                 {safeArr(p.nonCompliances).length > 0 && (
-                                                    <div className="mb-3 bg-red-950/30 border border-red-500/30 rounded p-2">
+                                                    <div className="mb-3 bg-red-950/30 border border-red-500/30 rounded p-2 mt-2">
                                                         <div className="text-[8px] font-bold text-red-400 uppercase tracking-widest mb-1"><i className="fas fa-exclamation-triangle"></i> Permit Non-Compliances</div>
                                                         <ul className="list-disc pl-3 text-[10px] text-slate-300 space-y-1">
                                                             {safeArr(p.nonCompliances).map((nc, i) => <li key={i}>{nc.desc || nc}</li>)}
@@ -975,8 +971,8 @@ export default function Contractors() {
                                                     </div>
                                                 )}
 
-                                                <div className="flex justify-between items-center text-[9px] uppercase font-bold">
-                                                    <span className="text-slate-400">{p.date || p.createdAt?.split('T')[0]}</span>
+                                                <div className="flex justify-between items-center text-[9px] uppercase font-bold mt-2">
+                                                    <span className="text-slate-400">{p.date || (p.validFromDate ? `${p.validFromDate} to ${p.validToDate}` : p.createdAt?.split('T')[0])}</span>
                                                     <span className={p.status === 'Closed' ? 'text-emerald-500' : 'text-yellow-500 animate-pulse'}>{p.status}</span>
                                                 </div>
                                             </div>
@@ -1201,7 +1197,7 @@ export default function Contractors() {
                                                         <div className="font-bold text-xs uppercase tracking-widest text-red-400">{inc.type || inc.incidentType || 'Incident'}</div>
                                                         <div className="text-[10px] font-mono text-slate-400 bg-slate-950 px-2 py-1 rounded">{inc.date || inc.incidentDate || 'Unknown Date'}</div>
                                                     </div>
-                                                    <div className="text-xs text-white font-medium mb-2 leading-tight">{inc.desc || inc.description || 'No description provided.'}</div>
+                                                    <div className="text-xs text-slate-300 leading-relaxed">{inc.desc || inc.description || 'No description provided.'}</div>
                                                 </div>
                                             ))}
                                             {safeArr(activeWorker.injuriesList).length === 0 && (
