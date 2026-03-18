@@ -116,6 +116,8 @@ export default function PTW() {
     const [printData, setPrintData] = useState(null);
     const [qrImage, setQrImage] = useState(null);
     const [inspectionModal, setInspectionModal] = useState(null);
+    // FIX: separate observation text state to avoid fake-event hacks
+    const [inspectionObservation, setInspectionObservation] = useState('');
     const [newNC, setNewNC] = useState('');
 
     const [reassignModal, setReassignModal] = useState(null);
@@ -223,7 +225,7 @@ export default function PTW() {
 
 
     // ==========================================
-    // AUTHORIZATION & FILTER LOGIC (Consolidated)
+    // AUTHORIZATION & FILTER LOGIC
     // ==========================================
 
     const isGlobalUser = useMemo(() => {
@@ -233,8 +235,6 @@ export default function PTW() {
         const access = session.accessibleSites || [];
         return role === 'Owner' || role === 'Admin' || role === 'Lead Auditor' || role === 'Global Owner' || role === 'Global Manager' || site === 'GLOBAL' || access.includes('GLOBAL');
     }, [session]);
-
-    const canEdit = permissions.canEditCreate;
 
     const allowedSiteCodes = useMemo(() => {
         if (!session) return new Set();
@@ -363,16 +363,20 @@ export default function PTW() {
         setCurrentView('builder');
     };
 
+    const handleTypeChange = (newTypeId) => {
+        if (!canEditForm) return;
+        const tConfig = getTypeConfig(newTypeId);
+        setFormData(prev => ({
+            ...prev,
+            typeId: newTypeId,
+            permitType: tConfig.label,
+            checklist: prev.status === 'Draft' ? (CHECKLIST_ITEMS[newTypeId] || CHECKLIST_ITEMS['GEN']).map(item => ({ label: item, checked: false })) : prev.checklist
+        }));
+    };
+
     const updateField = (field, value) => {
         if (!canEditForm) return;
-        setFormData(prev => {
-            const next = { ...prev, [field]: value };
-            if (field === 'typeId' && prev.status === 'Draft') {
-                const targetChecklist = CHECKLIST_ITEMS[value] || CHECKLIST_ITEMS['GEN'];
-                next.checklist = targetChecklist.map(item => ({ label: item, checked: false }));
-            }
-            return next;
-        });
+        setFormData(prev => ({ ...prev, [field]: value }));
     };
 
     const toggleWorker = (name) => {
@@ -489,25 +493,24 @@ export default function PTW() {
         }
     };
 
-    const handleInspectionSubmit = async (e, isNegative) => {
-        e.preventDefault();
-        if (!inspectionModal.firebaseKey) return alert("Database error: Permit missing key.");
+    // FIX: Rewrote to use inspectionObservation state instead of fake event hacks
+    const handleInspectionSubmit = async (isNegative) => {
+        if (!inspectionModal?.firebaseKey) return alert("Database error: Permit missing key.");
+        if (!inspectionObservation.trim()) return alert("Please enter an observation before submitting.");
 
-        const obsText = e.target.observation.value;
         try {
             const updates = {
-                lastInspection: obsText,
+                lastInspection: inspectionObservation,
                 lastInspectionDate: new Date().toISOString(),
                 lastInspector: session.email || session.name
             };
 
             if (isNegative) {
                 updates.status = 'Cancelled';
-                updates.cancellationReason = "Failed Workplace Inspection: " + obsText;
+                updates.cancellationReason = "Failed Workplace Inspection: " + inspectionObservation;
 
-                // If it's a contractor, automatically log the failed inspection as a non-compliance
                 if (inspectionModal.workerType === 'Contractor') {
-                    const newRecord = { id: Date.now(), desc: `CRITICAL SAFETY FAILURE: ${obsText}`, date: new Date().toISOString().split('T')[0] };
+                    const newRecord = { id: Date.now(), desc: `CRITICAL SAFETY FAILURE: ${inspectionObservation}`, date: new Date().toISOString().split('T')[0] };
                     updates.nonCompliances = [...safeArr(inspectionModal.nonCompliances), newRecord];
                 }
 
@@ -518,6 +521,7 @@ export default function PTW() {
 
             await update(ref(rtdb, `organizations/${session.orgId}/ptwRecords/${inspectionModal.firebaseKey}`), updates);
             setPermits(permits.map(p => p.id === inspectionModal.id ? normalizePermit({ ...p, ...updates }) : p));
+            setInspectionObservation('');
             setInspectionModal(null);
         } catch (err) { alert("Error logging inspection: " + err.message); }
     };
@@ -693,7 +697,7 @@ export default function PTW() {
                 <div className="flex gap-3 px-8 pt-6 bg-slate-950 flex-wrap border-b border-slate-800 pb-4 z-10">
                     <button type="button" onClick={() => setCurrentView('dashboard')} className={`px-5 py-2.5 rounded-lg font-bold text-sm transition-all flex items-center shadow-sm border ${currentView === 'dashboard' ? 'bg-amber-600 text-white border-amber-500 shadow-amber-900/50' : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700 hover:text-white'}`}><i className="fas fa-chart-pie mr-2"></i> PTW Dashboard</button>
                     <button type="button" onClick={() => setCurrentView('inventory')} className={`px-5 py-2.5 rounded-lg font-bold text-sm transition-all flex items-center shadow-sm border ${currentView === 'inventory' ? 'bg-amber-600 text-white border-amber-500 shadow-amber-900/50' : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700 hover:text-white'}`}><i className="fas fa-folder-open mr-2"></i> Permit Registry</button>
-                    {canEdit && (
+                    {permissions.canEditCreate && (
                         <button type="button" onClick={() => openForm()} className={`px-5 py-2.5 rounded-lg font-bold text-sm transition-all flex items-center shadow-sm border ${currentView === 'builder' ? 'bg-emerald-600 text-white border-emerald-500 shadow-emerald-900/50' : 'bg-slate-800 text-emerald-400 border-slate-700 hover:bg-slate-700 hover:text-emerald-300'}`}><i className="fas fa-plus mr-2"></i> Issue Permit</button>
                     )}
                 </div>
@@ -855,7 +859,7 @@ export default function PTW() {
                                                         {/* STAGE 2: WORK IN PROGRESS */}
                                                         {p.status === 'Work in Progress' && (
                                                             <>
-                                                                <button type="button" onClick={() => setInspectionModal(p)} className="bg-orange-600 hover:bg-orange-500 text-white px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase transition shadow"><i className="fas fa-search mr-1"></i> Inspect</button>
+                                                                <button type="button" onClick={() => { setInspectionObservation(''); setInspectionModal(p); }} className="bg-orange-600 hover:bg-orange-500 text-white px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase transition shadow"><i className="fas fa-search mr-1"></i> Inspect</button>
                                                                 {amICreator && (
                                                                     <button type="button" onClick={() => handleRequestClosure(p)} className="bg-slate-700 hover:bg-slate-600 text-white px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase transition border border-slate-500 shadow">Close Work</button>
                                                                 )}
@@ -902,9 +906,7 @@ export default function PTW() {
                                             <button type="button" onClick={() => handleSave(false)} className="bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 text-white px-8 py-2.5 rounded-xl font-bold text-sm shadow-lg shadow-emerald-900/50 transition font-['Inter'] flex items-center gap-2"><i className="fas fa-paper-plane"></i> Submit for Authorization</button>
                                         </>
                                     ) : (
-                                        <>
-                                            <button type="button" onClick={() => triggerPrint(formData)} className="bg-slate-800 hover:bg-slate-700 border border-slate-600 text-white px-6 py-2.5 rounded-xl font-bold text-sm shadow transition flex items-center gap-2 font-['Inter']"><i className="fas fa-print"></i> Print Permit</button>
-                                        </>
+                                        <button type="button" onClick={() => triggerPrint(formData)} className="bg-slate-800 hover:bg-slate-700 border border-slate-600 text-white px-6 py-2.5 rounded-xl font-bold text-sm shadow transition flex items-center gap-2 font-['Inter']"><i className="fas fa-print"></i> Print Permit</button>
                                     )}
                                 </div>
                             </div>
@@ -1112,7 +1114,7 @@ export default function PTW() {
                                     </div>
                                 </div>
 
-                                {/* AUDIT / NON-COMPLIANCE SECTION (Only visible after draft phase) */}
+                                {/* AUDIT / NON-COMPLIANCE SECTION */}
                                 {formData.firebaseKey && formData.status !== 'Draft' && (
                                     <div className="bg-red-950/20 p-8 rounded-3xl shadow-xl border-t-4 border-red-500 border-x border-b border-red-500/30">
                                         <h3 className="text-xl font-bold text-white flex items-center gap-3 mb-6 border-b border-red-500/30 pb-4 font-['Space_Grotesk']"><i className="fas fa-exclamation-triangle text-red-500"></i> Permit Non-Compliances</h3>
@@ -1173,229 +1175,242 @@ export default function PTW() {
                                 </div>
                             </div>
 
+                            {/* FIX: Replaced undefined `canEdit` with `canEditForm` */}
                             <div className="flex justify-end gap-4 pt-6 border-t border-slate-800">
                                 {formData.firebaseKey && (
                                     <>
-                                        <button onClick={() => setInspectionModal(formData)} className="px-6 py-3 rounded-xl font-bold bg-orange-600 text-white shadow-lg hover:bg-orange-500 transition flex items-center gap-2 uppercase tracking-widest text-xs"><i className="fas fa-search"></i> Inspect Area</button>
-                                        <button onClick={() => triggerPrint(formData)} className="px-6 py-3 rounded-xl font-bold bg-slate-800 text-white shadow-lg hover:bg-slate-700 transition flex items-center gap-2 uppercase tracking-widest text-xs"><i className="fas fa-print"></i> Print</button>
+                                        <button type="button" onClick={() => { setInspectionObservation(''); setInspectionModal(formData); }} className="px-6 py-3 rounded-xl font-bold bg-orange-600 text-white shadow-lg hover:bg-orange-500 transition flex items-center gap-2 uppercase tracking-widest text-xs"><i className="fas fa-search"></i> Inspect Area</button>
+                                        <button type="button" onClick={() => triggerPrint(formData)} className="px-6 py-3 rounded-xl font-bold bg-slate-800 text-white shadow-lg hover:bg-slate-700 transition flex items-center gap-2 uppercase tracking-widest text-xs"><i className="fas fa-print"></i> Print</button>
                                     </>
                                 )}
                                 <div className="flex-1"></div>
-                                <button onClick={() => setCurrentView('dashboard')} className="px-6 py-3 rounded-xl font-bold text-slate-400 hover:text-white transition uppercase tracking-widest text-xs border border-slate-700">Close Form</button>
-                                {canEdit && (
-                                    <button onClick={() => handleSave(formData.status === 'Draft')} disabled={saving} className="px-10 py-3 rounded-xl font-bold bg-emerald-600 text-white shadow-lg shadow-emerald-600/20 hover:bg-emerald-500 transition flex items-center gap-2 uppercase tracking-widest text-xs disabled:opacity-50">
+                                <button type="button" onClick={() => setCurrentView('dashboard')} className="px-6 py-3 rounded-xl font-bold text-slate-400 hover:text-white transition uppercase tracking-widest text-xs border border-slate-700">Close Form</button>
+                                {canEditForm && (
+                                    <button type="button" onClick={() => handleSave(formData.status === 'Draft')} disabled={saving} className="px-10 py-3 rounded-xl font-bold bg-emerald-600 text-white shadow-lg shadow-emerald-600/20 hover:bg-emerald-500 transition flex items-center gap-2 uppercase tracking-widest text-xs disabled:opacity-50">
                                         {saving ? <i className="fas fa-spinner fa-spin"></i> : <i className="fas fa-save"></i>} {formData.status === 'Draft' ? 'Save Draft' : 'Update Permit'}
                                     </button>
                                 )}
                             </div>
                         </div>
                     )}
+
+                </main>
+
             </div>
-        </main >
 
-            {/* INSPECTION MODAL */ }
-    {
-        inspectionModal && (
-            <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-                <div className="bg-slate-900 border border-slate-700 rounded-3xl p-8 max-w-lg w-full shadow-2xl animate-fade-in font-['Space_Grotesk']">
-                    <h2 className="text-xl font-bold text-white mb-2"><i className="fas fa-search text-orange-500 mr-2"></i> Conduct Inspection</h2>
-                    <p className="text-xs text-slate-400 mb-6">Location: <span className="text-fuchsia-400 font-bold">{inspectionModal.location}</span></p>
+            {/* INSPECTION MODAL */}
+            {inspectionModal && (
+                <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                    <div className="bg-slate-900 border border-slate-700 rounded-3xl p-8 max-w-lg w-full shadow-2xl animate-fade-in font-['Space_Grotesk']">
+                        <h2 className="text-xl font-bold text-white mb-2"><i className="fas fa-search text-orange-500 mr-2"></i> Conduct Inspection</h2>
+                        <p className="text-xs text-slate-400 mb-6">Location: <span className="text-fuchsia-400 font-bold">{inspectionModal.location}</span></p>
 
-                    <form onSubmit={(e) => handleInspectionSubmit(e, false)} id="safe-form">
                         <label className="text-[10px] uppercase font-bold text-slate-400 block mb-2">Observation Notes</label>
-                        <textarea name="observation" required rows="4" className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-sm outline-none focus:border-orange-500 mb-6 font-['Inter'] text-white" placeholder="Log site conditions, PPE usage, etc..."></textarea>
+                        {/* FIX: Replaced uncontrolled form with controlled state */}
+                        <textarea
+                            value={inspectionObservation}
+                            onChange={e => setInspectionObservation(e.target.value)}
+                            rows="4"
+                            className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-sm outline-none focus:border-orange-500 mb-6 font-['Inter'] text-white"
+                            placeholder="Log site conditions, PPE usage, etc..."
+                        ></textarea>
 
                         <div className="flex flex-col gap-3">
-                            <button type="submit" form="safe-form" className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 rounded-xl transition-all uppercase tracking-widest text-xs shadow-lg">
+                            <button
+                                type="button"
+                                onClick={() => handleInspectionSubmit(false)}
+                                className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 rounded-xl transition-all uppercase tracking-widest text-xs shadow-lg"
+                            >
                                 <i className="fas fa-check-circle mr-2"></i> Log as Safe & Continue
                             </button>
 
-                            <button type="button" onClick={(e) => handleInspectionSubmit({ preventDefault: () => { }, target: document.getElementById('safe-form') }, true)} className="w-full bg-red-900/50 hover:bg-red-600 border border-red-500/50 text-white font-bold py-3 rounded-xl transition-all uppercase tracking-widest text-xs">
+                            <button
+                                type="button"
+                                onClick={() => handleInspectionSubmit(true)}
+                                className="w-full bg-red-900/50 hover:bg-red-600 border border-red-500/50 text-white font-bold py-3 rounded-xl transition-all uppercase tracking-widest text-xs"
+                            >
                                 <i className="fas fa-ban mr-2"></i> Log Unsafe (Cancel Permit)
                             </button>
 
-                            <button type="button" onClick={() => setInspectionModal(null)} className="w-full bg-slate-800 hover:bg-slate-700 text-white font-bold py-3 rounded-xl transition-all uppercase tracking-widest text-xs mt-2">
+                            <button
+                                type="button"
+                                onClick={() => { setInspectionObservation(''); setInspectionModal(null); }}
+                                className="w-full bg-slate-800 hover:bg-slate-700 text-white font-bold py-3 rounded-xl transition-all uppercase tracking-widest text-xs mt-2"
+                            >
                                 Close Menu
                             </button>
                         </div>
-                    </form>
-                </div>
-            </div>
-        )
-    }
-
-    {/* REASSIGN APPROVER MODAL */ }
-    {
-        reassignModal && (
-            <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-                <div className="bg-slate-900 border border-slate-700 rounded-3xl p-8 max-w-md w-full shadow-2xl animate-fade-in font-['Space_Grotesk']">
-                    <h2 className="text-xl font-bold text-white mb-2"><i className="fas fa-user-edit text-amber-500 mr-2"></i> Reassign Approver</h2>
-                    <p className="text-xs text-slate-400 mb-6 leading-relaxed">Select a new <strong className="text-white">{reassignModal.role === 'eng' ? 'Engineering' : 'Production'}</strong> approver for Permit <span className="font-mono text-amber-400">{reassignModal.permit.id}</span>.</p>
-
-                    <select value={newApproverEmail} onChange={e => setNewApproverEmail(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-sm text-white mb-6 outline-none focus:border-amber-500 font-bold">
-                        <option value="">-- Select New Approver --</option>
-                        {users.filter(u => u.assignedSite === reassignModal.permit.siteId || safeArr(u.accessibleSites).includes(reassignModal.permit.siteId) || u.assignedSite === 'GLOBAL').map(u => (
-                            <option key={u.id} value={u.email || u.name}>{u.name} ({u.email || 'System Auth'})</option>
-                        ))}
-                    </select>
-
-                    <div className="flex gap-3">
-                        <button type="button" onClick={handleReassign} className="flex-1 bg-amber-600 hover:bg-amber-500 text-white font-bold py-3 rounded-xl transition-all text-[10px] uppercase tracking-widest shadow-lg">Confirm</button>
-                        <button type="button" onClick={() => setReassignModal(null)} className="flex-1 bg-slate-800 hover:bg-slate-700 text-white font-bold py-3 rounded-xl transition-all text-[10px] uppercase tracking-widest border border-slate-700">Cancel</button>
                     </div>
                 </div>
-            </div>
-        )
-    }
+            )}
 
-    {/* PRINT VIEW LAYER */ }
-    {
-        printData && (
-            <div className="hidden print:block p-8 bg-white text-black w-full" style={{ WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
-                <div className="flex justify-between items-center border-b-2 border-black pb-4 mb-6">
-                    <div className="text-left w-3/4">
-                        <div className="text-xs text-gray-500 font-bold mb-1 tracking-widest uppercase">OHSMS - FORMAL RECORD (ISO 45001)</div>
-                        <h1 className="text-2xl font-black uppercase m-0 p-0 leading-tight">{(getTypeConfig(printData.typeId) || PERMIT_TYPES[5]).label}</h1>
-                    </div>
-                    <div className="w-1/4 text-right flex justify-end">
-                        {qrImage && <img src={qrImage} alt="QR Code" className="w-24 h-24 border-2 border-black p-1" />}
-                    </div>
-                </div>
+            {/* REASSIGN APPROVER MODAL */}
+            {reassignModal && (
+                <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                    <div className="bg-slate-900 border border-slate-700 rounded-3xl p-8 max-w-md w-full shadow-2xl animate-fade-in font-['Space_Grotesk']">
+                        <h2 className="text-xl font-bold text-white mb-2"><i className="fas fa-user-edit text-amber-500 mr-2"></i> Reassign Approver</h2>
+                        <p className="text-xs text-slate-400 mb-6 leading-relaxed">Select a new <strong className="text-white">{reassignModal.role === 'eng' ? 'Engineering' : 'Production'}</strong> approver for Permit <span className="font-mono text-amber-400">{reassignModal.permit.id}</span>.</p>
 
-                <div className="border border-black bg-gray-50 p-4 mb-6">
-                    <table className="w-full text-sm border-none">
-                        <tbody>
-                            <tr>
-                                <td className="w-[15%] py-1.5 font-bold border-b border-gray-300">Permit No:</td><td className="w-[35%] py-1.5 font-mono text-lg font-black border-b border-gray-300">{printData.id}</td>
-                                <td className="w-[15%] py-1.5 font-bold border-b border-gray-300 pl-4">Status:</td><td className="w-[35%] py-1.5 uppercase font-bold border-b border-gray-300">{printData.status}</td>
-                            </tr>
-                            <tr>
-                                <td className="w-[15%] py-1.5 font-bold border-b border-gray-300">Facility:</td><td className="w-[35%] py-1.5 font-bold border-b border-gray-300">{printData.siteId}</td>
-                                <td className="w-[15%] py-1.5 font-bold border-b border-gray-300 pl-4">Location:</td><td className="w-[35%] py-1.5 font-bold border-b border-gray-300">{printData.location}</td>
-                            </tr>
-                            <tr>
-                                <td className="w-[15%] py-1.5 font-bold border-b border-gray-300">Issuing Dept:</td><td className="w-[35%] py-1.5 border-b border-gray-300">{printData.issuingDept || 'N/A'}</td>
-                                <td className="w-[15%] py-1.5 font-bold border-b border-gray-300 pl-4">Equipment:</td><td className="w-[35%] py-1.5 border-b border-gray-300">{printData.equipment || 'N/A'}</td>
-                            </tr>
-                            <tr>
-                                <td className="w-[15%] py-1.5 font-bold border-none align-top">Execution Team:</td>
-                                <td className="w-[35%] py-1.5 font-bold border-none align-top">
-                                    {printData.workerType === 'Contractor' ? `[Contractor] ${printData.contractorName}` : '[Internal]'} <br />
-                                    Supervised By: {printData.issuedToName} (Ph: {printData.issuedToPh}) <br />
-                                    Workers: {(printData.entrantNames || []).join(', ') || 'None Assigned'}
-                                </td>
-                                <td className="w-[15%] py-1.5 font-bold border-none pl-4 align-top">Validity:</td>
-                                <td className="w-[35%] py-1.5 font-bold border-none font-mono align-top">{printData.validFromDate} to {printData.validToDate}<br />{printData.validFromTime} - {printData.validToTime}</td>
-                            </tr>
-                        </tbody>
-                    </table>
-                </div>
-
-                <div className="mb-6">
-                    <h2 className="text-sm font-bold mb-2 uppercase bg-gray-200 p-1.5 border border-black inline-block">1. Description of Work</h2>
-                    <div className="text-sm border border-black p-3 min-h-[60px] leading-relaxed">{printData.description}</div>
-                </div>
-
-                <div className="mb-6 page-break-inside-avoid">
-                    <h2 className="text-sm font-bold mb-2 uppercase bg-gray-200 p-1.5 border border-black inline-block">2. Work Method Statement (WMS)</h2>
-                    <table className="w-full text-sm border-collapse border border-black m-0">
-                        <thead>
-                            <tr className="bg-gray-100">
-                                <th className="w-10 text-center border border-black p-2">#</th>
-                                <th className="w-1/3 border border-black p-2">Step / Activity</th>
-                                <th className="w-1/3 border border-black p-2">Possible Hazard</th>
-                                <th className="w-1/3 border border-black p-2">Control / Precaution</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {(printData.wms || []).map((row, idx) => (
-                                <tr key={idx}>
-                                    <td className="text-center font-bold border border-black p-2">{idx + 1}</td>
-                                    <td className="border border-black p-2">{row?.step || ''}</td>
-                                    <td className="border border-black p-2">{row?.hazard || ''}</td>
-                                    <td className="border border-black p-2">{row?.precaution || ''}</td>
-                                </tr>
+                        <select value={newApproverEmail} onChange={e => setNewApproverEmail(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-sm text-white mb-6 outline-none focus:border-amber-500 font-bold">
+                            <option value="">-- Select New Approver --</option>
+                            {users.filter(u => u.assignedSite === reassignModal.permit.siteId || safeArr(u.accessibleSites).includes(reassignModal.permit.siteId) || u.assignedSite === 'GLOBAL').map(u => (
+                                <option key={u.id} value={u.email || u.name}>{u.name} ({u.email || 'System Auth'})</option>
                             ))}
-                            {(!printData.wms || printData.wms.length === 0) && <tr><td colSpan={4} className="text-center italic border border-black p-2">No steps recorded.</td></tr>}
-                        </tbody>
-                    </table>
-                </div>
+                        </select>
 
-                <div className="flex gap-6 mb-6 page-break-inside-avoid">
-                    <div className="w-1/2">
-                        <h2 className="text-sm font-bold mb-2 uppercase bg-gray-200 p-1.5 border border-black inline-block">3. Required PPE</h2>
-                        <div className="text-sm border border-black p-4 min-h-[100px] leading-loose">
-                            {(printData.ppe || []).length > 0 ? (printData.ppe || []).join(', ') : 'Standard PPE Only'}
-                        </div>
-                    </div>
-                    <div className="w-1/2">
-                        <h2 className="text-sm font-bold mb-2 uppercase bg-gray-200 p-1.5 border border-black inline-block">4. Pre-Work Verification</h2>
-                        <div className="text-xs border border-black p-4 min-h-[100px] space-y-2">
-                            {(printData.checklist || []).map((c, i) => (
-                                <div key={i} className="flex items-start gap-2">
-                                    <div className="w-3 h-3 border border-black shrink-0 mt-0.5" style={{ backgroundColor: c?.checked ? 'black' : 'transparent' }}></div>
-                                    <span>{c?.label || ''}</span>
-                                </div>
-                            ))}
+                        <div className="flex gap-3">
+                            <button type="button" onClick={handleReassign} className="flex-1 bg-amber-600 hover:bg-amber-500 text-white font-bold py-3 rounded-xl transition-all text-[10px] uppercase tracking-widest shadow-lg">Confirm</button>
+                            <button type="button" onClick={() => setReassignModal(null)} className="flex-1 bg-slate-800 hover:bg-slate-700 text-white font-bold py-3 rounded-xl transition-all text-[10px] uppercase tracking-widest border border-slate-700">Cancel</button>
                         </div>
                     </div>
                 </div>
+            )}
 
-                {/* DYNAMIC SECTIONS BASED ON TYPE */}
-                {(printData.typeId === 'HOT' || printData.typeId === 'CSE' || printData.typeId === 'ELE' || printData.typeId === 'WAH') && (
-                    <div className="mb-6 border-2 border-black p-4 bg-gray-50 page-break-inside-avoid">
-                        <h2 className="text-sm font-bold mb-3 uppercase underline">Specialized Controls</h2>
+            {/* PRINT VIEW LAYER */}
+            {printData && (
+                <div className="hidden print:block p-8 bg-white text-black w-full" style={{ WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
+                    <div className="flex justify-between items-center border-b-2 border-black pb-4 mb-6">
+                        <div className="text-left w-3/4">
+                            <div className="text-xs text-gray-500 font-bold mb-1 tracking-widest uppercase">OHSMS - FORMAL RECORD (ISO 45001)</div>
+                            <h1 className="text-2xl font-black uppercase m-0 p-0 leading-tight">{(getTypeConfig(printData.typeId) || PERMIT_TYPES[5]).label}</h1>
+                        </div>
+                        <div className="w-1/4 text-right flex justify-end">
+                            {qrImage && <img src={qrImage} alt="QR Code" className="w-24 h-24 border-2 border-black p-1" />}
+                        </div>
+                    </div>
+
+                    <div className="border border-black bg-gray-50 p-4 mb-6">
                         <table className="w-full text-sm border-none">
                             <tbody>
-                                {printData.typeId === 'HOT' && <tr><td className="w-1/4 font-bold py-1">Fire Watcher Name:</td><td className="py-1">{printData.fireWatcherName || 'N/A'}</td></tr>}
-                                {printData.typeId === 'ELE' && <tr><td className="w-1/4 font-bold py-1">LOTO Procedure Ref:</td><td className="font-bold font-mono py-1">{printData.lotoRef || 'N/A'}</td></tr>}
-                                {printData.typeId === 'WAH' && <tr><td className="w-1/4 font-bold py-1 align-top">Height Access Equip:</td><td className="py-1">{(printData.wahEquipment || []).join(', ')}</td></tr>}
-                                {printData.typeId === 'CSE' && (
-                                    <>
-                                        <tr><td className="font-bold py-1 border-b border-gray-300">Attendant:</td><td className="py-1 border-b border-gray-300">{printData.attendantName}</td><td className="font-bold py-1 border-b border-gray-300 pl-4">Supervisor:</td><td className="py-1 border-b border-gray-300">{printData.entrySupervisorName}</td></tr>
-                                        <tr>
-                                            <td className="font-bold py-1 border-b border-gray-300 mt-1 pt-1">Oxygen:</td><td className="py-1 border-b border-gray-300 font-mono mt-1 pt-1">{printData.oxygenLevel}</td>
-                                            <td className="font-bold py-1 border-b border-gray-300 pl-4 mt-1 pt-1">Toxic Gas:</td><td className="py-1 border-b border-gray-300 font-mono mt-1 pt-1">{printData.toxicGas}</td>
-                                        </tr>
-                                        <tr><td className="font-bold py-1 border-none">Flammability:</td><td colSpan={3} className="py-1 border-none font-mono">{printData.flammability}</td></tr>
-                                    </>
-                                )}
+                                <tr>
+                                    <td className="w-[15%] py-1.5 font-bold border-b border-gray-300">Permit No:</td><td className="w-[35%] py-1.5 font-mono text-lg font-black border-b border-gray-300">{printData.id}</td>
+                                    <td className="w-[15%] py-1.5 font-bold border-b border-gray-300 pl-4">Status:</td><td className="w-[35%] py-1.5 uppercase font-bold border-b border-gray-300">{printData.status}</td>
+                                </tr>
+                                <tr>
+                                    <td className="w-[15%] py-1.5 font-bold border-b border-gray-300">Facility:</td><td className="w-[35%] py-1.5 font-bold border-b border-gray-300">{printData.siteId}</td>
+                                    <td className="w-[15%] py-1.5 font-bold border-b border-gray-300 pl-4">Location:</td><td className="w-[35%] py-1.5 font-bold border-b border-gray-300">{printData.location}</td>
+                                </tr>
+                                <tr>
+                                    <td className="w-[15%] py-1.5 font-bold border-b border-gray-300">Issuing Dept:</td><td className="w-[35%] py-1.5 border-b border-gray-300">{printData.issuingDept || 'N/A'}</td>
+                                    <td className="w-[15%] py-1.5 font-bold border-b border-gray-300 pl-4">Equipment:</td><td className="w-[35%] py-1.5 border-b border-gray-300">{printData.equipment || 'N/A'}</td>
+                                </tr>
+                                <tr>
+                                    <td className="w-[15%] py-1.5 font-bold border-none align-top">Execution Team:</td>
+                                    <td className="w-[35%] py-1.5 font-bold border-none align-top">
+                                        {printData.workerType === 'Contractor' ? `[Contractor] ${printData.contractorName}` : '[Internal]'} <br />
+                                        Supervised By: {printData.issuedToName} (Ph: {printData.issuedToPh}) <br />
+                                        Workers: {(printData.entrantNames || []).join(', ') || 'None Assigned'}
+                                    </td>
+                                    <td className="w-[15%] py-1.5 font-bold border-none pl-4 align-top">Validity:</td>
+                                    <td className="w-[35%] py-1.5 font-bold border-none font-mono align-top">{printData.validFromDate} to {printData.validToDate}<br />{printData.validFromTime} - {printData.validToTime}</td>
+                                </tr>
                             </tbody>
                         </table>
                     </div>
-                )}
 
-                <div className="mt-8 border-2 border-black page-break-inside-avoid">
-                    <h2 className="text-center font-bold text-sm uppercase bg-gray-200 border-b-2 border-black p-2">5. Dual Authorization Signatures</h2>
-                    <p className="text-[10px] text-center p-1.5 border-b border-gray-300 italic bg-gray-50">By signing, I confirm the area is safe, precautions are implemented, and workers are briefed.</p>
-                    <table className="w-full text-sm border-none">
-                        <tbody>
-                            <tr>
-                                <td className="w-1/3 p-4 border-r border-black align-top h-32">
-                                    <strong className="block mb-6 uppercase tracking-widest text-xs text-gray-500">Requested By:</strong>
-                                    Name: <strong className="text-base">{printData.creatorEmail || printData.requestedBy}</strong><br /><br /><br />
-                                    Sign: __________________
-                                </td>
-                                <td className="w-1/3 p-4 border-r border-black align-top h-32">
-                                    <strong className="block mb-6 uppercase tracking-widest text-xs text-gray-500">Engineering Approval:</strong>
-                                    Name: <strong className="text-base">{printData.engApproverEmail || '________________'}</strong><br />
-                                    Status: {printData.engStatus}<br /><br />
-                                    Sign: __________________
-                                </td>
-                                <td className="w-1/3 p-4 align-top h-32">
-                                    <strong className="block mb-6 uppercase tracking-widest text-xs text-gray-500">Production Approval:</strong>
-                                    Name: <strong className="text-base">{printData.prodApproverEmail || '________________'}</strong><br />
-                                    Status: {printData.prodStatus}<br /><br />
-                                    Sign/Time: __________________
-                                </td>
-                            </tr>
-                        </tbody>
-                    </table>
+                    <div className="mb-6">
+                        <h2 className="text-sm font-bold mb-2 uppercase bg-gray-200 p-1.5 border border-black inline-block">1. Description of Work</h2>
+                        <div className="text-sm border border-black p-3 min-h-[60px] leading-relaxed">{printData.description}</div>
+                    </div>
+
+                    <div className="mb-6 page-break-inside-avoid">
+                        <h2 className="text-sm font-bold mb-2 uppercase bg-gray-200 p-1.5 border border-black inline-block">2. Work Method Statement (WMS)</h2>
+                        <table className="w-full text-sm border-collapse border border-black m-0">
+                            <thead>
+                                <tr className="bg-gray-100">
+                                    <th className="w-10 text-center border border-black p-2">#</th>
+                                    <th className="w-1/3 border border-black p-2">Step / Activity</th>
+                                    <th className="w-1/3 border border-black p-2">Possible Hazard</th>
+                                    <th className="w-1/3 border border-black p-2">Control / Precaution</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {(printData.wms || []).map((row, idx) => (
+                                    <tr key={idx}>
+                                        <td className="text-center font-bold border border-black p-2">{idx + 1}</td>
+                                        <td className="border border-black p-2">{row?.step || ''}</td>
+                                        <td className="border border-black p-2">{row?.hazard || ''}</td>
+                                        <td className="border border-black p-2">{row?.precaution || ''}</td>
+                                    </tr>
+                                ))}
+                                {(!printData.wms || printData.wms.length === 0) && <tr><td colSpan={4} className="text-center italic border border-black p-2">No steps recorded.</td></tr>}
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div className="flex gap-6 mb-6 page-break-inside-avoid">
+                        <div className="w-1/2">
+                            <h2 className="text-sm font-bold mb-2 uppercase bg-gray-200 p-1.5 border border-black inline-block">3. Required PPE</h2>
+                            <div className="text-sm border border-black p-4 min-h-[100px] leading-loose">
+                                {(printData.ppe || []).length > 0 ? (printData.ppe || []).join(', ') : 'Standard PPE Only'}
+                            </div>
+                        </div>
+                        <div className="w-1/2">
+                            <h2 className="text-sm font-bold mb-2 uppercase bg-gray-200 p-1.5 border border-black inline-block">4. Pre-Work Verification</h2>
+                            <div className="text-xs border border-black p-4 min-h-[100px] space-y-2">
+                                {(printData.checklist || []).map((c, i) => (
+                                    <div key={i} className="flex items-start gap-2">
+                                        <div className="w-3 h-3 border border-black shrink-0 mt-0.5" style={{ backgroundColor: c?.checked ? 'black' : 'transparent' }}></div>
+                                        <span>{c?.label || ''}</span>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+
+                    {(printData.typeId === 'HOT' || printData.typeId === 'CSE' || printData.typeId === 'ELE' || printData.typeId === 'WAH') && (
+                        <div className="mb-6 border-2 border-black p-4 bg-gray-50 page-break-inside-avoid">
+                            <h2 className="text-sm font-bold mb-3 uppercase underline">Specialized Controls</h2>
+                            <table className="w-full text-sm border-none">
+                                <tbody>
+                                    {printData.typeId === 'HOT' && <tr><td className="w-1/4 font-bold py-1">Fire Watcher Name:</td><td className="py-1">{printData.fireWatcherName || 'N/A'}</td></tr>}
+                                    {printData.typeId === 'ELE' && <tr><td className="w-1/4 font-bold py-1">LOTO Procedure Ref:</td><td className="font-bold font-mono py-1">{printData.lotoRef || 'N/A'}</td></tr>}
+                                    {printData.typeId === 'WAH' && <tr><td className="w-1/4 font-bold py-1 align-top">Height Access Equip:</td><td className="py-1">{(printData.wahEquipment || []).join(', ')}</td></tr>}
+                                    {printData.typeId === 'CSE' && (
+                                        <>
+                                            <tr><td className="font-bold py-1 border-b border-gray-300">Attendant:</td><td className="py-1 border-b border-gray-300">{printData.attendantName}</td><td className="font-bold py-1 border-b border-gray-300 pl-4">Supervisor:</td><td className="py-1 border-b border-gray-300">{printData.entrySupervisorName}</td></tr>
+                                            <tr>
+                                                <td className="font-bold py-1 border-b border-gray-300 mt-1 pt-1">Oxygen:</td><td className="py-1 border-b border-gray-300 font-mono mt-1 pt-1">{printData.oxygenLevel}</td>
+                                                <td className="font-bold py-1 border-b border-gray-300 pl-4 mt-1 pt-1">Toxic Gas:</td><td className="py-1 border-b border-gray-300 font-mono mt-1 pt-1">{printData.toxicGas}</td>
+                                            </tr>
+                                            <tr><td className="font-bold py-1 border-none">Flammability:</td><td colSpan={3} className="py-1 border-none font-mono">{printData.flammability}</td></tr>
+                                        </>
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
+                    )}
+
+                    <div className="mt-8 border-2 border-black page-break-inside-avoid">
+                        <h2 className="text-center font-bold text-sm uppercase bg-gray-200 border-b-2 border-black p-2">5. Dual Authorization Signatures</h2>
+                        <p className="text-[10px] text-center p-1.5 border-b border-gray-300 italic bg-gray-50">By signing, I confirm the area is safe, precautions are implemented, and workers are briefed.</p>
+                        <table className="w-full text-sm border-none">
+                            <tbody>
+                                <tr>
+                                    <td className="w-1/3 p-4 border-r border-black align-top h-32">
+                                        <strong className="block mb-6 uppercase tracking-widest text-xs text-gray-500">Requested By:</strong>
+                                        Name: <strong className="text-base">{printData.creatorEmail || printData.requestedBy}</strong><br /><br /><br />
+                                        Sign: __________________
+                                    </td>
+                                    <td className="w-1/3 p-4 border-r border-black align-top h-32">
+                                        <strong className="block mb-6 uppercase tracking-widest text-xs text-gray-500">Engineering Approval:</strong>
+                                        Name: <strong className="text-base">{printData.engApproverEmail || '________________'}</strong><br />
+                                        Status: {printData.engStatus}<br /><br />
+                                        Sign: __________________
+                                    </td>
+                                    <td className="w-1/3 p-4 align-top h-32">
+                                        <strong className="block mb-6 uppercase tracking-widest text-xs text-gray-500">Production Approval:</strong>
+                                        Name: <strong className="text-base">{printData.prodApproverEmail || '________________'}</strong><br />
+                                        Status: {printData.prodStatus}<br /><br />
+                                        Sign/Time: __________________
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div className="text-center text-[10px] mt-4 font-bold text-gray-500 uppercase tracking-widest">System Generated Document - Verify Live Status via QR Code</div>
                 </div>
-                <div className="text-center text-[10px] mt-4 font-bold text-gray-500 uppercase tracking-widest">System Generated Document - Verify Live Status via QR Code</div>
-            </div>
-        )
-    }
-        </div >
+            )}
+        </>
     );
 }
