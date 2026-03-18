@@ -11,6 +11,11 @@ const safeArr = (val) => {
     return [];
 };
 
+// Generates a unique 6-character login code for the Vendor
+const generateVendorCode = () => {
+    return 'VEN-' + Math.random().toString(36).substring(2, 8).toUpperCase();
+};
+
 const parseContractors = (dataObj) => {
     if (!dataObj) return [];
     return Object.entries(dataObj).map(([k, v]) => ({
@@ -87,18 +92,22 @@ export default function Contractors() {
     const [deploymentCompanyFilter, setDeploymentCompanyFilter] = useState('All');
     const [saving, setSaving] = useState(false);
 
+    // Global Cross-Module Data
     const [globalTrainings, setGlobalTrainings] = useState([]);
     const [globalPermits, setGlobalPermits] = useState([]);
     const [globalIncidents, setGlobalIncidents] = useState([]);
 
+    // Form State for Company
     const [formData, setFormData] = useState({
         id: '', allocatedSites: [], companyName: '', contactPerson: '', email: '', phone: '',
         serviceType: 'General / Housekeeping', goodsType: 'PPE', notes: '', status: 'Pending Review',
         documents: getMandatoryDocs('General / Housekeeping'), workers: []
     });
 
+    // Form State for New Worker Modal
     const [addWorkerData, setAddWorkerData] = useState({ contractorId: '', name: '', role: 'Worker', competence: '', deployedSite: '' });
 
+    // Modals
     const [activeVendor, setActiveVendor] = useState(null);
     const [editingVendor, setEditingVendor] = useState(null);
     const [activeWorker, setActiveWorker] = useState(null);
@@ -136,7 +145,6 @@ export default function Contractors() {
                     if (data.sites) setSites(Object.keys(data.sites).map(key => ({ code: data.sites[key].code || key, name: data.sites[key].name || key })));
                     if (data.trainings) setGlobalTrainings(safeArr(data.trainings));
 
-                    // ACCURATE DB NODE: Fetch Permits from ptwRecords
                     if (data.ptwRecords) {
                         let ptwArr = [];
                         if (Array.isArray(data.ptwRecords)) {
@@ -147,7 +155,6 @@ export default function Contractors() {
                         setGlobalPermits(ptwArr);
                     }
 
-                    // Fetch Incidents
                     if (data.incidents) {
                         let incArr = [];
                         if (Array.isArray(data.incidents)) {
@@ -266,7 +273,12 @@ export default function Contractors() {
         setSaving(true);
         try {
             const payload = { ...formData, siteId: formData.allocatedSites[0], updatedBy: session.name, lastUpdated: new Date().toISOString() };
-            if (!payload.createdAt) payload.createdAt = new Date().toISOString();
+
+            // GENERATE UNIQUE VENDOR CODE ON CREATION
+            if (!payload.createdAt) {
+                payload.createdAt = new Date().toISOString();
+                payload.vendorCode = generateVendorCode();
+            }
 
             const keyToUpdate = formData.firebaseKey;
             delete payload.firebaseKey;
@@ -595,6 +607,7 @@ export default function Contractors() {
                                                 <tr key={c.firebaseKey} className="hover:bg-slate-800/40 transition-colors">
                                                     <td className="p-4 pl-6">
                                                         <div className="font-bold text-white text-base">{c.companyName || 'Unnamed Vendor'}</div>
+                                                        {c.vendorCode && <div className="text-[10px] font-mono text-emerald-400 bg-emerald-900/20 border border-emerald-500/30 px-2 py-0.5 rounded inline-block mt-1 mb-1">ID: {c.vendorCode}</div>}
                                                         <div className="text-[10px] text-slate-500 mt-1 uppercase tracking-widest">
                                                             <i className="fas fa-map-marker-alt mr-1"></i> {safeArr(c.allocatedSites).join(', ') || 'None'} | <i className="fas fa-user ml-2 mr-1"></i> {c.contactPerson || 'N/A'}
                                                         </div>
@@ -850,7 +863,14 @@ export default function Contractors() {
                                     </div>
                                 ) : (
                                     <div>
-                                        <h3 className="text-2xl font-black text-white flex items-center gap-3"><i className="fas fa-building text-indigo-500"></i> {activeVendor.companyName}</h3>
+                                        <h3 className="text-2xl font-black text-white flex items-center gap-3">
+                                            <i className="fas fa-building text-indigo-500"></i> {activeVendor.companyName}
+                                            {activeVendor.vendorCode && (
+                                                <span className="text-xs font-mono bg-emerald-900/30 text-emerald-400 border border-emerald-500/30 px-2 py-1 rounded ml-2" title="Give this code to the vendor for portal login">
+                                                    <i className="fas fa-key mr-1"></i> {activeVendor.vendorCode}
+                                                </span>
+                                            )}
+                                        </h3>
                                         <div className="text-xs font-bold text-slate-500 uppercase tracking-widest mt-2 flex flex-wrap gap-4 items-center">
                                             <span className="flex gap-1 items-center bg-indigo-900/30 text-indigo-400 border border-indigo-500/30 px-2 py-0.5 rounded"><i className="fas fa-map-marker-alt"></i> {safeArr(activeVendor.allocatedSites).join(', ') || 'No Sites'}</span>
                                             <span><i className="fas fa-wrench text-indigo-400 mr-1"></i> {activeVendor.serviceType}</span>
@@ -1197,7 +1217,11 @@ export default function Contractors() {
                                                         <div className="font-bold text-xs uppercase tracking-widest text-red-400">{inc.type || inc.incidentType || 'Incident'}</div>
                                                         <div className="text-[10px] font-mono text-slate-400 bg-slate-950 px-2 py-1 rounded">{inc.date || inc.incidentDate || 'Unknown Date'}</div>
                                                     </div>
+                                                    <div className="text-xs text-white font-bold mb-1">{inc.title || ''}</div>
                                                     <div className="text-xs text-slate-300 leading-relaxed">{inc.desc || inc.description || 'No description provided.'}</div>
+                                                    <div className="mt-3 text-right">
+                                                        <button onClick={() => navigate(`/incidents?id=${inc.id || inc.firebaseKey}`)} className="text-[9px] bg-red-900/30 text-red-400 border border-red-500/30 px-2 py-1 rounded hover:bg-red-600 hover:text-white transition-colors uppercase font-bold tracking-widest">View Report</button>
+                                                    </div>
                                                 </div>
                                             ))}
                                             {safeArr(activeWorker.injuriesList).length === 0 && (
