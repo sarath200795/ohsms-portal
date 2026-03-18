@@ -18,7 +18,10 @@ const parseContractors = (dataObj) => {
         firebaseKey: k,
         allocatedSites: safeArr(v.allocatedSites).length > 0 ? safeArr(v.allocatedSites) : (v.siteId && v.siteId !== 'GLOBAL' ? [v.siteId] : []),
         documents: safeArr(v.documents),
-        workers: safeArr(v.workers).map(w => ({ ...w, additionalDocs: safeArr(w.additionalDocs) }))
+        workers: safeArr(v.workers).map(w => ({ ...w, additionalDocs: safeArr(w.additionalDocs) })),
+        trainings: safeArr(v.trainings),
+        incidents: safeArr(v.incidents),
+        nonCompliances: safeArr(v.nonCompliances)
     }));
 };
 
@@ -138,8 +141,15 @@ export default function Contractors() {
                     if (data.trainings) setGlobalTrainings(safeArr(data.trainings));
                     if (data.workPermits) setGlobalPermits(safeArr(data.workPermits));
 
-                    // Fetch Global Incidents for the integration
-                    if (data.incidents) setGlobalIncidents(Object.entries(data.incidents).map(([k, v]) => ({ ...v, firebaseKey: k })));
+                    if (data.incidents) {
+                        let incArr = [];
+                        if (Array.isArray(data.incidents)) {
+                            incArr = data.incidents.filter(Boolean).map((v, i) => ({ ...v, firebaseKey: String(i) }));
+                        } else {
+                            incArr = Object.entries(data.incidents).map(([k, v]) => ({ ...v, firebaseKey: k }));
+                        }
+                        setGlobalIncidents(incArr);
+                    }
                 }
             } catch (err) { console.error(err); } finally { setLoading(false); }
         };
@@ -179,7 +189,6 @@ export default function Contractors() {
                 const wNameStr = typeof w.name === 'string' ? w.name.toLowerCase() : '';
                 if (!wNameStr) return;
 
-                // 1. Fetch Trainings
                 const wTrainings = globalTrainings.filter(t =>
                     safeArr(t.attendees).some(a => {
                         const aName = typeof a === 'object' ? (a.name || '') : (typeof a === 'string' ? a : '');
@@ -187,16 +196,14 @@ export default function Contractors() {
                     })
                 );
 
-                // 2. Fetch Incidents (NEW INTEGRATION)
-                const wInjuries = globalIncidents.filter(inc => {
-                    // Match by direct ID from the new Incident form
-                    if (inc.affectedPersonType === 'Contractor' && inc.affectedPersonId === w.id) return true;
-
-                    // Fallback string matching for older records
-                    if (typeof inc.description === 'string' && inc.description.toLowerCase().includes(wNameStr)) return true;
-                    if (typeof inc.affectedPersonName === 'string' && inc.affectedPersonName.toLowerCase() === wNameStr) return true;
-                    return false;
-                });
+                const wInjuries = [
+                    ...safeArr(c.incidents).filter(inc => typeof inc.desc === 'string' && inc.desc.toLowerCase().includes(wNameStr)).map(inc => ({
+                        type: inc.type || 'Incident', date: inc.date, desc: inc.desc || inc.description, id: inc.id || 'Local'
+                    })),
+                    ...globalIncidents.filter(inc => inc.affectedPersonType === 'Contractor' && inc.affectedPersonId === w.id).map(inc => ({
+                        type: inc.incidentType || inc.type, date: inc.incidentDate || inc.date, desc: inc.description || inc.title, id: inc.id || inc.firebaseKey
+                    }))
+                ];
 
                 list.push({
                     ...w,
@@ -526,14 +533,14 @@ export default function Contractors() {
                                             </select>
                                         </div>
 
-                                        {formData.serviceType === 'Supply of Goods' && (
+                                        {formData.serviceType === 'Supply of Goods' ? (
                                             <div className="bg-indigo-950/20 p-4 rounded-xl border border-indigo-500/30">
                                                 <label className="text-[10px] uppercase font-bold text-indigo-400 block mb-2 tracking-widest">Type of Goods Supplied *</label>
                                                 <select value={formData.goodsType} onChange={handleGoodsTypeChange} disabled={!canEdit} className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-white font-bold outline-none focus:border-indigo-500">
                                                     {GOODS_TYPES.map(t => <option key={t}>{t}</option>)}
                                                 </select>
                                             </div>
-                                        )}
+                                        ) : <div></div>}
 
                                         <div>
                                             <label className="text-[10px] uppercase font-bold text-slate-400 block mb-2 tracking-widest">Primary Contact Person</label>
@@ -805,10 +812,10 @@ export default function Contractors() {
                     </div>
                 )}
 
-                {/* MODAL 1: COMPANY PROFILE (Consolidated Docs, Roster, Permits) */}
+                {/* MODAL 1: COMPANY PROFILE (Consolidated Docs, Roster, Permits, Incidents) */}
                 {activeVendor && modalType === 'company_profile' && (
                     <div className="fixed inset-0 z-[100] bg-black/80 flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in">
-                        <div className="bg-slate-900 border border-slate-700 rounded-3xl shadow-2xl max-w-6xl w-full relative max-h-[95vh] flex flex-col overflow-hidden">
+                        <div className="bg-slate-900 border border-slate-700 rounded-3xl shadow-2xl max-w-[95vw] xl:max-w-[90vw] w-full relative max-h-[95vh] flex flex-col overflow-hidden">
                             <div className="p-6 border-b border-slate-800 bg-slate-950 flex justify-between items-center flex-shrink-0">
                                 {editingVendor ? (
                                     <div className="flex-1 mr-6 grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -860,7 +867,7 @@ export default function Contractors() {
                                 </div>
                             </div>
 
-                            <div className="flex-1 overflow-y-auto custom-scroll p-6 grid grid-cols-1 lg:grid-cols-3 gap-6 bg-slate-900/50">
+                            <div className="flex-1 overflow-y-auto custom-scroll p-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 bg-slate-900/50">
 
                                 {/* COLUMN 1: DOCUMENTS */}
                                 <div className="bg-slate-950 p-6 rounded-2xl border border-slate-800 shadow-inner flex flex-col h-[70vh]">
@@ -938,7 +945,6 @@ export default function Contractors() {
                                 <div className="bg-slate-950 p-6 rounded-2xl border border-slate-800 shadow-inner flex flex-col h-[70vh]">
                                     <h4 className="text-xs font-bold text-orange-400 uppercase tracking-widest border-b border-slate-800 pb-2 mb-4"><i className="fas fa-clipboard-list mr-2"></i> Work Permits (PTW)</h4>
                                     <div className="flex-1 overflow-y-auto custom-scroll pr-2 space-y-3">
-                                        {/* Find permits for this contractor globally */}
                                         {globalPermits.filter(p => p.contractorId === activeVendor.firebaseKey || (p.contractorName && p.contractorName.toLowerCase() === activeVendor.companyName.toLowerCase())).map((p, idx) => (
                                             <div key={idx} className={`p-3 rounded-xl border shadow-sm ${p.status === 'Closed' ? 'bg-slate-900 border-slate-700 opacity-60' : 'bg-orange-950/20 border-orange-500/30'}`}>
                                                 <div className="flex justify-between items-start mb-1">
@@ -958,6 +964,51 @@ export default function Contractors() {
                                     </div>
                                     <div className="mt-4 pt-4 border-t border-slate-800 text-center">
                                         <button onClick={() => navigate('/ptw')} className="text-[10px] text-orange-400 hover:text-white uppercase font-bold tracking-widest transition-colors"><i className="fas fa-external-link-alt mr-1"></i> Open PTW Module</button>
+                                    </div>
+                                </div>
+
+                                {/* COLUMN 4: INCIDENTS */}
+                                <div className="bg-slate-950 p-6 rounded-2xl border border-slate-800 shadow-inner flex flex-col h-[70vh]">
+                                    <h4 className="text-xs font-bold text-red-400 uppercase tracking-widest border-b border-slate-800 pb-2 mb-4">
+                                        <i className="fas fa-briefcase-medical mr-2"></i> Incident History
+                                    </h4>
+                                    <div className="flex-1 overflow-y-auto custom-scroll pr-2 space-y-3">
+                                        {(() => {
+                                            const companyIncidents = [
+                                                ...safeArr(activeVendor.incidents).map(inc => ({
+                                                    id: inc.id || 'INC',
+                                                    date: inc.date,
+                                                    type: inc.type || 'Incident',
+                                                    desc: inc.desc || inc.description,
+                                                    key: Math.random().toString()
+                                                })),
+                                                ...globalIncidents.filter(inc => inc.affectedPersonType === 'Contractor' && inc.contractorId === activeVendor.firebaseKey).map(inc => ({
+                                                    id: inc.id,
+                                                    date: inc.incidentDate || inc.date,
+                                                    type: inc.incidentType || inc.type,
+                                                    desc: inc.description || inc.title,
+                                                    key: inc.firebaseKey
+                                                }))
+                                            ].sort((a, b) => new Date(b.date || '1970-01-01') - new Date(a.date || '1970-01-01'));
+
+                                            if (companyIncidents.length === 0) {
+                                                return <div className="text-center text-slate-500 text-xs italic mt-4">No incidents recorded for this company.</div>;
+                                            }
+
+                                            return companyIncidents.map((inc) => (
+                                                <div key={inc.key} className="p-3 rounded-xl border border-red-500/30 bg-red-950/20 shadow-sm">
+                                                    <div className="flex justify-between items-start mb-1">
+                                                        <div className="text-[10px] font-bold uppercase tracking-widest text-red-400">{inc.type}</div>
+                                                        <div className="text-[9px] font-mono text-slate-500">{inc.id}</div>
+                                                    </div>
+                                                    <div className="text-xs text-white font-medium mb-2 leading-tight">{inc.desc}</div>
+                                                    <div className="text-[9px] uppercase font-bold text-slate-400">{inc.date}</div>
+                                                </div>
+                                            ));
+                                        })()}
+                                    </div>
+                                    <div className="mt-4 pt-4 border-t border-slate-800 text-center">
+                                        <button onClick={() => navigate('/incidents')} className="text-[10px] text-red-400 hover:text-white uppercase font-bold tracking-widest transition-colors"><i className="fas fa-external-link-alt mr-1"></i> Open Incident Module</button>
                                     </div>
                                 </div>
 
@@ -1130,7 +1181,7 @@ export default function Contractors() {
                                                     <div className="text-xs text-white font-bold mb-1">{inc.title || ''}</div>
                                                     <div className="text-xs text-slate-300 leading-relaxed">{inc.desc || inc.description || 'No description provided.'}</div>
                                                     <div className="mt-3 text-right">
-                                                        <button onClick={() => navigate(`/incidents?id=${inc.firebaseKey}`)} className="text-[9px] bg-red-900/30 text-red-400 border border-red-500/30 px-2 py-1 rounded hover:bg-red-600 hover:text-white transition-colors uppercase font-bold tracking-widest">View Report</button>
+                                                        <button onClick={() => navigate(`/incidents?id=${inc.id || inc.firebaseKey}`)} className="text-[9px] bg-red-900/30 text-red-400 border border-red-500/30 px-2 py-1 rounded hover:bg-red-600 hover:text-white transition-colors uppercase font-bold tracking-widest">View Report</button>
                                                     </div>
                                                 </div>
                                             ))}
