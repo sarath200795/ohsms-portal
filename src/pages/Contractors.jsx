@@ -87,22 +87,18 @@ export default function Contractors() {
     const [deploymentCompanyFilter, setDeploymentCompanyFilter] = useState('All');
     const [saving, setSaving] = useState(false);
 
-    // Global Cross-Module Data
     const [globalTrainings, setGlobalTrainings] = useState([]);
     const [globalPermits, setGlobalPermits] = useState([]);
     const [globalIncidents, setGlobalIncidents] = useState([]);
 
-    // Form State for Company
     const [formData, setFormData] = useState({
         id: '', allocatedSites: [], companyName: '', contactPerson: '', email: '', phone: '',
         serviceType: 'General / Housekeeping', goodsType: 'PPE', notes: '', status: 'Pending Review',
         documents: getMandatoryDocs('General / Housekeeping'), workers: []
     });
 
-    // Form State for New Worker Modal
     const [addWorkerData, setAddWorkerData] = useState({ contractorId: '', name: '', role: 'Worker', competence: '', deployedSite: '' });
 
-    // Modals
     const [activeVendor, setActiveVendor] = useState(null);
     const [editingVendor, setEditingVendor] = useState(null);
     const [activeWorker, setActiveWorker] = useState(null);
@@ -139,7 +135,17 @@ export default function Contractors() {
                     if (data.contractors) setContractors(parseContractors(data.contractors));
                     if (data.sites) setSites(Object.keys(data.sites).map(key => ({ code: data.sites[key].code || key, name: data.sites[key].name || key })));
                     if (data.trainings) setGlobalTrainings(safeArr(data.trainings));
-                    if (data.workPermits) setGlobalPermits(safeArr(data.workPermits));
+
+                    // Force parsing permits correctly
+                    if (data.workPermits) {
+                        let ptwArr = [];
+                        if (Array.isArray(data.workPermits)) {
+                            ptwArr = data.workPermits.filter(Boolean).map((v, i) => ({ ...v, firebaseKey: String(i) }));
+                        } else {
+                            ptwArr = Object.entries(data.workPermits).map(([k, v]) => ({ ...v, firebaseKey: k }));
+                        }
+                        setGlobalPermits(ptwArr);
+                    }
 
                     if (data.incidents) {
                         let incArr = [];
@@ -483,6 +489,7 @@ export default function Contractors() {
                 <main className="flex-1 overflow-y-auto p-4 md:p-8 custom-scroll relative z-10 w-full print:hidden">
                     <div className="max-w-7xl mx-auto animate-in fade-in duration-500 pb-20">
 
+                        {/* --- GLOBAL FILTERS --- */}
                         {view !== 'register' && (
                             <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 bg-slate-900/50 p-4 rounded-2xl border border-slate-800 gap-4">
                                 <div>
@@ -497,7 +504,7 @@ export default function Contractors() {
                         )}
 
                         {/* ===================================================================== */}
-                        {/* SECTION 1: REGISTER NEW VENDOR */}
+                        {/* SECTION 1: REGISTER NEW VENDOR ONLY */}
                         {/* ===================================================================== */}
                         {view === 'register' && (
                             <div className="max-w-4xl mx-auto bg-slate-900/80 p-6 md:p-10 rounded-3xl border border-slate-700 shadow-2xl animate-in slide-in-from-bottom-8 duration-300">
@@ -943,7 +950,7 @@ export default function Contractors() {
 
                                 {/* COLUMN 3: PERMITS */}
                                 <div className="bg-slate-950 p-6 rounded-2xl border border-slate-800 shadow-inner flex flex-col h-[70vh]">
-                                    <h4 className="text-xs font-bold text-orange-400 uppercase tracking-widest border-b border-slate-800 pb-2 mb-4"><i className="fas fa-clipboard-list mr-2"></i> Work Permits (PTW)</h4>
+                                    <h4 className="text-xs font-bold text-orange-400 uppercase tracking-widest border-b border-slate-800 pb-2 mb-4"><i className="fas fa-clipboard-list mr-2"></i> Work Permits</h4>
                                     <div className="flex-1 overflow-y-auto custom-scroll pr-2 space-y-3">
                                         {globalPermits.filter(p => p.contractorId === activeVendor.firebaseKey || (p.contractorName && p.contractorName.toLowerCase() === activeVendor.companyName.toLowerCase())).map((p, idx) => (
                                             <div key={idx} className={`p-3 rounded-xl border shadow-sm ${p.status === 'Closed' ? 'bg-slate-900 border-slate-700 opacity-60' : 'bg-orange-950/20 border-orange-500/30'}`}>
@@ -952,8 +959,19 @@ export default function Contractors() {
                                                     <div className="text-[9px] font-mono text-slate-500">{p.id || 'PTW'}</div>
                                                 </div>
                                                 <div className="text-xs text-white font-medium mb-2 leading-tight">{p.workDescription}</div>
+
+                                                {/* NON COMPLIANCES DISPLAY */}
+                                                {safeArr(p.nonCompliances).length > 0 && (
+                                                    <div className="mb-3 bg-red-950/30 border border-red-500/30 rounded p-2">
+                                                        <div className="text-[8px] font-bold text-red-400 uppercase tracking-widest mb-1"><i className="fas fa-exclamation-triangle"></i> Permit Non-Compliances</div>
+                                                        <ul className="list-disc pl-3 text-[10px] text-slate-300 space-y-1">
+                                                            {safeArr(p.nonCompliances).map((nc, i) => <li key={i}>{nc.desc || nc}</li>)}
+                                                        </ul>
+                                                    </div>
+                                                )}
+
                                                 <div className="flex justify-between items-center text-[9px] uppercase font-bold">
-                                                    <span className="text-slate-400">{p.date || p.createdAt}</span>
+                                                    <span className="text-slate-400">{p.date || p.createdAt?.split('T')[0]}</span>
                                                     <span className={p.status === 'Closed' ? 'text-emerald-500' : 'text-yellow-500 animate-pulse'}>{p.status}</span>
                                                 </div>
                                             </div>
@@ -1178,11 +1196,7 @@ export default function Contractors() {
                                                         <div className="font-bold text-xs uppercase tracking-widest text-red-400">{inc.type || inc.incidentType || 'Incident'}</div>
                                                         <div className="text-[10px] font-mono text-slate-400 bg-slate-950 px-2 py-1 rounded">{inc.date || inc.incidentDate || 'Unknown Date'}</div>
                                                     </div>
-                                                    <div className="text-xs text-white font-bold mb-1">{inc.title || ''}</div>
                                                     <div className="text-xs text-slate-300 leading-relaxed">{inc.desc || inc.description || 'No description provided.'}</div>
-                                                    <div className="mt-3 text-right">
-                                                        <button onClick={() => navigate(`/incidents?id=${inc.id || inc.firebaseKey}`)} className="text-[9px] bg-red-900/30 text-red-400 border border-red-500/30 px-2 py-1 rounded hover:bg-red-600 hover:text-white transition-colors uppercase font-bold tracking-widest">View Report</button>
-                                                    </div>
                                                 </div>
                                             ))}
                                             {safeArr(activeWorker.injuriesList).length === 0 && (

@@ -77,11 +77,15 @@ const normalizePermit = (p) => {
         prodStatus: String(p.prodStatus || 'Pending'),
         creatorEmail: String(p.creatorEmail || ''),
         requestedBy: String(p.requestedBy || ''),
+        workerType: String(p.workerType || 'Internal'),
+        contractorId: String(p.contractorId || ''),
+        contractorName: String(p.contractorName || ''),
         wms: ensureArray(p.wms),
-        entrantNames: ensureArray(p.entrantNames),
+        entrantNames: ensureArray(p.entrantNames), // Now acts as the unified "Assigned Workers" array
         wahEquipment: ensureArray(p.wahEquipment),
         ppe: ensureArray(p.ppe),
-        checklist: ensureArray(p.checklist)
+        checklist: ensureArray(p.checklist),
+        nonCompliances: ensureArray(p.nonCompliances)
     };
 };
 
@@ -97,6 +101,7 @@ export default function Ptw() {
 
     const [sites, setSites] = useState([]);
     const [users, setUsers] = useState([]);
+    const [contractors, setContractors] = useState([]);
     const [siteFilter, setSiteFilter] = useState('All');
 
     const [permits, setPermits] = useState([]);
@@ -107,6 +112,7 @@ export default function Ptw() {
 
     const [formData, setFormData] = useState(null);
     const [inspectionModal, setInspectionModal] = useState(null);
+    const [newNC, setNewNC] = useState('');
 
     // REASSIGNMENT STATE
     const [reassignModal, setReassignModal] = useState(null);
@@ -189,6 +195,10 @@ export default function Ptw() {
                             }).filter(u => u.status !== 'Inactive' && u.status !== 'Deleted'));
                         }
 
+                        if (data.contractors) {
+                            setContractors(Object.entries(data.contractors).map(([k, v]) => ({ ...v, firebaseKey: k })));
+                        }
+
                         if (data.ptwRecords) {
                             const rawPermits = safeArrayParse(data.ptwRecords);
                             const cleanPermits = rawPermits.map(normalizePermit).sort((a, b) => new Date(b.createdDate || 0) - new Date(a.createdDate || 0));
@@ -267,16 +277,8 @@ export default function Ptw() {
 
 
     // ==========================================
-    // FILTER LOGIC
+    // FILTER LOGIC & CONTRACTOR INTEGRATION
     // ==========================================
-
-    const siteUsers = useMemo(() => {
-        const activeSiteId = currentView === 'builder' ? (formData?.siteId || '') : siteFilter;
-        return users.filter(u => {
-            const uGlobal = u.role === 'Owner' || u.role === 'Lead Auditor' || u.assignedSite === 'GLOBAL' || (u.accessibleSites && u.accessibleSites.includes('GLOBAL'));
-            return uGlobal || !activeSiteId || activeSiteId === 'All' || u.assignedSite === activeSiteId || (u.accessibleSites && u.accessibleSites.includes(activeSiteId));
-        });
-    }, [users, formData?.siteId, siteFilter, currentView]);
 
     const visiblePermits = useMemo(() => {
         return permits.filter(p => {
@@ -302,6 +304,33 @@ export default function Ptw() {
         });
     }, [visiblePermits, session]);
 
+    // INTEGRATION: Filter Contractors by Selected Site
+    const availableContractors = useMemo(() => {
+        if (!formData?.siteId) return [];
+        return contractors.filter(c => ensureArray(c.allocatedSites).includes(formData.siteId) || c.siteId === 'GLOBAL');
+    }, [contractors, formData?.siteId]);
+
+    // INTEGRATION: Filter Workers by Type and Site
+    const availableWorkers = useMemo(() => {
+        if (!formData) return [];
+        if (formData.workerType === 'Internal') {
+            return users.filter(u => u.assignedSite === formData.siteId || ensureArray(u.accessibleSites).includes(formData.siteId) || u.assignedSite === 'GLOBAL');
+        }
+        if (formData.workerType === 'Contractor' && formData.contractorId) {
+            const vendor = contractors.find(c => c.firebaseKey === formData.contractorId);
+            return ensureArray(vendor?.workers).filter(w => w.deployedSite === formData.siteId || vendor.siteId === 'GLOBAL');
+        }
+        return [];
+    }, [formData?.workerType, formData?.siteId, formData?.contractorId, users, contractors]);
+
+    const toggleWorker = (name) => {
+        setFormData(prev => {
+            const exists = prev.entrantNames.includes(name);
+            return { ...prev, entrantNames: exists ? prev.entrantNames.filter(n => n !== name) : [...prev.entrantNames, name] };
+        });
+    };
+
+
     // ==========================================
     // WORKFLOW ENGINE
     // ==========================================
@@ -312,7 +341,6 @@ export default function Ptw() {
         if (record) {
             const recToEdit = normalizePermit({ ...record });
             if (recToEdit.wms.length === 0) recToEdit.wms = [{ step: '', hazard: '', precaution: '' }];
-            if (recToEdit.entrantNames.length === 0) recToEdit.entrantNames = [''];
             if (recToEdit.ppe.length === 0) recToEdit.ppe = ["Hard Hat", "Safety Glasses", "Safety Shoes"];
             if (recToEdit.checklist.length === 0) {
                 const targetChecklist = CHECKLIST_ITEMS[recToEdit.typeId || 'GEN'] || CHECKLIST_ITEMS['GEN'];
@@ -327,7 +355,8 @@ export default function Ptw() {
                 id: `PTW-${Math.floor(100000 + Math.random() * 900000)}`,
                 typeId: typeId, siteId: defaultSite, location: '', equipment: '',
                 description: '', issuingDept: '', issuedToName: '', issuedToPh: '',
-                fireWatcherName: '', entrantNames: [''], attendantName: '', entrySupervisorName: '',
+                fireWatcherName: '', attendantName: '', entrySupervisorName: '',
+                workerType: 'Internal', contractorId: '', contractorName: '', entrantNames: [], // entrantNames acts as assignedWorkers
                 oxygenLevel: '', toxicGas: '', flammability: '', lotoRef: '', wahEquipment: [],
                 wms: [{ step: '', hazard: '', precaution: '' }],
                 validFromDate: new Date().toISOString().split('T')[0], validFromTime: '08:00',
@@ -335,7 +364,7 @@ export default function Ptw() {
                 status: 'Draft', requestedBy: session?.user || session?.email, creatorEmail: session?.email || session?.user, createdDate: new Date().toISOString(),
                 ppe: ["Hard Hat", "Safety Glasses", "Safety Shoes"],
                 checklist: (CHECKLIST_ITEMS[typeId] || CHECKLIST_ITEMS['GEN']).map(item => ({ label: item, checked: false })),
-                engApproverEmail: '', prodApproverEmail: '', engStatus: 'Pending', prodStatus: 'Pending'
+                engApproverEmail: '', prodApproverEmail: '', engStatus: 'Pending', prodStatus: 'Pending', nonCompliances: []
             });
         }
         setCurrentView('builder');
@@ -358,17 +387,30 @@ export default function Ptw() {
         if (!formData.siteId || !formData.description || !formData.location) {
             return alert("Site, Location, and Description are mandatory fields.");
         }
+        if (formData.workerType === 'Contractor' && !formData.contractorId) {
+            return alert("Please select the Contractor Company.");
+        }
+        if (formData.entrantNames.length === 0) {
+            return alert("Please select at least one worker for the execution team.");
+        }
 
         if (!isGlobalUser && !allowedSiteCodes.has(formData.siteId)) {
             return alert("Security Authorization Failed: You do not have permission to create permits for this specific facility.");
         }
 
+        setSaving(true);
         try {
             const { firebaseKey, ...payload } = formData;
             payload.lastUpdated = new Date().toISOString();
 
+            if (payload.workerType === 'Contractor') {
+                const vendor = contractors.find(c => c.firebaseKey === payload.contractorId);
+                if (vendor) payload.contractorName = vendor.companyName;
+            }
+
             if (!isDraft) {
                 if (!payload.engApproverEmail || !payload.prodApproverEmail) {
+                    setSaving(false);
                     return alert("Cannot submit! Please scroll down to Section 5 and select both Engineering and Production approvers.");
                 }
                 payload.status = 'Pending Approval';
@@ -390,6 +432,7 @@ export default function Ptw() {
         } catch (e) {
             alert("Error saving permit: " + e.message);
         }
+        setSaving(false);
     };
 
     const handleApproveInitiation = async (permit, role) => {
@@ -416,6 +459,36 @@ export default function Ptw() {
         } catch (e) { alert("Error approving: " + e.message); }
     };
 
+    // CONTRACTOR NON-COMPLIANCE INTEGRATION
+    const addNonCompliance = async () => {
+        if (!newNC) return;
+        const newRecord = { id: Date.now(), desc: newNC, date: new Date().toISOString().split('T')[0] };
+        const updatedNCs = [...ensureArray(formData.nonCompliances), newRecord];
+
+        setFormData(prev => ({ ...prev, nonCompliances: updatedNCs }));
+        setNewNC('');
+
+        // Instantly save the NC to the database to ensure the Contractor module picks it up
+        if (formData.firebaseKey) {
+            try {
+                await update(ref(rtdb, `organizations/${session.orgId}/ptwRecords/${formData.firebaseKey}`), { nonCompliances: updatedNCs });
+                setPermits(permits.map(p => p.id === formData.id ? normalizePermit({ ...p, nonCompliances: updatedNCs }) : p));
+            } catch (e) { console.error("Failed to sync NC to DB", e); }
+        }
+    };
+
+    const removeNonCompliance = async (id) => {
+        const updatedNCs = ensureArray(formData.nonCompliances).filter(nc => nc.id !== id);
+        setFormData(prev => ({ ...prev, nonCompliances: updatedNCs }));
+
+        if (formData.firebaseKey) {
+            try {
+                await update(ref(rtdb, `organizations/${session.orgId}/ptwRecords/${formData.firebaseKey}`), { nonCompliances: updatedNCs });
+                setPermits(permits.map(p => p.id === formData.id ? normalizePermit({ ...p, nonCompliances: updatedNCs }) : p));
+            } catch (e) { console.error("Failed to sync NC removal to DB", e); }
+        }
+    };
+
     const handleInspectionSubmit = async (e, isNegative) => {
         e.preventDefault();
         if (!inspectionModal.firebaseKey) return alert("Database error: Permit missing key.");
@@ -431,6 +504,13 @@ export default function Ptw() {
             if (isNegative) {
                 updates.status = 'Cancelled';
                 updates.cancellationReason = "Failed Workplace Inspection: " + obsText;
+
+                // If it's a contractor, automatically log the failed inspection as a non-compliance
+                if (inspectionModal.workerType === 'Contractor') {
+                    const newRecord = { id: Date.now(), desc: `CRITICAL SAFETY FAILURE: ${obsText}`, date: new Date().toISOString().split('T')[0] };
+                    updates.nonCompliances = [...ensureArray(inspectionModal.nonCompliances), newRecord];
+                }
+
                 alert("CRITICAL: Negative observation logged. Permit has been CANCELLED immediately.");
             } else {
                 alert("Safe observation logged successfully. Work may continue.");
@@ -529,17 +609,6 @@ export default function Ptw() {
     };
     const removeWmsRow = (idx) => { if (canEditForm) setFormData(prev => ({ ...prev, wms: (prev.wms || []).filter((_, i) => i !== idx) })); };
 
-    const addEntrant = () => { if (canEditForm) setFormData(prev => ({ ...prev, entrantNames: [...(prev.entrantNames || []), ''] })); };
-    const updateEntrant = (idx, val) => {
-        if (!canEditForm) return;
-        const arr = [...(formData.entrantNames || [])];
-        if (arr[idx] !== undefined) {
-            arr[idx] = val;
-            setFormData({ ...formData, entrantNames: arr });
-        }
-    };
-    const removeEntrant = (idx) => { if (canEditForm) setFormData(prev => ({ ...prev, entrantNames: (prev.entrantNames || []).filter((_, i) => i !== idx) })); };
-
     const toggleWahEquip = (item) => {
         if (!canEditForm) return;
         const arr = [...(formData.wahEquipment || [])];
@@ -559,7 +628,6 @@ export default function Ptw() {
         }
         setPrintData(normalizePermit(permit));
 
-        // Timeout to allow the DOM to render the hidden print block
         setTimeout(() => {
             window.print();
         }, 500);
@@ -585,9 +653,6 @@ export default function Ptw() {
 
     return (
         <>
-            {/* ======================================================== */}
-            {/* MAIN APP WRAPPER (HIDDEN DURING PRINT) */}
-            {/* ======================================================== */}
             <div className="flex flex-col h-screen bg-slate-950 text-white overflow-hidden relative font-['Space_Grotesk'] print:hidden">
 
                 <style dangerouslySetInnerHTML={{
@@ -749,7 +814,7 @@ export default function Ptw() {
                                             const canEditPtwRow = permissions.canEditCreate && (p.status === 'Draft' || p.status === 'Pending Approval' || p.status === 'Work in Progress');
 
                                             return (
-                                                <tr key={p.id || i} className="hover:bg-slate-800/50 transition-colors">
+                                                <tr key={p.id || i} className={`hover:bg-slate-800/50 transition-colors ${p.status === 'Closed' ? 'opacity-60' : ''}`}>
                                                     <td className="p-4 pl-6 font-mono text-xs font-bold text-white">{p.id}</td>
                                                     <td className="p-4"><span className={`text-[10px] font-bold uppercase tracking-widest px-2 py-1 rounded border shadow-sm ${tConfig.bg} ${tConfig.color} ${tConfig.border}`}>{tConfig.label}</span></td>
                                                     <td className="p-4">
@@ -759,7 +824,6 @@ export default function Ptw() {
                                                     <td className="p-4">
                                                         <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border ${getStatusColor(p.status)}`}>{p.status}</span>
 
-                                                        {/* DISPLAY APPROVERS WITH REASSIGN OPTION FOR CREATOR */}
                                                         <div className="text-[9px] mt-2 flex flex-col gap-1 font-bold uppercase text-slate-500 tracking-widest">
                                                             <div className="flex items-center gap-2">
                                                                 <span>ENG: <span className={p.engStatus.includes('Approved') ? 'text-emerald-400' : 'text-orange-400'}>{p.engStatus}</span></span>
@@ -861,17 +925,55 @@ export default function Ptw() {
                                         </div>
                                         <div>
                                             <label className="text-[10px] uppercase font-bold text-slate-400 block mb-2 tracking-widest">Site / Facility</label>
-                                            <select value={formData.siteId} onChange={e => updateField('siteId', e.target.value)} disabled={formData.status !== 'Draft' || (!isGlobalUser && allowedSites.length <= 1) || !canEditForm} className="font-bold text-white shadow-inner">
+                                            <select value={formData.siteId} onChange={e => { updateField('siteId', e.target.value); setFormData(p => ({ ...p, contractorId: '', entrantNames: [] })); }} disabled={formData.status !== 'Draft' || (!isGlobalUser && allowedSites.length <= 1) || !canEditForm} className="font-bold text-white shadow-inner">
                                                 {(isGlobalUser || allowedSites.length > 1) && <option value="">Select Authorized Site...</option>}
                                                 {allowedSites.map(s => <option key={s.code} value={s.code}>{s.name} ({s.code})</option>)}
                                             </select>
                                         </div>
 
-                                        <div><label className="text-[10px] uppercase font-bold text-slate-400 block mb-2 tracking-widest">Issuing Department</label><input value={formData.issuingDept} onChange={e => updateField('issuingDept', e.target.value)} disabled={formData.status !== 'Draft' || !canEditForm} placeholder="e.g. Maintenance, Production" className="shadow-inner" /></div>
-                                        <div className="grid grid-cols-2 gap-4">
-                                            <div><label className="text-[10px] uppercase font-bold text-slate-400 block mb-2 tracking-widest">Issued To (Name)</label><input value={formData.issuedToName} onChange={e => updateField('issuedToName', e.target.value)} disabled={formData.status !== 'Draft' || !canEditForm} placeholder="Supervisor Name" className="shadow-inner" /></div>
-                                            <div><label className="text-[10px] uppercase font-bold text-slate-400 block mb-2 tracking-widest">Contact No.</label><input value={formData.issuedToPh} onChange={e => updateField('issuedToPh', e.target.value)} disabled={formData.status !== 'Draft' || !canEditForm} placeholder="Phone Number" className="shadow-inner" /></div>
+                                        {/* EXECUTION TEAM INTEGRATION */}
+                                        <div className="md:col-span-2 border-t border-slate-700 pt-6 mt-2">
+                                            <div className="flex gap-4 mb-4">
+                                                <label className="flex items-center gap-2 cursor-pointer text-xs font-bold text-slate-300">
+                                                    <input type="radio" value="Internal" checked={formData.workerType === 'Internal'} onChange={() => setFormData({ ...formData, workerType: 'Internal', contractorId: '', entrantNames: [] })} disabled={formData.status !== 'Draft' || !canEditForm} className="accent-amber-500 w-4 h-4" /> Internal Staff
+                                                </label>
+                                                <label className="flex items-center gap-2 cursor-pointer text-xs font-bold text-slate-300">
+                                                    <input type="radio" value="Contractor" checked={formData.workerType === 'Contractor'} onChange={() => setFormData({ ...formData, workerType: 'Contractor', entrantNames: [] })} disabled={formData.status !== 'Draft' || !canEditForm} className="accent-amber-500 w-4 h-4" /> External Contractor
+                                                </label>
+                                            </div>
+
+                                            {formData.workerType === 'Contractor' && (
+                                                <div className="mb-4">
+                                                    <label className="text-[10px] uppercase font-bold text-amber-400 block mb-2 tracking-widest">Select Authorized Vendor</label>
+                                                    <select value={formData.contractorId} onChange={e => setFormData({ ...formData, contractorId: e.target.value, entrantNames: [] })} disabled={formData.status !== 'Draft' || !canEditForm} className="w-full bg-amber-900/10 border border-amber-500/30 rounded-lg p-3 text-amber-300 outline-none focus:border-amber-500 font-bold shadow-inner">
+                                                        <option value="">{formData.siteId ? 'Select Contractor...' : 'Select Site First'}</option>
+                                                        {availableContractors.map(c => <option key={c.firebaseKey} value={c.firebaseKey}>{c.companyName}</option>)}
+                                                    </select>
+                                                </div>
+                                            )}
+
+                                            {((formData.workerType === 'Internal' && formData.siteId) || (formData.workerType === 'Contractor' && formData.contractorId)) && (
+                                                <div>
+                                                    <label className="text-[10px] uppercase font-bold text-slate-400 block mb-2 tracking-widest">Assign Execution Team (Entrants)</label>
+                                                    <div className="flex-1 overflow-y-auto max-h-48 custom-scroll pr-2 bg-slate-900/50 rounded-xl border border-slate-700 p-2">
+                                                        {availableWorkers.length > 0 ? availableWorkers.map((w, idx) => (
+                                                            <label key={idx} className="flex items-center gap-3 p-2 hover:bg-slate-800 rounded cursor-pointer transition border border-transparent hover:border-slate-600 mb-1">
+                                                                <input type="checkbox" checked={formData.entrantNames.includes(w.name || w.email)} onChange={() => formData.status === 'Draft' && toggleWorker(w.name || w.email)} disabled={formData.status !== 'Draft' || !canEditForm} className="w-4 h-4 accent-amber-500 cursor-pointer" />
+                                                                <div>
+                                                                    <div className="text-xs font-bold text-white">{w.name || w.email}</div>
+                                                                    <div className="text-[9px] text-slate-500 uppercase tracking-widest">{w.role || 'Worker'}</div>
+                                                                </div>
+                                                            </label>
+                                                        )) : (
+                                                            <div className="p-4 text-center text-xs text-slate-500 italic">No workers available. Register workers in the respective modules.</div>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            )}
                                         </div>
+
+                                        <div><label className="text-[10px] uppercase font-bold text-slate-400 block mb-2 tracking-widest">Issuing Department</label><input value={formData.issuingDept} onChange={e => updateField('issuingDept', e.target.value)} disabled={formData.status !== 'Draft' || !canEditForm} placeholder="e.g. Maintenance, Production" className="shadow-inner" /></div>
+                                        <div><label className="text-[10px] uppercase font-bold text-slate-400 block mb-2 tracking-widest">Supervisor / In-Charge</label><input value={formData.issuedToName} onChange={e => updateField('issuedToName', e.target.value)} disabled={formData.status !== 'Draft' || !canEditForm} placeholder="Supervisor Name" className="shadow-inner" /></div>
 
                                         <div className="md:col-span-2"><label className="text-[10px] uppercase font-bold text-slate-400 block mb-2 tracking-widest">Detailed Work Description</label><textarea rows="3" value={formData.description} onChange={e => updateField('description', e.target.value)} disabled={formData.status !== 'Draft' || !canEditForm} placeholder="Describe the exact nature of the work, tools used, and method..." className="resize-none font-medium text-white shadow-inner custom-scroll"></textarea></div>
                                         <div><label className="text-[10px] uppercase font-bold text-slate-400 block mb-2 tracking-widest">Specific Area / Location</label><input value={formData.location} onChange={e => updateField('location', e.target.value)} disabled={formData.status !== 'Draft' || !canEditForm} placeholder="e.g. Roof of Boiler Room" className="shadow-inner" /></div>
@@ -894,22 +996,7 @@ export default function Ptw() {
                                             <div><label className="text-[10px] uppercase font-bold text-slate-300 block mb-2 tracking-widest">Attendant Name (Standby)</label><input value={formData.attendantName} onChange={e => updateField('attendantName', e.target.value)} disabled={formData.status !== 'Draft' || !canEditForm} placeholder="Person outside space..." className="border border-purple-900/50 focus:border-purple-500 shadow-inner" /></div>
                                             <div><label className="text-[10px] uppercase font-bold text-slate-300 block mb-2 tracking-widest">Entry Supervisor</label><input value={formData.entrySupervisorName} onChange={e => updateField('entrySupervisorName', e.target.value)} disabled={formData.status !== 'Draft' || !canEditForm} placeholder="Supervisor authorizing..." className="border border-purple-900/50 focus:border-purple-500 shadow-inner" /></div>
 
-                                            <div className="md:col-span-2">
-                                                <div className="flex justify-between items-center mb-3">
-                                                    <label className="text-[10px] uppercase font-bold text-slate-300 tracking-widest">Authorized Entrants</label>
-                                                    {formData.status === 'Draft' && canEditForm && <button type="button" onClick={addEntrant} className="text-[10px] bg-purple-600 hover:bg-purple-500 transition px-3 py-1.5 rounded-lg text-white font-bold uppercase tracking-widest shadow"><i className="fas fa-plus mr-1"></i> Add Entrant</button>}
-                                                </div>
-                                                {(formData.entrantNames || []).map((ent, idx) => (
-                                                    <div key={idx} className="flex gap-2 mb-2">
-                                                        <input value={ent} onChange={e => updateEntrant(idx, e.target.value)} disabled={formData.status !== 'Draft' || !canEditForm} placeholder={`Entrant ${idx + 1} Name`} className="border border-purple-900/50 focus:border-purple-500 shadow-inner" />
-                                                        {formData.status === 'Draft' && canEditForm && (formData.entrantNames || []).length > 1 && <button type="button" onClick={() => removeEntrant(idx)} className="bg-red-900/30 hover:bg-red-600 text-red-500 hover:text-white px-4 rounded-lg transition-colors border border-red-500/30"><i className="fas fa-times"></i></button>}
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        </div>
-
-                                        <h4 className="text-sm font-bold text-purple-400 uppercase tracking-widest border-b border-purple-500/30 pb-2 mt-4 font-['Space_Grotesk']"><i className="fas fa-wind mr-1"></i> Pre-Entry Gas Test Results</h4>
-                                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                                            <h4 className="text-sm font-bold text-purple-400 uppercase tracking-widest border-b border-purple-500/30 pb-2 mt-4 font-['Space_Grotesk'] md:col-span-2"><i className="fas fa-wind mr-1"></i> Pre-Entry Gas Test Results</h4>
                                             <div><label className="text-[10px] uppercase font-bold text-slate-400 block mb-1 tracking-widest">Oxygen Level (&gt;19.5%)</label><input value={formData.oxygenLevel} onChange={e => updateField('oxygenLevel', e.target.value)} disabled={formData.status !== 'Draft' || !canEditForm} placeholder="e.g. 20.9%" className="font-mono border border-purple-900/50 shadow-inner" /></div>
                                             <div><label className="text-[10px] uppercase font-bold text-slate-400 block mb-1 tracking-widest">Flammability (LEL &lt; 10%)</label><input value={formData.flammability} onChange={e => updateField('flammability', e.target.value)} disabled={formData.status !== 'Draft' || !canEditForm} placeholder="e.g. 0%" className="font-mono border border-purple-900/50 shadow-inner" /></div>
                                             <div><label className="text-[10px] uppercase font-bold text-slate-400 block mb-1 tracking-widest">Toxic Gas Concentration</label><input value={formData.toxicGas} onChange={e => updateField('toxicGas', e.target.value)} disabled={formData.status !== 'Draft' || !canEditForm} placeholder="e.g. H2S 0ppm" className="font-mono border border-purple-900/50 shadow-inner" /></div>
@@ -1018,6 +1105,34 @@ export default function Ptw() {
                                         </div>
                                     </div>
                                 </div>
+
+                                {/* AUDIT / NON-COMPLIANCE SECTION (Only visible after draft phase) */}
+                                {formData.firebaseKey && formData.status !== 'Draft' && (
+                                    <div className="bg-red-950/20 p-8 rounded-3xl shadow-xl border-t-4 border-red-500 border-x border-b border-red-500/30">
+                                        <h3 className="text-xl font-bold text-white flex items-center gap-3 mb-6 border-b border-red-500/30 pb-4 font-['Space_Grotesk']"><i className="fas fa-exclamation-triangle text-red-500"></i> Permit Non-Compliances</h3>
+                                        <p className="text-xs text-slate-300 mb-6">Log any safety violations observed during the execution of this permit. If this is a Contractor permit, these will be permanently recorded in the vendor's profile.</p>
+
+                                        <div className="space-y-3 mb-6">
+                                            {safeArr(formData.nonCompliances).map(nc => (
+                                                <div key={nc.id} className="p-4 bg-red-950/40 border border-red-500/50 rounded-xl flex justify-between items-start group shadow-inner">
+                                                    <div>
+                                                        <div className="text-sm font-bold text-white mb-1">{nc.desc}</div>
+                                                        <div className="text-[10px] font-mono text-red-400">{nc.date}</div>
+                                                    </div>
+                                                    {canEditForm && <button onClick={() => removeNonCompliance(nc.id)} className="text-red-500 hover:text-white opacity-0 group-hover:opacity-100 transition bg-red-900/50 hover:bg-red-600 px-2 py-1 rounded"><i className="fas fa-trash-alt text-xs"></i></button>}
+                                                </div>
+                                            ))}
+                                            {safeArr(formData.nonCompliances).length === 0 && <div className="text-center text-slate-500 italic text-sm p-4">No violations recorded.</div>}
+                                        </div>
+
+                                        {canEditForm && (
+                                            <div className="flex gap-2">
+                                                <input value={newNC} onChange={e => setNewNC(e.target.value)} placeholder="Describe violation (e.g. Worker not wearing safety harness)..." className="flex-1 bg-slate-950 border border-red-900/50 rounded-xl p-3 text-sm text-white outline-none focus:border-red-500 shadow-inner" />
+                                                <button onClick={addNonCompliance} className="bg-red-600 hover:bg-red-500 text-white px-6 rounded-xl font-bold shadow-lg transition-transform active:scale-95 text-xs uppercase tracking-widest"><i className="fas fa-plus mr-2"></i> Log NC</button>
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
 
                                 {/* SECTION 5: DUAL AUTHORIZATION */}
                                 <div className="bg-slate-800/80 p-8 rounded-3xl shadow-xl border-t-4 border-emerald-500">
@@ -1139,8 +1254,14 @@ export default function Ptw() {
                                     <td className="w-[15%] py-1.5 font-bold border-b border-gray-300 pl-4">Equipment:</td><td className="w-[35%] py-1.5 border-b border-gray-300">{printData.equipment || 'N/A'}</td>
                                 </tr>
                                 <tr>
-                                    <td className="w-[15%] py-1.5 font-bold border-none">Issued To:</td><td className="w-[35%] py-1.5 font-bold border-none">{printData.issuedToName} (Ph: {printData.issuedToPh})</td>
-                                    <td className="w-[15%] py-1.5 font-bold border-none pl-4">Validity:</td><td className="w-[35%] py-1.5 font-bold border-none font-mono">{printData.validFromDate} to {printData.validToDate}<br />{printData.validFromTime} - {printData.validToTime}</td>
+                                    <td className="w-[15%] py-1.5 font-bold border-none align-top">Execution Team:</td>
+                                    <td className="w-[35%] py-1.5 font-bold border-none align-top">
+                                        {printData.workerType === 'Contractor' ? `[Contractor] ${printData.contractorName}` : '[Internal]'} <br />
+                                        Supervised By: {printData.issuedToName} (Ph: {printData.issuedToPh}) <br />
+                                        Workers: {(printData.entrantNames || []).join(', ') || 'None Assigned'}
+                                    </td>
+                                    <td className="w-[15%] py-1.5 font-bold border-none pl-4 align-top">Validity:</td>
+                                    <td className="w-[35%] py-1.5 font-bold border-none font-mono align-top">{printData.validFromDate} to {printData.validToDate}<br />{printData.validFromTime} - {printData.validToTime}</td>
                                 </tr>
                             </tbody>
                         </table>
@@ -1158,7 +1279,6 @@ export default function Ptw() {
                                     {printData.typeId === 'CSE' && (
                                         <>
                                             <tr><td className="font-bold py-1 border-b border-gray-300">Attendant:</td><td className="py-1 border-b border-gray-300">{printData.attendantName}</td><td className="font-bold py-1 border-b border-gray-300 pl-4">Supervisor:</td><td className="py-1 border-b border-gray-300">{printData.entrySupervisorName}</td></tr>
-                                            <tr><td className="font-bold py-1 border-b border-gray-300 align-top">Entrants:</td><td colSpan={3} className="py-1 border-b border-gray-300">{(printData.entrantNames || []).join(', ')}</td></tr>
                                             <tr>
                                                 <td className="font-bold py-1 border-b border-gray-300 mt-1 pt-1">Oxygen:</td><td className="py-1 border-b border-gray-300 font-mono mt-1 pt-1">{printData.oxygenLevel}</td>
                                                 <td className="font-bold py-1 border-b border-gray-300 pl-4 mt-1 pt-1">Toxic Gas:</td><td className="py-1 border-b border-gray-300 font-mono mt-1 pt-1">{printData.toxicGas}</td>
