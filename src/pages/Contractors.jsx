@@ -87,18 +87,22 @@ export default function Contractors() {
     const [deploymentCompanyFilter, setDeploymentCompanyFilter] = useState('All');
     const [saving, setSaving] = useState(false);
 
+    // Global Cross-Module Data
     const [globalTrainings, setGlobalTrainings] = useState([]);
     const [globalPermits, setGlobalPermits] = useState([]);
     const [globalIncidents, setGlobalIncidents] = useState([]);
 
+    // Form State for Company
     const [formData, setFormData] = useState({
         id: '', allocatedSites: [], companyName: '', contactPerson: '', email: '', phone: '',
         serviceType: 'General / Housekeeping', goodsType: 'PPE', notes: '', status: 'Pending Review',
         documents: getMandatoryDocs('General / Housekeeping'), workers: []
     });
 
+    // Form State for New Worker Modal
     const [addWorkerData, setAddWorkerData] = useState({ contractorId: '', name: '', role: 'Worker', competence: '', deployedSite: '' });
 
+    // Modals
     const [activeVendor, setActiveVendor] = useState(null);
     const [editingVendor, setEditingVendor] = useState(null);
     const [activeWorker, setActiveWorker] = useState(null);
@@ -136,7 +140,7 @@ export default function Contractors() {
                     if (data.sites) setSites(Object.keys(data.sites).map(key => ({ code: data.sites[key].code || key, name: data.sites[key].name || key })));
                     if (data.trainings) setGlobalTrainings(safeArr(data.trainings));
 
-                    // Force parsing permits correctly
+                    // Fetch Permits
                     if (data.workPermits) {
                         let ptwArr = [];
                         if (Array.isArray(data.workPermits)) {
@@ -147,6 +151,7 @@ export default function Contractors() {
                         setGlobalPermits(ptwArr);
                     }
 
+                    // Fetch Incidents
                     if (data.incidents) {
                         let incArr = [];
                         if (Array.isArray(data.incidents)) {
@@ -1196,7 +1201,7 @@ export default function Contractors() {
                                                         <div className="font-bold text-xs uppercase tracking-widest text-red-400">{inc.type || inc.incidentType || 'Incident'}</div>
                                                         <div className="text-[10px] font-mono text-slate-400 bg-slate-950 px-2 py-1 rounded">{inc.date || inc.incidentDate || 'Unknown Date'}</div>
                                                     </div>
-                                                    <div className="text-xs text-slate-300 leading-relaxed">{inc.desc || inc.description || 'No description provided.'}</div>
+                                                    <div className="text-xs text-white font-medium mb-2 leading-tight">{inc.desc || inc.description || 'No description provided.'}</div>
                                                 </div>
                                             ))}
                                             {safeArr(activeWorker.injuriesList).length === 0 && (
