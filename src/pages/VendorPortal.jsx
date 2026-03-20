@@ -79,6 +79,16 @@ const fileToBase64 = (file) => new Promise((resolve, reject) => {
     reader.onerror = error => reject(error);
 });
 
+const createWorkerForm = (worker = {}) => ({
+    id: worker.id || '',
+    name: worker.name || '',
+    role: worker.role || 'Worker',
+    competence: worker.competence || '',
+    deployedSite: worker.deployedSite || '',
+    employeeId: worker.employeeId || '',
+    phone: worker.phone || ''
+});
+
 export default function VendorPortal() {
     const [loading, setLoading] = useState(true);
     const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -89,6 +99,8 @@ export default function VendorPortal() {
     const [vendorIncidents, setVendorIncidents] = useState([]);
     const [vendorPermits, setVendorPermits] = useState([]);
     const [uploadingId, setUploadingId] = useState(null);
+    const [workerForm, setWorkerForm] = useState(createWorkerForm());
+    const [savingWorker, setSavingWorker] = useState(false);
     const manualLoginRef = useRef(false);
 
     const resetPortalState = (clearForm = false) => {
@@ -98,6 +110,7 @@ export default function VendorPortal() {
         setVendorPermits([]);
         setVendorSession(null);
         setActiveTab('documentation');
+        setWorkerForm(createWorkerForm());
         if (clearForm) {
             setLoginData({ email: '', vendorCode: '' });
         }
@@ -421,6 +434,66 @@ export default function VendorPortal() {
         setUploadingId(null);
     };
 
+    const resetWorkerForm = () => {
+        setWorkerForm(createWorkerForm());
+    };
+
+    const handleWorkerFormSubmit = async (e) => {
+        e.preventDefault();
+
+        const trimmedName = String(workerForm.name || '').trim();
+        const trimmedRole = String(workerForm.role || '').trim();
+        const trimmedCompetence = String(workerForm.competence || '').trim();
+        const trimmedEmployeeId = String(workerForm.employeeId || '').trim();
+        const trimmedPhone = String(workerForm.phone || '').trim();
+
+        if (!trimmedName || !trimmedRole || !trimmedCompetence || !workerForm.deployedSite) {
+            alert('Please enter employee name, role, competence, and deployed site.');
+            return;
+        }
+
+        const existingWorker = vendor.workers.find(w => w.id === workerForm.id);
+        const nextWorker = {
+            ...(existingWorker || {}),
+            id: existingWorker?.id || Date.now().toString(),
+            name: trimmedName,
+            role: trimmedRole,
+            competence: trimmedCompetence,
+            deployedSite: workerForm.deployedSite,
+            employeeId: trimmedEmployeeId,
+            phone: trimmedPhone,
+            inductionDate: existingWorker?.inductionDate || 'Pending',
+            additionalDocs: safeArr(existingWorker?.additionalDocs)
+        };
+
+        const updatedWorkers = existingWorker
+            ? vendor.workers.map(w => w.id === existingWorker.id ? nextWorker : w)
+            : [...vendor.workers, nextWorker];
+
+        setSavingWorker(true);
+        const success = await updateDatabase({ workers: updatedWorkers });
+        setSavingWorker(false);
+
+        if (success) {
+            resetWorkerForm();
+            alert(existingWorker ? 'Employee details updated successfully.' : 'Employee added successfully.');
+        }
+    };
+
+    const handleEditWorker = (worker) => {
+        setWorkerForm(createWorkerForm(worker));
+    };
+
+    const handleDeleteWorker = async (workerId) => {
+        if (!window.confirm('Remove this employee from the roster?')) return;
+        const success = await updateDatabase({
+            workers: vendor.workers.filter(w => w.id !== workerId)
+        });
+        if (success && workerForm.id === workerId) {
+            resetWorkerForm();
+        }
+    };
+
     if (loading && !isAuthenticated) {
         return (
             <div className="min-h-screen bg-slate-950 flex items-center justify-center font-['Space_Grotesk'] text-slate-200">
@@ -606,27 +679,143 @@ export default function VendorPortal() {
                             <div className="bg-slate-900/60 backdrop-blur-md rounded-3xl border border-slate-700 shadow-xl overflow-hidden flex flex-col h-[700px]">
                                 <div className="p-6 border-b border-slate-800 bg-slate-950/50">
                                     <h3 className="text-xl font-bold text-white flex items-center gap-3"><i className="fas fa-users-cog text-emerald-400"></i> Employee Roster & Documents</h3>
-                                    <p className="text-xs text-slate-400 mt-1">Upload Medical Fitness (Form 33) and Competency Certificates for each worker.</p>
+                                    <p className="text-xs text-slate-400 mt-1">Add your employees, maintain their details, and upload Medical Fitness (Form 33) and Competency Certificates.</p>
                                 </div>
                                 <div className="flex-1 overflow-y-auto p-6 custom-scroll space-y-4 bg-slate-900/30">
+                                    <form onSubmit={handleWorkerFormSubmit} className="p-5 rounded-2xl border border-emerald-500/20 bg-emerald-950/10 shadow-sm">
+                                        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between mb-4">
+                                            <div>
+                                                <div className="text-sm font-bold text-white">{workerForm.id ? 'Edit Employee' : 'Add Employee'}</div>
+                                                <div className="text-[10px] uppercase tracking-widest text-slate-400">Vendors can manage their own employee roster here.</div>
+                                            </div>
+                                            {workerForm.id && (
+                                                <button
+                                                    type="button"
+                                                    onClick={resetWorkerForm}
+                                                    className="text-[10px] uppercase font-bold tracking-widest px-3 py-2 rounded-lg border border-slate-700 text-slate-300 hover:text-white hover:border-slate-500 transition-colors"
+                                                >
+                                                    Cancel Edit
+                                                </button>
+                                            )}
+                                        </div>
+
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                            <div>
+                                                <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 block mb-2">Employee Name</label>
+                                                <input
+                                                    type="text"
+                                                    value={workerForm.name}
+                                                    onChange={e => setWorkerForm(prev => ({ ...prev, name: e.target.value }))}
+                                                    className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-white outline-none focus:border-emerald-500"
+                                                    placeholder="Worker name"
+                                                />
+                                            </div>
+                                            <div>
+                                                <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 block mb-2">Employee ID</label>
+                                                <input
+                                                    type="text"
+                                                    value={workerForm.employeeId}
+                                                    onChange={e => setWorkerForm(prev => ({ ...prev, employeeId: e.target.value }))}
+                                                    className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-white outline-none focus:border-emerald-500"
+                                                    placeholder="Badge / payroll / ID number"
+                                                />
+                                            </div>
+                                            <div>
+                                                <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 block mb-2">Role</label>
+                                                <input
+                                                    type="text"
+                                                    value={workerForm.role}
+                                                    onChange={e => setWorkerForm(prev => ({ ...prev, role: e.target.value }))}
+                                                    className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-white outline-none focus:border-emerald-500"
+                                                    placeholder="Electrician / Fitter / Helper"
+                                                />
+                                            </div>
+                                            <div>
+                                                <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 block mb-2">Phone</label>
+                                                <input
+                                                    type="text"
+                                                    value={workerForm.phone}
+                                                    onChange={e => setWorkerForm(prev => ({ ...prev, phone: e.target.value }))}
+                                                    className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-white outline-none focus:border-emerald-500"
+                                                    placeholder="Mobile number"
+                                                />
+                                            </div>
+                                            <div>
+                                                <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 block mb-2">Competence</label>
+                                                <input
+                                                    type="text"
+                                                    value={workerForm.competence}
+                                                    onChange={e => setWorkerForm(prev => ({ ...prev, competence: e.target.value }))}
+                                                    className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-white outline-none focus:border-emerald-500"
+                                                    placeholder="ITI / certified / skilled trade"
+                                                />
+                                            </div>
+                                            <div>
+                                                <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 block mb-2">Deployed Site</label>
+                                                <select
+                                                    value={workerForm.deployedSite}
+                                                    onChange={e => setWorkerForm(prev => ({ ...prev, deployedSite: e.target.value }))}
+                                                    className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-white outline-none focus:border-emerald-500"
+                                                >
+                                                    <option value="">Select site</option>
+                                                    {vendor.allocatedSites.map(site => (
+                                                        <option key={site} value={site}>{site}</option>
+                                                    ))}
+                                                </select>
+                                            </div>
+                                        </div>
+
+                                        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mt-5">
+                                            <div className="text-[10px] uppercase tracking-widest text-slate-500">Documents can be uploaded right below after the employee is saved.</div>
+                                            <button
+                                                type="submit"
+                                                disabled={savingWorker}
+                                                className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white px-5 py-3 rounded-xl text-[11px] font-bold uppercase tracking-widest transition-colors"
+                                            >
+                                                {savingWorker ? <><i className="fas fa-circle-notch fa-spin mr-2"></i>Saving</> : workerForm.id ? 'Update Employee' : 'Add Employee'}
+                                            </button>
+                                        </div>
+                                    </form>
+
                                     {vendor.workers.map(w => {
                                         const isMedUploading = uploadingId === `worker-${w.id}-med`;
                                         const isCompUploading = uploadingId === `worker-${w.id}-comp`;
 
                                         return (
                                             <div key={w.id} className="p-5 rounded-2xl border border-slate-700 bg-slate-950/80 shadow-sm">
-                                                <div className="flex justify-between items-center mb-4 border-b border-slate-800 pb-3">
+                                                <div className="flex justify-between items-start mb-4 border-b border-slate-800 pb-3 gap-4">
                                                     <div>
                                                         <div className="text-base font-bold text-white leading-tight">{w.name}</div>
                                                         <div className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">{w.role} | {w.competence}</div>
+                                                        <div className="text-[10px] text-slate-500 mt-2">
+                                                            <span className="mr-3">Site: <span className="text-slate-300 font-bold">{w.deployedSite || 'Unassigned'}</span></span>
+                                                            {w.employeeId && <span className="mr-3">ID: <span className="text-slate-300 font-bold">{w.employeeId}</span></span>}
+                                                            {w.phone && <span>Phone: <span className="text-slate-300 font-bold">{w.phone}</span></span>}
+                                                        </div>
                                                     </div>
-                                                    <div className="text-right">
+                                                    <div className="text-right shrink-0">
                                                         <div className="text-[9px] uppercase font-bold text-slate-500 mb-1">Status</div>
                                                         {!w.inductionDate || w.inductionDate === 'Pending' ? (
-                                                            <div className="text-[10px] font-bold text-orange-400 uppercase tracking-widest border border-orange-500/30 px-2 py-0.5 rounded bg-orange-900/20">Pending Induction</div>
+                                                            <div className="text-[10px] font-bold text-orange-400 uppercase tracking-widest border border-orange-500/30 px-2 py-0.5 rounded bg-orange-900/20 mb-3">Pending Induction</div>
                                                         ) : (
-                                                            <div className="text-[10px] font-bold text-emerald-400 uppercase tracking-widest border border-emerald-500/30 px-2 py-0.5 rounded bg-emerald-900/20">Inducted</div>
+                                                            <div className="text-[10px] font-bold text-emerald-400 uppercase tracking-widest border border-emerald-500/30 px-2 py-0.5 rounded bg-emerald-900/20 mb-3">Inducted</div>
                                                         )}
+                                                        <div className="flex gap-2 justify-end">
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => handleEditWorker(w)}
+                                                                className="text-[9px] uppercase font-bold tracking-widest px-2 py-1 rounded border border-indigo-500/30 text-indigo-300 hover:bg-indigo-600 hover:text-white transition-colors"
+                                                            >
+                                                                Edit
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => handleDeleteWorker(w.id)}
+                                                                className="text-[9px] uppercase font-bold tracking-widest px-2 py-1 rounded border border-red-500/30 text-red-300 hover:bg-red-600 hover:text-white transition-colors"
+                                                            >
+                                                                Remove
+                                                            </button>
+                                                        </div>
                                                     </div>
                                                 </div>
 
@@ -710,7 +899,7 @@ export default function VendorPortal() {
                                             </div>
                                         );
                                     })}
-                                    {vendor.workers.length === 0 && <div className="text-center text-slate-500 text-sm italic py-10">No employees assigned to this roster. Ask your client EHS to add them.</div>}
+                                    {vendor.workers.length === 0 && <div className="text-center text-slate-500 text-sm italic py-10">No employees added yet. Use the form above to register your first employee.</div>}
                                 </div>
                             </div>
                         </div>
