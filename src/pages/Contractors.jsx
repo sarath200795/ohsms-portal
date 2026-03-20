@@ -367,21 +367,22 @@ export default function Contractors() {
             const nowIso = new Date().toISOString();
             const allocatedSites = safeArr(activeVendor.allocatedSites);
             const primarySite = allocatedSites[0] || activeVendor.siteId || 'GLOBAL';
-            const existingPortalUser = orgUsers.find(u => (
+            const existingOrgUser = orgUsers.find(u => (
                 (activeVendor.portalUid && u.firebaseKey === activeVendor.portalUid) ||
-                (normalizeEmail(u.email) === vendorEmail && u.vendorPortal === true)
+                normalizeEmail(u.email) === vendorEmail
             ) && u.status !== 'Deleted');
 
-            let portalUid = activeVendor.portalUid || existingPortalUser?.firebaseKey || '';
+            let portalUid = activeVendor.portalUid || existingOrgUser?.firebaseKey || '';
             let createdPortalAuthUser = false;
+            let provisioningWarning = '';
             const baseUserPayload = {
                 name: activeVendor.contactPerson || activeVendor.companyName || 'Vendor Portal User',
                 email: vendorEmail,
-                role: existingPortalUser?.role || 'User',
+                role: existingOrgUser?.role || 'User',
                 status: 'Active',
-                assignedSite: existingPortalUser?.assignedSite || primarySite,
-                accessibleSites: Array.from(new Set([...(safeArr(existingPortalUser?.accessibleSites)), ...allocatedSites].filter(Boolean))),
-                accessibleModules: safeArr(existingPortalUser?.accessibleModules),
+                assignedSite: existingOrgUser?.assignedSite || primarySite,
+                accessibleSites: Array.from(new Set([...(safeArr(existingOrgUser?.accessibleSites)), ...allocatedSites].filter(Boolean))),
+                accessibleModules: safeArr(existingOrgUser?.accessibleModules),
                 vendorPortal: true,
                 portalLinkedContractorId: activeVendor.firebaseKey,
                 updatedBy: session.email,
@@ -393,34 +394,53 @@ export default function Contractors() {
             const tempAuth = getAuth(tempApp);
 
             try {
-                try {
-                    const existingCredential = await signInWithEmailAndPassword(tempAuth, vendorEmail, vendorCode);
-                    portalUid = existingCredential.user.uid;
-                } catch (authError) {
-                    const authCode = authError?.code || '';
-
-                    if (
-                        authCode === 'auth/invalid-credential' ||
-                        authCode === 'auth/invalid-login-credentials' ||
-                        authCode === 'auth/user-not-found' ||
-                        authCode === 'auth/wrong-password'
-                    ) {
-                        try {
-                            const userCredential = await createUserWithEmailAndPassword(
-                                tempAuth,
-                                vendorEmail,
-                                vendorCode
-                            );
-                            portalUid = userCredential.user.uid;
-                            createdPortalAuthUser = true;
-                        } catch (createError) {
-                            if (createError?.code === 'auth/email-already-in-use') {
-                                throw new Error('A Firebase Auth account already exists for this vendor email with an older password. To use email + vendor code login, reset that auth account password to the vendor code in Firebase Authentication or delete and recreate the vendor auth user.');
-                            }
-                            throw createError;
+                if (portalUid) {
+                    try {
+                        const existingCredential = await signInWithEmailAndPassword(tempAuth, vendorEmail, vendorCode);
+                        portalUid = existingCredential.user.uid;
+                    } catch (authError) {
+                        const authCode = authError?.code || '';
+                        if (
+                            authCode === 'auth/invalid-credential' ||
+                            authCode === 'auth/invalid-login-credentials' ||
+                            authCode === 'auth/user-not-found' ||
+                            authCode === 'auth/wrong-password'
+                        ) {
+                            provisioningWarning = 'Portal access was linked to an existing organization user, but that Firebase Auth account is still using an older password. The vendor will not be able to log in with the vendor code until that auth user password is reset to the vendor code in Firebase Authentication.';
+                        } else {
+                            throw authError;
                         }
-                    } else {
-                        throw authError;
+                    }
+                } else {
+                    try {
+                        const existingCredential = await signInWithEmailAndPassword(tempAuth, vendorEmail, vendorCode);
+                        portalUid = existingCredential.user.uid;
+                    } catch (authError) {
+                        const authCode = authError?.code || '';
+
+                        if (
+                            authCode === 'auth/invalid-credential' ||
+                            authCode === 'auth/invalid-login-credentials' ||
+                            authCode === 'auth/user-not-found' ||
+                            authCode === 'auth/wrong-password'
+                        ) {
+                            try {
+                                const userCredential = await createUserWithEmailAndPassword(
+                                    tempAuth,
+                                    vendorEmail,
+                                    vendorCode
+                                );
+                                portalUid = userCredential.user.uid;
+                                createdPortalAuthUser = true;
+                            } catch (createError) {
+                                if (createError?.code === 'auth/email-already-in-use') {
+                                    throw new Error('This email already exists in Firebase Authentication but is not linked to a contractor org user yet. Create or locate the matching org user first, then reprovision, or reset/delete that Firebase Auth user so the vendor code can be used as the login credential.');
+                                }
+                                throw createError;
+                            }
+                        } else {
+                            throw authError;
+                        }
                     }
                 }
             } finally {
@@ -464,7 +484,8 @@ export default function Contractors() {
                 companyName: activeVendor.companyName,
                 email: vendorEmail,
                 vendorCode,
-                linkedExisting: !createdPortalAuthUser
+                linkedExisting: !createdPortalAuthUser,
+                warning: provisioningWarning
             });
         } catch (error) {
             alert("Portal provisioning failed: " + error.message);
@@ -1250,6 +1271,11 @@ export default function Contractors() {
                                     <div className="text-xs text-slate-300">Email + Vendor Code. The vendor code is now the login credential, so no separate password or sign-in link is needed.</div>
                                 </div>
                             </div>
+                            {portalSuccess.warning && (
+                                <div className="rounded-2xl border border-amber-500/30 bg-amber-950/20 p-4 text-xs leading-relaxed text-amber-200 mb-6">
+                                    {portalSuccess.warning}
+                                </div>
+                            )}
 
                             <button onClick={() => setPortalSuccess(null)} className="w-full bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-3 rounded-xl text-sm font-bold uppercase tracking-widest transition-colors shadow-lg shadow-emerald-600/20">
                                 Close
