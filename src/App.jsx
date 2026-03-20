@@ -10,7 +10,6 @@ import Users from './pages/Users';
 import Sites from './pages/Sites';
 import Analytics from "./pages/Analytics";
 
-
 // --- Import Enterprise Modules ---
 import Incidents from './pages/Incidents';
 import Risk from './pages/Risk';
@@ -31,9 +30,11 @@ import MockDrill from './pages/MockDrill';
 import EmergencyEquipment from './pages/EmergencyEquipment';
 import Inspections from './pages/Inspections';
 
+// --- Import External Portals ---
+import VendorPortal from './pages/VendorPortal';
 
 // --- Global Security Interceptor ---
-// Prevents unauthorized users from typing URLs directly into the browser
+// Prevents unauthorized internal users from typing URLs directly into the browser
 const ProtectedRoute = ({ children }) => {
     const session = sessionStorage.getItem('isoSession');
 
@@ -77,16 +78,25 @@ export default function App() {
     return (
         <Router>
             <Routes>
-                {/* Public Route */}
-                <Route path="/" element={<Login />} />
 
-                {/* Protected Admin & Dashboard Routes */}
+                {/* ========================================== */}
+                {/* PUBLIC ROUTES (No Internal Session Needed) */}
+                {/* ========================================== */}
+                <Route path="/" element={<Login />} />
+                <Route path="/vendor-portal" element={<VendorPortal />} />
+
+
+                {/* ========================================== */}
+                {/* PROTECTED ROUTES (Requires Employee Login) */}
+                {/* ========================================== */}
+
+                {/* Core Dashboards */}
                 <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
                 <Route path="/Analytics" element={<ProtectedRoute><Analytics /></ProtectedRoute>} />
                 <Route path="/users" element={<ProtectedRoute><Users /></ProtectedRoute>} />
                 <Route path="/sites" element={<ProtectedRoute><Sites /></ProtectedRoute>} />
 
-                {/* Protected Enterprise Management Modules */}
+                {/* Enterprise Management Modules */}
                 <Route path="/incidents" element={<ProtectedRoute><Incidents /></ProtectedRoute>} />
                 <Route path="/risk" element={<ProtectedRoute><Risk /></ProtectedRoute>} />
                 <Route path="/consultation" element={<ProtectedRoute><Consultation /></ProtectedRoute>} />
@@ -95,20 +105,24 @@ export default function App() {
                 <Route path="/capa" element={<ProtectedRoute><Capa /></ProtectedRoute>} />
                 <Route path="/training" element={<ProtectedRoute><Training /></ProtectedRoute>} />
                 <Route path="/improvement" element={<ProtectedRoute><Improvement /></ProtectedRoute>} />
+                <Route path="/contractors" element={<ProtectedRoute><Contractors /></ProtectedRoute>} />
 
-                {/* Protected OHS Tools & Field Execution */}
+                {/* OHS Tools & Field Execution */}
                 <Route path="/ohs-tools" element={<ProtectedRoute><OhsTools /></ProtectedRoute>} />
                 <Route path="/ptw" element={<ProtectedRoute><PTW /></ProtectedRoute>} />
                 <Route path="/loto" element={<ProtectedRoute><LOTO /></ProtectedRoute>} />
                 <Route path="/health-dashboard" element={<ProtectedRoute><Health /></ProtectedRoute>} />
                 <Route path="/mock-drill" element={<ProtectedRoute><MockDrill /></ProtectedRoute>} />
-                <Route path="/emergency-equipment" element={<EmergencyEquipment />} />
-                <Route path="/inspections" element={<Inspections />} />
-                <Route path="/contractors" element={<Contractors />} />
+                <Route path="/emergency-equipment" element={<ProtectedRoute><EmergencyEquipment /></ProtectedRoute>} />
+                <Route path="/inspections" element={<ProtectedRoute><Inspections /></ProtectedRoute>} />
 
 
-                {/* Fallback Route: Catch broken URLs and safely redirect to Login/Dashboard */}
+                {/* ========================================== */}
+                {/* FALLBACK ROUTE                             */}
+                {/* ========================================== */}
+                {/* Catch broken URLs and safely redirect to Login/Dashboard */}
                 <Route path="*" element={<Navigate to="/" replace />} />
+
             </Routes>
         </Router>
     );
