@@ -1,8 +1,30 @@
-import React, { useState, useEffect } from 'react';
-import { ref, get, update } from 'firebase/database';
-import { rtdb } from '../config/firebase';
+import React, { useEffect, useRef, useState } from 'react';
+import { initializeApp, getApps } from 'firebase/app';
+import {
+    browserSessionPersistence,
+    getAuth,
+    onAuthStateChanged,
+    setPersistence,
+    signInWithEmailAndPassword,
+    signOut
+} from 'firebase/auth';
+import { get, getDatabase, ref, update } from 'firebase/database';
+import { auth } from '../config/firebase';
 
-// --- DATA SAFETY ENGINE ---
+const VENDOR_APP_NAME = 'vendor-portal-app';
+const VENDOR_SESSION_KEY = 'vendorSession';
+
+const getVendorFirebase = () => {
+    const existingApp = getApps().find(app => app.name === VENDOR_APP_NAME);
+    const vendorApp = existingApp || initializeApp(auth.app.options, VENDOR_APP_NAME);
+    return {
+        vendorAuth: getAuth(vendorApp),
+        vendorDb: getDatabase(vendorApp)
+    };
+};
+
+const { vendorAuth, vendorDb } = getVendorFirebase();
+
 const safeArr = (val) => {
     if (!val) return [];
     if (Array.isArray(val)) return val.filter(Boolean);
@@ -16,6 +38,18 @@ const safeArrWithKeys = (dataObj) => {
     return Object.entries(dataObj).map(([k, v]) => ({ ...v, firebaseKey: k }));
 };
 
+const normalizeEmail = (value) => String(value || '').trim().toLowerCase();
+const normalizeVendorCode = (value) => String(value || '').trim().toUpperCase();
+
+const readVendorSession = () => {
+    try {
+        const raw = sessionStorage.getItem(VENDOR_SESSION_KEY);
+        return raw ? JSON.parse(raw) : null;
+    } catch {
+        return null;
+    }
+};
+
 const fileToBase64 = (file) => new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.readAsDataURL(file);
@@ -24,99 +58,242 @@ const fileToBase64 = (file) => new Promise((resolve, reject) => {
 });
 
 export default function VendorPortal() {
-    const [loading, setLoading] = useState(false);
+    const [loading, setLoading] = useState(true);
     const [isAuthenticated, setIsAuthenticated] = useState(false);
-
-    // Login & Tab State
-    const [loginData, setLoginData] = useState({ orgId: '', vendorCode: '' });
-    const [activeTab, setActiveTab] = useState('documentation'); // 'documentation' | 'activities'
-
-    // Vendor Data State
+    const [loginData, setLoginData] = useState({ email: '', password: '', vendorCode: '' });
+    const [activeTab, setActiveTab] = useState('documentation');
+    const [vendorSession, setVendorSession] = useState(null);
     const [vendor, setVendor] = useState(null);
     const [vendorIncidents, setVendorIncidents] = useState([]);
     const [vendorPermits, setVendorPermits] = useState([]);
     const [uploadingId, setUploadingId] = useState(null);
+    const manualLoginRef = useRef(false);
 
-    // Check for existing vendor session on load
-    useEffect(() => {
-        const storedVendor = sessionStorage.getItem('vendorSession');
-        if (storedVendor) {
-            const parsed = JSON.parse(storedVendor);
-            setLoginData({ orgId: parsed.orgId, vendorCode: parsed.vendorCode });
-            fetchVendorData(parsed.orgId, parsed.vendorCode, false);
-        }
-    }, []);
-
-    const fetchVendorData = async (orgId, vendorCode, showAlerts = true) => {
-        setLoading(true);
-        try {
-            // 1. Fetch Contractors
-            const snap = await get(ref(rtdb, `organizations/${orgId}/contractors`));
-            if (snap.exists()) {
-                const contractors = snap.val();
-                const matchedEntry = Object.entries(contractors).find(([k, v]) => v.vendorCode === vendorCode);
-
-                if (matchedEntry) {
-                    const [firebaseKey, vendorData] = matchedEntry;
-                    const normalizedVendor = {
-                        ...vendorData,
-                        firebaseKey,
-                        documents: safeArr(vendorData.documents),
-                        workers: safeArr(vendorData.workers).map(w => ({ ...w, additionalDocs: safeArr(w.additionalDocs) }))
-                    };
-                    setVendor(normalizedVendor);
-
-                    // 2. Fetch Associated Incidents (Injuries)
-                    try {
-                        const incSnap = await get(ref(rtdb, `organizations/${orgId}/incidents`));
-                        if (incSnap.exists()) {
-                            const allInc = safeArrWithKeys(incSnap.val());
-                            const vInc = allInc.filter(i => i.contractorId === firebaseKey || (i.contractorName && i.contractorName.toLowerCase() === vendorData.companyName.toLowerCase()));
-                            setVendorIncidents(vInc.sort((a, b) => new Date(b.incidentDate || b.date) - new Date(a.incidentDate || a.date)));
-                        }
-                    } catch (e) { console.warn("Incident fetch blocked by rules or empty."); }
-
-                    // 3. Fetch Associated Permits & Non-Compliances
-                    try {
-                        const ptwSnap = await get(ref(rtdb, `organizations/${orgId}/ptwRecords`));
-                        if (ptwSnap.exists()) {
-                            const allPtw = safeArrWithKeys(ptwSnap.val());
-                            const vPtw = allPtw.filter(p => p.contractorId === firebaseKey || (p.contractorName && p.contractorName.toLowerCase() === vendorData.companyName.toLowerCase()));
-                            setVendorPermits(vPtw.sort((a, b) => new Date(b.createdAt || b.validFromDate) - new Date(a.createdAt || a.validFromDate)));
-                        }
-                    } catch (e) { console.warn("PTW fetch blocked by rules or empty."); }
-
-                    setIsAuthenticated(true);
-                    sessionStorage.setItem('vendorSession', JSON.stringify({ orgId, vendorCode }));
-                    if (showAlerts) alert("Login Successful!");
-                } else {
-                    if (showAlerts) alert("Invalid Vendor Code or Organization ID. Please check your credentials.");
-                    handleLogout();
-                }
-            } else {
-                if (showAlerts) alert("Organization not found.");
-            }
-        } catch (error) {
-            console.error("Login Error:", error);
-            if (showAlerts) alert("Failed to connect to the server.");
-        }
-        setLoading(false);
-    };
-
-    const handleLogin = (e) => {
-        e.preventDefault();
-        if (!loginData.orgId || !loginData.vendorCode) return alert("Please enter both Organization ID and Vendor Code.");
-        fetchVendorData(loginData.orgId, loginData.vendorCode, true);
-    };
-
-    const handleLogout = () => {
-        sessionStorage.removeItem('vendorSession');
+    const resetPortalState = (clearForm = false) => {
         setIsAuthenticated(false);
         setVendor(null);
         setVendorIncidents([]);
         setVendorPermits([]);
-        setLoginData({ orgId: '', vendorCode: '' });
+        setVendorSession(null);
         setActiveTab('documentation');
+        if (clearForm) {
+            setLoginData({ email: '', password: '', vendorCode: '' });
+        } else {
+            setLoginData(prev => ({ ...prev, password: '' }));
+        }
+    };
+
+    const buildVendorState = (firebaseKey, vendorData) => ({
+        ...vendorData,
+        firebaseKey,
+        allocatedSites: safeArr(vendorData.allocatedSites),
+        documents: safeArr(vendorData.documents),
+        workers: safeArr(vendorData.workers).map(w => ({ ...w, additionalDocs: safeArr(w.additionalDocs) }))
+    });
+
+    const fetchVendorData = async ({ user, vendorCode, expectedOrgId = '', showAlerts = true }) => {
+        setLoading(true);
+
+        try {
+            const cleanVendorCode = normalizeVendorCode(vendorCode);
+            const cleanEmail = normalizeEmail(user?.email);
+
+            if (!user?.uid || !cleanEmail) {
+                throw new Error('No authenticated portal session found. Please sign in again.');
+            }
+
+            const userDirSnap = await get(ref(vendorDb, `userDirectory/${user.uid}`));
+            if (!userDirSnap.exists()) {
+                throw new Error('This account is not mapped to any organization. Ask your client admin to register your portal account first.');
+            }
+
+            const orgId = userDirSnap.val().orgId;
+            if (expectedOrgId && expectedOrgId !== orgId) {
+                throw new Error('This login belongs to a different organization than the saved portal session.');
+            }
+
+            const orgUserSnap = await get(ref(vendorDb, `organizations/${orgId}/users/${user.uid}`));
+            if (!orgUserSnap.exists()) {
+                throw new Error('Your authenticated account is missing from the organization directory.');
+            }
+
+            const orgUser = orgUserSnap.val();
+            if (orgUser.status === 'Pending') {
+                throw new Error('Your portal account is still pending approval. Ask your client admin to activate it.');
+            }
+            if (orgUser.status === 'Deleted' || orgUser.status === 'Inactive') {
+                throw new Error('This portal account has been deactivated.');
+            }
+
+            const contractorSnap = await get(ref(vendorDb, `organizations/${orgId}/contractors`));
+            if (!contractorSnap.exists()) {
+                throw new Error('No contractor records were found for this organization.');
+            }
+
+            const matchedEntry = Object.entries(contractorSnap.val()).find(([, contractor]) => {
+                const contractorEmail = normalizeEmail(contractor?.email);
+                const contractorCode = normalizeVendorCode(contractor?.vendorCode);
+                const contractorPortalUid = contractor?.portalUid || '';
+                return contractorCode === cleanVendorCode && (contractorPortalUid === user.uid || contractorEmail === cleanEmail);
+            });
+
+            if (!matchedEntry) {
+                throw new Error('The signed-in email and vendor code do not match any contractor profile. Make sure your client admin used the same email on your contractor record.');
+            }
+
+            const [firebaseKey, vendorData] = matchedEntry;
+            const normalizedVendor = buildVendorState(firebaseKey, vendorData);
+
+            let matchedIncidents = [];
+            try {
+                const incSnap = await get(ref(vendorDb, `organizations/${orgId}/incidents`));
+                if (incSnap.exists()) {
+                    matchedIncidents = safeArrWithKeys(incSnap.val())
+                        .filter(i => i.contractorId === firebaseKey || (i.contractorName && i.contractorName.toLowerCase() === (vendorData.companyName || '').toLowerCase()))
+                        .sort((a, b) => new Date(b.incidentDate || b.date || 0) - new Date(a.incidentDate || a.date || 0));
+                }
+            } catch (error) {
+                console.warn('Incident fetch blocked or unavailable.', error);
+            }
+
+            let matchedPermits = [];
+            try {
+                const ptwSnap = await get(ref(vendorDb, `organizations/${orgId}/ptwRecords`));
+                if (ptwSnap.exists()) {
+                    matchedPermits = safeArrWithKeys(ptwSnap.val())
+                        .filter(p => p.contractorId === firebaseKey || (p.contractorName && p.contractorName.toLowerCase() === (vendorData.companyName || '').toLowerCase()))
+                        .sort((a, b) => new Date(b.createdAt || b.validFromDate || 0) - new Date(a.createdAt || a.validFromDate || 0));
+                }
+            } catch (error) {
+                console.warn('PTW fetch blocked or unavailable.', error);
+            }
+
+            const nextSession = {
+                email: cleanEmail,
+                orgId,
+                vendorCode: cleanVendorCode,
+                contractorId: firebaseKey
+            };
+
+            setVendor(normalizedVendor);
+            setVendorIncidents(matchedIncidents);
+            setVendorPermits(matchedPermits);
+            setVendorSession(nextSession);
+            setIsAuthenticated(true);
+            setLoginData({
+                email: cleanEmail,
+                password: '',
+                vendorCode: cleanVendorCode
+            });
+            sessionStorage.setItem(VENDOR_SESSION_KEY, JSON.stringify(nextSession));
+
+            if (showAlerts) {
+                alert('Login successful.');
+            }
+        } catch (error) {
+            console.error('Vendor portal login error:', error);
+            sessionStorage.removeItem(VENDOR_SESSION_KEY);
+            resetPortalState(false);
+            await signOut(vendorAuth).catch(() => {});
+            if (showAlerts) {
+                alert(error.message || 'Failed to connect to the portal.');
+            }
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        let cancelled = false;
+        let unsubscribe = () => {};
+
+        const init = async () => {
+            try {
+                await setPersistence(vendorAuth, browserSessionPersistence);
+            } catch (error) {
+                console.warn('Vendor auth persistence setup failed.', error);
+            }
+
+            unsubscribe = onAuthStateChanged(vendorAuth, async (user) => {
+                if (cancelled || manualLoginRef.current) return;
+
+                const storedSession = readVendorSession();
+
+                if (!user) {
+                    sessionStorage.removeItem(VENDOR_SESSION_KEY);
+                    resetPortalState(false);
+                    setLoading(false);
+                    return;
+                }
+
+                if (storedSession?.vendorCode && normalizeEmail(storedSession.email) === normalizeEmail(user.email)) {
+                    await fetchVendorData({
+                        user,
+                        vendorCode: storedSession.vendorCode,
+                        expectedOrgId: storedSession.orgId,
+                        showAlerts: false
+                    });
+                    return;
+                }
+
+                setLoginData(prev => ({
+                    ...prev,
+                    email: user.email || prev.email,
+                    password: ''
+                }));
+                setLoading(false);
+            });
+
+            if (cancelled) {
+                unsubscribe();
+            }
+        };
+
+        init();
+
+        return () => {
+            cancelled = true;
+            unsubscribe();
+        };
+    }, []);
+
+    const handleLogin = async (e) => {
+        e.preventDefault();
+
+        const cleanEmail = normalizeEmail(loginData.email);
+        const cleanVendorCode = normalizeVendorCode(loginData.vendorCode);
+
+        if (!cleanEmail || !loginData.password || !cleanVendorCode) {
+            alert('Please enter your email, password, and vendor code.');
+            return;
+        }
+
+        manualLoginRef.current = true;
+        setLoading(true);
+
+        try {
+            const userCredential = await signInWithEmailAndPassword(vendorAuth, cleanEmail, loginData.password);
+            await fetchVendorData({
+                user: userCredential.user,
+                vendorCode: cleanVendorCode,
+                showAlerts: true
+            });
+        } catch (error) {
+            console.error('Vendor auth sign-in failed:', error);
+            sessionStorage.removeItem(VENDOR_SESSION_KEY);
+            resetPortalState(false);
+            alert('Login failed: ' + (error.message || 'Invalid credentials.'));
+            setLoading(false);
+        } finally {
+            manualLoginRef.current = false;
+        }
+    };
+
+    const handleLogout = async () => {
+        sessionStorage.removeItem(VENDOR_SESSION_KEY);
+        resetPortalState(true);
+        setLoading(false);
+        await signOut(vendorAuth).catch(() => {});
     };
 
     const getComplianceStatus = (docsData) => {
@@ -137,34 +314,45 @@ export default function VendorPortal() {
         return { label: 'Complied', color: 'text-emerald-400 bg-emerald-900/20 border-emerald-500/30', pct };
     };
 
-    // --- UPLOAD HANDLERS ---
     const updateDatabase = async (updates) => {
+        if (!vendorSession?.orgId || !vendor?.firebaseKey) {
+            alert('Portal session expired. Please sign in again.');
+            return false;
+        }
+
         try {
-            await update(ref(rtdb, `organizations/${loginData.orgId}/contractors/${vendor.firebaseKey}`), updates);
-            fetchVendorData(loginData.orgId, loginData.vendorCode, false);
+            await update(ref(vendorDb, `organizations/${vendorSession.orgId}/contractors/${vendor.firebaseKey}`), updates);
+            await fetchVendorData({
+                user: vendorAuth.currentUser,
+                vendorCode: vendorSession.vendorCode,
+                expectedOrgId: vendorSession.orgId,
+                showAlerts: false
+            });
             return true;
         } catch (error) {
-            alert("Upload failed: " + error.message);
+            alert('Upload failed: ' + error.message);
             return false;
         }
     };
 
     const handleCompanyDocUpload = async (docId, file) => {
         if (!file) return;
-        if (file.size > 2097152) return alert("File exceeds 2MB limit.");
+        if (file.size > 2097152) return alert('File exceeds 2MB limit.');
         setUploadingId(`comp-${docId}`);
 
         try {
             const b64 = await fileToBase64(file);
             const updatedDocs = vendor.documents.map(d => d.id === docId ? { ...d, file: b64, fileName: file.name, status: 'Uploaded' } : d);
             await updateDatabase({ documents: updatedDocs });
-        } catch (err) { alert("Failed to read file."); }
+        } catch {
+            alert('Failed to read file.');
+        }
         setUploadingId(null);
     };
 
     const handleWorkerCoreDocUpload = async (workerId, type, file) => {
         if (!file) return;
-        if (file.size > 2097152) return alert("File exceeds 2MB limit.");
+        if (file.size > 2097152) return alert('File exceeds 2MB limit.');
         setUploadingId(`worker-${workerId}-${type}`);
 
         try {
@@ -172,20 +360,28 @@ export default function VendorPortal() {
             const updatedWorkers = vendor.workers.map(w => {
                 if (w.id === workerId) {
                     const updatedWorker = { ...w };
-                    if (type === 'med') { updatedWorker.medDoc = b64; updatedWorker.medDocName = file.name; }
-                    if (type === 'comp') { updatedWorker.compDoc = b64; updatedWorker.compDocName = file.name; }
+                    if (type === 'med') {
+                        updatedWorker.medDoc = b64;
+                        updatedWorker.medDocName = file.name;
+                    }
+                    if (type === 'comp') {
+                        updatedWorker.compDoc = b64;
+                        updatedWorker.compDocName = file.name;
+                    }
                     return updatedWorker;
                 }
                 return w;
             });
             await updateDatabase({ workers: updatedWorkers });
-        } catch (err) { alert("Failed to process document."); }
+        } catch {
+            alert('Failed to process document.');
+        }
         setUploadingId(null);
     };
 
     const handleWorkerAdditionalDocUpload = async (workerId, docId, file) => {
         if (!file) return;
-        if (file.size > 2097152) return alert("File exceeds 2MB limit.");
+        if (file.size > 2097152) return alert('File exceeds 2MB limit.');
         setUploadingId(`worker-add-${docId}`);
 
         try {
@@ -198,14 +394,23 @@ export default function VendorPortal() {
                 return w;
             });
             await updateDatabase({ workers: updatedWorkers });
-        } catch (err) { alert("Failed to process document."); }
+        } catch {
+            alert('Failed to process document.');
+        }
         setUploadingId(null);
     };
 
+    if (loading && !isAuthenticated) {
+        return (
+            <div className="min-h-screen bg-slate-950 flex items-center justify-center font-['Space_Grotesk'] text-slate-200">
+                <div className="text-center">
+                    <div className="w-12 h-12 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+                    <div className="text-xs uppercase tracking-[0.3em] text-slate-400 font-bold">Verifying Contractor Access</div>
+                </div>
+            </div>
+        );
+    }
 
-    // ==========================================
-    // RENDER: LOGIN SCREEN
-    // ==========================================
     if (!isAuthenticated) {
         return (
             <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center font-['Space_Grotesk'] text-slate-200 p-4 relative overflow-hidden">
@@ -223,14 +428,25 @@ export default function VendorPortal() {
 
                     <form onSubmit={handleLogin} className="space-y-5">
                         <div>
-                            <label className="text-[10px] font-bold uppercase text-slate-400 tracking-widest block mb-2">Organization Name / ID</label>
+                            <label className="text-[10px] font-bold uppercase text-slate-400 tracking-widest block mb-2">Portal Email</label>
                             <input
-                                type="text"
+                                type="email"
                                 required
-                                value={loginData.orgId}
-                                onChange={e => setLoginData({ ...loginData, orgId: e.target.value })}
-                                className="w-full bg-slate-950 border border-slate-700 rounded-xl p-4 text-white outline-none focus:border-indigo-500 font-mono transition-colors shadow-inner"
-                                placeholder="Client ID (e.g. AcmeCorp)"
+                                value={loginData.email}
+                                onChange={e => setLoginData({ ...loginData, email: e.target.value })}
+                                className="w-full bg-slate-950 border border-slate-700 rounded-xl p-4 text-white outline-none focus:border-indigo-500 transition-colors shadow-inner"
+                                placeholder="contractor@company.com"
+                            />
+                        </div>
+                        <div>
+                            <label className="text-[10px] font-bold uppercase text-slate-400 tracking-widest block mb-2">Password</label>
+                            <input
+                                type="password"
+                                required
+                                value={loginData.password}
+                                onChange={e => setLoginData({ ...loginData, password: e.target.value })}
+                                className="w-full bg-slate-950 border border-slate-700 rounded-xl p-4 text-white outline-none focus:border-indigo-500 transition-colors shadow-inner"
+                                placeholder="Your secure password"
                             />
                         </div>
                         <div>
@@ -239,10 +455,13 @@ export default function VendorPortal() {
                                 type="text"
                                 required
                                 value={loginData.vendorCode}
-                                onChange={e => setLoginData({ ...loginData, vendorCode: e.target.value.toUpperCase() })}
+                                onChange={e => setLoginData({ ...loginData, vendorCode: normalizeVendorCode(e.target.value) })}
                                 className="w-full bg-slate-950 border border-slate-700 rounded-xl p-4 text-white outline-none focus:border-indigo-500 font-mono font-bold tracking-widest uppercase transition-colors shadow-inner"
                                 placeholder="VEN-XXXXXX"
                             />
+                        </div>
+                        <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-4 text-[11px] leading-relaxed text-slate-400">
+                            Sign in with the same email your client admin saved on your contractor profile. This portal now uses authenticated Firebase access and no longer accepts guest vendor-code login.
                         </div>
                         <button
                             type="submit"
@@ -257,9 +476,6 @@ export default function VendorPortal() {
         );
     }
 
-    // ==========================================
-    // RENDER: DASHBOARD
-    // ==========================================
     const statusObj = getComplianceStatus(vendor.documents);
 
     return (
@@ -274,7 +490,7 @@ export default function VendorPortal() {
                         </div>
                         <div>
                             <h1 className="text-lg font-bold text-white uppercase tracking-wide leading-tight">{vendor.companyName}</h1>
-                            <div className="text-[10px] text-slate-400 uppercase tracking-widest font-mono">Vendor ID: {vendor.vendorCode} | Org: {loginData.orgId}</div>
+                            <div className="text-[10px] text-slate-400 uppercase tracking-widest font-mono">Vendor ID: {vendor.vendorCode} | Org: {vendorSession?.orgId}</div>
                         </div>
                     </div>
                     <button onClick={handleLogout} className="bg-slate-800 hover:bg-red-900/50 hover:text-red-400 text-slate-300 border border-slate-700 px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-widest transition-colors shadow-sm flex items-center gap-2">
@@ -285,8 +501,6 @@ export default function VendorPortal() {
 
             <main className="flex-1 overflow-y-auto p-4 md:p-8 custom-scroll z-10">
                 <div className="max-w-7xl mx-auto animate-in fade-in duration-500 space-y-8">
-
-                    {/* OVERVIEW CARDS (Always visible) */}
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                         <div className="bg-slate-900/60 backdrop-blur-md p-6 rounded-3xl border border-slate-700 shadow-xl flex items-center gap-6">
                             <div className={`w-20 h-20 rounded-full flex items-center justify-center font-black text-2xl border-4 shadow-inner ${statusObj.pct === 100 ? 'border-emerald-500 text-emerald-400 bg-emerald-950/30' : statusObj.pct > 50 ? 'border-yellow-500 text-yellow-400 bg-yellow-950/30' : 'border-red-500 text-red-400 bg-red-950/30'}`}>
@@ -315,7 +529,6 @@ export default function VendorPortal() {
                         </div>
                     </div>
 
-                    {/* PORTAL NAVIGATION TABS */}
                     <div className="flex gap-4 border-b border-slate-800">
                         <button
                             onClick={() => setActiveTab('documentation')}
@@ -331,12 +544,8 @@ export default function VendorPortal() {
                         </button>
                     </div>
 
-                    {/* ============================================== */}
-                    {/* TAB 1: DOCUMENTATION (Company & Roster Docs) */}
-                    {/* ============================================== */}
                     {activeTab === 'documentation' && (
                         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 animate-in fade-in">
-                            {/* COMPANY DOCUMENTS SECTION */}
                             <div className="bg-slate-900/60 backdrop-blur-md rounded-3xl border border-slate-700 shadow-xl overflow-hidden flex flex-col h-[700px]">
                                 <div className="p-6 border-b border-slate-800 bg-slate-950/50">
                                     <h3 className="text-xl font-bold text-white flex items-center gap-3"><i className="fas fa-folder-open text-indigo-400"></i> Company Level Documents</h3>
@@ -384,7 +593,6 @@ export default function VendorPortal() {
                                 </div>
                             </div>
 
-                            {/* WORKER ROSTER & DOCUMENTS SECTION */}
                             <div className="bg-slate-900/60 backdrop-blur-md rounded-3xl border border-slate-700 shadow-xl overflow-hidden flex flex-col h-[700px]">
                                 <div className="p-6 border-b border-slate-800 bg-slate-950/50">
                                     <h3 className="text-xl font-bold text-white flex items-center gap-3"><i className="fas fa-users-cog text-emerald-400"></i> Employee Roster & Documents</h3>
@@ -413,7 +621,6 @@ export default function VendorPortal() {
                                                 </div>
 
                                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
-                                                    {/* Medical Doc */}
                                                     <div className={`p-3 rounded-xl border ${w.medDoc ? 'bg-emerald-950/10 border-emerald-500/20' : 'bg-red-950/10 border-red-500/20'}`}>
                                                         <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-2 flex justify-between items-center">
                                                             <span>Medical Fitness</span>
@@ -438,7 +645,6 @@ export default function VendorPortal() {
                                                         )}
                                                     </div>
 
-                                                    {/* Competence Doc */}
                                                     <div className={`p-3 rounded-xl border ${w.compDoc ? 'bg-blue-950/10 border-blue-500/20' : 'bg-red-950/10 border-red-500/20'}`}>
                                                         <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-2 flex justify-between items-center">
                                                             <span>Competency Cert.</span>
@@ -464,7 +670,6 @@ export default function VendorPortal() {
                                                     </div>
                                                 </div>
 
-                                                {/* Additional Requested Docs */}
                                                 {w.additionalDocs.length > 0 && (
                                                     <div className="bg-slate-900 rounded-xl p-3 border border-slate-800 mt-4">
                                                         <div className="text-[9px] font-bold uppercase tracking-widest text-slate-500 mb-3"><i className="fas fa-folder-plus mr-1"></i> Client Specific Requests</div>
@@ -487,7 +692,7 @@ export default function VendorPortal() {
                                                                             </div>
                                                                         )}
                                                                     </div>
-                                                                )
+                                                                );
                                                             })}
                                                         </div>
                                                     </div>
@@ -501,13 +706,8 @@ export default function VendorPortal() {
                         </div>
                     )}
 
-                    {/* ============================================== */}
-                    {/* TAB 2: ACTIVITIES (Permits, NCs, Incidents)  */}
-                    {/* ============================================== */}
                     {activeTab === 'activities' && (
                         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 animate-in fade-in">
-
-                            {/* PERMITS & NON-COMPLIANCES */}
                             <div className="bg-slate-900/60 backdrop-blur-md rounded-3xl border border-slate-700 shadow-xl overflow-hidden flex flex-col h-[700px]">
                                 <div className="p-6 border-b border-slate-800 bg-slate-950/50">
                                     <h3 className="text-xl font-bold text-orange-400 flex items-center gap-3"><i className="fas fa-clipboard-list"></i> Work Permits & Inspections</h3>
@@ -523,7 +723,6 @@ export default function VendorPortal() {
                                             <div className="text-sm text-white font-bold mb-1 leading-tight">{p.workDescription || p.description}</div>
                                             <div className="text-xs text-slate-400 mb-3"><i className="fas fa-location-dot mr-1"></i> {p.location} ({p.siteId})</div>
 
-                                            {/* SHOW NON COMPLIANCES IF ANY */}
                                             {safeArr(p.nonCompliances).length > 0 && (
                                                 <div className="mb-3 bg-red-950/40 border border-red-500/30 rounded-lg p-3">
                                                     <div className="text-[10px] font-bold text-red-400 uppercase tracking-widest mb-2 flex items-center gap-2"><i className="fas fa-exclamation-triangle"></i> Logged Safety Violations</div>
@@ -543,7 +742,6 @@ export default function VendorPortal() {
                                 </div>
                             </div>
 
-                            {/* INCIDENTS */}
                             <div className="bg-slate-900/60 backdrop-blur-md rounded-3xl border border-slate-700 shadow-xl overflow-hidden flex flex-col h-[700px]">
                                 <div className="p-6 border-b border-slate-800 bg-slate-950/50">
                                     <h3 className="text-xl font-bold text-red-400 flex items-center gap-3"><i className="fas fa-briefcase-medical"></i> Incident History</h3>

@@ -1,0 +1,145 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "orgRegistry": {
+      "$orgName": {
+        ".read": "auth != null",
+        ".write": "auth != null && !data.exists() && newData.isString() && root.child('organizations/' + newData.val() + '/users/' + auth.uid + '/role').val() === 'Global Owner' && root.child('organizations/' + newData.val() + '/users/' + auth.uid + '/status').val() === 'Active'",
+        ".validate": "newData.isString()"
+      }
+    },
+    "userDirectory": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        ".write": "auth != null && !data.exists() && newData.hasChildren(['orgId']) && newData.child('orgId').isString() && root.child('organizations/' + newData.child('orgId').val() + '/users/' + $uid).exists() && (auth.uid === $uid || (root.child('userDirectory/' + auth.uid + '/orgId').val() === newData.child('orgId').val() && root.child('organizations/' + newData.child('orgId').val() + '/users/' + auth.uid + '/status').val() === 'Active' && (root.child('organizations/' + newData.child('orgId').val() + '/users/' + auth.uid + '/role').val() === 'Global Owner' || root.child('organizations/' + newData.child('orgId').val() + '/users/' + auth.uid + '/role').val() === 'Global Manager' || root.child('organizations/' + newData.child('orgId').val() + '/users/' + auth.uid + '/role').val() === 'Owner' || root.child('organizations/' + newData.child('orgId').val() + '/users/' + auth.uid + '/role').val() === 'Admin')))",
+        ".validate": "newData.hasChildren(['orgId']) && newData.child('orgId').isString()"
+      }
+    },
+    "organizations": {
+      "$orgId": {
+        ".read": "auth != null && root.child('userDirectory/' + auth.uid + '/orgId').val() === $orgId && root.child('organizations/' + $orgId + '/users/' + auth.uid + '/status').val() === 'Active'",
+        ".write": "auth != null && !data.exists() && !root.child('userDirectory/' + auth.uid).exists() && newData.child('details/name').isString() && newData.child('users/' + auth.uid + '/role').val() === 'Global Owner' && newData.child('users/' + auth.uid + '/status').val() === 'Active'",
+        "details": {
+          ".write": "auth != null && root.child('userDirectory/' + auth.uid + '/orgId').val() === $orgId && root.child('organizations/' + $orgId + '/users/' + auth.uid + '/status').val() === 'Active' && (root.child('organizations/' + $orgId + '/users/' + auth.uid + '/role').val() === 'Global Owner' || root.child('organizations/' + $orgId + '/users/' + auth.uid + '/role').val() === 'Global Manager' || root.child('organizations/' + $orgId + '/users/' + auth.uid + '/role').val() === 'Owner' || root.child('organizations/' + $orgId + '/users/' + auth.uid + '/role').val() === 'Admin')"
+        },
+        "sites": {
+          "$siteId": {
+            ".write": "auth != null && root.child('userDirectory/' + auth.uid + '/orgId').val() === $orgId && root.child('organizations/' + $orgId + '/users/' + auth.uid + '/status').val() === 'Active' && (root.child('organizations/' + $orgId + '/users/' + auth.uid + '/role').val() === 'Global Owner' || root.child('organizations/' + $orgId + '/users/' + auth.uid + '/role').val() === 'Global Manager' || root.child('organizations/' + $orgId + '/users/' + auth.uid + '/role').val() === 'Owner' || root.child('organizations/' + $orgId + '/users/' + auth.uid + '/role').val() === 'Admin')"
+          }
+        },
+        "users": {
+          "$uid": {
+            ".read": "auth != null && ((auth.uid === $uid && root.child('userDirectory/' + auth.uid + '/orgId').val() === $orgId) || (root.child('userDirectory/' + auth.uid + '/orgId').val() === $orgId && root.child('organizations/' + $orgId + '/users/' + auth.uid + '/status').val() === 'Active'))",
+            ".write": "auth != null && ((auth.uid === $uid && !data.exists() && !root.child('userDirectory/' + auth.uid).exists() && root.child('organizations/' + $orgId + '/details').exists() && newData.child('status').val() === 'Pending' && newData.child('role').val() === 'User') || (root.child('userDirectory/' + auth.uid + '/orgId').val() === $orgId && root.child('organizations/' + $orgId + '/users/' + auth.uid + '/status').val() === 'Active' && (root.child('organizations/' + $orgId + '/users/' + auth.uid + '/role').val() === 'Global Owner' || root.child('organizations/' + $orgId + '/users/' + auth.uid + '/role').val() === 'Global Manager' || root.child('organizations/' + $orgId + '/users/' + auth.uid + '/role').val() === 'Owner' || root.child('organizations/' + $orgId + '/users/' + auth.uid + '/role').val() === 'Admin' || root.child('organizations/' + $orgId + '/users/' + auth.uid + '/role').val() === 'Site Owner' || root.child('organizations/' + $orgId + '/users/' + auth.uid + '/role').val() === 'Site Manager')))"
+          }
+        },
+        "permissionRequests": {
+          "$requestId": {
+            ".write": "auth != null && (( !data.exists() && root.child('userDirectory/' + auth.uid + '/orgId').val() === $orgId && root.child('organizations/' + $orgId + '/users/' + auth.uid + '/status').val() === 'Active' && root.child('organizations/' + $orgId + '/users/' + auth.uid + '/email').val() === newData.child('userEmail').val() && newData.child('status').val() === 'Pending') || (root.child('userDirectory/' + auth.uid + '/orgId').val() === $orgId && root.child('organizations/' + $orgId + '/users/' + auth.uid + '/status').val() === 'Active' && (root.child('organizations/' + $orgId + '/users/' + auth.uid + '/role').val() === 'Global Owner' || root.child('organizations/' + $orgId + '/users/' + auth.uid + '/role').val() === 'Global Manager' || root.child('organizations/' + $orgId + '/users/' + auth.uid + '/role').val() === 'Owner' || root.child('organizations/' + $orgId + '/users/' + auth.uid + '/role').val() === 'Admin' || root.child('organizations/' + $orgId + '/users/' + auth.uid + '/role').val() === 'Site Owner' || root.child('organizations/' + $orgId + '/users/' + auth.uid + '/role').val() === 'Site Manager')))"
+          }
+        },
+        "documents": {
+          "$id": {
+            ".write": "auth != null && root.child('userDirectory/' + auth.uid + '/orgId').val() === $orgId && root.child('organizations/' + $orgId + '/users/' + auth.uid + '/status').val() === 'Active'"
+          }
+        },
+        "riskAssessments": {
+          "$id": {
+            ".write": "auth != null && root.child('userDirectory/' + auth.uid + '/orgId').val() === $orgId && root.child('organizations/' + $orgId + '/users/' + auth.uid + '/status').val() === 'Active'"
+          }
+        },
+        "incidents": {
+          "$id": {
+            ".write": "auth != null && root.child('userDirectory/' + auth.uid + '/orgId').val() === $orgId && root.child('organizations/' + $orgId + '/users/' + auth.uid + '/status').val() === 'Active'"
+          }
+        },
+        "consultations": {
+          "$id": {
+            ".write": "auth != null && root.child('userDirectory/' + auth.uid + '/orgId').val() === $orgId && root.child('organizations/' + $orgId + '/users/' + auth.uid + '/status').val() === 'Active'"
+          }
+        },
+        "auditPlans": {
+          "$id": {
+            ".write": "auth != null && root.child('userDirectory/' + auth.uid + '/orgId').val() === $orgId && root.child('organizations/' + $orgId + '/users/' + auth.uid + '/status').val() === 'Active'"
+          }
+        },
+        "auditFindings": {
+          "$id": {
+            ".write": "auth != null && root.child('userDirectory/' + auth.uid + '/orgId').val() === $orgId && root.child('organizations/' + $orgId + '/users/' + auth.uid + '/status').val() === 'Active'"
+          }
+        },
+        "improvements": {
+          "$id": {
+            ".write": "auth != null && root.child('userDirectory/' + auth.uid + '/orgId').val() === $orgId && root.child('organizations/' + $orgId + '/users/' + auth.uid + '/status').val() === 'Active'"
+          }
+        },
+        "contractors": {
+          "$id": {
+            ".write": "auth != null && root.child('userDirectory/' + auth.uid + '/orgId').val() === $orgId && root.child('organizations/' + $orgId + '/users/' + auth.uid + '/status').val() === 'Active'"
+          }
+        },
+        "ptwRecords": {
+          "$id": {
+            ".write": "auth != null && root.child('userDirectory/' + auth.uid + '/orgId').val() === $orgId && root.child('organizations/' + $orgId + '/users/' + auth.uid + '/status').val() === 'Active'"
+          }
+        },
+        "lotoProcedures": {
+          "$id": {
+            ".write": "auth != null && root.child('userDirectory/' + auth.uid + '/orgId').val() === $orgId && root.child('organizations/' + $orgId + '/users/' + auth.uid + '/status').val() === 'Active'"
+          }
+        },
+        "lotoLogs": {
+          "$id": {
+            ".write": "auth != null && root.child('userDirectory/' + auth.uid + '/orgId').val() === $orgId && root.child('organizations/' + $orgId + '/users/' + auth.uid + '/status').val() === 'Active'"
+          }
+        },
+        "mockDrills": {
+          "$id": {
+            ".write": "auth != null && root.child('userDirectory/' + auth.uid + '/orgId').val() === $orgId && root.child('organizations/' + $orgId + '/users/' + auth.uid + '/status').val() === 'Active'"
+          }
+        },
+        "emergencyEquipment": {
+          "$id": {
+            ".write": "auth != null && root.child('userDirectory/' + auth.uid + '/orgId').val() === $orgId && root.child('organizations/' + $orgId + '/users/' + auth.uid + '/status').val() === 'Active'"
+          }
+        },
+        "inspectionTemplates": {
+          "$id": {
+            ".write": "auth != null && root.child('userDirectory/' + auth.uid + '/orgId').val() === $orgId && root.child('organizations/' + $orgId + '/users/' + auth.uid + '/status').val() === 'Active'"
+          }
+        },
+        "inspectionRecords": {
+          "$id": {
+            ".write": "auth != null && root.child('userDirectory/' + auth.uid + '/orgId').val() === $orgId && root.child('organizations/' + $orgId + '/users/' + auth.uid + '/status').val() === 'Active'"
+          }
+        },
+        "manHours": {
+          "$id": {
+            ".write": "auth != null && root.child('userDirectory/' + auth.uid + '/orgId').val() === $orgId && root.child('organizations/' + $orgId + '/users/' + auth.uid + '/status').val() === 'Active'"
+          }
+        },
+        "healthCases": {
+          "$id": {
+            ".write": "auth != null && root.child('userDirectory/' + auth.uid + '/orgId').val() === $orgId && root.child('organizations/' + $orgId + '/users/' + auth.uid + '/status').val() === 'Active'"
+          }
+        },
+        "healthSurveillance": {
+          "$id": {
+            ".write": "auth != null && root.child('userDirectory/' + auth.uid + '/orgId').val() === $orgId && root.child('organizations/' + $orgId + '/users/' + auth.uid + '/status').val() === 'Active'"
+          }
+        },
+        "vaccinationRecords": {
+          "$id": {
+            ".write": "auth != null && root.child('userDirectory/' + auth.uid + '/orgId').val() === $orgId && root.child('organizations/' + $orgId + '/users/' + auth.uid + '/status').val() === 'Active'"
+          }
+        },
+        "illnessRecords": {
+          "$id": {
+            ".write": "auth != null && root.child('userDirectory/' + auth.uid + '/orgId').val() === $orgId && root.child('organizations/' + $orgId + '/users/' + auth.uid + '/status').val() === 'Active'"
+          }
+        }
+      }
+    }
+  }
+}

@@ -7,7 +7,9 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint . --ext js,jsx --report-unused-disable-directives --max-warnings 0",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "firebase:deploy": "firebase deploy --only database,hosting",
+    "firebase:rules": "firebase deploy --only database"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.2.1",

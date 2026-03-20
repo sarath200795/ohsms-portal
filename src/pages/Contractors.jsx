@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { initializeApp } from 'firebase/app';
+import { createUserWithEmailAndPassword, getAuth, signOut } from 'firebase/auth';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { ref, get, push, update, remove } from 'firebase/database';
-import { rtdb } from '../config/firebase';
+import { ref, get, push, set, update, remove } from 'firebase/database';
+import { auth, rtdb } from '../config/firebase';
 
 // --- BULLETPROOF DATA ENGINE ---
 const safeArr = (val) => {
@@ -15,6 +17,8 @@ const safeArr = (val) => {
 const generateVendorCode = () => {
     return 'VEN-' + Math.random().toString(36).substring(2, 8).toUpperCase();
 };
+
+const normalizeEmail = (value) => String(value || '').trim().toLowerCase();
 
 const parseContractors = (dataObj) => {
     if (!dataObj) return [];
@@ -86,6 +90,7 @@ export default function Contractors() {
     const [view, setView] = useState('register');
 
     const [contractors, setContractors] = useState([]);
+    const [orgUsers, setOrgUsers] = useState([]);
     const [sites, setSites] = useState([]);
     const [siteFilter, setSiteFilter] = useState('All');
     const [workerCompanyFilter, setWorkerCompanyFilter] = useState('All');
@@ -114,6 +119,8 @@ export default function Contractors() {
     const [modalType, setModalType] = useState(null);
     const [newDocReq, setNewDocReq] = useState('');
     const [newWorkerDocReq, setNewWorkerDocReq] = useState('');
+    const [portalProvisioning, setPortalProvisioning] = useState(false);
+    const [portalSuccess, setPortalSuccess] = useState(null);
 
     useEffect(() => {
         const s = sessionStorage.getItem('isoSession');
@@ -142,6 +149,13 @@ export default function Contractors() {
                 if (snap.exists()) {
                     const data = snap.val();
                     if (data.contractors) setContractors(parseContractors(data.contractors));
+                    if (data.users) {
+                        setOrgUsers(Object.entries(data.users).map(([k, v]) => ({
+                            firebaseKey: k,
+                            ...v,
+                            email: normalizeEmail(v.email)
+                        })));
+                    }
                     if (data.sites) setSites(Object.keys(data.sites).map(key => ({ code: data.sites[key].code || key, name: data.sites[key].name || key })));
                     if (data.trainings) setGlobalTrainings(safeArr(data.trainings));
 
@@ -325,6 +339,98 @@ export default function Contractors() {
         };
         updateVendorDB(activeVendor.firebaseKey, payload);
         setEditingVendor(null);
+    };
+
+    const provisionVendorPortalAccess = async () => {
+        if (!isGlobalUser) return alert("Only Global Admins can provision contractor portal accounts.");
+        if (!activeVendor?.firebaseKey) return alert("Vendor profile is not loaded.");
+
+        const vendorEmail = normalizeEmail(activeVendor.email);
+        if (!vendorEmail) return alert("Add a contractor email address before provisioning portal access.");
+
+        setPortalProvisioning(true);
+
+        try {
+            const nowIso = new Date().toISOString();
+            const allocatedSites = safeArr(activeVendor.allocatedSites);
+            const primarySite = allocatedSites[0] || activeVendor.siteId || 'GLOBAL';
+            const existingOrgUser = orgUsers.find(u => normalizeEmail(u.email) === vendorEmail && u.status !== 'Deleted');
+
+            let portalUid = activeVendor.portalUid || existingOrgUser?.firebaseKey || '';
+            let tempPassword = '';
+
+            const baseUserPayload = {
+                name: activeVendor.contactPerson || activeVendor.companyName || 'Vendor Portal User',
+                email: vendorEmail,
+                role: existingOrgUser?.role || 'User',
+                status: 'Active',
+                assignedSite: existingOrgUser?.assignedSite || primarySite,
+                accessibleSites: Array.from(new Set([...(safeArr(existingOrgUser?.accessibleSites)), ...allocatedSites].filter(Boolean))),
+                accessibleModules: safeArr(existingOrgUser?.accessibleModules),
+                vendorPortal: true,
+                portalLinkedContractorId: activeVendor.firebaseKey,
+                updatedBy: session.email,
+                updatedAt: nowIso
+            };
+
+            if (portalUid) {
+                await update(ref(rtdb, `organizations/${session.orgId}/users/${portalUid}`), baseUserPayload);
+
+                const dirRef = ref(rtdb, `userDirectory/${portalUid}`);
+                const dirSnap = await get(dirRef);
+                if (!dirSnap.exists()) {
+                    await set(dirRef, { orgId: session.orgId });
+                }
+            } else {
+                tempPassword = Math.random().toString(36).slice(-8) + 'A1!';
+                const tempAppName = `vendorPortal-${Date.now()}`;
+                const tempApp = initializeApp(auth.app.options, tempAppName);
+                const tempAuth = getAuth(tempApp);
+
+                const userCredential = await createUserWithEmailAndPassword(tempAuth, vendorEmail, tempPassword);
+                portalUid = userCredential.user.uid;
+                await signOut(tempAuth);
+
+                await set(ref(rtdb, `organizations/${session.orgId}/users/${portalUid}`), {
+                    ...baseUserPayload,
+                    createdBy: session.email,
+                    createdAt: nowIso
+                });
+                await set(ref(rtdb, `userDirectory/${portalUid}`), { orgId: session.orgId });
+            }
+
+            const contractorPortalPayload = {
+                email: vendorEmail,
+                portalUid,
+                portalProvisionedAt: nowIso,
+                portalProvisionedBy: session.email
+            };
+
+            await updateVendorDB(activeVendor.firebaseKey, contractorPortalPayload);
+
+            setOrgUsers(prev => {
+                const nextUser = {
+                    firebaseKey: portalUid,
+                    ...baseUserPayload
+                };
+                const idx = prev.findIndex(u => u.firebaseKey === portalUid);
+                if (idx === -1) return [...prev, nextUser];
+                const updated = [...prev];
+                updated[idx] = { ...updated[idx], ...nextUser };
+                return updated;
+            });
+
+            setPortalSuccess({
+                companyName: activeVendor.companyName,
+                email: vendorEmail,
+                password: tempPassword,
+                linkedExisting: Boolean(existingOrgUser || activeVendor.portalUid)
+            });
+        } catch (error) {
+            alert("Portal provisioning failed: " + error.message);
+        } finally {
+            setPortalProvisioning(false);
+        }
     };
 
     const handleDocUpload = async (docId, file) => {
@@ -875,12 +981,26 @@ export default function Contractors() {
                                             <span className="flex gap-1 items-center bg-indigo-900/30 text-indigo-400 border border-indigo-500/30 px-2 py-0.5 rounded"><i className="fas fa-map-marker-alt"></i> {safeArr(activeVendor.allocatedSites).join(', ') || 'No Sites'}</span>
                                             <span><i className="fas fa-wrench text-indigo-400 mr-1"></i> {activeVendor.serviceType}</span>
                                             <span><i className="fas fa-user text-indigo-400 mr-1"></i> {activeVendor.contactPerson}</span>
+                                            <span><i className="fas fa-envelope text-indigo-400 mr-1"></i> {activeVendor.email || 'No Portal Email'}</span>
+                                            <span className={`px-2 py-0.5 rounded text-[9px] border ${activeVendor.portalUid ? 'bg-emerald-900/30 text-emerald-400 border-emerald-500/30' : 'bg-amber-900/20 text-amber-400 border-amber-500/30'}`}>
+                                                <i className={`fas ${activeVendor.portalUid ? 'fa-shield-check' : 'fa-user-lock'} mr-1`}></i>
+                                                {activeVendor.portalUid ? 'Portal Linked' : 'Portal Pending'}
+                                            </span>
                                             <span className={`px-2 py-0.5 rounded text-[9px] border ${getComplianceStatus(activeVendor.documents).color}`}>{getComplianceStatus(activeVendor.documents).label}</span>
                                         </div>
                                     </div>
                                 )}
 
                                 <div className="flex gap-3 items-center">
+                                    {isGlobalUser && !editingVendor && (
+                                        <button
+                                            onClick={provisionVendorPortalAccess}
+                                            disabled={portalProvisioning}
+                                            className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 text-white px-4 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest transition-colors shadow-lg shadow-emerald-600/20"
+                                        >
+                                            {portalProvisioning ? <><i className="fas fa-spinner fa-spin mr-1"></i> Working</> : <><i className="fas fa-user-shield mr-1"></i> {activeVendor.portalUid ? 'Sync Portal Access' : 'Provision Portal'}</>}
+                                        </button>
+                                    )}
                                     {canEdit && (
                                         editingVendor ? (
                                             <>
@@ -1052,6 +1172,43 @@ export default function Contractors() {
                                 </div>
 
                             </div>
+                        </div>
+                    </div>
+                )}
+
+                {portalSuccess && (
+                    <div className="fixed inset-0 z-[110] bg-black/80 flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in">
+                        <div className="bg-slate-900 border border-emerald-500/40 rounded-3xl shadow-2xl max-w-md w-full p-8">
+                            <div className="w-14 h-14 rounded-2xl bg-emerald-900/30 border border-emerald-500/30 flex items-center justify-center text-emerald-400 text-2xl mb-5">
+                                <i className="fas fa-user-check"></i>
+                            </div>
+                            <h3 className="text-2xl font-black text-white mb-2">Portal Access Ready</h3>
+                            <p className="text-sm text-slate-400 leading-relaxed mb-6">
+                                {portalSuccess.linkedExisting
+                                    ? `The contractor portal has been linked to an existing org account for ${portalSuccess.companyName}.`
+                                    : `A new contractor portal account has been created for ${portalSuccess.companyName}.`}
+                            </p>
+
+                            <div className="bg-slate-950 border border-slate-800 rounded-2xl p-5 space-y-4 mb-6">
+                                <div>
+                                    <div className="text-[10px] uppercase font-bold tracking-widest text-slate-500 mb-1">Portal Email</div>
+                                    <div className="text-sm font-bold text-white font-mono break-all">{portalSuccess.email}</div>
+                                </div>
+                                <div>
+                                    <div className="text-[10px] uppercase font-bold tracking-widest text-slate-500 mb-1">Vendor Login Method</div>
+                                    <div className="text-xs text-slate-300">Email + Password + Vendor Code shown on the contractor profile header.</div>
+                                </div>
+                                {portalSuccess.password && (
+                                    <div>
+                                        <div className="text-[10px] uppercase font-bold tracking-widest text-emerald-500 mb-1">Temporary Password</div>
+                                        <div className="text-lg font-black text-emerald-400 font-mono tracking-widest bg-emerald-900/20 border border-emerald-500/20 rounded-xl p-3 text-center">{portalSuccess.password}</div>
+                                    </div>
+                                )}
+                            </div>
+
+                            <button onClick={() => setPortalSuccess(null)} className="w-full bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-3 rounded-xl text-sm font-bold uppercase tracking-widest transition-colors shadow-lg shadow-emerald-600/20">
+                                Close
+                            </button>
                         </div>
                     </div>
                 )}
