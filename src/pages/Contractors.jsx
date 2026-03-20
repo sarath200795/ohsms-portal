@@ -453,10 +453,16 @@ export default function Contractors() {
 
             await update(ref(rtdb, `organizations/${session.orgId}/users/${portalUid}`), baseUserPayload);
 
-            const dirRef = ref(rtdb, `userDirectory/${portalUid}`);
-            const dirSnap = await get(dirRef);
-            if (!dirSnap.exists()) {
-                await set(dirRef, { orgId: session.orgId });
+            const shouldCreateUserDirectory = createdPortalAuthUser || !existingOrgUser;
+            if (shouldCreateUserDirectory) {
+                try {
+                    await set(ref(rtdb, `userDirectory/${portalUid}`), { orgId: session.orgId });
+                } catch (dirError) {
+                    if (!createdPortalAuthUser && dirError?.message?.toLowerCase().includes('permission denied')) {
+                        throw new Error('This vendor email is already tied to a Firebase Auth account that cannot be linked automatically from this screen. If that account already belongs to another org or already has a userDirectory entry, please fix it in Firebase first and then provision again.');
+                    }
+                    throw dirError;
+                }
             }
 
             const contractorPortalPayload = {
