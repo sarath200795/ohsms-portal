@@ -453,14 +453,17 @@ export default function Contractors() {
 
             await update(ref(rtdb, `organizations/${session.orgId}/users/${portalUid}`), baseUserPayload);
 
-            const shouldCreateUserDirectory = createdPortalAuthUser || !existingOrgUser;
-            if (shouldCreateUserDirectory) {
-                try {
-                    await set(ref(rtdb, `userDirectory/${portalUid}`), { orgId: session.orgId });
-                } catch (dirError) {
-                    if (!createdPortalAuthUser && dirError?.message?.toLowerCase().includes('permission denied')) {
+            try {
+                await set(ref(rtdb, `userDirectory/${portalUid}`), { orgId: session.orgId });
+            } catch (dirError) {
+                const dirMessage = String(dirError?.message || '').toLowerCase();
+                if (dirMessage.includes('permission denied')) {
+                    if (!createdPortalAuthUser && existingOrgUser) {
+                        provisioningWarning = provisioningWarning || 'Portal access was linked to an existing organization user. The userDirectory record could not be recreated from this screen, which usually means it already exists. If login still fails, verify that userDirectory points this user to the correct organization.';
+                    } else {
                         throw new Error('This vendor email is already tied to a Firebase Auth account that cannot be linked automatically from this screen. If that account already belongs to another org or already has a userDirectory entry, please fix it in Firebase first and then provision again.');
                     }
+                } else {
                     throw dirError;
                 }
             }
