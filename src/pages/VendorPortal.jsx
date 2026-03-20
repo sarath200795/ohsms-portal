@@ -7,8 +7,10 @@ import {
     onAuthStateChanged,
     sendSignInLinkToEmail,
     setPersistence,
+    signInWithEmailAndPassword,
     signInWithEmailLink,
-    signOut
+    signOut,
+    updatePassword
 } from 'firebase/auth';
 import { get, getDatabase, ref, update } from 'firebase/database';
 import { auth } from '../config/firebase';
@@ -43,6 +45,28 @@ const safeArrWithKeys = (dataObj) => {
 
 const normalizeEmail = (value) => String(value || '').trim().toLowerCase();
 const normalizeVendorCode = (value) => String(value || '').trim().toUpperCase();
+const buildVendorAuthErrorMessage = (error, mode = 'email-link-request') => {
+    const code = error?.code || '';
+
+    if (code === 'auth/operation-not-allowed') {
+        if (mode === 'password') {
+            return 'Firebase email/password sign-in is disabled for this project. In Firebase Console, enable Authentication > Sign-in method > Email/Password.';
+        }
+        return `Firebase email-link sign-in is disabled for this project. In Firebase Console, enable Authentication > Sign-in method > Email/Password and Email link, then add ${window.location.hostname} under Authentication > Settings > Authorized domains.`;
+    }
+
+    if (code === 'auth/unauthorized-continue-uri' || code === 'auth/invalid-continue-uri') {
+        return `This portal domain is not authorized in Firebase Authentication. Add ${window.location.hostname} under Authentication > Settings > Authorized domains.`;
+    }
+
+    if (mode === 'password') {
+        return 'Could not sign in with password: ' + (error?.message || 'Unknown error.');
+    }
+
+    return mode === 'email-link-complete'
+        ? 'Could not complete sign-in: ' + (error?.message || 'Unknown error.')
+        : 'Could not send sign-in link: ' + (error?.message || 'Unknown error.');
+};
 
 const readVendorSession = () => {
     try {
@@ -72,7 +96,7 @@ const fileToBase64 = (file) => new Promise((resolve, reject) => {
 export default function VendorPortal() {
     const [loading, setLoading] = useState(true);
     const [isAuthenticated, setIsAuthenticated] = useState(false);
-    const [loginData, setLoginData] = useState({ email: '', vendorCode: '' });
+    const [loginData, setLoginData] = useState({ email: '', password: '', vendorCode: '' });
     const [activeTab, setActiveTab] = useState('documentation');
     const [vendorSession, setVendorSession] = useState(null);
     const [vendor, setVendor] = useState(null);
@@ -81,6 +105,8 @@ export default function VendorPortal() {
     const [uploadingId, setUploadingId] = useState(null);
     const [linkSent, setLinkSent] = useState(false);
     const [awaitingLinkCompletion, setAwaitingLinkCompletion] = useState(false);
+    const [passwordForm, setPasswordForm] = useState({ newPassword: '', confirmPassword: '' });
+    const [passwordSaving, setPasswordSaving] = useState(false);
     const manualLoginRef = useRef(false);
 
     const resetPortalState = (clearForm = false) => {
@@ -92,8 +118,11 @@ export default function VendorPortal() {
         setActiveTab('documentation');
         setLinkSent(false);
         setAwaitingLinkCompletion(false);
+        setPasswordForm({ newPassword: '', confirmPassword: '' });
         if (clearForm) {
-            setLoginData({ email: '', vendorCode: '' });
+            setLoginData({ email: '', password: '', vendorCode: '' });
+        } else {
+            setLoginData(prev => ({ ...prev, password: '' }));
         }
     };
 
@@ -196,6 +225,7 @@ export default function VendorPortal() {
             setIsAuthenticated(true);
             setLoginData({
                 email: cleanEmail,
+                password: '',
                 vendorCode: cleanVendorCode
             });
             sessionStorage.setItem(VENDOR_SESSION_KEY, JSON.stringify(nextSession));
@@ -250,7 +280,7 @@ export default function VendorPortal() {
                 } catch (error) {
                     console.error('Vendor email-link sign-in failed:', error);
                     localStorage.removeItem(VENDOR_EMAIL_LINK_KEY);
-                    alert('Vendor sign-in failed: ' + (error.message || 'Invalid or expired email link.'));
+                    alert(buildVendorAuthErrorMessage(error, 'email-link-complete'));
                     setLoading(false);
                 } finally {
                     manualLoginRef.current = false;
@@ -282,7 +312,8 @@ export default function VendorPortal() {
 
                 setLoginData(prev => ({
                     ...prev,
-                    email: user.email || prev.email
+                    email: user.email || prev.email,
+                    password: ''
                 }));
                 setLoading(false);
             });
@@ -304,6 +335,7 @@ export default function VendorPortal() {
         e.preventDefault();
 
         const cleanEmail = normalizeEmail(loginData.email);
+        const password = String(loginData.password || '');
         const cleanVendorCode = normalizeVendorCode(loginData.vendorCode);
         const completingEmailLink = isSignInWithEmailLink(vendorAuth, window.location.href);
 
@@ -315,6 +347,18 @@ export default function VendorPortal() {
         setLoading(true);
 
         try {
+            if (password) {
+                manualLoginRef.current = true;
+                const userCredential = await signInWithEmailAndPassword(vendorAuth, cleanEmail, password);
+                await fetchVendorData({
+                    user: userCredential.user,
+                    vendorCode: cleanVendorCode,
+                    showAlerts: true
+                });
+                setAwaitingLinkCompletion(false);
+                return;
+            }
+
             if (completingEmailLink) {
                 manualLoginRef.current = true;
                 localStorage.setItem(VENDOR_EMAIL_LINK_KEY, JSON.stringify({
@@ -347,16 +391,48 @@ export default function VendorPortal() {
             setAwaitingLinkCompletion(false);
             alert('A secure sign-in link has been sent to the vendor email. Open that email on this browser to complete sign-in.');
         } catch (error) {
-            console.error(completingEmailLink ? 'Vendor email-link completion failed:' : 'Vendor email-link request failed:', error);
+            console.error(password ? 'Vendor password sign-in failed:' : completingEmailLink ? 'Vendor email-link completion failed:' : 'Vendor email-link request failed:', error);
             localStorage.removeItem(VENDOR_EMAIL_LINK_KEY);
-            alert(
-                completingEmailLink
-                    ? 'Could not complete sign-in: ' + (error.message || 'Unknown error.')
-                    : 'Could not send sign-in link: ' + (error.message || 'Unknown error.')
-            );
+            alert(buildVendorAuthErrorMessage(error, password ? 'password' : completingEmailLink ? 'email-link-complete' : 'email-link-request'));
         } finally {
             manualLoginRef.current = false;
             setLoading(false);
+        }
+    };
+
+    const handlePasswordChange = async (e) => {
+        e.preventDefault();
+
+        const nextPassword = String(passwordForm.newPassword || '');
+        if (nextPassword.length < 8) {
+            alert('New password must be at least 8 characters long.');
+            return;
+        }
+        if (nextPassword !== passwordForm.confirmPassword) {
+            alert('New password and confirm password do not match.');
+            return;
+        }
+        if (!vendorAuth.currentUser) {
+            alert('Your portal session expired. Please sign in again.');
+            return;
+        }
+
+        setPasswordSaving(true);
+        try {
+            await updatePassword(vendorAuth.currentUser, nextPassword);
+            setPasswordForm({ newPassword: '', confirmPassword: '' });
+            alert('Password updated successfully.');
+        } catch (error) {
+            console.error('Vendor password update failed:', error);
+            if (error?.code === 'auth/requires-recent-login') {
+                alert('For security, please log out and sign in again before changing the password.');
+            } else if (error?.code === 'auth/weak-password') {
+                alert('Please choose a stronger password with at least 8 characters.');
+            } else {
+                alert('Could not update password: ' + (error?.message || 'Unknown error.'));
+            }
+        } finally {
+            setPasswordSaving(false);
         }
     };
 
@@ -511,6 +587,16 @@ export default function VendorPortal() {
                             />
                         </div>
                         <div>
+                            <label className="text-[10px] font-bold uppercase text-slate-400 tracking-widest block mb-2">Temporary / Portal Password</label>
+                            <input
+                                type="password"
+                                value={loginData.password}
+                                onChange={e => setLoginData({ ...loginData, password: e.target.value })}
+                                className="w-full bg-slate-950 border border-slate-700 rounded-xl p-4 text-white outline-none focus:border-indigo-500 transition-colors shadow-inner"
+                                placeholder="Enter password or leave blank for email link"
+                            />
+                        </div>
+                        <div>
                             <label className="text-[10px] font-bold uppercase text-slate-400 tracking-widest block mb-2">Unique Vendor Code</label>
                             <input
                                 type="text"
@@ -524,7 +610,7 @@ export default function VendorPortal() {
                         <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-4 text-[11px] leading-relaxed text-slate-400">
                             {awaitingLinkCompletion
                                 ? 'You opened a secure sign-in link. Re-enter the same portal email and vendor code to finish login without a password.'
-                                : 'Sign in with the same email your client admin saved on your contractor profile. The portal will send a passwordless sign-in link to this email after you enter the vendor code.'}
+                                : 'Use the temporary password from your client admin for direct login, or leave the password blank and the portal will send a passwordless sign-in link to this email after you enter the vendor code.'}
                         </div>
                         {linkSent && (
                             <div className="rounded-2xl border border-emerald-500/30 bg-emerald-950/20 p-4 text-[11px] leading-relaxed text-emerald-300">
@@ -536,7 +622,7 @@ export default function VendorPortal() {
                             disabled={loading}
                             className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-4 rounded-xl uppercase tracking-widest text-sm transition-transform active:scale-95 shadow-lg shadow-indigo-900/50 mt-4 disabled:opacity-50"
                         >
-                            {loading ? <i className="fas fa-circle-notch fa-spin"></i> : awaitingLinkCompletion ? 'Complete Secure Sign-In' : 'Send Secure Sign-In Link'}
+                            {loading ? <i className="fas fa-circle-notch fa-spin"></i> : loginData.password ? 'Secure Login' : awaitingLinkCompletion ? 'Complete Secure Sign-In' : 'Send Secure Sign-In Link'}
                         </button>
                     </form>
                 </div>
@@ -594,6 +680,40 @@ export default function VendorPortal() {
                                 <div className="flex justify-between text-xs"><span className="text-slate-500">Contact:</span> <span className="font-bold text-white">{vendor.contactPerson}</span></div>
                                 <div className="flex justify-between text-xs"><span className="text-slate-500">Authorized Sites:</span> <span className="font-bold text-white">{vendor.allocatedSites.join(', ') || 'N/A'}</span></div>
                             </div>
+                        </div>
+                    </div>
+
+                    <div className="bg-slate-900/60 backdrop-blur-md p-6 rounded-3xl border border-slate-700 shadow-xl">
+                        <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-6">
+                            <div className="md:max-w-md">
+                                <h3 className="text-xs text-slate-400 font-bold uppercase tracking-widest mb-2"><i className="fas fa-user-lock mr-2"></i>Portal Access</h3>
+                                <p className="text-sm text-slate-300 leading-relaxed">
+                                    Use the temporary password provided by your client admin for first login, then set your own password here. You can still keep using secure email-link sign-in if you prefer.
+                                </p>
+                            </div>
+                            <form onSubmit={handlePasswordChange} className="grid grid-cols-1 md:grid-cols-3 gap-3 md:min-w-[520px]">
+                                <input
+                                    type="password"
+                                    value={passwordForm.newPassword}
+                                    onChange={e => setPasswordForm(prev => ({ ...prev, newPassword: e.target.value }))}
+                                    className="bg-slate-950 border border-slate-700 rounded-xl p-3 text-sm text-white outline-none focus:border-indigo-500 shadow-inner"
+                                    placeholder="New password"
+                                />
+                                <input
+                                    type="password"
+                                    value={passwordForm.confirmPassword}
+                                    onChange={e => setPasswordForm(prev => ({ ...prev, confirmPassword: e.target.value }))}
+                                    className="bg-slate-950 border border-slate-700 rounded-xl p-3 text-sm text-white outline-none focus:border-indigo-500 shadow-inner"
+                                    placeholder="Confirm password"
+                                />
+                                <button
+                                    type="submit"
+                                    disabled={passwordSaving}
+                                    className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-widest transition-colors shadow-lg shadow-emerald-900/30"
+                                >
+                                    {passwordSaving ? <><i className="fas fa-spinner fa-spin mr-2"></i>Saving</> : 'Change Password'}
+                                </button>
+                            </form>
                         </div>
                     </div>
 

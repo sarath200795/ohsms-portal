@@ -367,6 +367,7 @@ export default function Contractors() {
             const existingOrgUser = orgUsers.find(u => normalizeEmail(u.email) === vendorEmail && u.status !== 'Deleted');
 
             let portalUid = activeVendor.portalUid || existingOrgUser?.firebaseKey || '';
+            let tempPassword = '';
 
             const baseUserPayload = {
                 name: activeVendor.contactPerson || activeVendor.companyName || 'Vendor Portal User',
@@ -394,11 +395,12 @@ export default function Contractors() {
                 const tempAppName = `vendorPortal-${Date.now()}`;
                 const tempApp = initializeApp(auth.app.options, tempAppName);
                 const tempAuth = getAuth(tempApp);
+                tempPassword = Math.random().toString(36).slice(-8) + 'A1!';
 
                 const userCredential = await createUserWithEmailAndPassword(
                     tempAuth,
                     vendorEmail,
-                    Math.random().toString(36).slice(-8) + 'A1!'
+                    tempPassword
                 );
                 portalUid = userCredential.user.uid;
                 await signOut(tempAuth);
@@ -435,6 +437,7 @@ export default function Contractors() {
             setPortalSuccess({
                 companyName: activeVendor.companyName,
                 email: vendorEmail,
+                password: tempPassword,
                 linkedExisting: Boolean(existingOrgUser || activeVendor.portalUid)
             });
         } catch (error) {
@@ -690,7 +693,7 @@ export default function Contractors() {
                                         <div className="md:col-span-2">
                                             <label className="text-[10px] uppercase font-bold text-slate-400 block mb-2 tracking-widest">Vendor Portal Email *</label>
                                             <input type="email" value={formData.email} onChange={e => setFormData({ ...formData, email: e.target.value.toLowerCase() })} disabled={!canEdit} className="w-full bg-slate-900 border border-slate-700 rounded-xl p-4 text-white outline-none focus:border-indigo-500" placeholder="vendor@company.com" />
-                                            <p className="text-[10px] text-slate-500 mt-2">This email will be used for passwordless vendor portal sign-in.</p>
+                                            <p className="text-[10px] text-slate-500 mt-2">This email will be used for vendor portal login with either a temporary password or an email sign-in link.</p>
                                         </div>
                                     </div>
                                 </div>
@@ -1214,8 +1217,15 @@ export default function Contractors() {
                                 </div>
                                 <div>
                                     <div className="text-[10px] uppercase font-bold tracking-widest text-slate-500 mb-1">Vendor Login Method</div>
-                                    <div className="text-xs text-slate-300">Email + Vendor Code. The vendor portal will send a passwordless sign-in link to this email.</div>
+                                    <div className="text-xs text-slate-300">Email + Vendor Code + temporary password for first login, with passwordless email-link as an alternate option.</div>
                                 </div>
+                                {portalSuccess.password && (
+                                    <div>
+                                        <div className="text-[10px] uppercase font-bold tracking-widest text-emerald-500 mb-1">Temporary Password</div>
+                                        <div className="text-lg font-black text-emerald-400 font-mono tracking-widest bg-emerald-900/20 border border-emerald-500/20 rounded-xl p-3 text-center">{portalSuccess.password}</div>
+                                        <div className="text-[10px] text-slate-500 mt-2">Ask the vendor to change this password after the first login.</div>
+                                    </div>
+                                )}
                             </div>
 
                             <button onClick={() => setPortalSuccess(null)} className="w-full bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-3 rounded-xl text-sm font-bold uppercase tracking-widest transition-colors shadow-lg shadow-emerald-600/20">
