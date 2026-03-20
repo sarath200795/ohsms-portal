@@ -438,6 +438,7 @@ export default function Contractors() {
                 companyName: activeVendor.companyName,
                 email: vendorEmail,
                 password: tempPassword,
+                vendorCode: activeVendor.vendorCode || '',
                 linkedExisting: Boolean(existingOrgUser || activeVendor.portalUid)
             });
         } catch (error) {
@@ -1214,6 +1215,10 @@ export default function Contractors() {
                                 <div>
                                     <div className="text-[10px] uppercase font-bold tracking-widest text-slate-500 mb-1">Portal Email</div>
                                     <div className="text-sm font-bold text-white font-mono break-all">{portalSuccess.email}</div>
+                                </div>
+                                <div>
+                                    <div className="text-[10px] uppercase font-bold tracking-widest text-slate-500 mb-1">Vendor Code</div>
+                                    <div className="text-sm font-bold text-white font-mono break-all">{portalSuccess.vendorCode || 'Available on the contractor profile header'}</div>
                                 </div>
                                 <div>
                                     <div className="text-[10px] uppercase font-bold tracking-widest text-slate-500 mb-1">Vendor Login Method</div>

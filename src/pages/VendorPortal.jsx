@@ -134,7 +134,7 @@ export default function VendorPortal() {
         workers: safeArr(vendorData.workers).map(w => ({ ...w, additionalDocs: safeArr(w.additionalDocs) }))
     });
 
-    const fetchVendorData = async ({ user, vendorCode, expectedOrgId = '', showAlerts = true }) => {
+    const fetchVendorData = async ({ user, vendorCode = '', expectedOrgId = '', showAlerts = true }) => {
         setLoading(true);
 
         try {
@@ -177,15 +177,19 @@ export default function VendorPortal() {
                 const contractorEmail = normalizeEmail(contractor?.email);
                 const contractorCode = normalizeVendorCode(contractor?.vendorCode);
                 const contractorPortalUid = contractor?.portalUid || '';
-                return contractorCode === cleanVendorCode && (contractorPortalUid === user.uid || contractorEmail === cleanEmail);
+                if (contractorPortalUid === user.uid) {
+                    return true;
+                }
+                return contractorCode === cleanVendorCode && contractorEmail === cleanEmail;
             });
 
             if (!matchedEntry) {
-                throw new Error('The signed-in email and vendor code do not match any contractor profile. Make sure your client admin used the same email on your contractor record.');
+                throw new Error('The signed-in account is not linked to any contractor profile. Ask your client admin to verify the portal email, vendor code, and portal access link.');
             }
 
             const [firebaseKey, vendorData] = matchedEntry;
             const normalizedVendor = buildVendorState(firebaseKey, vendorData);
+            const resolvedVendorCode = normalizeVendorCode(vendorData.vendorCode || cleanVendorCode);
 
             let matchedIncidents = [];
             try {
@@ -214,7 +218,7 @@ export default function VendorPortal() {
             const nextSession = {
                 email: cleanEmail,
                 orgId,
-                vendorCode: cleanVendorCode,
+                vendorCode: resolvedVendorCode,
                 contractorId: firebaseKey
             };
 
@@ -226,7 +230,7 @@ export default function VendorPortal() {
             setLoginData({
                 email: cleanEmail,
                 password: '',
-                vendorCode: cleanVendorCode
+                vendorCode: resolvedVendorCode
             });
             sessionStorage.setItem(VENDOR_SESSION_KEY, JSON.stringify(nextSession));
             localStorage.removeItem(VENDOR_EMAIL_LINK_KEY);
@@ -339,8 +343,8 @@ export default function VendorPortal() {
         const cleanVendorCode = normalizeVendorCode(loginData.vendorCode);
         const completingEmailLink = isSignInWithEmailLink(vendorAuth, window.location.href);
 
-        if (!cleanEmail || !cleanVendorCode) {
-            alert('Please enter your email and vendor code.');
+        if (!cleanEmail || (!password && !cleanVendorCode)) {
+            alert(password ? 'Please enter your email.' : 'Please enter your email and vendor code.');
             return;
         }
 
@@ -600,11 +604,11 @@ export default function VendorPortal() {
                             <label className="text-[10px] font-bold uppercase text-slate-400 tracking-widest block mb-2">Unique Vendor Code</label>
                             <input
                                 type="text"
-                                required
+                                required={!loginData.password}
                                 value={loginData.vendorCode}
                                 onChange={e => setLoginData({ ...loginData, vendorCode: normalizeVendorCode(e.target.value) })}
                                 className="w-full bg-slate-950 border border-slate-700 rounded-xl p-4 text-white outline-none focus:border-indigo-500 font-mono font-bold tracking-widest uppercase transition-colors shadow-inner"
-                                placeholder="VEN-XXXXXX"
+                                placeholder={loginData.password ? 'Optional if account is already linked' : 'VEN-XXXXXX'}
                             />
                         </div>
                         <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-4 text-[11px] leading-relaxed text-slate-400">
