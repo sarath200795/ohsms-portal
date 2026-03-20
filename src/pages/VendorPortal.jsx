@@ -3,11 +3,9 @@ import { initializeApp, getApps } from 'firebase/app';
 import {
     browserSessionPersistence,
     getAuth,
-    isSignInWithEmailLink,
     onAuthStateChanged,
-    sendSignInLinkToEmail,
     setPersistence,
-    signInWithEmailLink,
+    signInWithEmailAndPassword,
     signOut
 } from 'firebase/auth';
 import { get, getDatabase, ref, update } from 'firebase/database';
@@ -15,7 +13,6 @@ import { auth } from '../config/firebase';
 
 const VENDOR_APP_NAME = 'vendor-portal-app';
 const VENDOR_SESSION_KEY = 'vendorSession';
-const VENDOR_EMAIL_LINK_KEY = 'vendorEmailLinkRequest';
 
 const getVendorFirebase = () => {
     const existingApp = getApps().find(app => app.name === VENDOR_APP_NAME);
@@ -43,38 +40,32 @@ const safeArrWithKeys = (dataObj) => {
 
 const normalizeEmail = (value) => String(value || '').trim().toLowerCase();
 const normalizeVendorCode = (value) => String(value || '').trim().toUpperCase();
-const buildVendorAuthErrorMessage = (error, mode = 'email-link-request') => {
+const buildVendorAuthErrorMessage = (error) => {
     const code = error?.code || '';
 
     if (code === 'auth/operation-not-allowed') {
-        return `Firebase email-link sign-in is disabled for this project. In Firebase Console, enable Authentication > Sign-in method > Email/Password and Email link, then add ${window.location.hostname} under Authentication > Settings > Authorized domains.`;
+        return 'Firebase Email/Password sign-in is disabled for this project. In Firebase Console, enable Authentication > Sign-in method > Email/Password.';
     }
 
-    if (code === 'auth/unauthorized-continue-uri' || code === 'auth/invalid-continue-uri') {
-        return `This portal domain is not authorized in Firebase Authentication. Add ${window.location.hostname} under Authentication > Settings > Authorized domains.`;
+    if (
+        code === 'auth/invalid-credential' ||
+        code === 'auth/invalid-login-credentials' ||
+        code === 'auth/user-not-found' ||
+        code === 'auth/wrong-password'
+    ) {
+        return 'The portal email or vendor code is incorrect, or this vendor account still uses the older login setup. Ask your client admin to reprovision portal access so the vendor code becomes the login credential.';
     }
 
-    if (code === 'auth/invalid-action-code') {
-        return 'This sign-in link is invalid, expired, or already used. Please return to the portal and request a new sign-in link with your email and vendor code.';
+    if (code === 'auth/invalid-email') {
+        return 'Please enter a valid portal email address.';
     }
 
-    return mode === 'email-link-complete'
-        ? 'Could not complete sign-in: ' + (error?.message || 'Unknown error.')
-        : 'Could not send sign-in link: ' + (error?.message || 'Unknown error.');
+    return 'Could not sign in: ' + (error?.message || 'Unknown error.');
 };
 
 const readVendorSession = () => {
     try {
         const raw = sessionStorage.getItem(VENDOR_SESSION_KEY);
-        return raw ? JSON.parse(raw) : null;
-    } catch {
-        return null;
-    }
-};
-
-const readVendorEmailLinkRequest = () => {
-    try {
-        const raw = localStorage.getItem(VENDOR_EMAIL_LINK_KEY);
         return raw ? JSON.parse(raw) : null;
     } catch {
         return null;
@@ -98,8 +89,6 @@ export default function VendorPortal() {
     const [vendorIncidents, setVendorIncidents] = useState([]);
     const [vendorPermits, setVendorPermits] = useState([]);
     const [uploadingId, setUploadingId] = useState(null);
-    const [linkSent, setLinkSent] = useState(false);
-    const [awaitingLinkCompletion, setAwaitingLinkCompletion] = useState(false);
     const manualLoginRef = useRef(false);
 
     const resetPortalState = (clearForm = false) => {
@@ -109,8 +98,6 @@ export default function VendorPortal() {
         setVendorPermits([]);
         setVendorSession(null);
         setActiveTab('documentation');
-        setLinkSent(false);
-        setAwaitingLinkCompletion(false);
         if (clearForm) {
             setLoginData({ email: '', vendorCode: '' });
         }
@@ -123,19 +110,6 @@ export default function VendorPortal() {
         documents: safeArr(vendorData.documents),
         workers: safeArr(vendorData.workers).map(w => ({ ...w, additionalDocs: safeArr(w.additionalDocs) }))
     });
-
-    const clearVendorLinkAttempt = (nextLoginData = null) => {
-        localStorage.removeItem(VENDOR_EMAIL_LINK_KEY);
-        setLinkSent(false);
-        setAwaitingLinkCompletion(false);
-        if (nextLoginData) {
-            setLoginData({
-                email: normalizeEmail(nextLoginData.email),
-                vendorCode: normalizeVendorCode(nextLoginData.vendorCode)
-            });
-        }
-        window.history.replaceState({}, document.title, `${window.location.origin}/vendor-portal`);
-    };
 
     const fetchVendorData = async ({ user, vendorCode = '', expectedOrgId = '', showAlerts = true }) => {
         setLoading(true);
@@ -235,8 +209,6 @@ export default function VendorPortal() {
                 vendorCode: resolvedVendorCode
             });
             sessionStorage.setItem(VENDOR_SESSION_KEY, JSON.stringify(nextSession));
-            localStorage.removeItem(VENDOR_EMAIL_LINK_KEY);
-            setLinkSent(false);
 
             if (showAlerts) {
                 alert('Login successful.');
@@ -244,7 +216,6 @@ export default function VendorPortal() {
         } catch (error) {
             console.error('Vendor portal login error:', error);
             sessionStorage.removeItem(VENDOR_SESSION_KEY);
-            localStorage.removeItem(VENDOR_EMAIL_LINK_KEY);
             resetPortalState(false);
             await signOut(vendorAuth).catch(() => {});
             if (showAlerts) {
@@ -264,34 +235,6 @@ export default function VendorPortal() {
                 await setPersistence(vendorAuth, browserSessionPersistence);
             } catch (error) {
                 console.warn('Vendor auth persistence setup failed.', error);
-            }
-
-            const pendingLink = readVendorEmailLinkRequest();
-            if (isSignInWithEmailLink(vendorAuth, window.location.href)) {
-                if (!pendingLink?.email || !pendingLink?.vendorCode) {
-                    setAwaitingLinkCompletion(true);
-                    setLoading(false);
-                    return;
-                }
-
-                manualLoginRef.current = true;
-                try {
-                    const userCredential = await signInWithEmailLink(vendorAuth, pendingLink.email, window.location.href);
-                    window.history.replaceState({}, document.title, `${window.location.origin}/vendor-portal`);
-                    await fetchVendorData({
-                        user: userCredential.user,
-                        vendorCode: pendingLink.vendorCode,
-                        showAlerts: true
-                    });
-                } catch (error) {
-                    console.error('Vendor email-link sign-in failed:', error);
-                    clearVendorLinkAttempt(pendingLink);
-                    alert(buildVendorAuthErrorMessage(error, 'email-link-complete'));
-                    setLoading(false);
-                } finally {
-                    manualLoginRef.current = false;
-                }
-                return;
             }
 
             unsubscribe = onAuthStateChanged(vendorAuth, async (user) => {
@@ -316,11 +259,12 @@ export default function VendorPortal() {
                     return;
                 }
 
-                setLoginData(prev => ({
-                    ...prev,
-                    email: user.email || prev.email
-                }));
-                setLoading(false);
+                await fetchVendorData({
+                    user,
+                    vendorCode: storedSession?.vendorCode || '',
+                    expectedOrgId: storedSession?.orgId || '',
+                    showAlerts: false
+                });
             });
 
             if (cancelled) {
@@ -341,7 +285,6 @@ export default function VendorPortal() {
 
         const cleanEmail = normalizeEmail(loginData.email);
         const cleanVendorCode = normalizeVendorCode(loginData.vendorCode);
-        const completingEmailLink = isSignInWithEmailLink(vendorAuth, window.location.href);
 
         if (!cleanEmail || !cleanVendorCode) {
             alert('Please enter your email and vendor code.');
@@ -351,45 +294,16 @@ export default function VendorPortal() {
         setLoading(true);
 
         try {
-            if (completingEmailLink) {
-                manualLoginRef.current = true;
-                localStorage.setItem(VENDOR_EMAIL_LINK_KEY, JSON.stringify({
-                    email: cleanEmail,
-                    vendorCode: cleanVendorCode
-                }));
-
-                const userCredential = await signInWithEmailLink(vendorAuth, cleanEmail, window.location.href);
-                window.history.replaceState({}, document.title, `${window.location.origin}/vendor-portal`);
-                await fetchVendorData({
-                    user: userCredential.user,
-                    vendorCode: cleanVendorCode,
-                    showAlerts: true
-                });
-                setAwaitingLinkCompletion(false);
-                return;
-            }
-
-            const actionCodeSettings = {
-                url: `${window.location.origin}/vendor-portal`,
-                handleCodeInApp: true
-            };
-
-            await sendSignInLinkToEmail(vendorAuth, cleanEmail, actionCodeSettings);
-            localStorage.setItem(VENDOR_EMAIL_LINK_KEY, JSON.stringify({
-                email: cleanEmail,
-                vendorCode: cleanVendorCode
-            }));
-                setLinkSent(true);
-                setAwaitingLinkCompletion(false);
-                alert('A secure sign-in link has been sent to the vendor email. Open that email on this browser to complete sign-in.');
+            manualLoginRef.current = true;
+            const userCredential = await signInWithEmailAndPassword(vendorAuth, cleanEmail, cleanVendorCode);
+            await fetchVendorData({
+                user: userCredential.user,
+                vendorCode: cleanVendorCode,
+                showAlerts: true
+            });
         } catch (error) {
-            console.error(completingEmailLink ? 'Vendor email-link completion failed:' : 'Vendor email-link request failed:', error);
-            if (completingEmailLink) {
-                clearVendorLinkAttempt({ email: cleanEmail, vendorCode: cleanVendorCode });
-            } else {
-                localStorage.removeItem(VENDOR_EMAIL_LINK_KEY);
-            }
-            alert(buildVendorAuthErrorMessage(error, completingEmailLink ? 'email-link-complete' : 'email-link-request'));
+            console.error('Vendor sign-in failed:', error);
+            alert(buildVendorAuthErrorMessage(error));
         } finally {
             manualLoginRef.current = false;
             setLoading(false);
@@ -398,7 +312,6 @@ export default function VendorPortal() {
 
     const handleLogout = async () => {
         sessionStorage.removeItem(VENDOR_SESSION_KEY);
-        localStorage.removeItem(VENDOR_EMAIL_LINK_KEY);
         resetPortalState(true);
         setLoading(false);
         await signOut(vendorAuth).catch(() => {});
@@ -558,21 +471,14 @@ export default function VendorPortal() {
                             />
                         </div>
                         <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-4 text-[11px] leading-relaxed text-slate-400">
-                            {awaitingLinkCompletion
-                                ? 'You opened a secure sign-in link. Re-enter the same portal email and vendor code to finish login without a password.'
-                                : 'Use the same email your client admin saved on your contractor profile and your vendor code. The portal will send a secure sign-in link to this email.'}
+                            Use the same email your client admin saved on your contractor profile and your vendor code. No separate password or sign-in link is needed.
                         </div>
-                        {linkSent && (
-                            <div className="rounded-2xl border border-emerald-500/30 bg-emerald-950/20 p-4 text-[11px] leading-relaxed text-emerald-300">
-                                The sign-in link was sent. Open the email on this browser and the portal will complete the login automatically.
-                            </div>
-                        )}
                         <button
                             type="submit"
                             disabled={loading}
                             className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-4 rounded-xl uppercase tracking-widest text-sm transition-transform active:scale-95 shadow-lg shadow-indigo-900/50 mt-4 disabled:opacity-50"
                         >
-                            {loading ? <i className="fas fa-circle-notch fa-spin"></i> : awaitingLinkCompletion ? 'Complete Secure Sign-In' : 'Send Secure Sign-In Link'}
+                            {loading ? <i className="fas fa-circle-notch fa-spin"></i> : 'Access Vendor Portal'}
                         </button>
                     </form>
                 </div>

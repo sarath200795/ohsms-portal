@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { initializeApp } from 'firebase/app';
-import { createUserWithEmailAndPassword, getAuth, signOut } from 'firebase/auth';
+import { createUserWithEmailAndPassword, getAuth, signInWithEmailAndPassword, signOut } from 'firebase/auth';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { ref, get, push, set, update, remove } from 'firebase/database';
 import { auth, rtdb } from '../config/firebase';
@@ -19,6 +19,7 @@ const generateVendorCode = () => {
 };
 
 const normalizeEmail = (value) => String(value || '').trim().toLowerCase();
+const normalizeVendorCode = (value) => String(value || '').trim().toUpperCase();
 const createEmptyVendorForm = () => ({
     id: '',
     allocatedSites: [],
@@ -357,6 +358,8 @@ export default function Contractors() {
 
         const vendorEmail = normalizeEmail(activeVendor.email);
         if (!vendorEmail) return alert("Add a contractor email address before provisioning portal access.");
+        const vendorCode = normalizeVendorCode(activeVendor.vendorCode);
+        if (!vendorCode) return alert("Vendor code is missing on this contractor profile.");
 
         setPortalProvisioning(true);
 
@@ -364,51 +367,76 @@ export default function Contractors() {
             const nowIso = new Date().toISOString();
             const allocatedSites = safeArr(activeVendor.allocatedSites);
             const primarySite = allocatedSites[0] || activeVendor.siteId || 'GLOBAL';
-            const existingOrgUser = orgUsers.find(u => normalizeEmail(u.email) === vendorEmail && u.status !== 'Deleted');
+            const existingPortalUser = orgUsers.find(u => (
+                (activeVendor.portalUid && u.firebaseKey === activeVendor.portalUid) ||
+                (normalizeEmail(u.email) === vendorEmail && u.vendorPortal === true)
+            ) && u.status !== 'Deleted');
 
-            let portalUid = activeVendor.portalUid || existingOrgUser?.firebaseKey || '';
+            let portalUid = activeVendor.portalUid || existingPortalUser?.firebaseKey || '';
+            let createdPortalAuthUser = false;
             const baseUserPayload = {
                 name: activeVendor.contactPerson || activeVendor.companyName || 'Vendor Portal User',
                 email: vendorEmail,
-                role: existingOrgUser?.role || 'User',
+                role: existingPortalUser?.role || 'User',
                 status: 'Active',
-                assignedSite: existingOrgUser?.assignedSite || primarySite,
-                accessibleSites: Array.from(new Set([...(safeArr(existingOrgUser?.accessibleSites)), ...allocatedSites].filter(Boolean))),
-                accessibleModules: safeArr(existingOrgUser?.accessibleModules),
+                assignedSite: existingPortalUser?.assignedSite || primarySite,
+                accessibleSites: Array.from(new Set([...(safeArr(existingPortalUser?.accessibleSites)), ...allocatedSites].filter(Boolean))),
+                accessibleModules: safeArr(existingPortalUser?.accessibleModules),
                 vendorPortal: true,
                 portalLinkedContractorId: activeVendor.firebaseKey,
                 updatedBy: session.email,
                 updatedAt: nowIso
             };
 
-            if (portalUid) {
-                await update(ref(rtdb, `organizations/${session.orgId}/users/${portalUid}`), baseUserPayload);
+            const tempAppName = `vendorPortal-${Date.now()}`;
+            const tempApp = initializeApp(auth.app.options, tempAppName);
+            const tempAuth = getAuth(tempApp);
 
-                const dirRef = ref(rtdb, `userDirectory/${portalUid}`);
-                const dirSnap = await get(dirRef);
-                if (!dirSnap.exists()) {
-                    await set(dirRef, { orgId: session.orgId });
+            try {
+                try {
+                    const existingCredential = await signInWithEmailAndPassword(tempAuth, vendorEmail, vendorCode);
+                    portalUid = existingCredential.user.uid;
+                } catch (authError) {
+                    const authCode = authError?.code || '';
+
+                    if (
+                        authCode === 'auth/invalid-credential' ||
+                        authCode === 'auth/invalid-login-credentials' ||
+                        authCode === 'auth/user-not-found' ||
+                        authCode === 'auth/wrong-password'
+                    ) {
+                        try {
+                            const userCredential = await createUserWithEmailAndPassword(
+                                tempAuth,
+                                vendorEmail,
+                                vendorCode
+                            );
+                            portalUid = userCredential.user.uid;
+                            createdPortalAuthUser = true;
+                        } catch (createError) {
+                            if (createError?.code === 'auth/email-already-in-use') {
+                                throw new Error('A Firebase Auth account already exists for this vendor email with an older password. To use email + vendor code login, reset that auth account password to the vendor code in Firebase Authentication or delete and recreate the vendor auth user.');
+                            }
+                            throw createError;
+                        }
+                    } else {
+                        throw authError;
+                    }
                 }
-            } else {
-                const tempAppName = `vendorPortal-${Date.now()}`;
-                const tempApp = initializeApp(auth.app.options, tempAppName);
-                const tempAuth = getAuth(tempApp);
-                const hiddenPassword = Math.random().toString(36).slice(-8) + 'A1!';
+            } finally {
+                await signOut(tempAuth).catch(() => {});
+            }
 
-                const userCredential = await createUserWithEmailAndPassword(
-                    tempAuth,
-                    vendorEmail,
-                    hiddenPassword
-                );
-                portalUid = userCredential.user.uid;
-                await signOut(tempAuth);
+            if (!portalUid) {
+                throw new Error('Unable to provision a vendor portal auth account for this contractor.');
+            }
 
-                await set(ref(rtdb, `organizations/${session.orgId}/users/${portalUid}`), {
-                    ...baseUserPayload,
-                    createdBy: session.email,
-                    createdAt: nowIso
-                });
-                await set(ref(rtdb, `userDirectory/${portalUid}`), { orgId: session.orgId });
+            await update(ref(rtdb, `organizations/${session.orgId}/users/${portalUid}`), baseUserPayload);
+
+            const dirRef = ref(rtdb, `userDirectory/${portalUid}`);
+            const dirSnap = await get(dirRef);
+            if (!dirSnap.exists()) {
+                await set(dirRef, { orgId: session.orgId });
             }
 
             const contractorPortalPayload = {
@@ -435,8 +463,8 @@ export default function Contractors() {
             setPortalSuccess({
                 companyName: activeVendor.companyName,
                 email: vendorEmail,
-                vendorCode: activeVendor.vendorCode || '',
-                linkedExisting: Boolean(existingOrgUser || activeVendor.portalUid)
+                vendorCode,
+                linkedExisting: !createdPortalAuthUser
             });
         } catch (error) {
             alert("Portal provisioning failed: " + error.message);
@@ -691,7 +719,7 @@ export default function Contractors() {
                                         <div className="md:col-span-2">
                                             <label className="text-[10px] uppercase font-bold text-slate-400 block mb-2 tracking-widest">Vendor Portal Email *</label>
                                             <input type="email" value={formData.email} onChange={e => setFormData({ ...formData, email: e.target.value.toLowerCase() })} disabled={!canEdit} className="w-full bg-slate-900 border border-slate-700 rounded-xl p-4 text-white outline-none focus:border-indigo-500" placeholder="vendor@company.com" />
-                                            <p className="text-[10px] text-slate-500 mt-2">This email will be used for vendor portal login with the vendor code and a secure sign-in link.</p>
+                                            <p className="text-[10px] text-slate-500 mt-2">This email will be used for vendor portal login with the vendor code. No separate password is required.</p>
                                         </div>
                                     </div>
                                 </div>
@@ -1219,7 +1247,7 @@ export default function Contractors() {
                                 </div>
                                 <div>
                                     <div className="text-[10px] uppercase font-bold tracking-widest text-slate-500 mb-1">Vendor Login Method</div>
-                                    <div className="text-xs text-slate-300">Email + Vendor Code. The vendor portal will send a secure sign-in link to the vendor email.</div>
+                                    <div className="text-xs text-slate-300">Email + Vendor Code. The vendor code is now the login credential, so no separate password or sign-in link is needed.</div>
                                 </div>
                             </div>
 
