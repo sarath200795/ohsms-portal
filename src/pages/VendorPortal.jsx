@@ -54,6 +54,10 @@ const buildVendorAuthErrorMessage = (error, mode = 'email-link-request') => {
         return `This portal domain is not authorized in Firebase Authentication. Add ${window.location.hostname} under Authentication > Settings > Authorized domains.`;
     }
 
+    if (code === 'auth/invalid-action-code') {
+        return 'This sign-in link is invalid, expired, or already used. Please return to the portal and request a new sign-in link with your email and vendor code.';
+    }
+
     return mode === 'email-link-complete'
         ? 'Could not complete sign-in: ' + (error?.message || 'Unknown error.')
         : 'Could not send sign-in link: ' + (error?.message || 'Unknown error.');
@@ -119,6 +123,19 @@ export default function VendorPortal() {
         documents: safeArr(vendorData.documents),
         workers: safeArr(vendorData.workers).map(w => ({ ...w, additionalDocs: safeArr(w.additionalDocs) }))
     });
+
+    const clearVendorLinkAttempt = (nextLoginData = null) => {
+        localStorage.removeItem(VENDOR_EMAIL_LINK_KEY);
+        setLinkSent(false);
+        setAwaitingLinkCompletion(false);
+        if (nextLoginData) {
+            setLoginData({
+                email: normalizeEmail(nextLoginData.email),
+                vendorCode: normalizeVendorCode(nextLoginData.vendorCode)
+            });
+        }
+        window.history.replaceState({}, document.title, `${window.location.origin}/vendor-portal`);
+    };
 
     const fetchVendorData = async ({ user, vendorCode = '', expectedOrgId = '', showAlerts = true }) => {
         setLoading(true);
@@ -268,7 +285,7 @@ export default function VendorPortal() {
                     });
                 } catch (error) {
                     console.error('Vendor email-link sign-in failed:', error);
-                    localStorage.removeItem(VENDOR_EMAIL_LINK_KEY);
+                    clearVendorLinkAttempt(pendingLink);
                     alert(buildVendorAuthErrorMessage(error, 'email-link-complete'));
                     setLoading(false);
                 } finally {
@@ -362,12 +379,16 @@ export default function VendorPortal() {
                 email: cleanEmail,
                 vendorCode: cleanVendorCode
             }));
-            setLinkSent(true);
-            setAwaitingLinkCompletion(false);
-            alert('A secure sign-in link has been sent to the vendor email. Open that email on this browser to complete sign-in.');
+                setLinkSent(true);
+                setAwaitingLinkCompletion(false);
+                alert('A secure sign-in link has been sent to the vendor email. Open that email on this browser to complete sign-in.');
         } catch (error) {
             console.error(completingEmailLink ? 'Vendor email-link completion failed:' : 'Vendor email-link request failed:', error);
-            localStorage.removeItem(VENDOR_EMAIL_LINK_KEY);
+            if (completingEmailLink) {
+                clearVendorLinkAttempt({ email: cleanEmail, vendorCode: cleanVendorCode });
+            } else {
+                localStorage.removeItem(VENDOR_EMAIL_LINK_KEY);
+            }
             alert(buildVendorAuthErrorMessage(error, completingEmailLink ? 'email-link-complete' : 'email-link-request'));
         } finally {
             manualLoginRef.current = false;
