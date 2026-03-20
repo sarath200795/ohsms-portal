@@ -10,6 +10,12 @@ const safeArr = (val) => {
     return [];
 };
 
+const safeArrWithKeys = (dataObj) => {
+    if (!dataObj) return [];
+    if (Array.isArray(dataObj)) return dataObj.filter(Boolean).map((v, i) => ({ ...v, firebaseKey: String(i) }));
+    return Object.entries(dataObj).map(([k, v]) => ({ ...v, firebaseKey: k }));
+};
+
 const fileToBase64 = (file) => new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.readAsDataURL(file);
@@ -17,16 +23,18 @@ const fileToBase64 = (file) => new Promise((resolve, reject) => {
     reader.onerror = error => reject(error);
 });
 
-// THIS IS THE MISSING EXPORT THAT CAUSED THE BUILD ERROR
 export default function VendorPortal() {
     const [loading, setLoading] = useState(false);
     const [isAuthenticated, setIsAuthenticated] = useState(false);
 
-    // Login State
+    // Login & Tab State
     const [loginData, setLoginData] = useState({ orgId: '', vendorCode: '' });
+    const [activeTab, setActiveTab] = useState('documentation'); // 'documentation' | 'activities'
 
     // Vendor Data State
     const [vendor, setVendor] = useState(null);
+    const [vendorIncidents, setVendorIncidents] = useState([]);
+    const [vendorPermits, setVendorPermits] = useState([]);
     const [uploadingId, setUploadingId] = useState(null);
 
     // Check for existing vendor session on load
@@ -42,10 +50,10 @@ export default function VendorPortal() {
     const fetchVendorData = async (orgId, vendorCode, showAlerts = true) => {
         setLoading(true);
         try {
+            // 1. Fetch Contractors
             const snap = await get(ref(rtdb, `organizations/${orgId}/contractors`));
             if (snap.exists()) {
                 const contractors = snap.val();
-                // Find the contractor that matches the exact vendor code
                 const matchedEntry = Object.entries(contractors).find(([k, v]) => v.vendorCode === vendorCode);
 
                 if (matchedEntry) {
@@ -56,13 +64,33 @@ export default function VendorPortal() {
                         documents: safeArr(vendorData.documents),
                         workers: safeArr(vendorData.workers).map(w => ({ ...w, additionalDocs: safeArr(w.additionalDocs) }))
                     };
-
                     setVendor(normalizedVendor);
+
+                    // 2. Fetch Associated Incidents (Injuries)
+                    try {
+                        const incSnap = await get(ref(rtdb, `organizations/${orgId}/incidents`));
+                        if (incSnap.exists()) {
+                            const allInc = safeArrWithKeys(incSnap.val());
+                            const vInc = allInc.filter(i => i.contractorId === firebaseKey || (i.contractorName && i.contractorName.toLowerCase() === vendorData.companyName.toLowerCase()));
+                            setVendorIncidents(vInc.sort((a, b) => new Date(b.incidentDate || b.date) - new Date(a.incidentDate || a.date)));
+                        }
+                    } catch (e) { console.warn("Incident fetch blocked by rules or empty."); }
+
+                    // 3. Fetch Associated Permits & Non-Compliances
+                    try {
+                        const ptwSnap = await get(ref(rtdb, `organizations/${orgId}/ptwRecords`));
+                        if (ptwSnap.exists()) {
+                            const allPtw = safeArrWithKeys(ptwSnap.val());
+                            const vPtw = allPtw.filter(p => p.contractorId === firebaseKey || (p.contractorName && p.contractorName.toLowerCase() === vendorData.companyName.toLowerCase()));
+                            setVendorPermits(vPtw.sort((a, b) => new Date(b.createdAt || b.validFromDate) - new Date(a.createdAt || a.validFromDate)));
+                        }
+                    } catch (e) { console.warn("PTW fetch blocked by rules or empty."); }
+
                     setIsAuthenticated(true);
                     sessionStorage.setItem('vendorSession', JSON.stringify({ orgId, vendorCode }));
                     if (showAlerts) alert("Login Successful!");
                 } else {
-                    if (showAlerts) alert("Invalid Vendor Code. Please check your credentials.");
+                    if (showAlerts) alert("Invalid Vendor Code or Organization ID. Please check your credentials.");
                     handleLogout();
                 }
             } else {
@@ -85,7 +113,10 @@ export default function VendorPortal() {
         sessionStorage.removeItem('vendorSession');
         setIsAuthenticated(false);
         setVendor(null);
+        setVendorIncidents([]);
+        setVendorPermits([]);
         setLoginData({ orgId: '', vendorCode: '' });
+        setActiveTab('documentation');
     };
 
     const getComplianceStatus = (docsData) => {
@@ -110,7 +141,6 @@ export default function VendorPortal() {
     const updateDatabase = async (updates) => {
         try {
             await update(ref(rtdb, `organizations/${loginData.orgId}/contractors/${vendor.firebaseKey}`), updates);
-            // Re-fetch to ensure sync
             fetchVendorData(loginData.orgId, loginData.vendorCode, false);
             return true;
         } catch (error) {
@@ -193,14 +223,14 @@ export default function VendorPortal() {
 
                     <form onSubmit={handleLogin} className="space-y-5">
                         <div>
-                            <label className="text-[10px] font-bold uppercase text-slate-400 tracking-widest block mb-2">Organization ID</label>
+                            <label className="text-[10px] font-bold uppercase text-slate-400 tracking-widest block mb-2">Organization Name / ID</label>
                             <input
                                 type="text"
                                 required
                                 value={loginData.orgId}
                                 onChange={e => setLoginData({ ...loginData, orgId: e.target.value })}
                                 className="w-full bg-slate-950 border border-slate-700 rounded-xl p-4 text-white outline-none focus:border-indigo-500 font-mono transition-colors shadow-inner"
-                                placeholder="Provided by Client..."
+                                placeholder="Client ID (e.g. AcmeCorp)"
                             />
                         </div>
                         <div>
@@ -236,25 +266,27 @@ export default function VendorPortal() {
         <div className="min-h-screen bg-slate-950 flex flex-col font-['Space_Grotesk'] text-slate-200 relative">
             <div className="absolute top-0 right-0 w-[600px] h-[600px] bg-indigo-600/5 rounded-full blur-[120px] pointer-events-none"></div>
 
-            <header className="h-20 px-8 flex items-center justify-between z-20 backdrop-blur-sm bg-slate-900/80 border-b border-slate-800 shadow-md">
-                <div className="flex items-center gap-4">
-                    <div className="w-10 h-10 rounded-lg bg-gradient-to-tr from-indigo-500 to-blue-600 flex items-center justify-center text-white font-bold shadow-lg">
-                        <i className="fas fa-building"></i>
+            <header className="h-24 px-8 flex flex-col justify-center z-20 backdrop-blur-sm bg-slate-900/80 border-b border-slate-800 shadow-md gap-2">
+                <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-4">
+                        <div className="w-10 h-10 rounded-lg bg-gradient-to-tr from-indigo-500 to-blue-600 flex items-center justify-center text-white font-bold shadow-lg">
+                            <i className="fas fa-building"></i>
+                        </div>
+                        <div>
+                            <h1 className="text-lg font-bold text-white uppercase tracking-wide leading-tight">{vendor.companyName}</h1>
+                            <div className="text-[10px] text-slate-400 uppercase tracking-widest font-mono">Vendor ID: {vendor.vendorCode} | Org: {loginData.orgId}</div>
+                        </div>
                     </div>
-                    <div>
-                        <h1 className="text-lg font-bold text-white uppercase tracking-wide leading-tight">{vendor.companyName}</h1>
-                        <div className="text-[10px] text-slate-400 uppercase tracking-widest font-mono">Vendor ID: {vendor.vendorCode}</div>
-                    </div>
+                    <button onClick={handleLogout} className="bg-slate-800 hover:bg-red-900/50 hover:text-red-400 text-slate-300 border border-slate-700 px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-widest transition-colors shadow-sm flex items-center gap-2">
+                        <i className="fas fa-sign-out-alt"></i> Logout
+                    </button>
                 </div>
-                <button onClick={handleLogout} className="bg-slate-800 hover:bg-red-900/50 hover:text-red-400 text-slate-300 border border-slate-700 px-4 py-2.5 rounded-xl text-xs font-bold uppercase tracking-widest transition-colors shadow-sm flex items-center gap-2">
-                    <i className="fas fa-sign-out-alt"></i> Logout
-                </button>
             </header>
 
             <main className="flex-1 overflow-y-auto p-4 md:p-8 custom-scroll z-10">
                 <div className="max-w-7xl mx-auto animate-in fade-in duration-500 space-y-8">
 
-                    {/* OVERVIEW CARDS */}
+                    {/* OVERVIEW CARDS (Always visible) */}
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                         <div className="bg-slate-900/60 backdrop-blur-md p-6 rounded-3xl border border-slate-700 shadow-xl flex items-center gap-6">
                             <div className={`w-20 h-20 rounded-full flex items-center justify-center font-black text-2xl border-4 shadow-inner ${statusObj.pct === 100 ? 'border-emerald-500 text-emerald-400 bg-emerald-950/30' : statusObj.pct > 50 ? 'border-yellow-500 text-yellow-400 bg-yellow-950/30' : 'border-red-500 text-red-400 bg-red-950/30'}`}>
@@ -283,166 +315,265 @@ export default function VendorPortal() {
                         </div>
                     </div>
 
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                        {/* COMPANY DOCUMENTS SECTION */}
-                        <div className="bg-slate-900/60 backdrop-blur-md rounded-3xl border border-slate-700 shadow-xl overflow-hidden flex flex-col h-[700px]">
-                            <div className="p-6 border-b border-slate-800 bg-slate-950/50">
-                                <h3 className="text-xl font-bold text-white flex items-center gap-3"><i className="fas fa-folder-open text-indigo-400"></i> Company Level Documents</h3>
-                                <p className="text-xs text-slate-400 mt-1">Please ensure all required organizational documents are uploaded and current.</p>
-                            </div>
-                            <div className="flex-1 overflow-y-auto p-6 custom-scroll space-y-4 bg-slate-900/30">
-                                {vendor.documents.map(doc => {
-                                    const isExp = doc.expiryDate && new Date(doc.expiryDate) < new Date();
-                                    const isPending = !doc.file && doc.status !== 'Uploaded';
-                                    const isUploading = uploadingId === `comp-${doc.id}`;
+                    {/* PORTAL NAVIGATION TABS */}
+                    <div className="flex gap-4 border-b border-slate-800">
+                        <button
+                            onClick={() => setActiveTab('documentation')}
+                            className={`pb-3 px-4 text-xs font-bold uppercase tracking-widest transition-all ${activeTab === 'documentation' ? 'text-indigo-400 border-b-2 border-indigo-500' : 'text-slate-500 hover:text-slate-300 border-b-2 border-transparent'}`}
+                        >
+                            <i className="fas fa-folder-open mr-2"></i> Documentation
+                        </button>
+                        <button
+                            onClick={() => setActiveTab('activities')}
+                            className={`pb-3 px-4 text-xs font-bold uppercase tracking-widest transition-all ${activeTab === 'activities' ? 'text-indigo-400 border-b-2 border-indigo-500' : 'text-slate-500 hover:text-slate-300 border-b-2 border-transparent'}`}
+                        >
+                            <i className="fas fa-hard-hat mr-2"></i> Activities & Safety
+                        </button>
+                    </div>
 
-                                    return (
-                                        <div key={doc.id} className={`p-4 rounded-2xl border shadow-sm transition-all ${isExp ? 'bg-red-950/20 border-red-500/30' : isPending ? 'bg-orange-950/10 border-orange-500/30' : 'bg-slate-950/80 border-slate-700 hover:border-slate-500'}`}>
-                                            <div className="flex justify-between items-start mb-3">
-                                                <div>
-                                                    <div className="text-sm font-bold text-white leading-tight">{doc.name} {doc.isMandatory && <span className="text-[8px] bg-red-900/50 text-red-300 px-1.5 py-0.5 ml-2 rounded uppercase tracking-widest border border-red-500/30">Required</span>}</div>
-                                                    <div className={`text-[10px] font-bold uppercase tracking-widest mt-1 ${doc.status === 'Uploaded' ? 'text-emerald-400' : 'text-orange-400'}`}>Status: {doc.status}</div>
+                    {/* ============================================== */}
+                    {/* TAB 1: DOCUMENTATION (Company & Roster Docs) */}
+                    {/* ============================================== */}
+                    {activeTab === 'documentation' && (
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 animate-in fade-in">
+                            {/* COMPANY DOCUMENTS SECTION */}
+                            <div className="bg-slate-900/60 backdrop-blur-md rounded-3xl border border-slate-700 shadow-xl overflow-hidden flex flex-col h-[700px]">
+                                <div className="p-6 border-b border-slate-800 bg-slate-950/50">
+                                    <h3 className="text-xl font-bold text-white flex items-center gap-3"><i className="fas fa-folder-open text-indigo-400"></i> Company Level Documents</h3>
+                                    <p className="text-xs text-slate-400 mt-1">Please ensure all required organizational documents are uploaded and current.</p>
+                                </div>
+                                <div className="flex-1 overflow-y-auto p-6 custom-scroll space-y-4 bg-slate-900/30">
+                                    {vendor.documents.map(doc => {
+                                        const isExp = doc.expiryDate && new Date(doc.expiryDate) < new Date();
+                                        const isPending = !doc.file && doc.status !== 'Uploaded';
+                                        const isUploading = uploadingId === `comp-${doc.id}`;
+
+                                        return (
+                                            <div key={doc.id} className={`p-4 rounded-2xl border shadow-sm transition-all ${isExp ? 'bg-red-950/20 border-red-500/30' : isPending ? 'bg-orange-950/10 border-orange-500/30' : 'bg-slate-950/80 border-slate-700 hover:border-slate-500'}`}>
+                                                <div className="flex justify-between items-start mb-3">
+                                                    <div>
+                                                        <div className="text-sm font-bold text-white leading-tight">{doc.name} {doc.isMandatory && <span className="text-[8px] bg-red-900/50 text-red-300 px-1.5 py-0.5 ml-2 rounded uppercase tracking-widest border border-red-500/30">Required</span>}</div>
+                                                        <div className={`text-[10px] font-bold uppercase tracking-widest mt-1 ${doc.status === 'Uploaded' ? 'text-emerald-400' : 'text-orange-400'}`}>Status: {doc.status}</div>
+                                                    </div>
+
+                                                    {doc.file ? (
+                                                        <div className="flex gap-2">
+                                                            <a href={doc.file} target="_blank" rel="noreferrer" className="text-[10px] bg-blue-900/30 text-blue-400 hover:bg-blue-600 hover:text-white px-3 py-1.5 rounded-lg border border-blue-500/30 uppercase font-bold transition-colors shadow-sm"><i className="fas fa-eye mr-1"></i> View</a>
+                                                            <div className="relative overflow-hidden bg-slate-800 border border-slate-600 text-slate-400 hover:text-white cursor-pointer rounded-lg px-3 py-1.5 transition-colors shadow-sm" title="Update Document">
+                                                                <input type="file" onChange={(e) => handleCompanyDocUpload(doc.id, e.target.files[0])} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" />
+                                                                {isUploading ? <i className="fas fa-spinner fa-spin text-[10px]"></i> : <i className="fas fa-sync-alt text-[10px]"></i>}
+                                                            </div>
+                                                        </div>
+                                                    ) : (
+                                                        <div className="relative overflow-hidden shadow-sm">
+                                                            <input type="file" onChange={(e) => handleCompanyDocUpload(doc.id, e.target.files[0])} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" />
+                                                            <div className="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-widest transition-colors flex items-center gap-2 cursor-pointer">
+                                                                {isUploading ? <><i className="fas fa-spinner fa-spin"></i> Uploading</> : <><i className="fas fa-cloud-upload-alt"></i> Upload File</>}
+                                                            </div>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                                {doc.expiryDate && (
+                                                    <div className={`text-[10px] font-mono mt-2 pt-2 border-t border-slate-800/50 ${isExp ? 'text-red-400 font-bold' : 'text-slate-500'}`}>
+                                                        <i className="far fa-calendar-alt mr-1"></i> Expiry: {doc.expiryDate} {isExp && '(EXPIRED)'}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+
+                            {/* WORKER ROSTER & DOCUMENTS SECTION */}
+                            <div className="bg-slate-900/60 backdrop-blur-md rounded-3xl border border-slate-700 shadow-xl overflow-hidden flex flex-col h-[700px]">
+                                <div className="p-6 border-b border-slate-800 bg-slate-950/50">
+                                    <h3 className="text-xl font-bold text-white flex items-center gap-3"><i className="fas fa-users-cog text-emerald-400"></i> Employee Roster & Documents</h3>
+                                    <p className="text-xs text-slate-400 mt-1">Upload Medical Fitness (Form 33) and Competency Certificates for each worker.</p>
+                                </div>
+                                <div className="flex-1 overflow-y-auto p-6 custom-scroll space-y-4 bg-slate-900/30">
+                                    {vendor.workers.map(w => {
+                                        const isMedUploading = uploadingId === `worker-${w.id}-med`;
+                                        const isCompUploading = uploadingId === `worker-${w.id}-comp`;
+
+                                        return (
+                                            <div key={w.id} className="p-5 rounded-2xl border border-slate-700 bg-slate-950/80 shadow-sm">
+                                                <div className="flex justify-between items-center mb-4 border-b border-slate-800 pb-3">
+                                                    <div>
+                                                        <div className="text-base font-bold text-white leading-tight">{w.name}</div>
+                                                        <div className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">{w.role} | {w.competence}</div>
+                                                    </div>
+                                                    <div className="text-right">
+                                                        <div className="text-[9px] uppercase font-bold text-slate-500 mb-1">Status</div>
+                                                        {!w.inductionDate || w.inductionDate === 'Pending' ? (
+                                                            <div className="text-[10px] font-bold text-orange-400 uppercase tracking-widest border border-orange-500/30 px-2 py-0.5 rounded bg-orange-900/20">Pending Induction</div>
+                                                        ) : (
+                                                            <div className="text-[10px] font-bold text-emerald-400 uppercase tracking-widest border border-emerald-500/30 px-2 py-0.5 rounded bg-emerald-900/20">Inducted</div>
+                                                        )}
+                                                    </div>
                                                 </div>
 
-                                                {doc.file ? (
-                                                    <div className="flex gap-2">
-                                                        <a href={doc.file} target="_blank" rel="noreferrer" className="text-[10px] bg-blue-900/30 text-blue-400 hover:bg-blue-600 hover:text-white px-3 py-1.5 rounded-lg border border-blue-500/30 uppercase font-bold transition-colors shadow-sm"><i className="fas fa-eye mr-1"></i> View</a>
-                                                        <div className="relative overflow-hidden bg-slate-800 border border-slate-600 text-slate-400 hover:text-white cursor-pointer rounded-lg px-3 py-1.5 transition-colors shadow-sm" title="Update Document">
-                                                            <input type="file" onChange={(e) => handleCompanyDocUpload(doc.id, e.target.files[0])} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" />
-                                                            {isUploading ? <i className="fas fa-spinner fa-spin text-[10px]"></i> : <i className="fas fa-sync-alt text-[10px]"></i>}
+                                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+                                                    {/* Medical Doc */}
+                                                    <div className={`p-3 rounded-xl border ${w.medDoc ? 'bg-emerald-950/10 border-emerald-500/20' : 'bg-red-950/10 border-red-500/20'}`}>
+                                                        <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-2 flex justify-between items-center">
+                                                            <span>Medical Fitness</span>
+                                                            {w.medDoc ? <i className="fas fa-check-circle text-emerald-500 text-sm"></i> : <i className="fas fa-times-circle text-red-500 text-sm"></i>}
                                                         </div>
+
+                                                        {w.medDoc ? (
+                                                            <div className="flex gap-2">
+                                                                <a href={w.medDoc} target="_blank" rel="noreferrer" className="flex-1 text-center text-[10px] bg-emerald-900/30 text-emerald-400 hover:bg-emerald-600 hover:text-white py-2 rounded-lg border border-emerald-500/30 uppercase font-bold transition-colors shadow-sm"><i className="fas fa-eye"></i> View</a>
+                                                                <div className="relative overflow-hidden bg-slate-800 border border-slate-600 text-slate-400 hover:text-white cursor-pointer rounded-lg w-10 flex items-center justify-center transition-colors shadow-sm" title="Update">
+                                                                    <input type="file" onChange={(e) => handleWorkerCoreDocUpload(w.id, 'med', e.target.files[0])} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" />
+                                                                    {isMedUploading ? <i className="fas fa-spinner fa-spin text-[10px]"></i> : <i className="fas fa-sync-alt text-[10px]"></i>}
+                                                                </div>
+                                                            </div>
+                                                        ) : (
+                                                            <div className="relative overflow-hidden shadow-sm">
+                                                                <input type="file" onChange={(e) => handleWorkerCoreDocUpload(w.id, 'med', e.target.files[0])} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" />
+                                                                <div className="bg-slate-800 border border-slate-600 hover:border-red-500 text-white w-full py-2 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-colors flex items-center justify-center gap-2 cursor-pointer">
+                                                                    {isMedUploading ? <><i className="fas fa-spinner fa-spin"></i> Uploading</> : <><i className="fas fa-upload"></i> Upload File</>}
+                                                                </div>
+                                                            </div>
+                                                        )}
                                                     </div>
-                                                ) : (
-                                                    <div className="relative overflow-hidden shadow-sm">
-                                                        <input type="file" onChange={(e) => handleCompanyDocUpload(doc.id, e.target.files[0])} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" />
-                                                        <div className="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-widest transition-colors flex items-center gap-2 cursor-pointer">
-                                                            {isUploading ? <><i className="fas fa-spinner fa-spin"></i> Uploading</> : <><i className="fas fa-cloud-upload-alt"></i> Upload File</>}
+
+                                                    {/* Competence Doc */}
+                                                    <div className={`p-3 rounded-xl border ${w.compDoc ? 'bg-blue-950/10 border-blue-500/20' : 'bg-red-950/10 border-red-500/20'}`}>
+                                                        <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-2 flex justify-between items-center">
+                                                            <span>Competency Cert.</span>
+                                                            {w.compDoc ? <i className="fas fa-check-circle text-blue-500 text-sm"></i> : <i className="fas fa-times-circle text-red-500 text-sm"></i>}
+                                                        </div>
+
+                                                        {w.compDoc ? (
+                                                            <div className="flex gap-2">
+                                                                <a href={w.compDoc} target="_blank" rel="noreferrer" className="flex-1 text-center text-[10px] bg-blue-900/30 text-blue-400 hover:bg-blue-600 hover:text-white py-2 rounded-lg border border-blue-500/30 uppercase font-bold transition-colors shadow-sm"><i className="fas fa-eye"></i> View</a>
+                                                                <div className="relative overflow-hidden bg-slate-800 border border-slate-600 text-slate-400 hover:text-white cursor-pointer rounded-lg w-10 flex items-center justify-center transition-colors shadow-sm" title="Update">
+                                                                    <input type="file" onChange={(e) => handleWorkerCoreDocUpload(w.id, 'comp', e.target.files[0])} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" />
+                                                                    {isCompUploading ? <i className="fas fa-spinner fa-spin text-[10px]"></i> : <i className="fas fa-sync-alt text-[10px]"></i>}
+                                                                </div>
+                                                            </div>
+                                                        ) : (
+                                                            <div className="relative overflow-hidden shadow-sm">
+                                                                <input type="file" onChange={(e) => handleWorkerCoreDocUpload(w.id, 'comp', e.target.files[0])} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" />
+                                                                <div className="bg-slate-800 border border-slate-600 hover:border-red-500 text-white w-full py-2 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-colors flex items-center justify-center gap-2 cursor-pointer">
+                                                                    {isCompUploading ? <><i className="fas fa-spinner fa-spin"></i> Uploading</> : <><i className="fas fa-upload"></i> Upload File</>}
+                                                                </div>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                </div>
+
+                                                {/* Additional Requested Docs */}
+                                                {w.additionalDocs.length > 0 && (
+                                                    <div className="bg-slate-900 rounded-xl p-3 border border-slate-800 mt-4">
+                                                        <div className="text-[9px] font-bold uppercase tracking-widest text-slate-500 mb-3"><i className="fas fa-folder-plus mr-1"></i> Client Specific Requests</div>
+                                                        <div className="space-y-2">
+                                                            {w.additionalDocs.map(doc => {
+                                                                const isAddUploading = uploadingId === `worker-add-${doc.id}`;
+                                                                return (
+                                                                    <div key={doc.id} className="flex justify-between items-center bg-slate-950 p-2 rounded-lg border border-slate-800">
+                                                                        <span className="text-xs font-bold text-slate-300">{doc.name}</span>
+                                                                        {doc.file ? (
+                                                                            <div className="flex gap-2">
+                                                                                <a href={doc.file} target="_blank" rel="noreferrer" className="text-[9px] bg-emerald-900/30 text-emerald-400 hover:bg-emerald-600 hover:text-white px-2 py-1 rounded border border-emerald-500/30 uppercase font-bold transition-colors shadow-sm">View</a>
+                                                                            </div>
+                                                                        ) : (
+                                                                            <div className="relative overflow-hidden shadow-sm">
+                                                                                <input type="file" onChange={(e) => handleWorkerAdditionalDocUpload(w.id, doc.id, e.target.files[0])} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" />
+                                                                                <div className="bg-orange-600 hover:bg-orange-500 text-white px-3 py-1 rounded text-[9px] font-bold uppercase tracking-widest transition-colors flex items-center gap-2 cursor-pointer">
+                                                                                    {isAddUploading ? <i className="fas fa-spinner fa-spin"></i> : 'Upload'}
+                                                                                </div>
+                                                                            </div>
+                                                                        )}
+                                                                    </div>
+                                                                )
+                                                            })}
                                                         </div>
                                                     </div>
                                                 )}
                                             </div>
-                                            {doc.expiryDate && (
-                                                <div className={`text-[10px] font-mono mt-2 pt-2 border-t border-slate-800/50 ${isExp ? 'text-red-400 font-bold' : 'text-slate-500'}`}>
-                                                    <i className="far fa-calendar-alt mr-1"></i> Expiry: {doc.expiryDate} {isExp && '(EXPIRED)'}
-                                                </div>
-                                            )}
-                                        </div>
-                                    );
-                                })}
+                                        );
+                                    })}
+                                    {vendor.workers.length === 0 && <div className="text-center text-slate-500 text-sm italic py-10">No employees assigned to this roster. Ask your client EHS to add them.</div>}
+                                </div>
                             </div>
                         </div>
+                    )}
 
-                        {/* WORKER ROSTER & DOCUMENTS SECTION */}
-                        <div className="bg-slate-900/60 backdrop-blur-md rounded-3xl border border-slate-700 shadow-xl overflow-hidden flex flex-col h-[700px]">
-                            <div className="p-6 border-b border-slate-800 bg-slate-950/50">
-                                <h3 className="text-xl font-bold text-white flex items-center gap-3"><i className="fas fa-users-cog text-emerald-400"></i> Employee Roster & Documents</h3>
-                                <p className="text-xs text-slate-400 mt-1">Upload Medical Fitness (Form 33) and Competency Certificates for each worker.</p>
-                            </div>
-                            <div className="flex-1 overflow-y-auto p-6 custom-scroll space-y-4 bg-slate-900/30">
-                                {vendor.workers.map(w => {
-                                    const isMedUploading = uploadingId === `worker-${w.id}-med`;
-                                    const isCompUploading = uploadingId === `worker-${w.id}-comp`;
+                    {/* ============================================== */}
+                    {/* TAB 2: ACTIVITIES (Permits, NCs, Incidents)  */}
+                    {/* ============================================== */}
+                    {activeTab === 'activities' && (
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 animate-in fade-in">
 
-                                    return (
-                                        <div key={w.id} className="p-5 rounded-2xl border border-slate-700 bg-slate-950/80 shadow-sm">
-                                            <div className="flex justify-between items-center mb-4 border-b border-slate-800 pb-3">
-                                                <div>
-                                                    <div className="text-base font-bold text-white leading-tight">{w.name}</div>
-                                                    <div className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">{w.role} | {w.competence}</div>
-                                                </div>
-                                                <div className="text-right">
-                                                    <div className="text-[9px] uppercase font-bold text-slate-500 mb-1">Deployment Site</div>
-                                                    <div className="text-xs font-mono bg-slate-900 px-2 py-1 rounded border border-slate-700">{w.deployedSite || 'Unassigned'}</div>
-                                                </div>
+                            {/* PERMITS & NON-COMPLIANCES */}
+                            <div className="bg-slate-900/60 backdrop-blur-md rounded-3xl border border-slate-700 shadow-xl overflow-hidden flex flex-col h-[700px]">
+                                <div className="p-6 border-b border-slate-800 bg-slate-950/50">
+                                    <h3 className="text-xl font-bold text-orange-400 flex items-center gap-3"><i className="fas fa-clipboard-list"></i> Work Permits & Inspections</h3>
+                                    <p className="text-xs text-slate-400 mt-1">Permits associated with your organization, including safety audit records.</p>
+                                </div>
+                                <div className="flex-1 overflow-y-auto p-6 custom-scroll space-y-4 bg-slate-900/30">
+                                    {vendorPermits.map((p) => (
+                                        <div key={p.firebaseKey} className={`p-4 rounded-xl border shadow-sm ${p.status === 'Closed' ? 'bg-slate-900 border-slate-700 opacity-70' : 'bg-orange-950/10 border-orange-500/30'}`}>
+                                            <div className="flex justify-between items-start mb-2">
+                                                <div className="text-[10px] font-bold uppercase tracking-widest text-orange-400">{p.permitType || p.typeId}</div>
+                                                <div className="text-[10px] font-mono text-slate-500 font-bold bg-slate-950 px-2 py-1 rounded">{p.id || 'PTW'}</div>
                                             </div>
+                                            <div className="text-sm text-white font-bold mb-1 leading-tight">{p.workDescription || p.description}</div>
+                                            <div className="text-xs text-slate-400 mb-3"><i className="fas fa-location-dot mr-1"></i> {p.location} ({p.siteId})</div>
 
-                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
-                                                {/* Medical Doc */}
-                                                <div className={`p-3 rounded-xl border ${w.medDoc ? 'bg-emerald-950/10 border-emerald-500/20' : 'bg-red-950/10 border-red-500/20'}`}>
-                                                    <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-2 flex justify-between items-center">
-                                                        <span>Medical Fitness</span>
-                                                        {w.medDoc ? <i className="fas fa-check-circle text-emerald-500 text-sm"></i> : <i className="fas fa-times-circle text-red-500 text-sm"></i>}
-                                                    </div>
-
-                                                    {w.medDoc ? (
-                                                        <div className="flex gap-2">
-                                                            <a href={w.medDoc} target="_blank" rel="noreferrer" className="flex-1 text-center text-[10px] bg-emerald-900/30 text-emerald-400 hover:bg-emerald-600 hover:text-white py-2 rounded-lg border border-emerald-500/30 uppercase font-bold transition-colors shadow-sm"><i className="fas fa-eye"></i> View</a>
-                                                            <div className="relative overflow-hidden bg-slate-800 border border-slate-600 text-slate-400 hover:text-white cursor-pointer rounded-lg w-10 flex items-center justify-center transition-colors shadow-sm" title="Update">
-                                                                <input type="file" onChange={(e) => handleWorkerCoreDocUpload(w.id, 'med', e.target.files[0])} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" />
-                                                                {isMedUploading ? <i className="fas fa-spinner fa-spin text-[10px]"></i> : <i className="fas fa-sync-alt text-[10px]"></i>}
-                                                            </div>
-                                                        </div>
-                                                    ) : (
-                                                        <div className="relative overflow-hidden shadow-sm">
-                                                            <input type="file" onChange={(e) => handleWorkerCoreDocUpload(w.id, 'med', e.target.files[0])} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" />
-                                                            <div className="bg-slate-800 border border-slate-600 hover:border-red-500 text-white w-full py-2 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-colors flex items-center justify-center gap-2 cursor-pointer">
-                                                                {isMedUploading ? <><i className="fas fa-spinner fa-spin"></i> Uploading</> : <><i className="fas fa-upload"></i> Upload File</>}
-                                                            </div>
-                                                        </div>
-                                                    )}
-                                                </div>
-
-                                                {/* Competence Doc */}
-                                                <div className={`p-3 rounded-xl border ${w.compDoc ? 'bg-blue-950/10 border-blue-500/20' : 'bg-red-950/10 border-red-500/20'}`}>
-                                                    <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-2 flex justify-between items-center">
-                                                        <span>Competency Cert.</span>
-                                                        {w.compDoc ? <i className="fas fa-check-circle text-blue-500 text-sm"></i> : <i className="fas fa-times-circle text-red-500 text-sm"></i>}
-                                                    </div>
-
-                                                    {w.compDoc ? (
-                                                        <div className="flex gap-2">
-                                                            <a href={w.compDoc} target="_blank" rel="noreferrer" className="flex-1 text-center text-[10px] bg-blue-900/30 text-blue-400 hover:bg-blue-600 hover:text-white py-2 rounded-lg border border-blue-500/30 uppercase font-bold transition-colors shadow-sm"><i className="fas fa-eye"></i> View</a>
-                                                            <div className="relative overflow-hidden bg-slate-800 border border-slate-600 text-slate-400 hover:text-white cursor-pointer rounded-lg w-10 flex items-center justify-center transition-colors shadow-sm" title="Update">
-                                                                <input type="file" onChange={(e) => handleWorkerCoreDocUpload(w.id, 'comp', e.target.files[0])} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" />
-                                                                {isCompUploading ? <i className="fas fa-spinner fa-spin text-[10px]"></i> : <i className="fas fa-sync-alt text-[10px]"></i>}
-                                                            </div>
-                                                        </div>
-                                                    ) : (
-                                                        <div className="relative overflow-hidden shadow-sm">
-                                                            <input type="file" onChange={(e) => handleWorkerCoreDocUpload(w.id, 'comp', e.target.files[0])} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" />
-                                                            <div className="bg-slate-800 border border-slate-600 hover:border-red-500 text-white w-full py-2 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-colors flex items-center justify-center gap-2 cursor-pointer">
-                                                                {isCompUploading ? <><i className="fas fa-spinner fa-spin"></i> Uploading</> : <><i className="fas fa-upload"></i> Upload File</>}
-                                                            </div>
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            </div>
-
-                                            {/* Additional Requested Docs */}
-                                            {w.additionalDocs.length > 0 && (
-                                                <div className="bg-slate-900 rounded-xl p-3 border border-slate-800 mt-4">
-                                                    <div className="text-[9px] font-bold uppercase tracking-widest text-slate-500 mb-3"><i className="fas fa-folder-plus mr-1"></i> Client Specific Requests</div>
-                                                    <div className="space-y-2">
-                                                        {w.additionalDocs.map(doc => {
-                                                            const isAddUploading = uploadingId === `worker-add-${doc.id}`;
-                                                            return (
-                                                                <div key={doc.id} className="flex justify-between items-center bg-slate-950 p-2 rounded-lg border border-slate-800">
-                                                                    <span className="text-xs font-bold text-slate-300">{doc.name}</span>
-                                                                    {doc.file ? (
-                                                                        <div className="flex gap-2">
-                                                                            <a href={doc.file} target="_blank" rel="noreferrer" className="text-[9px] bg-emerald-900/30 text-emerald-400 hover:bg-emerald-600 hover:text-white px-2 py-1 rounded border border-emerald-500/30 uppercase font-bold transition-colors shadow-sm">View</a>
-                                                                        </div>
-                                                                    ) : (
-                                                                        <div className="relative overflow-hidden shadow-sm">
-                                                                            <input type="file" onChange={(e) => handleWorkerAdditionalDocUpload(w.id, doc.id, e.target.files[0])} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" />
-                                                                            <div className="bg-orange-600 hover:bg-orange-500 text-white px-3 py-1 rounded text-[9px] font-bold uppercase tracking-widest transition-colors flex items-center gap-2 cursor-pointer">
-                                                                                {isAddUploading ? <i className="fas fa-spinner fa-spin"></i> : 'Upload'}
-                                                                            </div>
-                                                                        </div>
-                                                                    )}
-                                                                </div>
-                                                            )
-                                                        })}
-                                                    </div>
+                                            {/* SHOW NON COMPLIANCES IF ANY */}
+                                            {safeArr(p.nonCompliances).length > 0 && (
+                                                <div className="mb-3 bg-red-950/40 border border-red-500/30 rounded-lg p-3">
+                                                    <div className="text-[10px] font-bold text-red-400 uppercase tracking-widest mb-2 flex items-center gap-2"><i className="fas fa-exclamation-triangle"></i> Logged Safety Violations</div>
+                                                    <ul className="list-disc pl-4 text-xs text-slate-300 space-y-1">
+                                                        {safeArr(p.nonCompliances).map((nc, i) => <li key={i}>{nc.desc || nc}</li>)}
+                                                    </ul>
                                                 </div>
                                             )}
+
+                                            <div className="flex justify-between items-center text-[10px] uppercase font-bold border-t border-slate-800 pt-3 mt-1">
+                                                <span className="text-slate-400">{p.date || (p.validFromDate ? `${p.validFromDate}` : p.createdAt?.split('T')[0])}</span>
+                                                <span className={p.status === 'Closed' ? 'text-emerald-500' : 'text-orange-500'}>{p.status}</span>
+                                            </div>
                                         </div>
-                                    );
-                                })}
-                                {vendor.workers.length === 0 && <div className="text-center text-slate-500 text-sm italic py-10">No employees assigned to this roster.</div>}
+                                    ))}
+                                    {vendorPermits.length === 0 && <div className="text-center text-slate-500 text-sm italic mt-10">No active or historical permits on record.</div>}
+                                </div>
+                            </div>
+
+                            {/* INCIDENTS */}
+                            <div className="bg-slate-900/60 backdrop-blur-md rounded-3xl border border-slate-700 shadow-xl overflow-hidden flex flex-col h-[700px]">
+                                <div className="p-6 border-b border-slate-800 bg-slate-950/50">
+                                    <h3 className="text-xl font-bold text-red-400 flex items-center gap-3"><i className="fas fa-briefcase-medical"></i> Incident History</h3>
+                                    <p className="text-xs text-slate-400 mt-1">Records of injuries or incidents involving your assigned workforce.</p>
+                                </div>
+                                <div className="flex-1 overflow-y-auto p-6 custom-scroll space-y-4 bg-slate-900/30">
+                                    {vendorIncidents.map((inc) => (
+                                        <div key={inc.firebaseKey} className="p-4 rounded-xl border border-red-500/30 bg-red-950/20 shadow-sm">
+                                            <div className="flex justify-between items-start mb-2">
+                                                <div className="text-[10px] font-bold uppercase tracking-widest text-red-400">{inc.incidentType || inc.type || 'Incident'}</div>
+                                                <div className="text-[10px] font-mono text-slate-400 bg-slate-950 px-2 py-1 rounded">{inc.incidentDate || inc.date || 'Unknown Date'}</div>
+                                            </div>
+                                            <div className="text-sm text-white font-bold mb-1 leading-tight">{inc.title || ''}</div>
+                                            <div className="text-xs text-slate-300 leading-relaxed mb-3">{inc.description || inc.desc || 'No description provided.'}</div>
+
+                                            <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500 border-t border-slate-800 pt-3">
+                                                Affected Worker: <span className="text-white">{inc.affectedPersonName || 'Unknown'}</span>
+                                            </div>
+                                        </div>
+                                    ))}
+                                    {vendorIncidents.length === 0 && (
+                                        <div className="text-center text-emerald-500 font-bold mt-10 p-6 border-2 border-dashed border-emerald-500/30 rounded-2xl bg-emerald-950/10">
+                                            <i className="fas fa-shield-check text-4xl mb-3 block"></i>
+                                            Excellent! Zero Incidents Recorded.
+                                        </div>
+                                    )}
+                                </div>
                             </div>
                         </div>
-                    </div>
+                    )}
                 </div>
             </main>
         </div>
