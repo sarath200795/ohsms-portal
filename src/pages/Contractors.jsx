@@ -19,6 +19,20 @@ const generateVendorCode = () => {
 };
 
 const normalizeEmail = (value) => String(value || '').trim().toLowerCase();
+const createEmptyVendorForm = () => ({
+    id: '',
+    allocatedSites: [],
+    companyName: '',
+    contactPerson: '',
+    email: '',
+    phone: '',
+    serviceType: 'General / Housekeeping',
+    goodsType: 'PPE',
+    notes: '',
+    status: 'Pending Review',
+    documents: getMandatoryDocs('General / Housekeeping'),
+    workers: []
+});
 
 const parseContractors = (dataObj) => {
     if (!dataObj) return [];
@@ -103,11 +117,7 @@ export default function Contractors() {
     const [globalIncidents, setGlobalIncidents] = useState([]);
 
     // Form State for Company
-    const [formData, setFormData] = useState({
-        id: '', allocatedSites: [], companyName: '', contactPerson: '', email: '', phone: '',
-        serviceType: 'General / Housekeeping', goodsType: 'PPE', notes: '', status: 'Pending Review',
-        documents: getMandatoryDocs('General / Housekeeping'), workers: []
-    });
+    const [formData, setFormData] = useState(createEmptyVendorForm());
 
     // Form State for New Worker Modal
     const [addWorkerData, setAddWorkerData] = useState({ contractorId: '', name: '', role: 'Worker', competence: '', deployedSite: '' });
@@ -283,10 +293,10 @@ export default function Contractors() {
     };
 
     const saveVendorRegistration = async () => {
-        if (!formData.companyName || formData.allocatedSites.length === 0) return alert("Company Name and at least one Site Allocation are required.");
+        if (!formData.companyName || formData.allocatedSites.length === 0 || !normalizeEmail(formData.email)) return alert("Company Name, vendor email, and at least one Site Allocation are required.");
         setSaving(true);
         try {
-            const payload = { ...formData, siteId: formData.allocatedSites[0], updatedBy: session.name, lastUpdated: new Date().toISOString() };
+            const payload = { ...formData, email: normalizeEmail(formData.email), siteId: formData.allocatedSites[0], updatedBy: session.name, lastUpdated: new Date().toISOString() };
 
             // GENERATE UNIQUE VENDOR CODE ON CREATION
             if (!payload.createdAt) {
@@ -308,7 +318,7 @@ export default function Contractors() {
             if (snap.exists() && snap.val().contractors) setContractors(parseContractors(snap.val().contractors));
 
             setView('companies');
-            setFormData({ siteId: '', allocatedSites: [], companyName: '', contactPerson: '', email: '', phone: '', serviceType: 'General / Housekeeping', goodsType: 'PPE', notes: '', status: 'Pending Review', documents: getMandatoryDocs('General / Housekeeping'), workers: [] });
+            setFormData(createEmptyVendorForm());
         } catch (e) { alert("Save failed: " + e.message); }
         setSaving(false);
     };
@@ -330,11 +340,11 @@ export default function Contractors() {
     };
 
     const saveCompanyProfileEdit = () => {
-        if (!editingVendor.companyName || safeArr(editingVendor.allocatedSites).length === 0) return alert("Company Name and Site Allocation required.");
+        if (!editingVendor.companyName || safeArr(editingVendor.allocatedSites).length === 0 || !normalizeEmail(editingVendor.email)) return alert("Company Name, portal email, and Site Allocation are required.");
         const payload = {
             companyName: editingVendor.companyName, allocatedSites: editingVendor.allocatedSites, siteId: editingVendor.allocatedSites[0],
             serviceType: editingVendor.serviceType, goodsType: editingVendor.goodsType || '',
-            contactPerson: editingVendor.contactPerson, phone: editingVendor.phone, email: editingVendor.email,
+            contactPerson: editingVendor.contactPerson, phone: editingVendor.phone, email: normalizeEmail(editingVendor.email),
             updatedBy: session.name, lastUpdated: new Date().toISOString()
         };
         updateVendorDB(activeVendor.firebaseKey, payload);
@@ -357,7 +367,6 @@ export default function Contractors() {
             const existingOrgUser = orgUsers.find(u => normalizeEmail(u.email) === vendorEmail && u.status !== 'Deleted');
 
             let portalUid = activeVendor.portalUid || existingOrgUser?.firebaseKey || '';
-            let tempPassword = '';
 
             const baseUserPayload = {
                 name: activeVendor.contactPerson || activeVendor.companyName || 'Vendor Portal User',
@@ -382,12 +391,15 @@ export default function Contractors() {
                     await set(dirRef, { orgId: session.orgId });
                 }
             } else {
-                tempPassword = Math.random().toString(36).slice(-8) + 'A1!';
                 const tempAppName = `vendorPortal-${Date.now()}`;
                 const tempApp = initializeApp(auth.app.options, tempAppName);
                 const tempAuth = getAuth(tempApp);
 
-                const userCredential = await createUserWithEmailAndPassword(tempAuth, vendorEmail, tempPassword);
+                const userCredential = await createUserWithEmailAndPassword(
+                    tempAuth,
+                    vendorEmail,
+                    Math.random().toString(36).slice(-8) + 'A1!'
+                );
                 portalUid = userCredential.user.uid;
                 await signOut(tempAuth);
 
@@ -423,7 +435,6 @@ export default function Contractors() {
             setPortalSuccess({
                 companyName: activeVendor.companyName,
                 email: vendorEmail,
-                password: tempPassword,
                 linkedExisting: Boolean(existingOrgUser || activeVendor.portalUid)
             });
         } catch (error) {
@@ -598,7 +609,7 @@ export default function Contractors() {
                         <h1 className="text-base font-bold text-white hidden md:block uppercase tracking-wide">Contractor Safety</h1>
                     </div>
                     <div className="flex bg-slate-900 border border-slate-800 p-1.5 rounded-xl shadow-inner gap-1 overflow-x-auto custom-scroll">
-                        {canEdit && <button onClick={() => { setFormData({ id: '', allocatedSites: [], companyName: '', contactPerson: '', email: '', phone: '', serviceType: 'General / Housekeeping', goodsType: 'PPE', documents: getMandatoryDocs('General / Housekeeping'), workers: [] }); setView('register'); }} className={`px-4 py-2 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all whitespace-nowrap ${view === 'register' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}><i className="fas fa-user-plus mr-1"></i> Register Vendor</button>}
+                        {canEdit && <button onClick={() => { setFormData(createEmptyVendorForm()); setView('register'); }} className={`px-4 py-2 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all whitespace-nowrap ${view === 'register' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}><i className="fas fa-user-plus mr-1"></i> Register Vendor</button>}
                         <button onClick={() => setView('companies')} className={`px-4 py-2 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all whitespace-nowrap ${view === 'companies' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}><i className="fas fa-building mr-1"></i> Company Profiles</button>
                         <button onClick={() => setView('workers')} className={`px-4 py-2 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all whitespace-nowrap ${view === 'workers' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}><i className="fas fa-id-badge mr-1"></i> Worker Profiles</button>
                         <button onClick={() => setView('deployments')} className={`px-4 py-2 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all whitespace-nowrap ${view === 'deployments' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}><i className="fas fa-map-marker-alt mr-1"></i> Deployments</button>
@@ -675,6 +686,11 @@ export default function Contractors() {
                                         <div>
                                             <label className="text-[10px] uppercase font-bold text-slate-400 block mb-2 tracking-widest">Contact Phone</label>
                                             <input value={formData.phone} onChange={e => setFormData({ ...formData, phone: e.target.value })} disabled={!canEdit} className="w-full bg-slate-900 border border-slate-700 rounded-xl p-4 text-white outline-none focus:border-indigo-500" placeholder="+91..." />
+                                        </div>
+                                        <div className="md:col-span-2">
+                                            <label className="text-[10px] uppercase font-bold text-slate-400 block mb-2 tracking-widest">Vendor Portal Email *</label>
+                                            <input type="email" value={formData.email} onChange={e => setFormData({ ...formData, email: e.target.value.toLowerCase() })} disabled={!canEdit} className="w-full bg-slate-900 border border-slate-700 rounded-xl p-4 text-white outline-none focus:border-indigo-500" placeholder="vendor@company.com" />
+                                            <p className="text-[10px] text-slate-500 mt-2">This email will be used for passwordless vendor portal sign-in.</p>
                                         </div>
                                     </div>
                                 </div>
@@ -945,7 +961,7 @@ export default function Contractors() {
                         <div className="bg-slate-900 border border-slate-700 rounded-3xl shadow-2xl max-w-[95vw] xl:max-w-[90vw] w-full relative max-h-[95vh] flex flex-col overflow-hidden">
                             <div className="p-6 border-b border-slate-800 bg-slate-950 flex justify-between items-center flex-shrink-0">
                                 {editingVendor ? (
-                                    <div className="flex-1 mr-6 grid grid-cols-1 md:grid-cols-4 gap-4">
+                                    <div className="flex-1 mr-6 grid grid-cols-1 md:grid-cols-5 gap-4">
                                         <input value={editingVendor.companyName} onChange={e => setEditingVendor({ ...editingVendor, companyName: e.target.value })} className="bg-slate-900 border border-slate-700 rounded-lg p-2 text-white text-sm font-bold outline-none focus:border-indigo-500" placeholder="Company Name" />
 
                                         <div className="relative group col-span-2">
@@ -966,6 +982,8 @@ export default function Contractors() {
                                         <select value={editingVendor.serviceType} onChange={e => setEditingVendor({ ...editingVendor, serviceType: e.target.value })} className="bg-slate-900 border border-slate-700 rounded-lg p-2 text-indigo-300 text-sm font-bold outline-none focus:border-indigo-500">
                                             {SERVICE_TYPES.map(t => <option key={t}>{t}</option>)}
                                         </select>
+
+                                        <input type="email" value={editingVendor.email || ''} onChange={e => setEditingVendor({ ...editingVendor, email: e.target.value.toLowerCase() })} className="bg-slate-900 border border-slate-700 rounded-lg p-2 text-white text-sm outline-none focus:border-indigo-500" placeholder="Portal Email" />
                                     </div>
                                 ) : (
                                     <div>
@@ -1196,14 +1214,8 @@ export default function Contractors() {
                                 </div>
                                 <div>
                                     <div className="text-[10px] uppercase font-bold tracking-widest text-slate-500 mb-1">Vendor Login Method</div>
-                                    <div className="text-xs text-slate-300">Email + Password + Vendor Code shown on the contractor profile header.</div>
+                                    <div className="text-xs text-slate-300">Email + Vendor Code. The vendor portal will send a passwordless sign-in link to this email.</div>
                                 </div>
-                                {portalSuccess.password && (
-                                    <div>
-                                        <div className="text-[10px] uppercase font-bold tracking-widest text-emerald-500 mb-1">Temporary Password</div>
-                                        <div className="text-lg font-black text-emerald-400 font-mono tracking-widest bg-emerald-900/20 border border-emerald-500/20 rounded-xl p-3 text-center">{portalSuccess.password}</div>
-                                    </div>
-                                )}
                             </div>
 
                             <button onClick={() => setPortalSuccess(null)} className="w-full bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-3 rounded-xl text-sm font-bold uppercase tracking-widest transition-colors shadow-lg shadow-emerald-600/20">
