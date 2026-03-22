@@ -26,7 +26,7 @@ export default function PtwRegistry({ permits, onView }) {
                                 <tr key={p.firebaseKey} className="hover:bg-slate-800/40 transition-colors">
                                     <td className="p-5 pl-8">
                                         <div className="font-bold text-white font-mono">{p.id || p.firebaseKey}</div>
-                                        <div className={`text-[9px] font-bold uppercase tracking-widest mt-1 ${tConfig.color}`}>{tConfig.label}</div>
+                                        <div className={`text-[9px] font-bold uppercase tracking-widest mt-1 ${tConfig?.color || 'text-slate-400'}`}>{tConfig?.label || 'UNKNOWN'}</div>
                                     </td>
                                     <td className="p-5">
                                         <div className="font-bold text-slate-300">{p.location}</div>
@@ -45,7 +45,7 @@ export default function PtwRegistry({ permits, onView }) {
                                             }`}>{p.status}</span>
                                     </td>
                                     <td className="p-5 pr-8 text-right">
-                                        {/* THIS IS THE FIX: The button now triggers the onView prop! */}
+                                        {/* CRITICAL FIX: Added onClick={() => onView(p)} */}
                                         <button onClick={() => onView(p)} className="bg-slate-800 hover:bg-emerald-600 text-white px-4 py-2 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-colors shadow">
                                             View / Audit
                                         </button>

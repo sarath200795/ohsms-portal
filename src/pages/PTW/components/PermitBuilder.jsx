@@ -8,7 +8,7 @@ export default function PermitBuilder({ session, sites, contractors, onCancel, o
 
     const [formData, setFormData] = useState({
         permitType: 'GEN',
-        siteId: sites.length === 1 ? sites[0].code : '',
+        siteId: sites?.length === 1 ? sites[0].code : '',
         location: '',
         contractorId: 'INTERNAL',
         workDescription: '',
@@ -57,12 +57,12 @@ export default function PermitBuilder({ session, sites, contractors, onCancel, o
             </div>
 
             <form onSubmit={handleSubmit} className="space-y-8">
-                <div className="bg-slate-900/60 backdrop-blur-md p-8 rounded-3xl shadow-2xl border-t-4" style={{ borderTopColor: activeTypeConfig ? activeTypeConfig.color.replace('text-', '') : '#10b981' }}>
+                <div className="bg-slate-900/60 backdrop-blur-md p-8 rounded-3xl shadow-2xl border-t-4 border-emerald-500">
                     <h3 className="text-lg font-bold text-white mb-6 uppercase tracking-widest border-b border-slate-700 pb-2">1. Scope of Work</h3>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <div>
                             <label className="text-[10px] uppercase font-bold text-slate-400 block mb-2 tracking-widest">Permit Type</label>
-                            <select value={formData.permitType} onChange={e => setFormData({ ...formData, permitType: e.target.value, checklist: {} })} className={`w-full bg-slate-950 border border-slate-800 p-3.5 rounded-xl text-white outline-none font-bold ${activeTypeConfig?.color}`}>
+                            <select value={formData.permitType} onChange={e => setFormData({ ...formData, permitType: e.target.value, checklist: {} })} className="w-full bg-slate-950 border border-slate-800 p-3.5 rounded-xl text-white outline-none font-bold">
                                 {PERMIT_TYPES.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}
                             </select>
                         </div>
@@ -70,14 +70,14 @@ export default function PermitBuilder({ session, sites, contractors, onCancel, o
                             <label className="text-[10px] uppercase font-bold text-slate-400 block mb-2 tracking-widest">Executing Agency</label>
                             <select value={formData.contractorId} onChange={e => setFormData({ ...formData, contractorId: e.target.value })} className="w-full bg-slate-950 border border-slate-800 p-3.5 rounded-xl text-white outline-none focus:border-emerald-500">
                                 <option value="INTERNAL">Internal Maintenance Team</option>
-                                {contractors.map(c => <option key={c.firebaseKey} value={c.firebaseKey}>{c.companyName}</option>)}
+                                {(contractors || []).map(c => <option key={c.firebaseKey} value={c.firebaseKey}>{c.companyName}</option>)}
                             </select>
                         </div>
                         <div>
                             <label className="text-[10px] uppercase font-bold text-slate-400 block mb-2 tracking-widest">Site / Facility</label>
                             <select value={formData.siteId} onChange={e => setFormData({ ...formData, siteId: e.target.value })} required className="w-full bg-slate-950 border border-slate-800 p-3.5 rounded-xl text-white outline-none focus:border-emerald-500">
                                 <option value="">Select Site...</option>
-                                {sites.map(s => <option key={s.code} value={s.code}>{s.name}</option>)}
+                                {(sites || []).map(s => <option key={s.code} value={s.code}>{s.name}</option>)}
                             </select>
                         </div>
                         <div>
@@ -95,7 +95,7 @@ export default function PermitBuilder({ session, sites, contractors, onCancel, o
                     <h3 className="text-lg font-bold text-white mb-6 uppercase tracking-widest border-b border-slate-700 pb-2">2. Safety Pre-Requisites</h3>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         {activeChecklist.map((item, idx) => (
-                            <div key={idx} onClick={() => handleChecklistToggle(item)} className={`p-4 rounded-xl border cursor-pointer transition-all flex items-center gap-4 ${formData.checklist[item] ? 'bg-emerald-900/20 border-emerald-500/50 shadow-[0_0_15px_rgba(16,185,129,0.1)]' : 'bg-slate-950/50 border-slate-800 hover:border-slate-600'}`}>
+                            <div key={idx} onClick={() => handleChecklistToggle(item)} className={`p-4 rounded-xl border cursor-pointer transition-all flex items-center gap-4 ${formData.checklist[item] ? 'bg-emerald-900/20 border-emerald-500/50' : 'bg-slate-950/50 border-slate-800 hover:border-slate-600'}`}>
                                 <div className={`w-6 h-6 rounded flex items-center justify-center border transition-colors ${formData.checklist[item] ? 'bg-emerald-500 border-emerald-400 text-white' : 'bg-slate-900 border-slate-700 text-transparent'}`}><i className="fas fa-check text-xs"></i></div>
                                 <span className={`text-sm font-medium ${formData.checklist[item] ? 'text-white' : 'text-slate-400'}`}>{item}</span>
                             </div>
@@ -104,7 +104,7 @@ export default function PermitBuilder({ session, sites, contractors, onCancel, o
                 </div>
 
                 <div className="text-right">
-                    <button type="submit" disabled={isSubmitting} className="bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold px-10 py-4 rounded-xl shadow-lg shadow-emerald-900/50 transition-transform active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed text-sm uppercase tracking-widest flex items-center gap-3 ml-auto">
+                    <button type="submit" disabled={isSubmitting} className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-10 py-4 rounded-xl shadow-lg transition-transform active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed text-sm uppercase tracking-widest flex items-center gap-3 ml-auto">
                         {isSubmitting ? <i className="fas fa-circle-notch fa-spin"></i> : <i className="fas fa-paper-plane"></i>} Submit Permit
                     </button>
                 </div>
