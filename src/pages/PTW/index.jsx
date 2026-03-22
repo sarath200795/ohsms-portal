@@ -1,36 +1,30 @@
-// src/pages/PTW/index.jsx
 import React, { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-
-// Phase 4 Hook Imports
 import { useFirebaseData } from '../../hooks/useFirebaseData';
-import useStore from '../../store/useStore'; // Assuming you have your session here from App.jsx
-
+import useStore from '../../store/useStore';
 import { safeArr } from '../../utils/helpers';
 
-// Phase 3 Child Components
+// Child Components
 import PtwDashboard from './components/PtwDashboard';
 import PtwRegistry from './components/PtwRegistry';
 import PermitBuilder from './components/PermitBuilder';
+import PermitViewer from './components/PermitViewer'; // NEW IMPORT
 
 export default function PTW() {
     const navigate = useNavigate();
     const { session } = useStore();
 
     // UI States
-    const [activeTab, setActiveTab] = useState('registry'); // 'registry', 'builder'
+    const [activeTab, setActiveTab] = useState('registry'); // 'registry', 'builder', 'viewer'
     const [searchQuery, setSearchQuery] = useState('');
+    const [selectedPermit, setSelectedPermit] = useState(null); // NEW STATE
 
-    // --- PHASE 4 IN ACTION ---
-    // One single line to fetch exactly what we need, perfectly cached and managed!
     const { data, loading } = useFirebaseData(session?.orgId, ['ptwRecords', 'sites', 'contractors']);
 
-    // Destructure the fetched data (fallback to empty arrays if still loading)
     const permits = data.ptwRecords || [];
     const sites = data.sites || [];
     const contractors = data.contractors || [];
 
-    // RBAC Filter Engine
     const filteredPermits = useMemo(() => {
         let filtered = permits;
         if (session && session.assignedSite !== 'GLOBAL' && !['Global Owner', 'Admin'].includes(session.role)) {
@@ -44,10 +38,16 @@ export default function PTW() {
         return filtered.sort((a, b) => new Date(b.createdAt || b.validFromDate) - new Date(a.createdAt || a.validFromDate));
     }, [permits, session, searchQuery]);
 
+    const handleViewPermit = (permit) => {
+        setSelectedPermit(permit);
+        setActiveTab('viewer');
+    };
+
     if (loading) return <div className="h-screen flex items-center justify-center bg-slate-950 text-emerald-400 font-['Space_Grotesk'] tracking-widest uppercase"><i className="fas fa-circle-notch fa-spin mr-3"></i> Loading PTW Engine...</div>;
 
     return (
         <div className="flex flex-col h-screen bg-slate-950 font-['Space_Grotesk'] text-slate-200 overflow-hidden relative">
+            <style dangerouslySetInnerHTML={{ __html: `.glass-panel { background: rgba(30, 41, 59, 0.6); backdrop-filter: blur(16px); }` }} />
             <div className="absolute top-0 right-0 w-[800px] h-[800px] bg-emerald-600/10 rounded-full blur-[120px] pointer-events-none z-0"></div>
 
             <header className="h-20 px-8 flex items-center justify-between z-20 backdrop-blur-sm bg-slate-900/50 border-b border-slate-800 flex-shrink-0">
@@ -69,11 +69,10 @@ export default function PTW() {
             </header>
 
             <main className="flex-1 overflow-y-auto p-8 custom-scroll relative z-10 w-full">
-                {/* DELEGATING UI TO PHASE 3 CHILD COMPONENTS */}
                 {activeTab === 'registry' && (
                     <div className="max-w-7xl mx-auto animate-in fade-in duration-500">
                         <PtwDashboard permits={filteredPermits} />
-                        <PtwRegistry permits={filteredPermits} />
+                        <PtwRegistry permits={filteredPermits} onView={handleViewPermit} />
                     </div>
                 )}
 
@@ -84,6 +83,16 @@ export default function PTW() {
                         contractors={contractors}
                         onCancel={() => setActiveTab('registry')}
                         onSuccess={() => setActiveTab('registry')}
+                    />
+                )}
+
+                {/* NEW VIEWER TAB */}
+                {activeTab === 'viewer' && selectedPermit && (
+                    <PermitViewer
+                        permit={selectedPermit}
+                        session={session}
+                        onCancel={() => { setSelectedPermit(null); setActiveTab('registry'); }}
+                        onUpdate={() => setActiveTab('registry')}
                     />
                 )}
             </main>

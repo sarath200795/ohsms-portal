@@ -1,8 +1,7 @@
-// src/pages/PTW/components/PtwRegistry.jsx
 import React from 'react';
 import { getTypeConfig } from '../../../utils/constants';
 
-export default function PtwRegistry({ permits }) {
+export default function PtwRegistry({ permits, onView }) {
     return (
         <div className="bg-slate-900/60 backdrop-blur-md rounded-3xl border border-slate-700 shadow-2xl overflow-hidden">
             <div className="p-6 border-b border-slate-800 bg-slate-950/50 flex justify-between items-center">
@@ -34,20 +33,22 @@ export default function PtwRegistry({ permits }) {
                                         <div className="text-[10px] text-slate-500 font-mono mt-1">{p.siteId}</div>
                                     </td>
                                     <td className="p-5">
-                                        <div className="font-bold text-slate-300">{p.contractorName || 'Internal Team'}</div>
+                                        <div className="font-bold text-slate-300">{p.contractorName || p.contractorId === 'INTERNAL' ? 'Internal Team' : p.contractorId}</div>
                                     </td>
                                     <td className="p-5 font-mono text-xs">
                                         {p.validFromDate ? p.validFromDate.split('T')[0] : 'N/A'}
                                     </td>
                                     <td className="p-5">
-                                        <span className={`text-[10px] font-bold uppercase tracking-widest px-2 py-1 rounded border shadow-sm ${
-                                            p.status === 'Closed' ? 'bg-emerald-900/30 text-emerald-400 border-emerald-500/30' :
-                                            p.status === 'Pending' ? 'bg-orange-900/30 text-orange-400 border-orange-500/30' :
-                                            'bg-blue-900/30 text-blue-400 border-blue-500/30'
-                                        }`}>{p.status}</span>
+                                        <span className={`text-[10px] font-bold uppercase tracking-widest px-2 py-1 rounded border shadow-sm ${p.status === 'Closed' ? 'bg-emerald-900/30 text-emerald-400 border-emerald-500/30' :
+                                                p.status === 'Pending' ? 'bg-orange-900/30 text-orange-400 border-orange-500/30' :
+                                                    'bg-blue-900/30 text-blue-400 border-blue-500/30'
+                                            }`}>{p.status}</span>
                                     </td>
                                     <td className="p-5 pr-8 text-right">
-                                        <button className="bg-slate-800 hover:bg-emerald-600 text-white px-4 py-2 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-colors shadow">View / Audit</button>
+                                        {/* WIRED BUTTON */}
+                                        <button onClick={() => onView(p)} className="bg-slate-800 hover:bg-emerald-600 text-white px-4 py-2 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-colors shadow">
+                                            View / Audit
+                                        </button>
                                     </td>
                                 </tr>
                             );
