@@ -13,7 +13,7 @@ export default function PtwRegistry({ permits, onView }) {
                         <tr>
                             <th className="p-5 pl-8">Permit ID & Type</th>
                             <th className="p-5">Location / Site</th>
-                            <th className="p-5">Contractor / Agency</th>
+                            <th className="p-5">Contractor</th>
                             <th className="p-5">Validity</th>
                             <th className="p-5">Status</th>
                             <th className="p-5 pr-8 text-right">Actions</th>
@@ -33,7 +33,7 @@ export default function PtwRegistry({ permits, onView }) {
                                         <div className="text-[10px] text-slate-500 font-mono mt-1">{p.siteId}</div>
                                     </td>
                                     <td className="p-5">
-                                        <div className="font-bold text-slate-300">{p.contractorName || p.contractorId === 'INTERNAL' ? 'Internal Team' : p.contractorId}</div>
+                                        <div className="font-bold text-slate-300">{p.contractorName || (p.contractorId === 'INTERNAL' ? 'Internal Team' : p.contractorId)}</div>
                                     </td>
                                     <td className="p-5 font-mono text-xs">
                                         {p.validFromDate ? p.validFromDate.split('T')[0] : 'N/A'}
@@ -45,7 +45,7 @@ export default function PtwRegistry({ permits, onView }) {
                                             }`}>{p.status}</span>
                                     </td>
                                     <td className="p-5 pr-8 text-right">
-                                        {/* WIRED BUTTON */}
+                                        {/* THIS IS THE FIX: The button now triggers the onView prop! */}
                                         <button onClick={() => onView(p)} className="bg-slate-800 hover:bg-emerald-600 text-white px-4 py-2 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-colors shadow">
                                             View / Audit
                                         </button>

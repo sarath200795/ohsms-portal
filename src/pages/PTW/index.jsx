@@ -4,20 +4,18 @@ import { useFirebaseData } from '../../hooks/useFirebaseData';
 import useStore from '../../store/useStore';
 import { safeArr } from '../../utils/helpers';
 
-// Child Components
 import PtwDashboard from './components/PtwDashboard';
 import PtwRegistry from './components/PtwRegistry';
 import PermitBuilder from './components/PermitBuilder';
-import PermitViewer from './components/PermitViewer'; // NEW IMPORT
+import PermitViewer from './components/PermitViewer'; // IMPORT THE NEW VIEWER
 
 export default function PTW() {
     const navigate = useNavigate();
     const { session } = useStore();
 
-    // UI States
     const [activeTab, setActiveTab] = useState('registry'); // 'registry', 'builder', 'viewer'
     const [searchQuery, setSearchQuery] = useState('');
-    const [selectedPermit, setSelectedPermit] = useState(null); // NEW STATE
+    const [selectedPermit, setSelectedPermit] = useState(null); // STATE FOR THE VIEWER
 
     const { data, loading } = useFirebaseData(session?.orgId, ['ptwRecords', 'sites', 'contractors']);
 
@@ -72,28 +70,18 @@ export default function PTW() {
                 {activeTab === 'registry' && (
                     <div className="max-w-7xl mx-auto animate-in fade-in duration-500">
                         <PtwDashboard permits={filteredPermits} />
+                        {/* PASSING THE ONVIEW FUNCTION TO THE REGISTRY */}
                         <PtwRegistry permits={filteredPermits} onView={handleViewPermit} />
                     </div>
                 )}
 
                 {activeTab === 'builder' && (
-                    <PermitBuilder
-                        session={session}
-                        sites={sites}
-                        contractors={contractors}
-                        onCancel={() => setActiveTab('registry')}
-                        onSuccess={() => setActiveTab('registry')}
-                    />
+                    <PermitBuilder session={session} sites={sites} contractors={contractors} onCancel={() => setActiveTab('registry')} onSuccess={() => setActiveTab('registry')} />
                 )}
 
-                {/* NEW VIEWER TAB */}
+                {/* SHOWING THE VIEWER WHEN A PERMIT IS CLICKED */}
                 {activeTab === 'viewer' && selectedPermit && (
-                    <PermitViewer
-                        permit={selectedPermit}
-                        session={session}
-                        onCancel={() => { setSelectedPermit(null); setActiveTab('registry'); }}
-                        onUpdate={() => setActiveTab('registry')}
-                    />
+                    <PermitViewer permit={selectedPermit} session={session} onCancel={() => { setSelectedPermit(null); setActiveTab('registry'); }} onUpdate={() => setActiveTab('registry')} />
                 )}
             </main>
         </div>
