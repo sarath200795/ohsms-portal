@@ -49,3 +49,16 @@ export const getStatusColor = (status) => {
             return 'bg-slate-800 text-slate-400 border-slate-700';
     }
 };
+
+export const getPermitDeadline = (permit) => {
+    if (!permit?.validToDate) return null;
+    const deadline = new Date(`${permit.validToDate}T${permit.validToTime || '23:59'}`);
+    return Number.isNaN(deadline.getTime()) ? null : deadline;
+};
+
+export const isPermitOverdue = (permit, now = new Date()) => {
+    if (!permit || permit.status === 'Closed' || permit.status === 'Cancelled') return false;
+    const deadline = getPermitDeadline(permit);
+    if (!deadline) return false;
+    return deadline.getTime() < now.getTime();
+};

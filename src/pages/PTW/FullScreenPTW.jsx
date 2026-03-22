@@ -14,10 +14,11 @@ import {
 import { safeArr, safeArrayParse } from '../../utils/helpers';
 import PtwDashboardComponent from './components/PtwDashboard';
 import PtwRegistryComponent from './components/PtwRegistry';
+import PermitViewerComponent from './components/PermitViewer';
 import InspectionModalComponent from './components/InspectionModal';
 import ReassignModalComponent from './components/ReassignModal';
 import PrintViewComponent from './components/PrintView';
-import { getStatusColor, normalizePermit } from './utils';
+import { getStatusColor, isPermitOverdue, normalizePermit } from './utils';
 
 function PtwDashboardView({
     allowedSites,
@@ -1113,6 +1114,7 @@ export default function FullScreenPTW() {
     const [newApproverEmail, setNewApproverEmail] = useState('');
 
     const [formData, setFormData] = useState(null);
+    const [selectedPermitId, setSelectedPermitId] = useState(null);
     const [permissions, setPermissions] = useState({ viewOnly: false, canDelete: false, canEditCreate: false });
 
     const myName = session?.name || session?.user || 'Me';
@@ -1269,6 +1271,16 @@ export default function FullScreenPTW() {
         sessionStorage.setItem('isoCurrentSite', value === 'All' ? 'GLOBAL' : value);
     };
 
+    const syncPtwQuery = (permitId = '') => {
+        const params = new URLSearchParams(location.search);
+        if (permitId) {
+            params.set('ptw', permitId);
+        } else {
+            params.delete('ptw');
+        }
+        navigate(`${location.pathname}${params.toString() ? `?${params.toString()}` : ''}`, { replace: true });
+    };
+
     const checkMatch = (target) => {
         if (!target) return false;
         const targetValue = String(target).toLowerCase().trim();
@@ -1298,6 +1310,11 @@ export default function FullScreenPTW() {
         });
     }, [allowedSiteCodes, isGlobalUser, permits, siteFilter]);
 
+    const selectedPermit = useMemo(() => {
+        if (!selectedPermitId) return null;
+        return permits.find((permit) => permit.id === selectedPermitId) || null;
+    }, [permits, selectedPermitId]);
+
     const myPendingApprovals = useMemo(() => {
         return visiblePermits.filter((permit) => {
             const engMatch = isEngApprover(permit);
@@ -1311,6 +1328,20 @@ export default function FullScreenPTW() {
             return false;
         });
     }, [visiblePermits]);
+
+    useEffect(() => {
+        if (loading || !session) return;
+        const permitIdFromQuery = new URLSearchParams(location.search).get('ptw');
+        if (!permitIdFromQuery) return;
+        const permit = permits.find((entry) => entry.id === permitIdFromQuery);
+        if (!permit) return;
+        const hasSiteAccess = isGlobalUser || allowedSiteCodes.has(permit.siteId);
+        if (!hasSiteAccess) return;
+        setSelectedPermitId(permitIdFromQuery);
+        if (currentView !== 'builder') {
+            setCurrentView('viewer');
+        }
+    }, [allowedSiteCodes, currentView, isGlobalUser, loading, location.search, permits, session]);
 
     const availableContractors = useMemo(() => {
         if (!formData?.siteId) return [];
@@ -1329,11 +1360,32 @@ export default function FullScreenPTW() {
         return [];
     }, [contractors, formData, users]);
 
+    const canInspectPermit = (permit) => {
+        if (!permit || !session) return false;
+        const hasSiteAccess = isGlobalUser || allowedSiteCodes.has(permit.siteId);
+        return hasSiteAccess && permit.status === 'Work in Progress';
+    };
+
+    const openPermitViewer = (permit) => {
+        if (!permit) return;
+        setSelectedPermitId(permit.id);
+        setCurrentView('viewer');
+        syncPtwQuery(permit.id);
+    };
+
+    const closePermitViewer = () => {
+        setSelectedPermitId(null);
+        setCurrentView('inventory');
+        syncPtwQuery('');
+    };
+
     const openForm = (record = null) => {
         if (!record && !permissions.canEditCreate) {
             alert('Security Error: You do not have permission to create permits.');
             return;
         }
+        setSelectedPermitId(null);
+        syncPtwQuery('');
         setPrintData(null);
         if (record) {
             const permitToEdit = normalizePermit({ ...record });
@@ -1744,10 +1796,10 @@ export default function FullScreenPTW() {
                 </header>
 
                 <div className="z-10 flex flex-wrap gap-3 border-b border-slate-800 bg-slate-950 px-8 pb-4 pt-6">
-                    <button type="button" onClick={() => setCurrentView('dashboard')} className={`flex items-center rounded-lg border px-5 py-2.5 text-sm font-bold shadow-sm transition-all ${currentView === 'dashboard' ? 'border-amber-500 bg-amber-600 text-white shadow-amber-900/50' : 'border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700 hover:text-white'}`}>
+                    <button type="button" onClick={() => { setSelectedPermitId(null); syncPtwQuery(''); setCurrentView('dashboard'); }} className={`flex items-center rounded-lg border px-5 py-2.5 text-sm font-bold shadow-sm transition-all ${currentView === 'dashboard' ? 'border-amber-500 bg-amber-600 text-white shadow-amber-900/50' : 'border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700 hover:text-white'}`}>
                         <i className="fas fa-chart-pie mr-2"></i> PTW Dashboard
                     </button>
-                    <button type="button" onClick={() => setCurrentView('inventory')} className={`flex items-center rounded-lg border px-5 py-2.5 text-sm font-bold shadow-sm transition-all ${currentView === 'inventory' ? 'border-amber-500 bg-amber-600 text-white shadow-amber-900/50' : 'border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700 hover:text-white'}`}>
+                    <button type="button" onClick={() => { setSelectedPermitId(null); syncPtwQuery(''); setCurrentView('inventory'); }} className={`flex items-center rounded-lg border px-5 py-2.5 text-sm font-bold shadow-sm transition-all ${currentView === 'inventory' ? 'border-amber-500 bg-amber-600 text-white shadow-amber-900/50' : 'border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700 hover:text-white'}`}>
                         <i className="fas fa-folder-open mr-2"></i> Permit Registry
                     </button>
                     {permissions.canEditCreate && (
@@ -1759,7 +1811,7 @@ export default function FullScreenPTW() {
 
                 <main className="relative flex-1 overflow-y-auto pb-20 font-['Inter'] custom-scroll">
                     {currentView === 'dashboard' && (
-                        <PtwDashboardComponent allowedSites={allowedSites} handleSiteFilterChange={handleSiteFilterChange} isGlobalUser={isGlobalUser} myPendingApprovals={myPendingApprovals} setCurrentView={setCurrentView} siteFilter={siteFilter} visiblePermits={visiblePermits} />
+                        <PtwDashboardComponent allowedSites={allowedSites} handleSiteFilterChange={handleSiteFilterChange} isGlobalUser={isGlobalUser} myPendingApprovals={myPendingApprovals} onViewPermit={openPermitViewer} setCurrentView={setCurrentView} siteFilter={siteFilter} visiblePermits={visiblePermits} />
                     )}
                     {currentView === 'inventory' && (
                         <PtwRegistryComponent
@@ -1773,6 +1825,7 @@ export default function FullScreenPTW() {
                             isGlobalUser={isGlobalUser}
                             isProdApprover={isProdApprover}
                             openForm={openForm}
+                            onViewPermit={openPermitViewer}
                             permissions={permissions}
                             setInspectionModal={setInspectionModal}
                             setInspectionObservation={setInspectionObservation}
@@ -1781,6 +1834,17 @@ export default function FullScreenPTW() {
                             siteFilter={siteFilter}
                             triggerPrint={triggerPrint}
                             visiblePermits={visiblePermits}
+                        />
+                    )}
+                    {currentView === 'viewer' && selectedPermit && (
+                        <PermitViewerComponent
+                            canInspect={canInspectPermit(selectedPermit)}
+                            onBack={closePermitViewer}
+                            onInspect={(permit) => {
+                                setInspectionObservation('');
+                                setInspectionModal(permit);
+                            }}
+                            permit={selectedPermit}
                         />
                     )}
                     {currentView === 'builder' && formData && (

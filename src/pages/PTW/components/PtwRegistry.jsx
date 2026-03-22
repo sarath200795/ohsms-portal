@@ -1,6 +1,6 @@
 import React from 'react';
 import { getTypeConfig } from '../../../utils/constants';
-import { getStatusColor } from '../utils';
+import { getStatusColor, isPermitOverdue } from '../utils';
 
 export default function PtwRegistry({
     allowedSites,
@@ -13,6 +13,7 @@ export default function PtwRegistry({
     isGlobalUser,
     isProdApprover,
     openForm,
+    onViewPermit,
     permissions,
     setInspectionModal,
     setInspectionObservation,
@@ -53,6 +54,7 @@ export default function PtwRegistry({
                     <tbody className="divide-y divide-slate-800 bg-slate-950/50">
                         {visiblePermits.map((permit, index) => {
                             const typeConfig = getTypeConfig(permit.typeId);
+                            const overdue = isPermitOverdue(permit);
                             const amIEng = isEngApprover(permit);
                             const amIProd = isProdApprover(permit);
                             const amICreator = isCreator(permit);
@@ -60,7 +62,7 @@ export default function PtwRegistry({
                             const canEditPermitRow = permissions.canEditCreate && (permit.status === 'Draft' || permit.status === 'Pending Approval' || permit.status === 'Work in Progress');
 
                             return (
-                                <tr key={permit.id || index} className={`transition-colors hover:bg-slate-800/50 ${permit.status === 'Closed' ? 'opacity-60' : ''}`}>
+                                <tr key={permit.id || index} className={`transition-colors hover:bg-slate-800/50 ${permit.status === 'Closed' ? 'opacity-60' : ''} ${overdue ? 'bg-red-950/10' : ''}`}>
                                     <td className="p-4 pl-6 font-mono text-xs font-bold text-white">{permit.id}</td>
                                     <td className="p-4">
                                         <span className={`rounded border px-2 py-1 text-[10px] font-bold uppercase tracking-widest shadow-sm ${typeConfig.bg} ${typeConfig.color} ${typeConfig.border}`}>
@@ -74,9 +76,10 @@ export default function PtwRegistry({
                                         </div>
                                     </td>
                                     <td className="p-4">
-                                        <span className={`rounded border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${getStatusColor(permit.status)}`}>
-                                            {permit.status}
+                                        <span className={`rounded border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${overdue ? 'border-red-500/40 bg-red-500/10 text-red-300' : getStatusColor(permit.status)}`}>
+                                            {overdue ? 'Overdue' : permit.status}
                                         </span>
+                                        {overdue && <div className="mt-2 text-[10px] font-bold uppercase tracking-widest text-red-300">Due by {permit.validToDate} {permit.validToTime}</div>}
 
                                         <div className="mt-2 flex flex-col gap-1 text-[9px] font-bold uppercase tracking-widest text-slate-500">
                                             <div className="flex items-center gap-2">
@@ -162,6 +165,13 @@ export default function PtwRegistry({
 
                                         <button type="button" onClick={() => triggerPrint(permit)} className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-600 bg-slate-800 text-sm text-white shadow transition hover:bg-slate-700">
                                             <i className="fas fa-print"></i>
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => onViewPermit(permit)}
+                                            className="rounded-lg bg-slate-800 px-3 py-1.5 text-[10px] font-bold uppercase text-white shadow transition hover:bg-amber-600"
+                                        >
+                                            View
                                         </button>
                                         <button
                                             type="button"

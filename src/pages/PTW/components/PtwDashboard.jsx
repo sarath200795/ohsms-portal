@@ -1,11 +1,13 @@
 import React from 'react';
 import { getTypeConfig } from '../../../utils/constants';
+import { isPermitOverdue } from '../utils';
 
 export default function PtwDashboard({
     allowedSites,
     handleSiteFilterChange,
     isGlobalUser,
     myPendingApprovals,
+    onViewPermit,
     setCurrentView,
     siteFilter,
     visiblePermits
@@ -79,21 +81,33 @@ export default function PtwDashboard({
                     .slice(0, 6)
                     .map((permit) => {
                         const typeConfig = getTypeConfig(permit.typeId);
+                        const overdue = isPermitOverdue(permit);
                         return (
-                            <div key={permit.id} className={`glass-panel rounded-2xl border-t-4 p-5 shadow-lg transition-shadow hover:shadow-xl ${typeConfig.border.replace('border-', 'border-t-')}`}>
+                            <div key={permit.id} className={`glass-panel rounded-2xl border-t-4 p-5 shadow-lg transition-shadow hover:shadow-xl ${overdue ? 'border border-red-500/40 bg-red-950/10' : ''} ${typeConfig.border.replace('border-', 'border-t-')}`}>
                                 <div className="mb-3 flex items-start justify-between">
                                     <span className={`rounded border px-2 py-1 text-[10px] font-bold uppercase tracking-widest shadow-sm ${typeConfig.bg} ${typeConfig.color} ${typeConfig.border}`}>
                                         {typeConfig.label}
                                     </span>
                                     <span className="font-mono text-xs font-bold text-slate-400">{permit.id}</span>
                                 </div>
-                                <h4 className="mb-1 truncate font-bold text-white">{permit.description}</h4>
+                                <h4 className={`mb-1 truncate font-bold ${overdue ? 'text-red-300' : 'text-white'}`}>{permit.description}</h4>
                                 <p className="mb-4 text-xs text-slate-400">
                                     <i className="fas fa-location-dot mr-1"></i> {permit.location} ({permit.siteId})
                                 </p>
-                                <div className="flex items-center justify-between border-t border-slate-800 pt-3 text-[10px] font-bold uppercase tracking-wider">
-                                    <span className={permit.status === 'Work in Progress' ? 'animate-pulse text-blue-400' : 'text-orange-400'}>{permit.status}</span>
-                                    <span className="text-slate-500">Till: {permit.validToTime}</span>
+                                <div className={`mb-3 flex items-center justify-between rounded-lg border px-3 py-2 text-[10px] font-bold uppercase tracking-wider ${overdue ? 'border-red-500/30 bg-red-500/10 text-red-300' : 'border-slate-800 bg-slate-950/60'}`}>
+                                    <span className={overdue ? 'text-red-300' : permit.status === 'Work in Progress' ? 'animate-pulse text-blue-400' : 'text-orange-400'}>
+                                        {overdue ? 'Overdue' : permit.status}
+                                    </span>
+                                    <span className={overdue ? 'text-red-200' : 'text-slate-500'}>Till: {permit.validToDate} {permit.validToTime}</span>
+                                </div>
+                                <div className="flex gap-2">
+                                    <button
+                                        type="button"
+                                        onClick={() => onViewPermit(permit)}
+                                        className="flex-1 rounded-lg bg-slate-800 py-2.5 text-xs font-bold uppercase tracking-widest text-white transition hover:bg-amber-600"
+                                    >
+                                        View Full Permit
+                                    </button>
                                 </div>
                             </div>
                         );
