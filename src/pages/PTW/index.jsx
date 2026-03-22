@@ -1,67 +1,36 @@
 // src/pages/PTW/index.jsx
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ref, get } from 'firebase/database';
-import { rtdb } from '../../config/firebase';
-import { safeArr, safeArrayParse } from '../../utils/helpers';
 
-// Import Child Components
+// Phase 4 Hook Imports
+import { useFirebaseData } from '../../hooks/useFirebaseData';
+import useStore from '../../store/useStore'; // Assuming you have your session here from App.jsx
+
+import { safeArr } from '../../utils/helpers';
+
+// Phase 3 Child Components
 import PtwDashboard from './components/PtwDashboard';
 import PtwRegistry from './components/PtwRegistry';
 import PermitBuilder from './components/PermitBuilder';
 
 export default function PTW() {
     const navigate = useNavigate();
-    const [session, setSession] = useState(null);
-    const [loading, setLoading] = useState(true);
-    
-    // Core Data States
-    const [permits, setPermits] = useState([]);
-    const [sites, setSites] = useState([]);
-    const [contractors, setContractors] = useState([]);
-    const [users, setUsers] = useState([]);
+    const { session } = useStore();
 
     // UI States
     const [activeTab, setActiveTab] = useState('registry'); // 'registry', 'builder'
     const [searchQuery, setSearchQuery] = useState('');
-    
-    useEffect(() => {
-        const s = sessionStorage.getItem('isoSession');
-        if (!s) return navigate('/');
-        const sess = JSON.parse(s);
-        
-        const hasAccess = ['Global Owner', 'Global Manager', 'Admin'].includes(sess.role) || safeArr(sess.accessibleModules).includes('PTW');
-        if (!hasAccess) {
-            alert("Permission denied.");
-            return navigate('/dashboard');
-        }
-        
-        setSession(sess);
 
-        const fetchTargetedData = async () => {
-            try {
-                const orgRef = `organizations/${sess.orgId}`;
-                const [ptwSnap, sitesSnap, contractorsSnap, usersSnap] = await Promise.all([
-                    get(ref(rtdb, `${orgRef}/ptwRecords`)),
-                    get(ref(rtdb, `${orgRef}/sites`)),
-                    get(ref(rtdb, `${orgRef}/contractors`)),
-                    get(ref(rtdb, `${orgRef}/users`))
-                ]);
+    // --- PHASE 4 IN ACTION ---
+    // One single line to fetch exactly what we need, perfectly cached and managed!
+    const { data, loading } = useFirebaseData(session?.orgId, ['ptwRecords', 'sites', 'contractors']);
 
-                if (ptwSnap.exists()) setPermits(safeArrayParse(ptwSnap.val()));
-                if (sitesSnap.exists()) setSites(Object.keys(sitesSnap.val()).map(k => ({ code: sitesSnap.val()[k].code || k, name: sitesSnap.val()[k].name || k })));
-                if (contractorsSnap.exists()) setContractors(safeArrayParse(contractorsSnap.val()));
-                if (usersSnap.exists()) setUsers(safeArrayParse(usersSnap.val()));
-            } catch (error) {
-                console.error("Fetch Error:", error);
-            } finally {
-                setLoading(false);
-            }
-        };
+    // Destructure the fetched data (fallback to empty arrays if still loading)
+    const permits = data.ptwRecords || [];
+    const sites = data.sites || [];
+    const contractors = data.contractors || [];
 
-        fetchTargetedData();
-    }, [navigate]);
-
+    // RBAC Filter Engine
     const filteredPermits = useMemo(() => {
         let filtered = permits;
         if (session && session.assignedSite !== 'GLOBAL' && !['Global Owner', 'Admin'].includes(session.role)) {
@@ -75,7 +44,7 @@ export default function PTW() {
         return filtered.sort((a, b) => new Date(b.createdAt || b.validFromDate) - new Date(a.createdAt || a.validFromDate));
     }, [permits, session, searchQuery]);
 
-    if (loading) return <div className="h-screen flex items-center justify-center bg-slate-950 text-emerald-400 font-['Space_Grotesk'] tracking-widest uppercase">Loading PTW Engine...</div>;
+    if (loading) return <div className="h-screen flex items-center justify-center bg-slate-950 text-emerald-400 font-['Space_Grotesk'] tracking-widest uppercase"><i className="fas fa-circle-notch fa-spin mr-3"></i> Loading PTW Engine...</div>;
 
     return (
         <div className="flex flex-col h-screen bg-slate-950 font-['Space_Grotesk'] text-slate-200 overflow-hidden relative">
@@ -100,21 +69,23 @@ export default function PTW() {
             </header>
 
             <main className="flex-1 overflow-y-auto p-8 custom-scroll relative z-10 w-full">
-                <div className="max-w-7xl mx-auto animate-in fade-in duration-500">
-                    
-                    {/* DELEGATING UI TO CHILD COMPONENTS */}
-                    {activeTab === 'registry' && (
-                        <>
-                            <PtwDashboard permits={filteredPermits} />
-                            <PtwRegistry permits={filteredPermits} />
-                        </>
-                    )}
+                {/* DELEGATING UI TO PHASE 3 CHILD COMPONENTS */}
+                {activeTab === 'registry' && (
+                    <div className="max-w-7xl mx-auto animate-in fade-in duration-500">
+                        <PtwDashboard permits={filteredPermits} />
+                        <PtwRegistry permits={filteredPermits} />
+                    </div>
+                )}
 
-                    {activeTab === 'builder' && (
-                        <PermitBuilder onCancel={() => setActiveTab('registry')} />
-                    )}
-
-                </div>
+                {activeTab === 'builder' && (
+                    <PermitBuilder
+                        session={session}
+                        sites={sites}
+                        contractors={contractors}
+                        onCancel={() => setActiveTab('registry')}
+                        onSuccess={() => setActiveTab('registry')}
+                    />
+                )}
             </main>
         </div>
     );
