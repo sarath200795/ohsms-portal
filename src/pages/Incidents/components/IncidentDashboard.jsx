@@ -1,28 +1,36 @@
-// src/pages/Incidents/components/IncidentDashboard.jsx
-import React from 'react';
+import React, { useMemo } from 'react';
+import { safeArr } from '../utils';
 
 export default function IncidentDashboard({ incidents }) {
-    const openIncidents = incidents.filter(i => i.status !== 'Closed').length;
-    const ltis = incidents.filter(i => i.type === 'LTI' || i.incidentType === 'LTI').length;
-    const nearMisses = incidents.filter(i => i.type === 'Near Miss' || i.incidentType === 'Near Miss').length;
+    const stats = useMemo(() => {
+        let total = 0;
+        let closed = 0;
+        let open = 0;
+
+        incidents.forEach((incident) => {
+            safeArr(incident.capa).forEach((action) => {
+                total += 1;
+                if (action.status === 'Closed') closed += 1;
+                else open += 1;
+            });
+        });
+
+        return { total, closed, open };
+    }, [incidents]);
 
     return (
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-            <div className="bg-slate-900/60 backdrop-blur-md p-6 rounded-2xl border border-slate-700 shadow-xl border-l-4 border-l-blue-500">
-                <h3 className="text-xs text-slate-400 font-bold uppercase tracking-widest mb-1">Total Logged</h3>
-                <div className="text-3xl font-black text-white">{incidents.length}</div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-2">
+            <div className="bg-slate-900/40 backdrop-blur-sm border border-slate-800 p-6 rounded-xl border-l-4 border-l-blue-500 flex justify-between items-center shadow-lg">
+                <div><p className="text-xs text-slate-400 uppercase font-bold">Total CAPA Raised</p><h3 className="text-3xl font-bold text-white">{stats.total}</h3></div>
+                <i className="fas fa-list-check text-2xl text-blue-500/50"></i>
             </div>
-            <div className="bg-slate-900/60 backdrop-blur-md p-6 rounded-2xl border border-slate-700 shadow-xl border-l-4 border-l-orange-500">
-                <h3 className="text-xs text-slate-400 font-bold uppercase tracking-widest mb-1">Open Investigations</h3>
-                <div className="text-3xl font-black text-orange-400">{openIncidents}</div>
+            <div className="bg-slate-900/40 backdrop-blur-sm border border-slate-800 p-6 rounded-xl border-l-4 border-l-emerald-500 flex justify-between items-center shadow-lg">
+                <div><p className="text-xs text-slate-400 uppercase font-bold">Actions Closed</p><h3 className="text-3xl font-bold text-emerald-400">{stats.closed}</h3></div>
+                <i className="fas fa-check-circle text-2xl text-emerald-500/50"></i>
             </div>
-            <div className="bg-slate-900/60 backdrop-blur-md p-6 rounded-2xl border border-slate-700 shadow-xl border-l-4 border-l-red-500">
-                <h3 className="text-xs text-slate-400 font-bold uppercase tracking-widest mb-1">Lost Time Injuries (LTI)</h3>
-                <div className="text-3xl font-black text-red-400">{ltis}</div>
-            </div>
-            <div className="bg-slate-900/60 backdrop-blur-md p-6 rounded-2xl border border-slate-700 shadow-xl border-l-4 border-l-yellow-500">
-                <h3 className="text-xs text-slate-400 font-bold uppercase tracking-widest mb-1">Near Misses</h3>
-                <div className="text-3xl font-black text-yellow-400">{nearMisses}</div>
+            <div className="bg-slate-900/40 backdrop-blur-sm border border-slate-800 p-6 rounded-xl border-l-4 border-l-orange-500 flex justify-between items-center shadow-lg">
+                <div><p className="text-xs text-slate-400 uppercase font-bold">Actions Open</p><h3 className="text-3xl font-bold text-orange-400">{stats.open}</h3></div>
+                <i className="fas fa-clock text-2xl text-orange-500/50"></i>
             </div>
         </div>
     );

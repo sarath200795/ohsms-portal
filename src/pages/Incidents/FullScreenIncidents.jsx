@@ -3,6 +3,11 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { get, push, ref, remove, update } from 'firebase/database';
 import * as XLSX from 'xlsx';
 import { rtdb } from '../../config/firebase';
+import IncidentBuilder from './components/IncidentBuilder';
+import IncidentHazardEditorModal from './components/IncidentHazardEditorModal';
+import IncidentHazardMatchesModal from './components/IncidentHazardMatchesModal';
+import IncidentPrintOverlay from './components/IncidentPrintOverlay';
+import IncidentRegistry from './components/IncidentRegistry';
 
 const SMART_CATEGORIES = [
     'Fire & Explosion', 'COSHH / Chemical Exposure', 'Asbestos',
@@ -1043,6 +1048,7 @@ export default function Incidents() {
         { id: 4, label: 'CAPA' },
         { id: 5, label: 'Review & HIRA' }
     ];
+    const useModularView = true;
 
     return (
         <div className="flex flex-col h-screen bg-slate-950 font-['Space_Grotesk'] text-slate-200 overflow-hidden relative print:h-auto print:overflow-visible">
@@ -1086,9 +1092,60 @@ export default function Incidents() {
                 <div className="flex-1 overflow-y-auto p-8 w-full print:overflow-visible custom-scroll">
                     {view === 'repo' ? (
                         <div className="max-w-7xl mx-auto">
-                            <IncidentRepository incidents={visibleIncidents} onEdit={handleEdit} onPrint={triggerPrint} onDelete={handleDeleteRecord} permissions={permissions} siteFilter={siteFilter} setSiteFilter={setSiteFilter} uniqueSites={allowedSites} isGlobalUser={isGlobalUser} />
+                            {useModularView ? (
+                                <IncidentRegistry incidents={visibleIncidents} onEdit={handleEdit} onPrint={triggerPrint} onDelete={handleDeleteRecord} permissions={permissions} siteFilter={siteFilter} setSiteFilter={setSiteFilter} uniqueSites={allowedSites} isGlobalUser={isGlobalUser} />
+                            ) : (
+                                <IncidentRepository incidents={visibleIncidents} onEdit={handleEdit} onPrint={triggerPrint} onDelete={handleDeleteRecord} permissions={permissions} siteFilter={siteFilter} setSiteFilter={setSiteFilter} uniqueSites={allowedSites} isGlobalUser={isGlobalUser} />
+                            )}
                         </div>
                     ) : (
+                        useModularView ? (
+                            <IncidentBuilder
+                                activePersonnelList={activePersonnelList}
+                                addCapa={addCapa}
+                                addFiveWhyPath={addFiveWhyPath}
+                                allowedSites={allowedSites}
+                                canEditCapa={canEditCapa}
+                                canEditForm={canEditForm}
+                                contractors={contractors}
+                                data={data}
+                                externalName={externalName}
+                                generateSmartInvestigation={generateSmartInvestigation}
+                                handleAddTeamMember={handleAddTeamMember}
+                                handleDescriptionBlur={handleDescriptionBlur}
+                                handleImageUpload={handleImageUpload}
+                                initialDataState={initialDataState}
+                                isAnalyzing={isAnalyzing}
+                                isGlobalUser={isGlobalUser}
+                                newCapaAct={newCapaAct}
+                                newCapaDue={newCapaDue}
+                                newCapaOwn={newCapaOwn}
+                                newCapaSite={newCapaSite}
+                                removeCapa={removeCapa}
+                                removeFiveWhyPath={removeFiveWhyPath}
+                                removeTeamMember={removeTeamMember}
+                                saveData={saveData}
+                                saving={saving}
+                                scanHiraDatabase={scanHiraDatabase}
+                                selectedUserToAdd={selectedUserToAdd}
+                                setData={setData}
+                                setExternalName={setExternalName}
+                                setNewCapaAct={setNewCapaAct}
+                                setNewCapaDue={setNewCapaDue}
+                                setNewCapaOwn={setNewCapaOwn}
+                                setNewCapaSite={setNewCapaSite}
+                                setSelectedUserToAdd={setSelectedUserToAdd}
+                                setStep={setStep}
+                                setView={setView}
+                                siteUsers={siteUsers}
+                                sites={sites}
+                                step={step}
+                                steps={steps}
+                                triggerPrint={triggerPrint}
+                                updateFiveWhy={updateFiveWhy}
+                                updatePathName={updatePathName}
+                            />
+                        ) : (
                         <div className="max-w-6xl mx-auto pb-20 animate-in fade-in slide-in-from-bottom-4 duration-500">
                             <div className="flex gap-2 mb-8 form-view-tabs bg-slate-900/40 p-2 rounded-2xl border border-slate-800 backdrop-blur-sm shadow-xl">
                                 {steps.map((s, i) => (
@@ -1498,11 +1555,20 @@ export default function Incidents() {
                                 </div>
                             )}
                         </div>
+                        )
                     )}
                 </div>
             </div>
 
-            {searchModalOpen && !editingHazardData && (
+            {useModularView && (
+                <>
+                    {searchModalOpen && !editingHazardData && <IncidentHazardMatchesModal matchedHazards={matchedHazards} onClose={() => setSearchModalOpen(false)} onSelect={openHazardEditor} />}
+                    {editingHazardData && <IncidentHazardEditorModal editingHazardData={editingHazardData} onClose={() => setEditingHazardData(null)} onSave={saveLinkedHazard} saving={saving} session={session} setEditingHazardData={setEditingHazardData} />}
+                    <IncidentPrintOverlay printData={printData} />
+                </>
+            )}
+
+            {!useModularView && searchModalOpen && !editingHazardData && (
                 <div className="fixed inset-0 bg-slate-950/80 z-50 flex items-center justify-center p-4 backdrop-blur-md animate-in fade-in zoom-in-95 duration-300 no-print">
                     <div className="bg-slate-900 rounded-3xl max-w-4xl w-full p-8 border border-slate-700 max-h-[85vh] overflow-y-auto custom-scroll shadow-2xl flex flex-col">
                         <div className="flex justify-between items-center mb-6 border-b border-slate-800 pb-6 flex-shrink-0">
@@ -1540,7 +1606,7 @@ export default function Incidents() {
                 </div>
             )}
 
-            {editingHazardData && (
+            {!useModularView && editingHazardData && (
                 <div className="fixed inset-0 bg-slate-950/90 z-50 flex items-center justify-center p-4 backdrop-blur-md animate-in fade-in zoom-in-95 duration-300 no-print">
                     <div className="bg-slate-900 rounded-3xl max-w-4xl w-full p-8 border border-slate-700 max-h-[90vh] overflow-y-auto custom-scroll shadow-2xl">
                         <div className="flex justify-between items-center mb-6 border-b border-slate-800 pb-6">
@@ -1616,7 +1682,7 @@ export default function Incidents() {
                     </div>
                 </div>
             )}
-            {printData && (
+            {!useModularView && printData && (
                 <div className="print-overlay p-8 bg-white text-black min-h-screen w-full absolute top-0 left-0 z-50">
                     <div className="flex justify-between items-end border-b-4 border-black pb-4 mb-6">
                         <div>
