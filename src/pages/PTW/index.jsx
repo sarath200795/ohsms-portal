@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useFirebaseData } from '../../hooks/useFirebaseData';
 import useStore from '../../store/useStore';
@@ -11,13 +11,41 @@ import PermitViewer from './components/PermitViewer'; // IMPORT THE NEW VIEWER
 
 export default function PTW() {
     const navigate = useNavigate();
-    const { session } = useStore();
+    const { session, initializeSession } = useStore();
+    const [resolvedSession, setResolvedSession] = useState(session);
 
     const [activeTab, setActiveTab] = useState('registry'); // 'registry', 'builder', 'viewer'
     const [searchQuery, setSearchQuery] = useState('');
     const [selectedPermit, setSelectedPermit] = useState(null); // STATE FOR THE VIEWER
 
-    const { data, loading } = useFirebaseData(session?.orgId, ['ptwRecords', 'sites', 'contractors']);
+    useEffect(() => {
+        if (session?.orgId) {
+            setResolvedSession(session);
+            return;
+        }
+
+        const raw = sessionStorage.getItem('isoSession');
+        if (!raw) {
+            navigate('/');
+            return;
+        }
+
+        const storedSession = JSON.parse(raw);
+        const hasAccess = ['Global Owner', 'Global Manager', 'Owner', 'Admin'].includes(storedSession.role) ||
+            safeArr(storedSession.accessibleModules).includes('PTW') ||
+            safeArr(storedSession.accessibleModules).includes('OHS Tools');
+
+        if (!hasAccess) {
+            alert('You do not have permission to access the PTW module.');
+            navigate('/dashboard');
+            return;
+        }
+
+        initializeSession(storedSession);
+        setResolvedSession(storedSession);
+    }, [session, initializeSession, navigate]);
+
+    const { data, loading, error } = useFirebaseData(resolvedSession?.orgId, ['ptwRecords', 'sites', 'contractors']);
 
     const permits = data.ptwRecords || [];
     const sites = data.sites || [];
@@ -25,8 +53,8 @@ export default function PTW() {
 
     const filteredPermits = useMemo(() => {
         let filtered = permits;
-        if (session && session.assignedSite !== 'GLOBAL' && !['Global Owner', 'Admin'].includes(session.role)) {
-            const allowedSites = [session.assignedSite, ...safeArr(session.accessibleSites)];
+        if (resolvedSession && resolvedSession.assignedSite !== 'GLOBAL' && !['Global Owner', 'Admin'].includes(resolvedSession.role)) {
+            const allowedSites = [resolvedSession.assignedSite, ...safeArr(resolvedSession.accessibleSites)];
             filtered = filtered.filter(p => allowedSites.includes(p.siteId));
         }
         if (searchQuery) {
@@ -34,14 +62,33 @@ export default function PTW() {
             filtered = filtered.filter(p => (p.id && p.id.toLowerCase().includes(q)) || (p.workDescription && p.workDescription.toLowerCase().includes(q)));
         }
         return filtered.sort((a, b) => new Date(b.createdAt || b.validFromDate) - new Date(a.createdAt || a.validFromDate));
-    }, [permits, session, searchQuery]);
+    }, [permits, resolvedSession, searchQuery]);
 
     const handleViewPermit = (permit) => {
         setSelectedPermit(permit);
         setActiveTab('viewer');
     };
 
+    if (!resolvedSession) {
+        return <div className="h-screen flex items-center justify-center bg-slate-950 text-emerald-400 font-['Space_Grotesk'] tracking-widest uppercase"><i className="fas fa-circle-notch fa-spin mr-3"></i> Verifying PTW Access...</div>;
+    }
+
     if (loading) return <div className="h-screen flex items-center justify-center bg-slate-950 text-emerald-400 font-['Space_Grotesk'] tracking-widest uppercase"><i className="fas fa-circle-notch fa-spin mr-3"></i> Loading PTW Engine...</div>;
+
+    if (error) {
+        return (
+            <div className="h-screen flex items-center justify-center bg-slate-950 text-slate-200 font-['Space_Grotesk'] p-6">
+                <div className="max-w-md w-full bg-slate-900/80 border border-red-500/30 rounded-3xl p-8 text-center">
+                    <div className="text-red-400 text-3xl mb-4"><i className="fas fa-triangle-exclamation"></i></div>
+                    <h2 className="text-xl font-bold text-white mb-2">PTW Could Not Load</h2>
+                    <p className="text-sm text-slate-400 mb-6">{error.message || 'The Permit To Work module could not fetch its data.'}</p>
+                    <button onClick={() => navigate('/dashboard')} className="bg-emerald-600 hover:bg-emerald-500 text-white px-5 py-3 rounded-xl text-sm font-bold uppercase tracking-widest">
+                        Return to Dashboard
+                    </button>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="flex flex-col h-screen bg-slate-950 font-['Space_Grotesk'] text-slate-200 overflow-hidden relative">
@@ -76,12 +123,12 @@ export default function PTW() {
                 )}
 
                 {activeTab === 'builder' && (
-                    <PermitBuilder session={session} sites={sites} contractors={contractors} onCancel={() => setActiveTab('registry')} onSuccess={() => setActiveTab('registry')} />
+                    <PermitBuilder session={resolvedSession} sites={sites} contractors={contractors} onCancel={() => setActiveTab('registry')} onSuccess={() => setActiveTab('registry')} />
                 )}
 
                 {/* SHOWING THE VIEWER WHEN A PERMIT IS CLICKED */}
                 {activeTab === 'viewer' && selectedPermit && (
-                    <PermitViewer permit={selectedPermit} session={session} onCancel={() => { setSelectedPermit(null); setActiveTab('registry'); }} onUpdate={() => setActiveTab('registry')} />
+                    <PermitViewer permit={selectedPermit} session={resolvedSession} onCancel={() => { setSelectedPermit(null); setActiveTab('registry'); }} onUpdate={() => setActiveTab('registry')} />
                 )}
             </main>
         </div>

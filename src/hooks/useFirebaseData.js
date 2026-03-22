@@ -14,10 +14,16 @@ export function useFirebaseData(orgId, tables = []) {
     const [error, setError] = useState(null);
 
     useEffect(() => {
-        if (!orgId || tables.length === 0) return;
+        if (!orgId || tables.length === 0) {
+            setData({});
+            setError(null);
+            setLoading(false);
+            return;
+        }
 
         const fetchData = async () => {
             setLoading(true);
+            setError(null);
             try {
                 const orgRef = `organizations/${orgId}`;
                 
