@@ -1,3 +1,4 @@
+// src/App.jsx
 import React, { useEffect, useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { onAuthStateChanged } from 'firebase/auth';
@@ -23,7 +24,7 @@ import Contractors from './pages/Contractors';
 
 // --- Import OHS Specialized Tools ---
 import OhsTools from './pages/OhsTools';
-import PTW from './pages/ptw';
+import PTW from './pages/ptw'; // Note: Ensure this matches your file case exactly
 import LOTO from './pages/LOTO';
 import Health from './pages/Health';
 import MockDrill from './pages/MockDrill';
@@ -34,12 +35,10 @@ import Inspections from './pages/Inspections';
 import VendorPortal from './pages/VendorPortal';
 
 // --- Global Security Interceptor ---
-// Prevents unauthorized internal users from typing URLs directly into the browser
 const ProtectedRoute = ({ children }) => {
     const session = sessionStorage.getItem('isoSession');
 
     if (!session) {
-        // Save the intended destination if it's a deep link (like a QR code scan for LOTO or PTW)
         const currentUrl = window.location.href;
         if (currentUrl.includes('?')) {
             sessionStorage.setItem('pendingRedirect', currentUrl);
@@ -53,19 +52,14 @@ const ProtectedRoute = ({ children }) => {
 export default function App() {
     const [isAuthChecking, setIsAuthChecking] = useState(true);
 
-    // Global Auth Listener to maintain session state with Firebase
     useEffect(() => {
         const unsubscribe = onAuthStateChanged(auth, (user) => {
-            if (!user) {
-                sessionStorage.removeItem('isoSession');
-            }
+            if (!user) sessionStorage.removeItem('isoSession');
             setIsAuthChecking(false);
         });
-
         return () => unsubscribe();
     }, []);
 
-    // Secure Loading Screen
     if (isAuthChecking) {
         return (
             <div className="h-screen flex items-center justify-center bg-slate-950 text-white font-sans">
@@ -78,25 +72,19 @@ export default function App() {
     return (
         <Router>
             <Routes>
-
-                {/* ========================================== */}
-                {/* PUBLIC ROUTES (No Internal Session Needed) */}
-                {/* ========================================== */}
+                {/* PUBLIC ROUTES */}
                 <Route path="/" element={<Login />} />
                 <Route path="/vendor-portal" element={<VendorPortal />} />
 
+                {/* HYBRID ROUTES (Handles their own auth checks for QR codes) */}
+                <Route path="/loto" element={<LOTO />} />
+                <Route path="/ptw" element={<PTW />} />
 
-                {/* ========================================== */}
-                {/* PROTECTED ROUTES (Requires Employee Login) */}
-                {/* ========================================== */}
-
-                {/* Core Dashboards */}
+                {/* PROTECTED ROUTES */}
                 <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
                 <Route path="/Analytics" element={<ProtectedRoute><Analytics /></ProtectedRoute>} />
                 <Route path="/users" element={<ProtectedRoute><Users /></ProtectedRoute>} />
                 <Route path="/sites" element={<ProtectedRoute><Sites /></ProtectedRoute>} />
-
-                {/* Enterprise Management Modules */}
                 <Route path="/incidents" element={<ProtectedRoute><Incidents /></ProtectedRoute>} />
                 <Route path="/risk" element={<ProtectedRoute><Risk /></ProtectedRoute>} />
                 <Route path="/consultation" element={<ProtectedRoute><Consultation /></ProtectedRoute>} />
@@ -106,23 +94,13 @@ export default function App() {
                 <Route path="/training" element={<ProtectedRoute><Training /></ProtectedRoute>} />
                 <Route path="/improvement" element={<ProtectedRoute><Improvement /></ProtectedRoute>} />
                 <Route path="/contractors" element={<ProtectedRoute><Contractors /></ProtectedRoute>} />
-
-                {/* OHS Tools & Field Execution */}
                 <Route path="/ohs-tools" element={<ProtectedRoute><OhsTools /></ProtectedRoute>} />
-                <Route path="/ptw" element={<ProtectedRoute><PTW /></ProtectedRoute>} />
-                <Route path="/loto" element={<ProtectedRoute><LOTO /></ProtectedRoute>} />
                 <Route path="/health-dashboard" element={<ProtectedRoute><Health /></ProtectedRoute>} />
                 <Route path="/mock-drill" element={<ProtectedRoute><MockDrill /></ProtectedRoute>} />
                 <Route path="/emergency-equipment" element={<ProtectedRoute><EmergencyEquipment /></ProtectedRoute>} />
                 <Route path="/inspections" element={<ProtectedRoute><Inspections /></ProtectedRoute>} />
 
-
-                {/* ========================================== */}
-                {/* FALLBACK ROUTE                             */}
-                {/* ========================================== */}
-                {/* Catch broken URLs and safely redirect to Login/Dashboard */}
                 <Route path="*" element={<Navigate to="/" replace />} />
-
             </Routes>
         </Router>
     );
