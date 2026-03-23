@@ -1,1 +1,1 @@
-export { default } from './FullScreenTraining';
+export { default } from './TrainingPage';

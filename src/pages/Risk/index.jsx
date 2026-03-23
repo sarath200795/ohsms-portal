@@ -1,1 +1,1 @@
-export { default } from './FullScreenRisk';
+export { default } from './RiskPage';
