@@ -71,6 +71,10 @@ export default function EmergencyEquipment() {
     const [inspectData, setInspectData] = useState(null);
     const [printTagData, setPrintTagData] = useState(null);
     const isFieldQrMode = useMemo(() => new URLSearchParams(location.search).get('fieldQr') === '1', [location.search]);
+    const buildModulePath = (siteCode) => {
+        const targetSite = siteCode || siteFilter || 'All';
+        return `/emergency-equipment?site=${encodeURIComponent(targetSite)}`;
+    };
 
     useEffect(() => {
         const params = new URLSearchParams(location.search);
@@ -133,16 +137,19 @@ export default function EmergencyEquipment() {
                     if (scanId) {
                         const targetEq = loadedEq.find(e => e.firebaseKey === scanId);
                         if (targetEq) {
+                            const targetSite = targetEq.siteId || ctxSite || 'All';
+                            setSiteFilter(targetSite);
+                            sessionStorage.setItem('isoCurrentSite', targetSite === 'All' ? 'GLOBAL' : targetSite);
                             setInspectData(createInspectionDraft(targetEq, { qrScanMode: true }));
                             setView('inspect');
-                            window.history.replaceState(null, '', '/emergency-equipment');
+                            navigate(buildModulePath(targetSite), { replace: true });
                         }
                     }
                 }
             } catch (err) { console.error(err); } finally { setLoading(false); }
         };
         fetchData();
-    }, [navigate, location, view]);
+    }, [navigate, location.search]);
 
     useEffect(() => {
         if (formData.type === 'Fire Extinguisher' && formData.extinguisherType) {
@@ -328,7 +335,16 @@ export default function EmergencyEquipment() {
                 lastUpdated: new Date().toISOString()
             };
             await update(ref(rtdb, `organizations/${session.orgId}/emergencyEquipment/${inspectData.firebaseKey}`), payload);
+            setEquipment(prev => prev.map(item => (
+                item.firebaseKey === inspectData.firebaseKey
+                    ? { ...item, ...payload }
+                    : item
+            )));
+            setInspectData(prev => (prev ? { ...prev, ...payload, nextDate: nextInspection } : prev));
+            alert("Inspection logged successfully.");
+            setInspectData(null);
             setView('list');
+            navigate(buildModulePath(inspectData.siteId || siteFilter), { replace: true });
         } catch (e) { alert("Inspection logging failed: " + e.message); }
     };
 
@@ -1016,7 +1032,7 @@ export default function EmergencyEquipment() {
                             </div>
 
                             <div className="flex bg-slate-800">
-                                <button onClick={() => { setView('list'); window.history.replaceState(null, '', '/emergency-equipment'); }} className="flex-1 py-5 font-bold text-slate-400 hover:text-white hover:bg-slate-700 transition uppercase tracking-widest text-xs">Cancel</button>
+                                <button onClick={() => { setInspectData(null); setView('list'); navigate(buildModulePath(inspectData.siteId || siteFilter), { replace: true }); }} className="flex-1 py-5 font-bold text-slate-400 hover:text-white hover:bg-slate-700 transition uppercase tracking-widest text-xs">Cancel</button>
                                 {canOperateInspectionSheet ? (
                                     <button onClick={handleLogInspection} className="flex-1 py-5 font-bold bg-emerald-600 text-white hover:bg-emerald-500 transition uppercase tracking-widest text-xs flex justify-center items-center gap-2"><i className="fas fa-check-double text-lg"></i> Sign & Submit</button>
                                 ) : (
