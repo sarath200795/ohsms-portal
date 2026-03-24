@@ -10,6 +10,7 @@ import { saveAs } from 'file-saver';
 
 const TYPES = ['Fire Extinguisher', 'First Aid Kit', 'AED / Defibrillator', 'Eye Wash Station', 'Spill Kit', 'Evacuation Chair'];
 const STATUSES = ['Active', 'Needs Inspection', 'Out of Service', 'Missing'];
+const DUE_SOON_WINDOW_DAYS = 7;
 
 const FIRE_EXT_TYPES = [
     { name: 'Water (Stored Pressure)', refillYears: 3, hptYears: 3 },
@@ -227,9 +228,9 @@ export default function EmergencyEquipment() {
     const visibleEquipment = useMemo(() => {
         const today = new Date();
         const todayStr = today.toISOString().split('T')[0];
-        const thirtyDays = new Date();
-        thirtyDays.setDate(today.getDate() + 30);
-        const thirtyDaysStr = thirtyDays.toISOString().split('T')[0];
+        const dueSoonDate = new Date(today);
+        dueSoonDate.setDate(today.getDate() + DUE_SOON_WINDOW_DAYS);
+        const dueSoonStr = dueSoonDate.toISOString().split('T')[0];
 
         return equipment.filter(e => {
             // 1. Site Filter
@@ -250,11 +251,11 @@ export default function EmergencyEquipment() {
                 else if (complianceFilter === 'HPT Overdue') {
                     if (e.type !== 'Fire Extinguisher' || !e.nextHptDate || e.nextHptDate >= todayStr) return false;
                 }
-                else if (complianceFilter === 'Refill < 30 Days') {
-                    if (e.type !== 'Fire Extinguisher' || !e.nextRefillDate || e.nextRefillDate < todayStr || e.nextRefillDate > thirtyDaysStr) return false;
+                else if (complianceFilter === 'Refill < 7 Days') {
+                    if (e.type !== 'Fire Extinguisher' || !e.nextRefillDate || e.nextRefillDate < todayStr || e.nextRefillDate > dueSoonStr) return false;
                 }
-                else if (complianceFilter === 'HPT < 30 Days') {
-                    if (e.type !== 'Fire Extinguisher' || !e.nextHptDate || e.nextHptDate < todayStr || e.nextHptDate > thirtyDaysStr) return false;
+                else if (complianceFilter === 'HPT < 7 Days') {
+                    if (e.type !== 'Fire Extinguisher' || !e.nextHptDate || e.nextHptDate < todayStr || e.nextHptDate > dueSoonStr) return false;
                 }
             }
 
@@ -263,8 +264,9 @@ export default function EmergencyEquipment() {
     }, [equipment, siteFilter, typeFilter, complianceFilter, isGlobalUser, session]);
 
     const stats = useMemo(() => {
-        const today = new Date();
-        const thirtyDaysFromNow = new Date(today.setDate(today.getDate() + 30));
+        const now = new Date();
+        const dueSoonDate = new Date(now);
+        dueSoonDate.setDate(now.getDate() + DUE_SOON_WINDOW_DAYS);
 
         let total = equipment.filter(e => siteFilter === 'All' || e.siteId === siteFilter).length;
         let expiringSoon = 0;
@@ -274,7 +276,6 @@ export default function EmergencyEquipment() {
             let isAction = false;
             if (e.status === 'Out of Service' || e.status === 'Missing' || e.status === 'Needs Inspection') isAction = true;
 
-            const now = new Date();
             if (e.nextInspection && new Date(e.nextInspection) < now) isAction = true;
             if (e.type === 'Fire Extinguisher') {
                 if (e.nextRefillDate && new Date(e.nextRefillDate) < now) isAction = true;
@@ -285,10 +286,10 @@ export default function EmergencyEquipment() {
                 actionNeeded++;
             } else {
                 let isExpiring = false;
-                if (e.nextInspection && new Date(e.nextInspection) <= thirtyDaysFromNow) isExpiring = true;
+                if (e.nextInspection && new Date(e.nextInspection) <= dueSoonDate) isExpiring = true;
                 if (e.type === 'Fire Extinguisher') {
-                    if (e.nextRefillDate && new Date(e.nextRefillDate) <= thirtyDaysFromNow) isExpiring = true;
-                    if (e.nextHptDate && new Date(e.nextHptDate) <= thirtyDaysFromNow) isExpiring = true;
+                    if (e.nextRefillDate && new Date(e.nextRefillDate) <= dueSoonDate) isExpiring = true;
+                    if (e.nextHptDate && new Date(e.nextHptDate) <= dueSoonDate) isExpiring = true;
                 }
                 if (isExpiring) expiringSoon++;
             }
@@ -534,23 +535,23 @@ export default function EmergencyEquipment() {
 
         let badges = [];
         const todayStr = new Date().toISOString().split('T')[0];
-        const thirtyDays = new Date();
-        thirtyDays.setDate(thirtyDays.getDate() + 30);
-        const thirtyDaysStr = thirtyDays.toISOString().split('T')[0];
+        const dueSoonDate = new Date();
+        dueSoonDate.setDate(dueSoonDate.getDate() + DUE_SOON_WINDOW_DAYS);
+        const dueSoonStr = dueSoonDate.toISOString().split('T')[0];
 
         if (e.nextInspection) {
             if (e.nextInspection < todayStr) badges.push(<span key="insp-exp" className="bg-red-900/30 text-red-400 border border-red-500/30 px-2 py-1 rounded text-[9px] font-bold uppercase tracking-widest animate-pulse">INSP EXPIRED</span>);
-            else if (e.nextInspection <= thirtyDaysStr) badges.push(<span key="insp-due" className="bg-orange-900/30 text-orange-400 border border-orange-500/30 px-2 py-1 rounded text-[9px] font-bold uppercase tracking-widest">INSP DUE SOON</span>);
+            else if (e.nextInspection <= dueSoonStr) badges.push(<span key="insp-due" className="bg-orange-900/30 text-orange-400 border border-orange-500/30 px-2 py-1 rounded text-[9px] font-bold uppercase tracking-widest">INSP DUE SOON</span>);
         }
 
         if (e.type === 'Fire Extinguisher') {
             if (e.nextRefillDate) {
                 if (e.nextRefillDate < todayStr) badges.push(<span key="refill-exp" className="bg-red-900/30 text-red-400 border border-red-500/30 px-2 py-1 rounded text-[9px] font-bold uppercase tracking-widest animate-pulse">REFILL OVERDUE</span>);
-                else if (e.nextRefillDate <= thirtyDaysStr) badges.push(<span key="refill-due" className="bg-orange-900/30 text-orange-400 border border-orange-500/30 px-2 py-1 rounded text-[9px] font-bold uppercase tracking-widest">REFILL DUE SOON</span>);
+                else if (e.nextRefillDate <= dueSoonStr) badges.push(<span key="refill-due" className="bg-orange-900/30 text-orange-400 border border-orange-500/30 px-2 py-1 rounded text-[9px] font-bold uppercase tracking-widest">REFILL DUE SOON</span>);
             }
             if (e.nextHptDate) {
                 if (e.nextHptDate < todayStr) badges.push(<span key="hpt-exp" className="bg-red-900/30 text-red-400 border border-red-500/30 px-2 py-1 rounded text-[9px] font-bold uppercase tracking-widest animate-pulse">HPT OVERDUE</span>);
-                else if (e.nextHptDate <= thirtyDaysStr) badges.push(<span key="hpt-due" className="bg-orange-900/30 text-orange-400 border border-orange-500/30 px-2 py-1 rounded text-[9px] font-bold uppercase tracking-widest">HPT DUE SOON</span>);
+                else if (e.nextHptDate <= dueSoonStr) badges.push(<span key="hpt-due" className="bg-orange-900/30 text-orange-400 border border-orange-500/30 px-2 py-1 rounded text-[9px] font-bold uppercase tracking-widest">HPT DUE SOON</span>);
             }
         }
 
@@ -692,7 +693,7 @@ export default function EmergencyEquipment() {
                                     <div className="w-12 h-12 bg-blue-500/10 rounded-full flex items-center justify-center text-blue-400 text-xl"><i className="fas fa-clipboard-list"></i></div>
                                 </div>
                                 <div className="bg-slate-900/80 p-6 rounded-2xl border border-slate-700 shadow-lg flex items-center justify-between border-l-4 border-l-orange-500">
-                                    <div><p className="text-[10px] uppercase font-bold text-slate-400 tracking-widest mb-1">Due &lt; 30 Days</p><h3 className="text-3xl font-black text-orange-400">{stats.expiringSoon}</h3></div>
+                                    <div><p className="text-[10px] uppercase font-bold text-slate-400 tracking-widest mb-1">Due In 7 Days</p><h3 className="text-3xl font-black text-orange-400">{stats.expiringSoon}</h3></div>
                                     <div className="w-12 h-12 bg-orange-500/10 rounded-full flex items-center justify-center text-orange-400 text-xl"><i className="fas fa-clock"></i></div>
                                 </div>
                                 <div className="bg-slate-900/80 p-6 rounded-2xl border border-slate-700 shadow-lg flex items-center justify-between border-l-4 border-l-red-500">
@@ -724,8 +725,8 @@ export default function EmergencyEquipment() {
                                         <option value="Insp Overdue">Routine Insp. Overdue</option>
                                         <option value="Refill Overdue">Refill Overdue</option>
                                         <option value="HPT Overdue">HPT Overdue</option>
-                                        <option value="Refill < 30 Days">Refill Due &lt; 30 Days</option>
-                                        <option value="HPT < 30 Days">HPT Due &lt; 30 Days</option>
+                                        <option value="Refill < 7 Days">Refill Due In 7 Days</option>
+                                        <option value="HPT < 7 Days">HPT Due In 7 Days</option>
                                     </select>
                                 </div>
                                 <div className="ml-auto text-xs text-slate-500 font-bold bg-slate-950 px-3 py-2 rounded-lg border border-slate-800">
