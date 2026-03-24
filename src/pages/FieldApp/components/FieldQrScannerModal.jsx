@@ -99,7 +99,7 @@ export default function FieldQrScannerModal({ isOpen, onClose, onDetected }) {
                         <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.3em] text-cyan-300">QR Intake</p>
                         <h2 className="text-2xl font-black tracking-tight text-white">Scan PTW, LOTO, or Equipment Tags</h2>
                         <p className="mt-2 text-sm text-slate-400">
-                            The field portal will route the scan to the right live module automatically.
+                            The app will route the scan to the right live module automatically.
                         </p>
                     </div>
 

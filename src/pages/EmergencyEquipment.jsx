@@ -22,6 +22,28 @@ const FIRE_EXT_TYPES = [
     { name: 'Clean Agent / Halotron', refillYears: 3, hptYears: 3 }
 ];
 
+const getTodayDate = () => new Date().toISOString().split('T')[0];
+
+const addMonthsToDate = (dateString, months) => {
+    if (!dateString) return '';
+    const parsed = new Date(`${dateString}T00:00:00`);
+    if (Number.isNaN(parsed.getTime())) return '';
+    parsed.setMonth(parsed.getMonth() + months);
+    return parsed.toISOString().split('T')[0];
+};
+
+const createInspectionDraft = (record, { qrScanMode = false, notes = '' } = {}) => {
+    const inspectionDate = getTodayDate();
+    return {
+        ...record,
+        date: inspectionDate,
+        nextDate: addMonthsToDate(inspectionDate, 1),
+        notes,
+        checks: { gauge: true, pin: true, hose: true, body: true },
+        qrScanMode
+    };
+};
+
 export default function EmergencyEquipment() {
     const navigate = useNavigate();
     const location = useLocation();
@@ -42,7 +64,7 @@ export default function EmergencyEquipment() {
 
     const [formData, setFormData] = useState({
         firebaseKey: null, assetId: '', siteId: '', type: 'Fire Extinguisher', location: '',
-        lastInspection: new Date().toISOString().split('T')[0], nextInspection: '', status: 'Active', notes: '',
+        lastInspection: getTodayDate(), nextInspection: addMonthsToDate(getTodayDate(), 1), status: 'Active', notes: '',
         extinguisherType: '', lastRefillDate: '', lastHptDate: '', nextRefillDate: '', nextHptDate: ''
     });
 
@@ -66,14 +88,7 @@ export default function EmergencyEquipment() {
                         const targetEq = { firebaseKey: publicScanId, ...eqSnap.val() };
                         const publicSite = params.get('site') || targetEq.siteId || 'All';
                         setSiteFilter(publicSite);
-                        setInspectData({
-                            ...targetEq,
-                            date: new Date().toISOString().split('T')[0],
-                            nextDate: targetEq.nextInspection || '',
-                            notes: targetEq.notes || '',
-                            checks: { gauge: true, pin: true, hose: true, body: true },
-                            qrScanMode: true
-                        });
+                        setInspectData(createInspectionDraft(targetEq, { qrScanMode: true, notes: targetEq.notes || '' }));
                         setView('inspect');
                     }
                 } catch (err) {
@@ -118,14 +133,7 @@ export default function EmergencyEquipment() {
                     if (scanId) {
                         const targetEq = loadedEq.find(e => e.firebaseKey === scanId);
                         if (targetEq) {
-                            setInspectData({
-                                ...targetEq,
-                                date: new Date().toISOString().split('T')[0],
-                                nextDate: targetEq.nextInspection || '',
-                                notes: '',
-                                checks: { gauge: true, pin: true, hose: true, body: true },
-                                qrScanMode: true
-                            });
+                            setInspectData(createInspectionDraft(targetEq, { qrScanMode: true }));
                             setView('inspect');
                             window.history.replaceState(null, '', '/emergency-equipment');
                         }
@@ -162,6 +170,14 @@ export default function EmergencyEquipment() {
         }
     }, [formData.type, formData.extinguisherType, formData.lastRefillDate, formData.lastHptDate, formData.nextRefillDate, formData.nextHptDate]);
 
+    useEffect(() => {
+        if (!formData.lastInspection) return;
+        const nextInspection = addMonthsToDate(formData.lastInspection, 1);
+        if (nextInspection && nextInspection !== formData.nextInspection) {
+            setFormData(prev => ({ ...prev, nextInspection }));
+        }
+    }, [formData.lastInspection, formData.nextInspection]);
+
     const isGlobalUser = ['Global Owner', 'Global Manager', 'Owner', 'Admin'].includes(session?.role);
     const canEdit = ['Global Owner', 'Global Manager', 'Owner', 'Admin', 'Site Owner', 'Site Manager', 'HSE Rep'].includes(session?.role);
     const hasInspectionSiteAccess = useMemo(() => {
@@ -177,6 +193,11 @@ export default function EmergencyEquipment() {
         }
         return canEdit;
     }, [canEdit, hasInspectionSiteAccess, inspectData, isFieldQrMode, session]);
+    const calculatedNextInspectionDate = useMemo(() => addMonthsToDate(inspectData?.date, 1), [inspectData?.date]);
+    const isInspectionOverdue = useMemo(() => {
+        if (!inspectData?.nextInspection) return false;
+        return inspectData.nextInspection < getTodayDate();
+    }, [inspectData?.nextInspection]);
 
     // --- FILTER ENGINE ---
     const visibleEquipment = useMemo(() => {
@@ -264,7 +285,13 @@ export default function EmergencyEquipment() {
                 finalAssetId = `${formData.siteId}-${locPrefix}-${randomNum}`;
             }
 
-            const payload = { ...formData, assetId: finalAssetId, updatedBy: session.name || session.email, lastUpdated: new Date().toISOString() };
+            const payload = {
+                ...formData,
+                assetId: finalAssetId,
+                nextInspection: addMonthsToDate(formData.lastInspection, 1),
+                updatedBy: session.name || session.email,
+                lastUpdated: new Date().toISOString()
+            };
 
             if (formData.firebaseKey) {
                 await update(ref(rtdb, `organizations/${session.orgId}/emergencyEquipment/${formData.firebaseKey}`), payload);
@@ -290,10 +317,11 @@ export default function EmergencyEquipment() {
             const finalNotes = inspectData.notes
                 ? `${checklistStr}${inspectData.notes} (Inspected by ${session.name})`
                 : `${checklistStr}Routine inspection by ${session.name}`;
+            const nextInspection = addMonthsToDate(inspectData.date, 1);
 
             const payload = {
                 lastInspection: inspectData.date,
-                nextInspection: inspectData.nextDate,
+                nextInspection,
                 status: inspectData.status,
                 notes: finalNotes,
                 updatedBy: session.name,
@@ -622,7 +650,7 @@ export default function EmergencyEquipment() {
                                     <h2 className="text-2xl font-bold text-white flex items-center gap-3">Facility Registry</h2>
                                     <p className="text-sm text-slate-400">QR-Enabled inspection tracking for life-safety apparatus.</p>
                                 </div>
-                                {canEdit && <button onClick={() => { setFormData({ id: '', siteId: siteFilter === 'All' ? '' : siteFilter, type: 'Fire Extinguisher', location: '', assetId: '', lastInspection: new Date().toISOString().split('T')[0], nextInspection: '', status: 'Active', notes: '', extinguisherType: '', lastRefillDate: '', lastHptDate: '', nextRefillDate: '', nextHptDate: '' }); setView('form'); }} className="bg-gradient-to-tr from-orange-600 to-red-500 hover:from-orange-500 hover:to-red-400 text-white px-5 py-2.5 rounded-xl font-bold text-sm shadow-lg flex items-center gap-2 transition-transform active:scale-95 whitespace-nowrap"><i className="fas fa-plus"></i> Add Equipment</button>}
+                                {canEdit && <button onClick={() => { const today = getTodayDate(); setFormData({ id: '', siteId: siteFilter === 'All' ? '' : siteFilter, type: 'Fire Extinguisher', location: '', assetId: '', lastInspection: today, nextInspection: addMonthsToDate(today, 1), status: 'Active', notes: '', extinguisherType: '', lastRefillDate: '', lastHptDate: '', nextRefillDate: '', nextHptDate: '' }); setView('form'); }} className="bg-gradient-to-tr from-orange-600 to-red-500 hover:from-orange-500 hover:to-red-400 text-white px-5 py-2.5 rounded-xl font-bold text-sm shadow-lg flex items-center gap-2 transition-transform active:scale-95 whitespace-nowrap"><i className="fas fa-plus"></i> Add Equipment</button>}
                             </div>
 
                             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-2">
@@ -702,7 +730,7 @@ export default function EmergencyEquipment() {
                                                             {/* QR TAG BUTTON */}
                                                             <button onClick={() => { setPrintTagData(e); setTimeout(() => window.print(), 500); }} className="bg-slate-800 hover:bg-slate-700 border border-slate-600 text-white px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-colors shadow" title="Print QR Tag"><i className="fas fa-qrcode"></i> Tag</button>
 
-                                                            <button onClick={() => { setInspectData({ ...e, date: new Date().toISOString().split('T')[0], nextDate: e.nextInspection || '', status: e.status, notes: '', checks: { gauge: true, pin: true, hose: true, body: true }, qrScanMode: false }); setView('inspect'); }} className="bg-emerald-900/20 hover:bg-emerald-600 border border-emerald-500/30 text-emerald-400 hover:text-white px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-colors"><i className="fas fa-clipboard-check mr-1"></i> Inspect</button>
+                                                            <button onClick={() => { setInspectData(createInspectionDraft(e)); setView('inspect'); }} className="bg-emerald-900/20 hover:bg-emerald-600 border border-emerald-500/30 text-emerald-400 hover:text-white px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-colors"><i className="fas fa-clipboard-check mr-1"></i> Inspect</button>
                                                             <button onClick={() => { setFormData(e); setView('form'); }} className="bg-slate-800 hover:bg-slate-700 text-slate-300 w-8 h-8 rounded-lg flex items-center justify-center transition-colors"><i className="fas fa-edit"></i></button>
                                                             <button onClick={() => handleDelete(e.firebaseKey)} className="bg-red-900/20 hover:bg-red-600 text-red-500 hover:text-white w-8 h-8 rounded-lg flex items-center justify-center transition-colors"><i className="fas fa-trash-alt"></i></button>
                                                         </div>
@@ -798,8 +826,8 @@ export default function EmergencyEquipment() {
                                         <input type="date" value={formData.lastInspection} onChange={e => setFormData({ ...formData, lastInspection: e.target.value })} className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-white outline-none focus:border-blue-500 font-mono" />
                                     </div>
                                     <div>
-                                        <label className="text-[10px] uppercase font-bold text-slate-400 block mb-2">Next Inspection Due Date</label>
-                                        <input type="date" value={formData.nextInspection} onChange={e => setFormData({ ...formData, nextInspection: e.target.value })} className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-white outline-none focus:border-blue-500 font-mono" />
+                                        <label className="text-[10px] uppercase font-bold text-slate-400 block mb-2">Next Inspection Due Date (Auto +1 Month)</label>
+                                        <input type="date" value={formData.nextInspection} readOnly className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-white outline-none font-mono cursor-not-allowed" />
                                     </div>
                                 </div>
 
@@ -921,8 +949,22 @@ export default function EmergencyEquipment() {
                                 <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 shadow-inner text-sm">
                                     <p className="text-slate-400 mb-1">Location: <strong className="text-white">{inspectData.location}</strong></p>
                                     <p className="text-slate-400 mb-1">Last Inspected: <strong className="text-white font-mono">{inspectData.lastInspection}</strong></p>
+                                    <p className="text-slate-400 mb-1">Current Scheduled Due: <strong className={`font-mono ${isInspectionOverdue ? 'text-red-400' : 'text-emerald-400'}`}>{inspectData.nextInspection || 'Not Set'}</strong></p>
                                     {inspectData.type === 'Fire Extinguisher' && <p className="text-slate-400">Extinguisher Type: <strong className="text-orange-400">{inspectData.extinguisherType || 'Unknown'}</strong></p>}
                                 </div>
+
+                                {inspectData.nextInspection && (
+                                    <div className={`rounded-2xl border px-4 py-4 text-sm shadow-inner ${isInspectionOverdue ? 'border-red-500/40 bg-red-950/30 text-red-100' : 'border-emerald-500/30 bg-emerald-950/20 text-emerald-100'}`}>
+                                        <div className="text-[10px] font-bold uppercase tracking-[0.25em]">
+                                            {isInspectionOverdue ? 'Inspection Overdue' : 'Inspection On Schedule'}
+                                        </div>
+                                        <p className="mt-2 font-medium">
+                                            {isInspectionOverdue
+                                                ? `This asset missed its due date of ${inspectData.nextInspection}. Submit this inspection to reset the monthly cycle from the new inspection date.`
+                                                : `The current inspection cycle is due on ${inspectData.nextInspection}. When you submit this inspection, the next due date will roll forward by one month from the inspection date below.`}
+                                        </p>
+                                    </div>
+                                )}
 
                                 {/* Fire Extinguisher Specific Checklist */}
                                 {inspectData.type === 'Fire Extinguisher' && (
@@ -956,7 +998,7 @@ export default function EmergencyEquipment() {
                                     </div>
                                     <div>
                                         <label className="text-[10px] uppercase font-bold text-emerald-400 block mb-2">Next Inspection Due</label>
-                                        <input type="date" value={inspectData.nextDate} onChange={e => setInspectData({ ...inspectData, nextDate: e.target.value })} disabled={!canOperateInspectionSheet} className="w-full bg-emerald-950/20 border border-emerald-500/50 rounded-xl p-3 text-emerald-300 outline-none focus:border-emerald-400 font-mono font-bold disabled:opacity-60" />
+                                        <input type="date" value={calculatedNextInspectionDate} readOnly className="w-full bg-emerald-950/20 border border-emerald-500/50 rounded-xl p-3 text-emerald-300 outline-none font-mono font-bold cursor-not-allowed" />
                                     </div>
                                 </div>
 

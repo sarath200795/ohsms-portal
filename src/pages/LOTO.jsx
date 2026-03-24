@@ -3,11 +3,12 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { ref, get, update, push, remove } from 'firebase/database';
 import { rtdb } from '../config/firebase';
 import { getFieldPortalLoginPath, getPortalAwareHomePath } from './FieldApp/portalAuth';
+import FieldQrScannerModal from './FieldApp/components/FieldQrScannerModal';
+import { resolveFieldQrNavigation } from './FieldApp/utils';
 import * as XLSX from 'xlsx';
 import QRious from 'qrious';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { Html5Qrcode } from 'html5-qrcode';
 
 // ==========================================
 // CONFIGURATION & CONSTANTS
@@ -61,7 +62,7 @@ export default function Loto() {
     const [currentView, setCurrentView] = useState('dashboard');
     const [permissions, setPermissions] = useState({ viewOnly: true, canDelete: false, canEditCreate: false });
     const [siteFilter, setSiteFilter] = useState('All');
-    const [isScanning, setIsScanning] = useState(false);
+    const [scannerOpen, setScannerOpen] = useState(false);
     const [procForm, setProcForm] = useState(null);
     const [executionProc, setExecutionProc] = useState(null);
 
@@ -188,26 +189,26 @@ export default function Loto() {
         return allowedSiteCodes.has(procForm.facility);
     }, [permissions.canEditCreate, isGlobalUser, allowedSiteCodes, procForm?.facility, isPublic]);
 
-    // ==========================================
-    // QR SCANNER LOGIC
-    // ==========================================
-    useEffect(() => {
-        let html5QrcodeScanner = null;
-        if (isScanning && !isPublic) {
-            html5QrcodeScanner = new Html5Qrcode("reader");
-            html5QrcodeScanner.start({ facingMode: "environment" }, { fps: 10, qrbox: { width: 250, height: 250 } }, (decodedText) => {
-                html5QrcodeScanner.stop().then(() => {
-                    setIsScanning(false);
-                    let targetId = decodedText;
-                    try { targetId = new URL(decodedText).searchParams.get('execute') || decodedText; } catch (e) { }
-                    const proc = procedures.find(p => p.firebaseKey === targetId || p.id === targetId);
-                    if (proc) { setExecutionProc(proc); setCurrentView('execute'); }
-                    else { alert("Procedure not found in database."); }
-                }).catch(e => console.error(e));
-            }, () => { }).catch(err => { alert("Camera access error"); setIsScanning(false); });
+    const handleUniversalQrDetected = (decodedText) => {
+        const target = resolveFieldQrNavigation({ decodedText, fallbackSite: siteFilter });
+        if (target) {
+            setScannerOpen(false);
+            navigate(target.path);
+            return;
         }
-        return () => { if (html5QrcodeScanner && html5QrcodeScanner.isScanning) html5QrcodeScanner.stop().catch(console.error); };
-    }, [isScanning, procedures, isPublic]);
+
+        const fallbackId = String(decodedText || '').trim();
+        const proc = procedures.find((item) => item.firebaseKey === fallbackId || item.id === fallbackId);
+        if (proc) {
+            setScannerOpen(false);
+            setExecutionProc(proc);
+            setCurrentView('execute');
+            return;
+        }
+
+        setScannerOpen(false);
+        alert("Unsupported QR code. Scan a PTW, LOTO, or emergency equipment tag.");
+    };
 
     // Data filtering
     const filteredProcedures = useMemo(() => procedures.filter(p => canViewRecord(p.facility) && (siteFilter === 'All' || p.facility === siteFilter)), [procedures, siteFilter, canViewRecord]);
@@ -353,22 +354,6 @@ export default function Loto() {
     };
 
     if (loading) return <div className="flex h-screen items-center justify-center text-white bg-slate-950 font-['Space_Grotesk']"><i className="fas fa-circle-notch fa-spin text-3xl mb-4 text-red-500 mr-3"></i><h2 className="font-bold">Initializing LOTO...</h2></div>;
-
-    // ===================================================================================
-    // RENDER: SCANNER VIEW
-    // ===================================================================================
-    if (isScanning) {
-        return (
-            <div className="fixed inset-0 bg-slate-950/95 backdrop-blur-xl z-[9999] flex flex-col items-center justify-center p-6">
-                <style>{`#reader { width: 100%; max-width: 500px; border-radius: 20px; overflow: hidden; border: 2px solid rgba(255, 255, 255, 0.1); box-shadow: 0 0 50px rgba(239, 68, 68, 0.2); margin: 0 auto; } #reader__scan_region video { object-fit: cover !important; }`}</style>
-                <div className="max-w-md w-full bg-slate-900 border border-slate-700 p-8 rounded-3xl shadow-2xl">
-                    <h2 className="text-2xl font-bold text-white text-center mb-6"><i className="fas fa-qrcode text-purple-500 mr-2"></i> Scan LOTO Tag</h2>
-                    <div id="reader" className="mb-8 rounded-xl overflow-hidden border border-slate-700 shadow-lg"></div>
-                    <button onClick={() => setIsScanning(false)} className="w-full bg-slate-700 hover:bg-slate-600 text-white font-bold py-4 rounded-xl text-sm transition-colors">Cancel Scan</button>
-                </div>
-            </div>
-        );
-    }
 
     // ===================================================================================
     // RENDER: EXECUTE VIEW (HANDLES BOTH INTERNAL USERS AND PUBLIC READ-ONLY)
@@ -525,7 +510,7 @@ export default function Loto() {
                             {allowedSites.map(s => <option key={s.code} value={s.code}>{s.name}</option>)}
                         </select>
                     </div>
-                    <button onClick={() => setIsScanning(true)} className="bg-purple-600 hover:bg-purple-500 text-white px-5 py-2.5 rounded-xl text-xs font-bold transition shadow-lg shadow-purple-900/50 flex items-center gap-2"><i className="fas fa-qrcode"></i> Scan QR</button>
+                    <button onClick={() => setScannerOpen(true)} className="bg-purple-600 hover:bg-purple-500 text-white px-5 py-2.5 rounded-xl text-xs font-bold transition shadow-lg shadow-purple-900/50 flex items-center gap-2"><i className="fas fa-qrcode"></i> Scan Any QR</button>
                 </div>
             </header>
 
@@ -782,6 +767,12 @@ export default function Loto() {
                     </div>
                 )}
             </main>
+
+            <FieldQrScannerModal
+                isOpen={scannerOpen}
+                onClose={() => setScannerOpen(false)}
+                onDetected={handleUniversalQrDetected}
+            />
         </div>
     );
 }
