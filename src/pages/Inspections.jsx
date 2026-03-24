@@ -18,11 +18,21 @@ const UserSelect = ({ users, value, onChange, disabled, placeholder }) => (
 );
 
 // --- DATE MATH UTILITIES ---
-const calculateNextDueDate = (lastDateStr, frequency, createdDateStr) => {
-    const baseDate = lastDateStr ? new Date(lastDateStr) : new Date(createdDateStr || Date.now());
-    if (isNaN(baseDate.getTime())) return new Date();
+const parseDateOnly = (dateStr) => {
+    if (!dateStr) return null;
+    const [year, month, day] = String(dateStr).split('T')[0].split('-').map(Number);
+    if (!year || !month || !day) return null;
+    return new Date(year, month - 1, day);
+};
 
-    const nextDate = new Date(baseDate);
+const formatDateOnly = (date) => {
+    const parsed = date instanceof Date ? date : parseDateOnly(date);
+    if (!parsed || isNaN(parsed.getTime())) return '';
+    return `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, '0')}-${String(parsed.getDate()).padStart(2, '0')}`;
+};
+
+const addFrequencyToDate = (date, frequency) => {
+    const nextDate = new Date(date);
     switch (frequency) {
         case 'Daily': nextDate.setDate(nextDate.getDate() + 1); break;
         case 'Weekly': nextDate.setDate(nextDate.getDate() + 7); break;
@@ -34,6 +44,49 @@ const calculateNextDueDate = (lastDateStr, frequency, createdDateStr) => {
     }
     return nextDate;
 };
+
+const getRecordScheduleDate = (record) => {
+    if (record.scheduledFor) return record.scheduledFor;
+    if (record.originalDueString) return record.originalDueString;
+    if (record.dueString) return record.dueString;
+    return record.completedAt ? String(record.completedAt).split('T')[0] : '';
+};
+
+const getNextScheduledOccurrence = (assignedFrom, assignedTo, frequency, pastRecords = []) => {
+    const startDate = parseDateOnly(assignedFrom);
+    if (!startDate) return null;
+
+    const endDate = parseDateOnly(assignedTo);
+    const completedSlots = new Set(pastRecords.map(getRecordScheduleDate).filter(Boolean));
+    let cursor = new Date(startDate);
+    let safetyCounter = 0;
+
+    while (safetyCounter < 1000) {
+        if (endDate && cursor > endDate) return null;
+
+        const cursorString = formatDateOnly(cursor);
+        if (!completedSlots.has(cursorString)) {
+            return { date: cursor, dateString: cursorString };
+        }
+
+        cursor = addFrequencyToDate(cursor, frequency);
+        safetyCounter += 1;
+    }
+
+    return null;
+};
+
+const createEmptyTemplate = (siteId = '') => ({
+    id: '',
+    title: '',
+    desc: '',
+    siteId,
+    frequency: 'Monthly',
+    status: 'Draft',
+    assignedFrom: '',
+    assignedTo: '',
+    fields: []
+});
 
 export default function Inspections() {
     const navigate = useNavigate();
@@ -96,9 +149,13 @@ export default function Inspections() {
     // --- SCHEDULING ENGINE (WITH GLOBAL EXPLOSION) ---
     const scheduledTasks = useMemo(() => {
         const tasks = [];
+        const todayString = formatDateOnly(new Date());
         const activeTemplates = templates.filter(t => t.status === 'Active');
 
         activeTemplates.forEach(t => {
+            if (!t.assignedFrom) return;
+            if (t.assignedTo && t.assignedTo < todayString) return;
+
             let targetSites = [];
             if (t.siteId === 'GLOBAL') {
                 targetSites = siteFilter === 'All' ? sites.map(s => s.code) : [siteFilter];
@@ -108,29 +165,33 @@ export default function Inspections() {
 
             targetSites.forEach(targetSiteId => {
                 const pastRecords = records.filter(r => r.templateId === t.firebaseKey && r.siteId === targetSiteId).sort((a, b) => new Date(b.completedAt) - new Date(a.completedAt));
-                const lastRecord = pastRecords[0];
+                const nextOccurrence = getNextScheduledOccurrence(t.assignedFrom, t.assignedTo, t.frequency, pastRecords);
+                if (!nextOccurrence) return;
 
-                const nextDue = calculateNextDueDate(lastRecord?.completedAt, t.frequency, t.createdAt);
-                const originalDueString = nextDue.toISOString().split('T')[0];
+                const originalDueString = nextOccurrence.dateString;
 
                 let activeDueString = originalDueString;
                 let isDeferred = false;
 
-                if (t.deferredTo && t.deferredTo > (lastRecord?.completedAt?.split('T')[0] || '1970-01-01')) {
+                if (t.deferredTo && t.deferredTo >= originalDueString) {
                     activeDueString = t.deferredTo;
-                    isDeferred = true;
+                    isDeferred = t.deferredTo !== originalDueString;
                 }
+
+                if (t.assignedTo && activeDueString > t.assignedTo) return;
 
                 tasks.push({
                     templateId: t.firebaseKey,
                     title: t.title,
                     siteId: targetSiteId,
                     frequency: t.frequency,
-                    dueDate: new Date(activeDueString),
+                    dueDate: parseDateOnly(activeDueString),
                     dueString: activeDueString,
                     originalDueString: originalDueString,
                     isDeferred: isDeferred,
-                    lastCompleted: lastRecord ? lastRecord.completedAt : 'Never',
+                    lastCompleted: pastRecords[0] ? pastRecords[0].completedAt : 'Never',
+                    assignmentStart: t.assignedFrom,
+                    assignmentEnd: t.assignedTo || '',
                     template: t
                 });
             });
@@ -152,21 +213,14 @@ export default function Inspections() {
             const isToday = new Date().toISOString().split('T')[0] === dateStr;
 
             const tasksToday = scheduledTasks.filter(t => t.dueString === dateStr);
-            const completedToday = records.filter(r => r.completedAt.split('T')[0] === dateStr && (siteFilter === 'All' || r.siteId === siteFilter));
 
             days.push(
                 <div key={day} className={`p-2 border border-slate-700 min-h-[100px] flex flex-col ${isToday ? 'bg-blue-900/20' : 'bg-slate-900/60'}`}>
                     <div className={`text-right text-xs font-bold mb-1 ${isToday ? 'text-blue-400' : 'text-slate-500'}`}>{day}</div>
                     <div className="flex-1 space-y-1 overflow-y-auto custom-scroll pr-1">
 
-                        {completedToday.map((r, idx) => (
-                            <div key={`comp-${idx}`} onClick={() => { setViewingRecord(r); setView('view-record'); }} className="text-[9px] p-1.5 rounded cursor-pointer truncate font-bold shadow-sm transition-transform hover:scale-105 bg-emerald-900/40 text-emerald-400 border border-emerald-500/30" title={`Completed: ${r.templateTitle}`}>
-                                <i className="fas fa-check-circle mr-1"></i> {r.templateTitle}
-                            </div>
-                        ))}
-
                         {tasksToday.map((t, idx) => {
-                            const isOverdue = new Date(t.dueString) < new Date(new Date().toISOString().split('T')[0]);
+                            const isOverdue = t.dueString < formatDateOnly(new Date());
                             return (
                                 <div key={`due-${idx}`} onClick={() => startInspection(t)} className={`text-[9px] p-1.5 rounded cursor-pointer truncate font-bold shadow-sm transition-transform hover:scale-105 ${isOverdue ? 'bg-red-500 text-white' : 'bg-lime-500 text-slate-950'}`} title={t.title}>
                                     {t.title} {t.isDeferred && ' (Def)'}
@@ -198,9 +252,17 @@ export default function Inspections() {
     const saveTemplate = async () => {
         if (!editTemplate.title || !editTemplate.siteId) return alert("Title and Site are required.");
         if (editTemplate.fields.length === 0) return alert("Please add at least one inspection question.");
+        if (editTemplate.assignedTo && !editTemplate.assignedFrom) return alert("Please set an assignment start date before adding an assignment end date.");
+        if (editTemplate.assignedFrom && editTemplate.assignedTo && editTemplate.assignedTo < editTemplate.assignedFrom) return alert("Assignment end date cannot be earlier than the start date.");
 
         try {
-            const payload = { ...editTemplate, updatedBy: session.name, updatedAt: new Date().toISOString() };
+            const payload = {
+                ...editTemplate,
+                assignedFrom: editTemplate.assignedFrom || '',
+                assignedTo: editTemplate.assignedTo || '',
+                updatedBy: session.name,
+                updatedAt: new Date().toISOString()
+            };
             if (!payload.createdAt) payload.createdAt = new Date().toISOString();
 
             if (editTemplate.firebaseKey) {
@@ -356,15 +418,22 @@ export default function Inspections() {
                 siteId: executingTask.siteId,
                 inspector: session.name,
                 completedAt: completedAt,
+                scheduledFor: executingTask.originalDueString,
+                dueString: executingTask.dueString,
+                originalDueString: executingTask.originalDueString,
+                assignmentStart: executingTask.assignmentStart || '',
+                assignmentEnd: executingTask.assignmentEnd || '',
                 responses: inspectionForm,
                 capa: generatedCapas
             };
 
             const newRecordRef = push(ref(rtdb, `organizations/${session.orgId}/inspectionRecords`));
             await update(newRecordRef, recordPayload);
+            setRecords(prev => [...prev, { firebaseKey: newRecordRef.key, ...recordPayload }]);
 
             // Clear any deferrals so the next cycle resets to normal
             await update(ref(rtdb, `organizations/${session.orgId}/inspectionTemplates/${executingTask.templateId}`), { deferredTo: null });
+            setTemplates(prev => prev.map(t => t.firebaseKey === executingTask.templateId ? { ...t, deferredTo: null } : t));
 
             if (generatedCapas.length > 0) {
                 alert(`Inspection Completed! ${generatedCapas.length} Corrective Actions (CAPAs) were automatically added to the Global CAPA Register.`);
@@ -372,6 +441,7 @@ export default function Inspections() {
                 alert("Inspection Completed Successfully!");
             }
 
+            setExecutingTask(null);
             setView('calendar');
         } catch (e) {
             alert("Failed to submit inspection: " + e.message);
@@ -430,7 +500,7 @@ export default function Inspections() {
                                 <div className="flex justify-between items-end mb-4">
                                     <div>
                                         <h2 className="text-3xl font-bold text-white mb-1">Inspection Schedule</h2>
-                                        <p className="text-sm text-slate-400">Auto-generated due dates based on form frequency.</p>
+                                        <p className="text-sm text-slate-400">Only assigned active inspections appear here, and recurrence starts from the assigned start date.</p>
                                     </div>
                                     <div className="flex gap-4 items-center">
                                         <select value={siteFilter} onChange={e => { setSiteFilter(e.target.value); sessionStorage.setItem('isoCurrentSite', e.target.value); }} className="bg-slate-900 border border-slate-700 text-white text-xs font-bold px-4 py-2 rounded-xl outline-none">
@@ -444,6 +514,12 @@ export default function Inspections() {
                                         </div>
                                     </div>
                                 </div>
+
+                                {scheduledTasks.length === 0 && (
+                                    <div className="bg-slate-900/50 border border-slate-700 rounded-2xl p-4 text-sm text-slate-300">
+                                        No assigned inspections are currently scheduled for this selection. Activate a form and set an assignment start date in Manage Forms to place it on the calendar.
+                                    </div>
+                                )}
 
                                 <div className="bg-slate-900/60 backdrop-blur-md rounded-2xl border border-slate-700 overflow-hidden shadow-2xl">
                                     <div className="grid grid-cols-7 bg-slate-950 border-b border-slate-800">
@@ -542,9 +618,9 @@ export default function Inspections() {
                                 <div className="flex justify-between items-end mb-6">
                                     <div>
                                         <h2 className="text-3xl font-bold text-white mb-2">Form Templates</h2>
-                                        <p className="text-sm text-slate-400">Create forms and set frequencies to drive the automated calendar.</p>
+                                        <p className="text-sm text-slate-400">Create forms, then assign a live start and end window to control when they appear on the calendar.</p>
                                     </div>
-                                    <button onClick={() => { setEditTemplate({ id: '', title: '', desc: '', siteId: siteFilter === 'All' ? '' : siteFilter, frequency: 'Monthly', status: 'Draft', fields: [] }); setView('builder'); }} className="bg-lime-500 hover:bg-lime-400 text-slate-950 font-bold px-5 py-3 rounded-xl shadow-lg shadow-lime-500/20 transition-transform active:scale-95 flex items-center gap-2 text-sm">
+                                    <button onClick={() => { setEditTemplate(createEmptyTemplate(siteFilter === 'All' ? '' : siteFilter)); setView('builder'); }} className="bg-lime-500 hover:bg-lime-400 text-slate-950 font-bold px-5 py-3 rounded-xl shadow-lg shadow-lime-500/20 transition-transform active:scale-95 flex items-center gap-2 text-sm">
                                         <i className="fas fa-plus"></i> Create New Form
                                     </button>
                                 </div>
@@ -557,7 +633,16 @@ export default function Inspections() {
                                         <tbody className="divide-y divide-slate-800/50">
                                             {templates.filter(t => siteFilter === 'All' || t.siteId === siteFilter || t.siteId === 'GLOBAL').map(t => (
                                                 <tr key={t.firebaseKey} className="hover:bg-slate-800/40">
-                                                    <td className="p-5 pl-6 font-bold text-white text-base">{t.title}</td>
+                                                    <td className="p-5 pl-6">
+                                                        <div className="font-bold text-white text-base">{t.title}</div>
+                                                        <div className="text-[10px] uppercase tracking-widest mt-2">
+                                                            {t.assignedFrom ? (
+                                                                <span className="text-blue-400">Assigned: {t.assignedFrom}{t.assignedTo ? ` to ${t.assignedTo}` : ' onward'}</span>
+                                                            ) : (
+                                                                <span className="text-amber-400">Not assigned to live schedule</span>
+                                                            )}
+                                                        </div>
+                                                    </td>
                                                     <td className="p-5">{t.siteId}</td>
                                                     <td className="p-5 font-mono text-lime-400">{t.frequency}</td>
                                                     <td className="p-5">
@@ -572,7 +657,7 @@ export default function Inspections() {
                                                         </select>
                                                     </td>
                                                     <td className="p-5 pr-6 text-right flex justify-end gap-2">
-                                                        <button onClick={() => { setEditTemplate(t); setView('builder'); }} className="bg-slate-800 hover:bg-slate-700 text-white w-9 h-9 rounded-lg flex items-center justify-center transition-colors border border-slate-600"><i className="fas fa-edit"></i></button>
+                                                        <button onClick={() => { setEditTemplate({ ...createEmptyTemplate(t.siteId), ...t, assignedFrom: t.assignedFrom || '', assignedTo: t.assignedTo || '', fields: t.fields || [] }); setView('builder'); }} className="bg-slate-800 hover:bg-slate-700 text-white w-9 h-9 rounded-lg flex items-center justify-center transition-colors border border-slate-600"><i className="fas fa-edit"></i></button>
                                                         <button onClick={() => deleteTemplate(t.firebaseKey)} className="bg-red-900/20 hover:bg-red-600 text-red-500 hover:text-white w-9 h-9 rounded-lg flex items-center justify-center transition-colors border border-red-500/30"><i className="fas fa-trash-alt"></i></button>
                                                     </td>
                                                 </tr>
@@ -592,12 +677,12 @@ export default function Inspections() {
                                     <button onClick={() => setView('templates')} className="text-slate-500 hover:text-white"><i className="fas fa-times text-xl"></i></button>
                                 </div>
 
-                                <div className="grid grid-cols-2 gap-6 mb-8">
-                                    <div className="col-span-2">
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+                                    <div className="md:col-span-2">
                                         <label className="text-[10px] uppercase font-bold text-slate-400 block mb-2">Form Title</label>
                                         <input value={editTemplate.title} onChange={e => setEditTemplate({ ...editTemplate, title: e.target.value })} placeholder="e.g. Daily Forklift Pre-Use Check" className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-white outline-none focus:border-lime-500 font-bold" />
                                     </div>
-                                    <div className="col-span-2">
+                                    <div className="md:col-span-2">
                                         <label className="text-[10px] uppercase font-bold text-slate-400 block mb-2">Description / Instructions</label>
                                         <textarea value={editTemplate.desc} onChange={e => setEditTemplate({ ...editTemplate, desc: e.target.value })} placeholder="Instructions for the inspector..." rows="2" className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-white outline-none focus:border-lime-500 resize-none text-sm"></textarea>
                                     </div>
@@ -620,6 +705,16 @@ export default function Inspections() {
                                         <select value={editTemplate.status} onChange={e => setEditTemplate({ ...editTemplate, status: e.target.value })} className={`w-full bg-slate-950 border border-slate-700 rounded-xl p-3 outline-none font-bold ${editTemplate.status === 'Active' ? 'text-lime-400' : 'text-slate-400'}`}>
                                             {STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
                                         </select>
+                                    </div>
+                                    <div>
+                                        <label className="text-[10px] uppercase font-bold text-slate-400 block mb-2">Assign From</label>
+                                        <input type="date" value={editTemplate.assignedFrom || ''} onChange={e => setEditTemplate({ ...editTemplate, assignedFrom: e.target.value })} className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-white outline-none focus:border-lime-500 font-mono" />
+                                        <p className="text-[10px] text-slate-500 mt-2">The first scheduled occurrence starts on this date.</p>
+                                    </div>
+                                    <div>
+                                        <label className="text-[10px] uppercase font-bold text-slate-400 block mb-2">Assign Until</label>
+                                        <input type="date" value={editTemplate.assignedTo || ''} min={editTemplate.assignedFrom || undefined} onChange={e => setEditTemplate({ ...editTemplate, assignedTo: e.target.value })} className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-white outline-none focus:border-lime-500 font-mono" />
+                                        <p className="text-[10px] text-slate-500 mt-2">Optional. Leave blank to keep the inspection active indefinitely.</p>
                                     </div>
                                 </div>
 
