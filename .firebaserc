@@ -1,5 +1,14 @@
 {
   "projects": {
     "default": "ohsms-3894f"
+  },
+  "targets": {
+    "ohsms-3894f": {
+      "hosting": {
+        "app": [
+          "ohsms-3894f"
+        ]
+      }
+    }
   }
 }

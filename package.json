@@ -6,9 +6,13 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "build:field-portal": "vite build --config vite.field-portal.config.js",
+    "build:all": "npm run build && npm run build:field-portal",
     "lint": "eslint . --ext js,jsx --report-unused-disable-directives --max-warnings 0",
     "preview": "vite preview",
-    "firebase:deploy": "firebase deploy --only database,hosting",
+    "preview:field-portal": "vite preview --config vite.field-portal.config.js",
+    "firebase:deploy": "firebase deploy --only database,hosting:app",
+    "firebase:deploy:field-portal": "npm run build:field-portal && firebase deploy --only hosting:fieldportal",
     "firebase:rules": "firebase deploy --only database"
   },
   "dependencies": {

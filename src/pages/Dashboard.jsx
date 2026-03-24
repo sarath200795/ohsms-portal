@@ -212,6 +212,7 @@ export default function Dashboard() {
     const firstName = session?.name?.split(' ')[0] || 'Team Member';
     const isGlobalAdmin = ['Global Owner', 'Global Manager', 'Owner', 'Admin'].includes(session?.role);
     const activeSiteName = selectedSite === 'GLOBAL' ? 'Global View (All Sites)' : (sites.find(s => s.code === selectedSite)?.name || selectedSite);
+    const hasFieldAppAccess = isGlobalAdmin || visibleModules.some((module) => ['Incidents', 'Inspections', 'OHS Tools', 'Record Emergency'].includes(module.id));
 
     return (
         <div className="flex flex-col h-screen bg-slate-950 text-white font-['Space_Grotesk'] overflow-hidden relative">
@@ -330,6 +331,16 @@ export default function Dashboard() {
                                     <span className="bg-emerald-900/30 text-emerald-400 px-3 py-1 rounded-lg text-xs font-bold uppercase tracking-widest border border-emerald-500/30 flex items-center gap-2">
                                         <i className="fas fa-check-circle"></i> All caught up
                                     </span>
+                                )}
+
+                                {hasFieldAppAccess && (
+                                    <button
+                                        type="button"
+                                        onClick={() => navigate(`/field-portal?site=${selectedSite === 'GLOBAL' ? 'All' : selectedSite}`)}
+                                        className="bg-cyan-500/15 text-cyan-300 hover:bg-cyan-500 hover:text-slate-950 transition-colors px-3 py-1 rounded-lg text-xs font-bold uppercase tracking-widest border border-cyan-500/30 flex items-center gap-2"
+                                    >
+                                        <i className="fas fa-mobile-screen-button"></i> Open Field Portal
+                                    </button>
                                 )}
                             </div>
                         </div>

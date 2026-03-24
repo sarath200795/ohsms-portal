@@ -30,13 +30,22 @@ import Health from './pages/Health';
 import MockDrill from './pages/MockDrill';
 import EmergencyEquipment from './pages/EmergencyEquipment';
 import Inspections from './pages/Inspections';
+import FieldApp from './pages/FieldApp';
+import FieldPortal from './pages/FieldPortal';
+import { FIELD_PORTAL_SESSION_KEY } from './pages/FieldApp/portalAuth';
 
 // --- Import External Portals ---
 import VendorPortal from './pages/VendorPortal';
 
 // --- Global Security Interceptor ---
 const ProtectedRoute = ({ children }) => {
-    const session = sessionStorage.getItem('isoSession');
+    let session = sessionStorage.getItem('isoSession');
+    const fieldPortalSession = sessionStorage.getItem(FIELD_PORTAL_SESSION_KEY);
+
+    if (!session && fieldPortalSession) {
+        sessionStorage.setItem('isoSession', fieldPortalSession);
+        session = fieldPortalSession;
+    }
 
     if (!session) {
         const currentUrl = window.location.href;
@@ -54,7 +63,9 @@ export default function App() {
 
     useEffect(() => {
         const unsubscribe = onAuthStateChanged(auth, (user) => {
-            if (!user) sessionStorage.removeItem('isoSession');
+            if (!user && !sessionStorage.getItem(FIELD_PORTAL_SESSION_KEY)) {
+                sessionStorage.removeItem('isoSession');
+            }
             setIsAuthChecking(false);
         });
         return () => unsubscribe();
@@ -75,6 +86,7 @@ export default function App() {
                 {/* PUBLIC ROUTES */}
                 <Route path="/" element={<Login />} />
                 <Route path="/vendor-portal" element={<VendorPortal />} />
+                <Route path="/field-portal" element={<FieldPortal />} />
 
                 {/* HYBRID ROUTES (Handles their own auth checks for QR codes) */}
                 <Route path="/loto" element={<LOTO />} />
@@ -99,6 +111,7 @@ export default function App() {
                 <Route path="/mock-drill" element={<ProtectedRoute><MockDrill /></ProtectedRoute>} />
                 <Route path="/emergency-equipment" element={<ProtectedRoute><EmergencyEquipment /></ProtectedRoute>} />
                 <Route path="/inspections" element={<ProtectedRoute><Inspections /></ProtectedRoute>} />
+                <Route path="/field-app" element={<ProtectedRoute><FieldApp /></ProtectedRoute>} />
 
                 <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
