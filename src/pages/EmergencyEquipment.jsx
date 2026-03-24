@@ -32,6 +32,21 @@ const addMonthsToDate = (dateString, months) => {
     return parsed.toISOString().split('T')[0];
 };
 
+const countMissedMonthlyInspections = (nextDueDate, referenceDate) => {
+    if (!nextDueDate || !referenceDate || nextDueDate >= referenceDate) return 0;
+
+    let missedCount = 0;
+    let cursor = nextDueDate;
+
+    while (cursor < referenceDate && missedCount < 120) {
+        missedCount += 1;
+        cursor = addMonthsToDate(cursor, 1);
+        if (!cursor) break;
+    }
+
+    return missedCount;
+};
+
 const createInspectionDraft = (record, { qrScanMode = false, notes = '' } = {}) => {
     const inspectionDate = getTodayDate();
     return {
@@ -200,11 +215,13 @@ export default function EmergencyEquipment() {
         }
         return canEdit;
     }, [canEdit, hasInspectionSiteAccess, inspectData, isFieldQrMode, session]);
+    const todayDate = getTodayDate();
     const calculatedNextInspectionDate = useMemo(() => addMonthsToDate(inspectData?.date, 1), [inspectData?.date]);
     const isInspectionOverdue = useMemo(() => {
         if (!inspectData?.nextInspection) return false;
-        return inspectData.nextInspection < getTodayDate();
-    }, [inspectData?.nextInspection]);
+        return inspectData.nextInspection < todayDate;
+    }, [inspectData?.nextInspection, todayDate]);
+    const missedInspectionMonths = useMemo(() => countMissedMonthlyInspections(inspectData?.nextInspection, todayDate), [inspectData?.nextInspection, todayDate]);
 
     // --- FILTER ENGINE ---
     const visibleEquipment = useMemo(() => {
@@ -979,6 +996,11 @@ export default function EmergencyEquipment() {
                                                 ? `This asset missed its due date of ${inspectData.nextInspection}. Submit this inspection to reset the monthly cycle from the new inspection date.`
                                                 : `The current inspection cycle is due on ${inspectData.nextInspection}. When you submit this inspection, the next due date will roll forward by one month from the inspection date below.`}
                                         </p>
+                                        {isInspectionOverdue && missedInspectionMonths > 0 && (
+                                            <p className="mt-3 font-bold uppercase tracking-[0.2em] text-red-300">
+                                                Missed Monthly Inspections: {missedInspectionMonths}
+                                            </p>
+                                        )}
                                     </div>
                                 )}
 
@@ -1007,9 +1029,13 @@ export default function EmergencyEquipment() {
                                     </div>
                                 )}
 
-                                <div className="grid grid-cols-2 gap-4">
+                                <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
                                     <div>
-                                        <label className="text-[10px] uppercase font-bold text-slate-400 block mb-2">Today's Inspection Date</label>
+                                        <label className="text-[10px] uppercase font-bold text-slate-400 block mb-2">Last Inspection Date</label>
+                                        <input type="date" value={inspectData.lastInspection || ''} readOnly className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-white outline-none font-mono font-bold cursor-not-allowed" />
+                                    </div>
+                                    <div>
+                                        <label className="text-[10px] uppercase font-bold text-slate-400 block mb-2">New Inspection Date</label>
                                         <input type="date" value={inspectData.date} onChange={e => setInspectData({ ...inspectData, date: e.target.value })} disabled={!canOperateInspectionSheet} className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-white outline-none focus:border-emerald-500 font-mono font-bold disabled:opacity-60" />
                                     </div>
                                     <div>
