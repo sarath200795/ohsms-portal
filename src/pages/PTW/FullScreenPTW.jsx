@@ -1120,6 +1120,8 @@ export default function FullScreenPTW() {
 
     const myName = session?.name || session?.user || 'Me';
     const myEmail = session?.email?.toLowerCase().trim() || '';
+    const isFieldQrMode = useMemo(() => new URLSearchParams(location.search).get('fieldQr') === '1', [location.search]);
+    const isQrReadOnly = Boolean(isFieldQrMode && session?.role !== 'User');
 
     useEffect(() => {
         try {
@@ -1365,6 +1367,7 @@ export default function FullScreenPTW() {
     const canInspectPermit = (permit) => {
         if (!permit || !session) return false;
         const hasSiteAccess = isGlobalUser || allowedSiteCodes.has(permit.siteId);
+        if (isQrReadOnly) return false;
         return hasSiteAccess && permit.status === 'Work in Progress';
     };
 
@@ -1732,7 +1735,7 @@ export default function FullScreenPTW() {
     };
 
     const triggerPrint = (permit) => {
-        const qrUrl = `${window.location.origin}${window.location.pathname}?ptw=${permit.id}`;
+        const qrUrl = `${window.location.origin}${window.location.pathname}?ptw=${encodeURIComponent(permit.id)}&site=${encodeURIComponent(permit.siteId || siteFilter || 'All')}&org=${encodeURIComponent(session.orgId)}&fieldQr=1`;
         try {
             const qr = new QRious({ value: qrUrl, size: 200 });
             setQrImage(qr.toDataURL());
@@ -1797,19 +1800,21 @@ export default function FullScreenPTW() {
                     </div>
                 </header>
 
-                <div className="z-10 flex flex-wrap gap-3 border-b border-slate-800 bg-slate-950 px-8 pb-4 pt-6">
-                    <button type="button" onClick={() => { setSelectedPermitId(null); syncPtwQuery(''); setCurrentView('dashboard'); }} className={`flex items-center rounded-lg border px-5 py-2.5 text-sm font-bold shadow-sm transition-all ${currentView === 'dashboard' ? 'border-amber-500 bg-amber-600 text-white shadow-amber-900/50' : 'border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700 hover:text-white'}`}>
-                        <i className="fas fa-chart-pie mr-2"></i> PTW Dashboard
-                    </button>
-                    <button type="button" onClick={() => { setSelectedPermitId(null); syncPtwQuery(''); setCurrentView('inventory'); }} className={`flex items-center rounded-lg border px-5 py-2.5 text-sm font-bold shadow-sm transition-all ${currentView === 'inventory' ? 'border-amber-500 bg-amber-600 text-white shadow-amber-900/50' : 'border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700 hover:text-white'}`}>
-                        <i className="fas fa-folder-open mr-2"></i> Permit Registry
-                    </button>
-                    {permissions.canEditCreate && (
-                        <button type="button" onClick={() => openForm()} className={`flex items-center rounded-lg border px-5 py-2.5 text-sm font-bold shadow-sm transition-all ${currentView === 'builder' ? 'border-emerald-500 bg-emerald-600 text-white shadow-emerald-900/50' : 'border-slate-700 bg-slate-800 text-emerald-400 hover:bg-slate-700 hover:text-emerald-300'}`}>
-                            <i className="fas fa-plus mr-2"></i> Issue Permit
+                {!isQrReadOnly && (
+                    <div className="z-10 flex flex-wrap gap-3 border-b border-slate-800 bg-slate-950 px-8 pb-4 pt-6">
+                        <button type="button" onClick={() => { setSelectedPermitId(null); syncPtwQuery(''); setCurrentView('dashboard'); }} className={`flex items-center rounded-lg border px-5 py-2.5 text-sm font-bold shadow-sm transition-all ${currentView === 'dashboard' ? 'border-amber-500 bg-amber-600 text-white shadow-amber-900/50' : 'border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700 hover:text-white'}`}>
+                            <i className="fas fa-chart-pie mr-2"></i> PTW Dashboard
                         </button>
-                    )}
-                </div>
+                        <button type="button" onClick={() => { setSelectedPermitId(null); syncPtwQuery(''); setCurrentView('inventory'); }} className={`flex items-center rounded-lg border px-5 py-2.5 text-sm font-bold shadow-sm transition-all ${currentView === 'inventory' ? 'border-amber-500 bg-amber-600 text-white shadow-amber-900/50' : 'border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700 hover:text-white'}`}>
+                            <i className="fas fa-folder-open mr-2"></i> Permit Registry
+                        </button>
+                        {permissions.canEditCreate && (
+                            <button type="button" onClick={() => openForm()} className={`flex items-center rounded-lg border px-5 py-2.5 text-sm font-bold shadow-sm transition-all ${currentView === 'builder' ? 'border-emerald-500 bg-emerald-600 text-white shadow-emerald-900/50' : 'border-slate-700 bg-slate-800 text-emerald-400 hover:bg-slate-700 hover:text-emerald-300'}`}>
+                                <i className="fas fa-plus mr-2"></i> Issue Permit
+                            </button>
+                        )}
+                    </div>
+                )}
 
                 <main className="relative flex-1 overflow-y-auto pb-20 font-['Inter'] custom-scroll">
                     {currentView === 'dashboard' && (
@@ -1841,7 +1846,9 @@ export default function FullScreenPTW() {
                     {currentView === 'viewer' && selectedPermit && (
                         <PermitViewerComponent
                             canInspect={canInspectPermit(selectedPermit)}
-                            onBack={closePermitViewer}
+                            onBack={isQrReadOnly
+                                ? () => navigate(getPortalAwareHomePath({ fallbackPath: '/dashboard', site: selectedPermit.siteId || siteFilter }))
+                                : closePermitViewer}
                             onInspect={(permit) => {
                                 setInspectionObservation('');
                                 setInspectionModal(permit);

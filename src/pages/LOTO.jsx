@@ -64,6 +64,8 @@ export default function Loto() {
     const [isScanning, setIsScanning] = useState(false);
     const [procForm, setProcForm] = useState(null);
     const [executionProc, setExecutionProc] = useState(null);
+    const isFieldQrMode = useMemo(() => new URLSearchParams(location.search).get('fieldQr') === '1', [location.search]);
+    const isQrExecutionReadOnly = Boolean(isFieldQrMode && !isPublic && session?.role !== 'User');
 
     // =========================================================================
     // INITIALIZATION & ROUTING ENGINE
@@ -290,7 +292,7 @@ export default function Loto() {
             try {
                 if (typeof QRious !== 'undefined') {
                     // NEW LOGIC: Appends &org= so public users can scan and view without logging in
-                    const scanUrl = proc.firebaseKey ? `${window.location.origin}${window.location.pathname}?execute=${proc.firebaseKey}&org=${session.orgId}` : 'UNSAVED_DRAFT';
+                    const scanUrl = proc.firebaseKey ? `${window.location.origin}${window.location.pathname}?execute=${proc.firebaseKey}&org=${session.orgId}&site=${encodeURIComponent(proc.facility || siteFilter || 'All')}&fieldQr=1` : 'UNSAVED_DRAFT';
                     qrData = new QRious({ value: scanUrl, size: 250 }).toDataURL();
                 }
             } catch (e) { }
@@ -333,7 +335,7 @@ export default function Loto() {
     const triggerExecution = (proc) => { setExecutionProc(proc); setCurrentView('execute'); };
 
     const toggleLock = async (proc, step) => {
-        if (isPublic) return; // Failsafe to prevent external contractors from executing locks
+        if (isPublic || isQrExecutionReadOnly) return;
         const globalLiveMap = {};
         [...logs].sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp)).forEach(log => {
             if (!globalLiveMap[log.procId]) globalLiveMap[log.procId] = new Set();
@@ -378,7 +380,7 @@ export default function Loto() {
         if (!activeProc) {
             const execId = new URLSearchParams(window.location.search).get('execute');
             activeProc = procedures.find(p => p.firebaseKey === execId);
-            if (!activeProc) return <div className="p-10 text-center text-white bg-slate-950 h-screen font-['Space_Grotesk']">Procedure not found. <button onClick={() => isPublic ? window.close() : navigate('/dashboard')} className="block mx-auto mt-4 bg-red-600 hover:bg-red-500 px-6 py-3 rounded-xl font-bold transition">Close</button></div>;
+            if (!activeProc) return <div className="p-10 text-center text-white bg-slate-950 h-screen font-['Space_Grotesk']">Procedure not found. <button onClick={() => isPublic ? window.close() : navigate(getPortalAwareHomePath({ fallbackPath: '/dashboard', site: siteFilter }))} className="block mx-auto mt-4 bg-red-600 hover:bg-red-500 px-6 py-3 rounded-xl font-bold transition">Close</button></div>;
         }
 
         if (!canViewRecord(activeProc.facility)) {
@@ -399,6 +401,8 @@ export default function Loto() {
             });
         }
 
+        const isReadOnlyExecution = isPublic || isQrExecutionReadOnly;
+
         return (
             <div className="min-h-screen bg-slate-950 p-4 md:p-8 max-w-lg mx-auto animate-fade-in pb-24 font-['Space_Grotesk']">
                 <style>{`.glass-panel { background: rgba(30, 41, 59, 0.6); backdrop-filter: blur(16px); border: 1px solid rgba(255, 255, 255, 0.08); box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1); }`}</style>
@@ -410,6 +414,8 @@ export default function Loto() {
                     </div>
                     {isPublic ? (
                         <div className="text-[10px] font-bold text-yellow-400 uppercase tracking-widest bg-yellow-900/30 px-3 py-1.5 rounded-lg border border-yellow-500/30">PUBLIC READ-ONLY</div>
+                    ) : isQrExecutionReadOnly ? (
+                        <div className="text-[10px] font-bold text-sky-300 uppercase tracking-widest bg-sky-900/30 px-3 py-1.5 rounded-lg border border-sky-500/30">QR READ-ONLY</div>
                     ) : (
                         <div className="text-[10px] font-bold text-emerald-400 uppercase tracking-widest bg-emerald-900/30 px-3 py-1.5 rounded-lg border border-emerald-500/30"><div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse inline-block mr-2"></div> ACTIVE</div>
                     )}
@@ -447,9 +453,9 @@ export default function Loto() {
                                         </div>
 
                                         {/* PUBLIC USERS CANNOT APPLY LOCKS */}
-                                        {isPublic ? (
+                                        {isReadOnlyExecution ? (
                                             <div className="w-full py-4 rounded-xl font-bold uppercase text-xs flex items-center justify-center gap-2 bg-slate-800/50 text-slate-400 border border-slate-700/50 shadow-inner">
-                                                <i className="fas fa-eye"></i> Public Read-Only View
+                                                <i className="fas fa-eye"></i> Read-Only View
                                             </div>
                                         ) : (
                                             <button onClick={() => toggleLock(activeProc, s)} className={`w-full py-4 rounded-xl font-bold uppercase text-sm flex items-center justify-center gap-3 transition-transform active:scale-95 shadow-xl ${isLocked ? 'bg-gradient-to-r from-red-600 to-rose-600 text-white shadow-red-900/50 border border-red-400' : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-600'}`}>

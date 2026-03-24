@@ -114,3 +114,89 @@ export const resolveInitialSite = ({ search, session, visibleSites }) => {
 
     return nextSite;
 };
+
+const normalizeFieldQrSite = (site, fallbackSite = 'All') => {
+    const value = String(site || fallbackSite || 'All').trim();
+    if (!value || value === 'GLOBAL') return 'All';
+    return value;
+};
+
+export const resolveFieldQrNavigation = ({ decodedText, fallbackSite = 'All' }) => {
+    const rawValue = String(decodedText || '').trim();
+    if (!rawValue) return null;
+
+    let pathname = '';
+    let params = new URLSearchParams();
+
+    try {
+        const parsedUrl = new URL(rawValue);
+        pathname = parsedUrl.pathname.toLowerCase();
+        params = new URLSearchParams(parsedUrl.search);
+    } catch {
+        const queryIndex = rawValue.indexOf('?');
+        pathname = rawValue.toLowerCase();
+        params = new URLSearchParams(queryIndex >= 0 ? rawValue.slice(queryIndex + 1) : rawValue);
+    }
+
+    if (params.has('ptw') || pathname.includes('/ptw')) {
+        const permitId = params.get('ptw');
+        if (!permitId) return null;
+
+        const site = normalizeFieldQrSite(params.get('site'), fallbackSite);
+        const nextParams = new URLSearchParams({
+            ptw: permitId,
+            site,
+            fieldQr: '1'
+        });
+
+        if (params.get('org')) nextParams.set('org', params.get('org'));
+
+        return {
+            moduleId: 'ptw',
+            site,
+            path: `/ptw?${nextParams.toString()}`
+        };
+    }
+
+    if (params.has('execute') || pathname.includes('/loto')) {
+        const procedureId = params.get('execute');
+        if (!procedureId) return null;
+
+        const site = normalizeFieldQrSite(params.get('site'), fallbackSite);
+        const nextParams = new URLSearchParams({
+            execute: procedureId,
+            site,
+            fieldQr: '1'
+        });
+
+        if (params.get('org')) nextParams.set('org', params.get('org'));
+
+        return {
+            moduleId: 'loto',
+            site,
+            path: `/loto?${nextParams.toString()}`
+        };
+    }
+
+    if (params.has('scan') || pathname.includes('/emergency-equipment')) {
+        const equipmentId = params.get('scan');
+        if (!equipmentId) return null;
+
+        const site = normalizeFieldQrSite(params.get('site'), fallbackSite);
+        const nextParams = new URLSearchParams({
+            scan: equipmentId,
+            site,
+            fieldQr: '1'
+        });
+
+        if (params.get('org')) nextParams.set('org', params.get('org'));
+
+        return {
+            moduleId: 'emergency-equipment',
+            site,
+            path: `/emergency-equipment?${nextParams.toString()}`
+        };
+    }
+
+    return null;
+};

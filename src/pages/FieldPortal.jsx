@@ -8,6 +8,7 @@ import {
 } from 'firebase/auth';
 import { useLocation, useNavigate } from 'react-router-dom';
 import FieldModuleCard from './FieldApp/components/FieldModuleCard';
+import FieldQrScannerModal from './FieldApp/components/FieldQrScannerModal';
 import {
     FIELD_PORTAL_SESSION_KEY,
     buildFieldPortalAuthErrorMessage,
@@ -19,6 +20,7 @@ import {
     getVisibleFieldModules,
     getVisibleSites,
     isGlobalRole,
+    resolveFieldQrNavigation,
     resolveInitialSite
 } from './FieldApp/utils';
 
@@ -36,6 +38,7 @@ export default function FieldPortal() {
     const [sites, setSites] = useState([]);
     const [selectedSite, setSelectedSite] = useState('All');
     const [loginData, setLoginData] = useState({ email: '', password: '' });
+    const [scannerOpen, setScannerOpen] = useState(false);
     const manualLoginRef = useRef(false);
 
     const visibleSites = useMemo(() => getVisibleSites(sites, portalSession), [sites, portalSession]);
@@ -194,6 +197,29 @@ export default function FieldPortal() {
         navigate(`${modulePath}?site=${siteParam}`);
     };
 
+    const handleQrDetected = (decodedText) => {
+        if (!portalSession) return;
+
+        const target = resolveFieldQrNavigation({ decodedText, fallbackSite: selectedSite });
+        if (!target) {
+            setScannerOpen(false);
+            alert('Unsupported QR code. Scan a PTW, LOTO, or emergency equipment tag.');
+            return;
+        }
+
+        if (!visibleModules.some((module) => module.id === target.moduleId)) {
+            setScannerOpen(false);
+            alert('You do not have access to this field module.');
+            return;
+        }
+
+        const nextSite = target.site || selectedSite;
+        setSelectedSite(nextSite);
+        setScannerOpen(false);
+        syncMainSession(portalSession, nextSite);
+        navigate(target.path);
+    };
+
     if (loading) {
         return (
             <div className="flex h-screen items-center justify-center bg-slate-950 font-['Space_Grotesk'] text-cyan-300">
@@ -311,6 +337,15 @@ export default function FieldPortal() {
 
                         <button
                             type="button"
+                            onClick={() => setScannerOpen(true)}
+                            className="flex h-11 w-11 items-center justify-center rounded-2xl border border-cyan-500/30 bg-cyan-500/10 text-cyan-300 transition-colors hover:bg-cyan-500 hover:text-slate-950"
+                            title="Scan QR"
+                        >
+                            <i className="fas fa-qrcode"></i>
+                        </button>
+
+                        <button
+                            type="button"
                             onClick={handleLogout}
                             className="flex h-11 w-11 items-center justify-center rounded-2xl border border-red-500/30 bg-red-500/10 text-red-300 transition-colors hover:bg-red-500 hover:text-white"
                         >
@@ -353,6 +388,14 @@ export default function FieldPortal() {
                     </div>
 
                     <div className="flex flex-wrap gap-3">
+                        <button
+                            type="button"
+                            onClick={() => setScannerOpen(true)}
+                            className="rounded-2xl border border-cyan-500/30 bg-cyan-500/10 px-4 py-3 text-left transition-colors hover:bg-cyan-500 hover:text-slate-950"
+                        >
+                            <div className="mb-2 text-sm font-black text-cyan-300">Scan Any QR</div>
+                            <div className="text-xs uppercase tracking-[0.2em] text-slate-400">PTW, LOTO, equipment</div>
+                        </button>
                         {visibleModules.slice(0, 3).map((module) => (
                             <button
                                 key={module.id}
@@ -385,6 +428,12 @@ export default function FieldPortal() {
                     </div>
                 </section>
             </main>
+
+            <FieldQrScannerModal
+                isOpen={scannerOpen}
+                onClose={() => setScannerOpen(false)}
+                onDetected={handleQrDetected}
+            />
         </div>
     );
 }
