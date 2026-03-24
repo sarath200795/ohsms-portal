@@ -193,7 +193,7 @@ export default function Inspections() {
                     frequency: t.frequency,
                     dueDate: parseDateOnly(activeDueString),
                     dueString: activeDueString,
-                    visibleFromString: formatDateOnly(subtractDays(parseDateOnly(activeDueString), 7)),
+                    alertStartString: formatDateOnly(subtractDays(parseDateOnly(activeDueString), 7)),
                     originalDueString: originalDueString,
                     isDeferred: isDeferred,
                     lastCompleted: pastRecords[0] ? pastRecords[0].completedAt : 'Never',
@@ -213,16 +213,14 @@ export default function Inspections() {
 
     const renderCalendar = () => {
         let days = [];
+        const todayString = formatDateOnly(new Date());
         for (let i = 0; i < firstDayOfMonth; i++) days.push(<div key={`empty-${i}`} className="p-2 border border-slate-800/50 bg-slate-900/20 min-h-[100px]"></div>);
 
         for (let day = 1; day <= daysInMonth; day++) {
             const dateStr = `${currentMonth.getFullYear()}-${String(currentMonth.getMonth() + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
             const isToday = new Date().toISOString().split('T')[0] === dateStr;
 
-            const tasksToday = scheduledTasks.filter(t => {
-                const visibleFrom = t.assignmentStart && t.visibleFromString < t.assignmentStart ? t.assignmentStart : t.visibleFromString;
-                return dateStr >= visibleFrom;
-            });
+            const tasksToday = scheduledTasks.filter(t => t.dueString === dateStr);
 
             days.push(
                 <div key={day} className={`p-2 border border-slate-700 min-h-[100px] flex flex-col ${isToday ? 'bg-blue-900/20' : 'bg-slate-900/60'}`}>
@@ -230,10 +228,11 @@ export default function Inspections() {
                     <div className="flex-1 space-y-1 overflow-y-auto custom-scroll pr-1">
 
                         {tasksToday.map((t, idx) => {
-                            const isOverdue = dateStr > t.dueString;
-                            const isDueWindow = dateStr >= (t.assignmentStart && t.visibleFromString < t.assignmentStart ? t.assignmentStart : t.visibleFromString) && dateStr <= t.dueString;
+                            const alertStart = t.assignmentStart && t.alertStartString < t.assignmentStart ? t.assignmentStart : t.alertStartString;
+                            const isOverdue = todayString > t.dueString;
+                            const isDueWindow = todayString >= alertStart;
                             return (
-                                <div key={`due-${idx}`} onClick={() => startInspection(t)} className={`text-[9px] p-1.5 rounded cursor-pointer truncate font-bold shadow-sm transition-transform hover:scale-105 ${isOverdue ? 'bg-red-500 text-white' : isDueWindow ? 'bg-amber-400 text-slate-950' : 'bg-lime-500 text-slate-950'}`} title={`${t.title} | Due: ${t.dueString}`}>
+                                <div key={`due-${idx}`} onClick={() => startInspection(t)} className={`text-[9px] p-1.5 rounded cursor-pointer truncate font-bold shadow-sm transition-transform hover:scale-105 ${isOverdue || isDueWindow ? 'bg-red-500 text-white' : 'bg-lime-500 text-slate-950'}`} title={`${t.title} | Due: ${t.dueString}`}>
                                     {t.title} {t.isDeferred && ' (Def)'}
                                 </div>
                             );
@@ -511,7 +510,7 @@ export default function Inspections() {
                                 <div className="flex justify-between items-end mb-4">
                                     <div>
                                         <h2 className="text-3xl font-bold text-white mb-1">Inspection Schedule</h2>
-                                        <p className="text-sm text-slate-400">Assigned inspections appear 7 days before their due date, and stay visible until they are completed.</p>
+                                        <p className="text-sm text-slate-400">Assigned inspections appear only on their scheduled frequency dates, and the due card turns red in the final 7 days.</p>
                                     </div>
                                     <div className="flex gap-4 items-center">
                                         <select value={siteFilter} onChange={e => { setSiteFilter(e.target.value); sessionStorage.setItem('isoCurrentSite', e.target.value); }} className="bg-slate-900 border border-slate-700 text-white text-xs font-bold px-4 py-2 rounded-xl outline-none">
@@ -570,8 +569,8 @@ export default function Inspections() {
                                             {scheduledTasks.filter(t => new Date(t.dueString) < new Date(new Date().toISOString().split('T')[0])).length === 0 && <p className="text-slate-500 text-xs italic">No overdue inspections.</p>}
                                         </div>
                                     </div>
-                                    <div className="bg-slate-900/50 rounded-2xl border border-lime-500/30 p-6 shadow-lg">
-                                        <h3 className="text-lime-400 font-bold uppercase tracking-widest text-xs mb-4 flex items-center gap-2"><i className="fas fa-clock"></i> Upcoming (Next 7 Days)</h3>
+                                    <div className="bg-slate-900/50 rounded-2xl border border-red-500/30 p-6 shadow-lg">
+                                        <h3 className="text-red-400 font-bold uppercase tracking-widest text-xs mb-4 flex items-center gap-2"><i className="fas fa-clock"></i> Upcoming (Next 7 Days)</h3>
                                         <div className="space-y-2">
                                             {scheduledTasks.filter(t => {
                                                 const due = new Date(t.dueString);
@@ -579,12 +578,12 @@ export default function Inspections() {
                                                 const nextWeek = new Date(today); nextWeek.setDate(today.getDate() + 7);
                                                 return due >= today && due <= nextWeek;
                                             }).map((t, i) => (
-                                                <div key={i} className="flex justify-between items-center bg-lime-950/20 border border-lime-900/50 p-3 rounded-xl">
+                                                <div key={i} className="flex justify-between items-center bg-red-950/20 border border-red-900/50 p-3 rounded-xl">
                                                     <div>
-                                                        <div className="font-bold text-slate-200 text-sm">{t.title} {t.isDeferred && <span className="text-[9px] bg-lime-900 text-lime-300 px-1.5 py-0.5 rounded ml-2">DEFERRED</span>}</div>
-                                                        <div className="text-[10px] text-lime-400">Due: {t.dueString} • Site: {t.siteId}</div>
+                                                        <div className="font-bold text-slate-200 text-sm">{t.title} {t.isDeferred && <span className="text-[9px] bg-red-900 text-red-300 px-1.5 py-0.5 rounded ml-2">DEFERRED</span>}</div>
+                                                        <div className="text-[10px] text-red-400">Due: {t.dueString} • Site: {t.siteId}</div>
                                                     </div>
-                                                    <button onClick={() => startInspection(t)} className="bg-lime-600 hover:bg-lime-500 text-slate-950 px-4 py-2 rounded-lg text-xs font-bold transition">Start Early</button>
+                                                    <button onClick={() => startInspection(t)} className="bg-red-600 hover:bg-red-500 text-white px-4 py-2 rounded-lg text-xs font-bold transition">Start Early</button>
                                                 </div>
                                             ))}
                                         </div>
