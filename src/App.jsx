@@ -91,6 +91,7 @@ export default function App() {
                 {/* HYBRID ROUTES (Handles their own auth checks for QR codes) */}
                 <Route path="/loto" element={<LOTO />} />
                 <Route path="/ptw" element={<PTW />} />
+                <Route path="/emergency-equipment" element={<EmergencyEquipment />} />
 
                 {/* PROTECTED ROUTES */}
                 <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
@@ -109,7 +110,6 @@ export default function App() {
                 <Route path="/ohs-tools" element={<ProtectedRoute><OhsTools /></ProtectedRoute>} />
                 <Route path="/health-dashboard" element={<ProtectedRoute><Health /></ProtectedRoute>} />
                 <Route path="/mock-drill" element={<ProtectedRoute><MockDrill /></ProtectedRoute>} />
-                <Route path="/emergency-equipment" element={<ProtectedRoute><EmergencyEquipment /></ProtectedRoute>} />
                 <Route path="/inspections" element={<ProtectedRoute><Inspections /></ProtectedRoute>} />
                 <Route path="/field-app" element={<ProtectedRoute><FieldApp /></ProtectedRoute>} />
 

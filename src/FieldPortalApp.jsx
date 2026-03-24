@@ -37,10 +37,10 @@ export default function FieldPortalApp() {
 
                 <Route path="/loto" element={<LOTO />} />
                 <Route path="/ptw" element={<PTW />} />
+                <Route path="/emergency-equipment" element={<EmergencyEquipment />} />
 
                 <Route path="/incidents" element={<FieldProtectedRoute><Incidents /></FieldProtectedRoute>} />
                 <Route path="/mock-drill" element={<FieldProtectedRoute><MockDrill /></FieldProtectedRoute>} />
-                <Route path="/emergency-equipment" element={<FieldProtectedRoute><EmergencyEquipment /></FieldProtectedRoute>} />
                 <Route path="/inspections" element={<FieldProtectedRoute><Inspections /></FieldProtectedRoute>} />
 
                 <Route path="*" element={<Navigate to="/" replace />} />

@@ -4,7 +4,7 @@ import { get, push, ref, update } from 'firebase/database';
 import QRious from 'qrious';
 
 import { rtdb } from '../../config/firebase';
-import { getPortalAwareHomePath } from '../FieldApp/portalAuth';
+import { getFieldPortalLoginPath, getPortalAwareHomePath } from '../FieldApp/portalAuth';
 import {
     CHECKLIST_ITEMS,
     COMMON_PPE,
@@ -1094,6 +1094,7 @@ export default function FullScreenPTW() {
     const location = useLocation();
 
     const [session, setSession] = useState(null);
+    const [isPublic, setIsPublic] = useState(false);
     const [loading, setLoading] = useState(true);
     const [currentView, setCurrentView] = useState('dashboard');
     const [saving, setSaving] = useState(false);
@@ -1125,9 +1126,42 @@ export default function FullScreenPTW() {
 
     useEffect(() => {
         try {
+            const params = new URLSearchParams(location.search);
+            const permitIdFromQuery = params.get('ptw');
+            const publicOrgId = params.get('org');
             const raw = sessionStorage.getItem('isoSession');
             if (!raw) {
-                navigate('/');
+                if (!permitIdFromQuery || !publicOrgId) {
+                    navigate('/');
+                    return;
+                }
+
+                setIsPublic(true);
+                setPermissions({ viewOnly: true, canDelete: false, canEditCreate: false });
+                setSiteFilter(params.get('site') || 'All');
+
+                const loadPublicPermit = async () => {
+                    try {
+                        const publicSnap = await get(ref(rtdb, `organizations/${publicOrgId}/ptwRecords`));
+                        if (!publicSnap.exists()) return;
+
+                        const permit = safeArrayParse(publicSnap.val())
+                            .map(normalizePermit)
+                            .find((entry) => entry.id === permitIdFromQuery || entry.firebaseKey === permitIdFromQuery);
+
+                        if (!permit) return;
+
+                        setPermits([permit]);
+                        setSelectedPermitId(permit.id);
+                        setCurrentView('viewer');
+                    } catch (error) {
+                        console.error('Public PTW load error:', error);
+                    } finally {
+                        setLoading(false);
+                    }
+                };
+
+                loadPublicPermit();
                 return;
             }
 
@@ -1154,7 +1188,6 @@ export default function FullScreenPTW() {
                 canEditCreate: ['Global Owner', 'Global Manager', 'Owner', 'Admin', 'Site Owner', 'Site Manager', 'User'].includes(cleanRole)
             });
 
-            const params = new URLSearchParams(location.search);
             let contextSite = params.get('site') || sessionStorage.getItem('isoCurrentSite') || 'All';
             if (!isGlobalAdmin && contextSite === 'All') {
                 contextSite = (sess.assignedSite && sess.assignedSite !== 'GLOBAL')
@@ -1748,12 +1781,75 @@ export default function FullScreenPTW() {
         }, 500);
     };
 
-    if (loading || !session) {
+    if (loading || (!session && !isPublic)) {
         return (
             <div className="flex h-screen items-center justify-center bg-slate-950 font-['Space_Grotesk'] text-white">
                 <div className="flex flex-col items-center gap-4">
                     <div className="h-12 w-12 animate-spin rounded-full border-4 border-slate-800 border-t-amber-500"></div>
                     <h2 className="text-sm font-bold uppercase tracking-widest text-slate-400">Loading PTW System...</h2>
+                </div>
+            </div>
+        );
+    }
+
+    if (isPublic) {
+        const redirectPath = `${location.pathname}${location.search}`;
+
+        if (!selectedPermit) {
+            return (
+                <div className="flex min-h-screen items-center justify-center bg-slate-950 p-6 font-['Space_Grotesk'] text-white">
+                    <div className="w-full max-w-2xl rounded-[2rem] border border-slate-800 bg-slate-900/80 p-8 text-center shadow-2xl">
+                        <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.3em] text-amber-300">QR Access</p>
+                        <h1 className="text-3xl font-black text-white">Permit Not Found</h1>
+                        <p className="mt-3 text-sm text-slate-400">
+                            This PTW QR code does not map to an active permit record.
+                        </p>
+                        <button
+                            type="button"
+                            onClick={() => navigate('/field-portal')}
+                            className="mt-6 rounded-2xl bg-slate-800 px-5 py-3 text-sm font-bold uppercase tracking-[0.2em] text-white transition hover:bg-slate-700"
+                        >
+                            Open Field Portal
+                        </button>
+                    </div>
+                </div>
+            );
+        }
+
+        return (
+            <div className="min-h-screen bg-slate-950 font-['Space_Grotesk'] text-white">
+                <div className="mx-auto max-w-6xl px-4 pb-16 pt-8 sm:px-6">
+                    <div className="mb-6 rounded-[2rem] border border-amber-500/30 bg-amber-500/10 p-5 shadow-xl">
+                        <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.3em] text-amber-300">Public Read-Only</p>
+                        <h1 className="text-2xl font-black text-white">Permit to Work</h1>
+                        <p className="mt-2 text-sm text-slate-300">
+                            You can review this permit now. Sign in through the field portal if you need to inspect or take action.
+                        </p>
+                    </div>
+
+                    <PermitViewerComponent
+                        canInspect={false}
+                        onBack={() => navigate('/field-portal')}
+                        onInspect={() => {}}
+                        permit={selectedPermit}
+                    />
+
+                    <div className="mt-6 flex flex-wrap gap-3">
+                        <button
+                            type="button"
+                            onClick={() => navigate(getFieldPortalLoginPath(redirectPath))}
+                            className="rounded-2xl bg-cyan-500 px-5 py-3 text-sm font-black uppercase tracking-[0.2em] text-slate-950 transition-colors hover:bg-cyan-400"
+                        >
+                            Sign In To Perform Actions
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => navigate('/field-portal')}
+                            className="rounded-2xl border border-slate-700 bg-slate-900 px-5 py-3 text-sm font-bold uppercase tracking-[0.2em] text-white transition-colors hover:bg-slate-800"
+                        >
+                            Field Portal Home
+                        </button>
+                    </div>
                 </div>
             </div>
         );

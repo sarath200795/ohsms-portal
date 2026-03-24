@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { ref, get, update, push, remove } from 'firebase/database';
 import { rtdb } from '../config/firebase';
-import { getPortalAwareHomePath } from './FieldApp/portalAuth';
+import { getFieldPortalLoginPath, getPortalAwareHomePath } from './FieldApp/portalAuth';
 import * as XLSX from 'xlsx';
 import QRious from 'qrious';
 import jsPDF from 'jspdf';
@@ -472,6 +472,17 @@ export default function Loto() {
                 {!isPublic && (
                     <div className="mt-10 pt-6 border-t border-slate-800 text-center">
                         <button onClick={() => setCurrentView('inventory')} className="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white px-6 py-3 rounded-xl text-sm font-bold transition shadow-lg"><i className="fas fa-arrow-left mr-2"></i> Return to Directory</button>
+                    </div>
+                )}
+
+                {isPublic && (
+                    <div className="mt-6 flex justify-center">
+                        <button
+                            onClick={() => navigate(getFieldPortalLoginPath(`${location.pathname}${location.search}`))}
+                            className="rounded-xl bg-cyan-500 px-6 py-3 text-sm font-black uppercase tracking-[0.2em] text-slate-950 transition-colors hover:bg-cyan-400"
+                        >
+                            Sign In To Perform Lock Actions
+                        </button>
                     </div>
                 )}
             </div>

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { ref, get, push, update, remove } from 'firebase/database';
 import { rtdb } from '../config/firebase';
-import { getPortalAwareHomePath } from './FieldApp/portalAuth';
+import { getFieldPortalLoginPath, getPortalAwareHomePath } from './FieldApp/portalAuth';
 import { QRCodeSVG } from 'qrcode.react';
 import * as XLSX from 'xlsx';
 import ExcelJS from 'exceljs';
@@ -27,6 +27,7 @@ export default function EmergencyEquipment() {
     const location = useLocation();
 
     const [session, setSession] = useState(null);
+    const [isPublic, setIsPublic] = useState(false);
     const [equipment, setEquipment] = useState([]);
     const [sites, setSites] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -50,12 +51,44 @@ export default function EmergencyEquipment() {
     const isFieldQrMode = useMemo(() => new URLSearchParams(location.search).get('fieldQr') === '1', [location.search]);
 
     useEffect(() => {
+        const params = new URLSearchParams(location.search);
+        const publicScanId = params.get('scan');
+        const publicOrgId = params.get('org');
         const s = sessionStorage.getItem('isoSession');
-        if (!s) { navigate('/'); return; }
+        if (!s) {
+            if (!publicScanId || !publicOrgId) { navigate('/'); return; }
+            setIsPublic(true);
+
+            const fetchPublicData = async () => {
+                try {
+                    const eqSnap = await get(ref(rtdb, `organizations/${publicOrgId}/emergencyEquipment/${publicScanId}`));
+                    if (eqSnap.exists()) {
+                        const targetEq = { firebaseKey: publicScanId, ...eqSnap.val() };
+                        const publicSite = params.get('site') || targetEq.siteId || 'All';
+                        setSiteFilter(publicSite);
+                        setInspectData({
+                            ...targetEq,
+                            date: new Date().toISOString().split('T')[0],
+                            nextDate: targetEq.nextInspection || '',
+                            notes: targetEq.notes || '',
+                            checks: { gauge: true, pin: true, hose: true, body: true },
+                            qrScanMode: true
+                        });
+                        setView('inspect');
+                    }
+                } catch (err) {
+                    console.error(err);
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            fetchPublicData();
+            return;
+        }
         const sess = JSON.parse(s);
         setSession(sess);
 
-        const params = new URLSearchParams(location.search);
         let ctxSite = params.get('site') || sessionStorage.getItem('isoCurrentSite') || 'All';
         const scanId = params.get('scan');
 
@@ -459,7 +492,102 @@ export default function EmergencyEquipment() {
         return <span className="bg-emerald-900/30 text-emerald-400 border border-emerald-500/30 px-2 py-1 rounded text-[10px] font-bold uppercase tracking-widest block w-fit">Active & Compliant</span>;
     };
 
-    if (loading) return <div className="h-screen flex items-center justify-center bg-slate-950 text-slate-400 animate-pulse font-['Space_Grotesk'] tracking-widest text-xs uppercase"><div className="w-8 h-8 border-2 border-slate-800 border-t-orange-500 rounded-full animate-spin mr-3"></div> Loading Registry...</div>;
+    if (loading || (!session && !isPublic)) return <div className="h-screen flex items-center justify-center bg-slate-950 text-slate-400 animate-pulse font-['Space_Grotesk'] tracking-widest text-xs uppercase"><div className="w-8 h-8 border-2 border-slate-800 border-t-orange-500 rounded-full animate-spin mr-3"></div> Loading Registry...</div>;
+
+    if (isPublic) {
+        const redirectPath = `${location.pathname}${location.search}`;
+
+        if (!inspectData) {
+            return (
+                <div className="flex min-h-screen items-center justify-center bg-slate-950 p-6 font-['Space_Grotesk'] text-white">
+                    <div className="w-full max-w-2xl rounded-[2rem] border border-slate-800 bg-slate-900/80 p-8 text-center shadow-2xl">
+                        <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.3em] text-fuchsia-300">QR Access</p>
+                        <h1 className="text-3xl font-black text-white">Equipment Record Not Found</h1>
+                        <p className="mt-3 text-sm text-slate-400">
+                            This emergency equipment QR code does not map to an active registry record.
+                        </p>
+                        <button
+                            type="button"
+                            onClick={() => navigate('/field-portal')}
+                            className="mt-6 rounded-2xl bg-slate-800 px-5 py-3 text-sm font-bold uppercase tracking-[0.2em] text-white transition hover:bg-slate-700"
+                        >
+                            Open Field Portal
+                        </button>
+                    </div>
+                </div>
+            );
+        }
+
+        return (
+            <div className="min-h-screen bg-slate-950 font-['Space_Grotesk'] text-white">
+                <div className="mx-auto max-w-4xl px-4 pb-16 pt-8 sm:px-6">
+                    <div className="mb-6 rounded-[2rem] border border-fuchsia-500/30 bg-fuchsia-500/10 p-5 shadow-xl">
+                        <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.3em] text-fuchsia-300">Public Read-Only</p>
+                        <h1 className="text-2xl font-black text-white">Emergency Equipment</h1>
+                        <p className="mt-2 text-sm text-slate-300">
+                            You can review this equipment record now. Sign in through the field portal to log or submit an inspection.
+                        </p>
+                    </div>
+
+                    <div className="rounded-[2rem] border border-slate-800 bg-slate-900/80 p-6 shadow-2xl">
+                        <div className="mb-6 flex items-start justify-between gap-4">
+                            <div>
+                                <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.25em] text-slate-500">Asset</p>
+                                <h2 className="text-3xl font-black text-white">{inspectData.assetId || inspectData.firebaseKey}</h2>
+                                <p className="mt-2 text-sm text-slate-400">{inspectData.type}</p>
+                            </div>
+                            <span className="rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-[10px] font-bold uppercase tracking-[0.25em] text-slate-300">
+                                Site {inspectData.siteId || siteFilter}
+                            </span>
+                        </div>
+
+                        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                            <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-4">
+                                <p className="text-[10px] font-bold uppercase tracking-[0.25em] text-slate-500">Location</p>
+                                <p className="mt-2 text-sm font-bold text-white">{inspectData.location || 'N/A'}</p>
+                            </div>
+                            <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-4">
+                                <p className="text-[10px] font-bold uppercase tracking-[0.25em] text-slate-500">Status</p>
+                                <p className="mt-2 text-sm font-bold text-white">{inspectData.status || 'N/A'}</p>
+                            </div>
+                            <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-4">
+                                <p className="text-[10px] font-bold uppercase tracking-[0.25em] text-slate-500">Last Inspection</p>
+                                <p className="mt-2 text-sm font-bold text-white">{inspectData.lastInspection || 'N/A'}</p>
+                            </div>
+                            <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-4">
+                                <p className="text-[10px] font-bold uppercase tracking-[0.25em] text-slate-500">Next Due</p>
+                                <p className="mt-2 text-sm font-bold text-white">{inspectData.nextInspection || inspectData.nextDate || 'N/A'}</p>
+                            </div>
+                        </div>
+
+                        {inspectData.notes && (
+                            <div className="mt-4 rounded-2xl border border-slate-800 bg-slate-950/70 p-4">
+                                <p className="text-[10px] font-bold uppercase tracking-[0.25em] text-slate-500">Notes</p>
+                                <p className="mt-2 text-sm text-slate-300">{inspectData.notes}</p>
+                            </div>
+                        )}
+                    </div>
+
+                    <div className="mt-6 flex flex-wrap gap-3">
+                        <button
+                            type="button"
+                            onClick={() => navigate(getFieldPortalLoginPath(redirectPath))}
+                            className="rounded-2xl bg-cyan-500 px-5 py-3 text-sm font-black uppercase tracking-[0.2em] text-slate-950 transition-colors hover:bg-cyan-400"
+                        >
+                            Sign In To Perform Inspection
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => navigate('/field-portal')}
+                            className="rounded-2xl border border-slate-700 bg-slate-900 px-5 py-3 text-sm font-bold uppercase tracking-[0.2em] text-white transition-colors hover:bg-slate-800"
+                        >
+                            Field Portal Home
+                        </button>
+                    </div>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="flex flex-col h-screen bg-slate-950 font-['Space_Grotesk'] text-slate-200 overflow-hidden relative">

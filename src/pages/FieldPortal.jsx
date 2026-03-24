@@ -63,16 +63,25 @@ export default function FieldPortal() {
     const finalizePortalContext = ({ sessionData, orgSites, showAlert = false }) => {
         const allowedSites = getVisibleSites(orgSites, sessionData);
         const resolvedSite = resolveInitialSite({ search: location.search, session: sessionData, visibleSites: allowedSites });
+        const redirectPath = new URLSearchParams(location.search).get('redirect');
+        const redirectParams = redirectPath ? new URLSearchParams(redirectPath.split('?')[1] || '') : null;
+        const redirectSite = redirectParams?.get('site');
+        const targetSite = redirectSite || resolvedSite || 'All';
 
         setPortalSession(sessionData);
         setSites(orgSites);
-        setSelectedSite(resolvedSite || 'All');
+        setSelectedSite(targetSite);
         setIsAuthenticated(true);
         setLoginData((prev) => ({ ...prev, email: normalizeEmail(sessionData.email) }));
         sessionStorage.setItem(FIELD_PORTAL_SESSION_KEY, JSON.stringify(sessionData));
+        syncMainSession(sessionData, targetSite);
 
         if (showAlert) {
             alert('Field portal login successful.');
+        }
+
+        if (redirectPath && redirectPath.startsWith('/')) {
+            navigate(redirectPath, { replace: true });
         }
     };
 

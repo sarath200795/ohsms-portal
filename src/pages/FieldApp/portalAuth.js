@@ -45,6 +45,12 @@ export const getPortalAwareHomePath = ({ site = '', fallbackPath = '/dashboard' 
     return `${homePath}${separator}site=${encodeURIComponent(resolvedSite)}`;
 };
 
+export const getFieldPortalLoginPath = (redirectPath = '') => {
+    const cleanRedirect = String(redirectPath || '').trim();
+    if (!cleanRedirect) return '/field-portal';
+    return `/field-portal?redirect=${encodeURIComponent(cleanRedirect)}`;
+};
+
 export const buildFieldPortalAuthErrorMessage = (error) => {
     const code = error?.code || '';
 
