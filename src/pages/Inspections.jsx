@@ -52,34 +52,68 @@ const getRecordScheduleDate = (record) => {
     return record.completedAt ? String(record.completedAt).split('T')[0] : '';
 };
 
+const addDays = (date, days) => {
+    const result = new Date(date);
+    result.setDate(result.getDate() + days);
+    return result;
+};
+
 const subtractDays = (date, days) => {
     const result = new Date(date);
     result.setDate(result.getDate() - days);
     return result;
 };
 
-const getNextScheduledOccurrence = (assignedFrom, assignedTo, frequency, pastRecords = []) => {
+const getPendingOccurrences = ({ assignedFrom, assignedTo, frequency, pastRecords = [], rangeEnd, deferredTo }) => {
     const startDate = parseDateOnly(assignedFrom);
-    if (!startDate) return null;
+    if (!startDate) return [];
 
     const endDate = parseDateOnly(assignedTo);
+    const effectiveRangeEnd = rangeEnd instanceof Date ? rangeEnd : parseDateOnly(rangeEnd);
+    if (!effectiveRangeEnd || isNaN(effectiveRangeEnd.getTime())) return [];
+
     const completedSlots = new Set(pastRecords.map(getRecordScheduleDate).filter(Boolean));
-    let cursor = addFrequencyToDate(startDate, frequency);
+    let cursor = new Date(startDate);
     let safetyCounter = 0;
+    let deferredApplied = false;
+    const occurrences = [];
 
     while (safetyCounter < 1000) {
-        if (endDate && cursor > endDate) return null;
+        if (endDate && cursor > endDate) break;
 
-        const cursorString = formatDateOnly(cursor);
-        if (!completedSlots.has(cursorString)) {
-            return { date: cursor, dateString: cursorString };
+        const originalDateString = formatDateOnly(cursor);
+        if (!completedSlots.has(originalDateString)) {
+            let activeDateString = originalDateString;
+            let isDeferred = false;
+
+            if (!deferredApplied && deferredTo && deferredTo >= originalDateString) {
+                activeDateString = deferredTo;
+                isDeferred = deferredTo !== originalDateString;
+                deferredApplied = true;
+            }
+
+            const activeDate = parseDateOnly(activeDateString);
+            const withinAssignmentWindow = !endDate || (activeDate && activeDate <= endDate);
+            const withinRange = activeDate && activeDate <= effectiveRangeEnd;
+
+            if (withinAssignmentWindow && withinRange) {
+                occurrences.push({
+                    date: activeDate,
+                    dateString: activeDateString,
+                    originalDateString,
+                    alertStartString: formatDateOnly(subtractDays(activeDate, 7)),
+                    isDeferred
+                });
+            }
         }
 
         cursor = addFrequencyToDate(cursor, frequency);
         safetyCounter += 1;
+
+        if (cursor > effectiveRangeEnd && (!endDate || cursor > endDate)) break;
     }
 
-    return null;
+    return occurrences;
 };
 
 const createEmptyTemplate = (siteId = '') => ({
@@ -156,6 +190,9 @@ export default function Inspections() {
     const scheduledTasks = useMemo(() => {
         const tasks = [];
         const todayString = formatDateOnly(new Date());
+        const todayDate = parseDateOnly(todayString);
+        const monthEnd = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 0);
+        const rangeEnd = monthEnd > addDays(todayDate, 7) ? monthEnd : addDays(todayDate, 7);
         const activeTemplates = templates.filter(t => t.status === 'Active');
 
         activeTemplates.forEach(t => {
@@ -171,40 +208,36 @@ export default function Inspections() {
 
             targetSites.forEach(targetSiteId => {
                 const pastRecords = records.filter(r => r.templateId === t.firebaseKey && r.siteId === targetSiteId).sort((a, b) => new Date(b.completedAt) - new Date(a.completedAt));
-                const nextOccurrence = getNextScheduledOccurrence(t.assignedFrom, t.assignedTo, t.frequency, pastRecords);
-                if (!nextOccurrence) return;
-
-                const originalDueString = nextOccurrence.dateString;
-
-                let activeDueString = originalDueString;
-                let isDeferred = false;
-
-                if (t.deferredTo && t.deferredTo >= originalDueString) {
-                    activeDueString = t.deferredTo;
-                    isDeferred = t.deferredTo !== originalDueString;
-                }
-
-                if (t.assignedTo && activeDueString > t.assignedTo) return;
-
-                tasks.push({
-                    templateId: t.firebaseKey,
-                    title: t.title,
-                    siteId: targetSiteId,
+                const pendingOccurrences = getPendingOccurrences({
+                    assignedFrom: t.assignedFrom,
+                    assignedTo: t.assignedTo,
                     frequency: t.frequency,
-                    dueDate: parseDateOnly(activeDueString),
-                    dueString: activeDueString,
-                    alertStartString: formatDateOnly(subtractDays(parseDateOnly(activeDueString), 7)),
-                    originalDueString: originalDueString,
-                    isDeferred: isDeferred,
-                    lastCompleted: pastRecords[0] ? pastRecords[0].completedAt : 'Never',
-                    assignmentStart: t.assignedFrom,
-                    assignmentEnd: t.assignedTo || '',
-                    template: t
+                    pastRecords,
+                    rangeEnd,
+                    deferredTo: t.deferredTo
+                });
+
+                pendingOccurrences.forEach(occurrence => {
+                    tasks.push({
+                        templateId: t.firebaseKey,
+                        title: t.title,
+                        siteId: targetSiteId,
+                        frequency: t.frequency,
+                        dueDate: occurrence.date,
+                        dueString: occurrence.dateString,
+                        alertStartString: occurrence.alertStartString,
+                        originalDueString: occurrence.originalDateString,
+                        isDeferred: occurrence.isDeferred,
+                        lastCompleted: pastRecords[0] ? pastRecords[0].completedAt : 'Never',
+                        assignmentStart: t.assignedFrom,
+                        assignmentEnd: t.assignedTo || '',
+                        template: t
+                    });
                 });
             });
         });
         return tasks.sort((a, b) => a.dueDate - b.dueDate);
-    }, [templates, records, siteFilter, sites]);
+    }, [templates, records, siteFilter, sites, currentMonth]);
 
     // --- CALENDAR LOGIC ---
     const daysInMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 0).getDate();
@@ -719,7 +752,7 @@ export default function Inspections() {
                                     <div>
                                         <label className="text-[10px] uppercase font-bold text-slate-400 block mb-2">Assign From</label>
                                         <input type="date" value={editTemplate.assignedFrom || ''} onChange={e => setEditTemplate({ ...editTemplate, assignedFrom: e.target.value })} className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-white outline-none focus:border-lime-500 font-mono" />
-                                        <p className="text-[10px] text-slate-500 mt-2">This starts the inspection cycle. The first due date is one full frequency period after this date.</p>
+                                        <p className="text-[10px] text-slate-500 mt-2">This is the first scheduled inspection date, and future dates follow the selected frequency from here.</p>
                                     </div>
                                     <div>
                                         <label className="text-[10px] uppercase font-bold text-slate-400 block mb-2">Assign Until</label>
