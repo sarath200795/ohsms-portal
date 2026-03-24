@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { get, push, ref, remove, update } from 'firebase/database';
 import * as XLSX from 'xlsx';
 import { rtdb } from '../../config/firebase';
+import { getPortalAwareHomePath } from '../FieldApp/portalAuth';
 import IncidentBuilder from './components/IncidentBuilder';
 import IncidentHazardEditorModal from './components/IncidentHazardEditorModal';
 import IncidentHazardMatchesModal from './components/IncidentHazardMatchesModal';
@@ -407,11 +408,12 @@ export default function Incidents() {
 
         const sess = JSON.parse(rawSession);
         const isGlobalAdmin = ['Global Owner', 'Global Manager', 'Owner', 'Admin'].includes(sess.role);
+        const requestedSite = new URLSearchParams(location.search).get('site') || sessionStorage.getItem('isoCurrentSite') || sess.assignedSite || 'All';
         const hasModuleAccess = isGlobalAdmin || (sess.accessibleModules || []).includes('Incidents');
 
         if (!hasModuleAccess) {
             alert('Security Alert: You do not have permission to access the Incidents module.');
-            navigate('/dashboard');
+            navigate(getPortalAwareHomePath({ fallbackPath: '/dashboard', site: requestedSite }));
             return;
         }
 
@@ -1057,7 +1059,7 @@ export default function Incidents() {
             <div className="app-ui flex flex-col h-full relative z-10 no-print">
                 <header className="h-20 border-b border-slate-800 flex items-center justify-between px-8 bg-slate-900/50 backdrop-blur-md shadow-md">
                     <div className="flex items-center gap-4">
-                        <button type="button" onClick={() => navigate('/dashboard')} className="text-slate-400 hover:text-white transition flex items-center gap-2"><i className="fas fa-arrow-left"></i> Hub</button>
+                        <button type="button" onClick={() => navigate(getPortalAwareHomePath({ fallbackPath: '/dashboard', site: siteFilter }))} className="text-slate-400 hover:text-white transition flex items-center gap-2"><i className="fas fa-arrow-left"></i> Hub</button>
                         <div className="h-6 w-px bg-slate-700 mx-2"></div>
                         <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-orange-500 to-red-600 flex items-center justify-center text-white font-bold shadow-lg shadow-red-900/50"><i className="fas fa-triangle-exclamation"></i></div>
                         <h1 className="font-bold text-white tracking-tight uppercase">Incident Management</h1>

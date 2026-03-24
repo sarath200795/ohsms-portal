@@ -26,6 +26,25 @@ export const readFieldPortalSession = () => {
     }
 };
 
+const normalizePortalSite = (site) => {
+    const value = String(site || '').trim();
+    if (!value) return '';
+    if (value === 'GLOBAL') return 'All';
+    return value;
+};
+
+export const isFieldPortalSessionActive = () => Boolean(readFieldPortalSession());
+
+export const getPortalAwareHomePath = ({ site = '', fallbackPath = '/dashboard' } = {}) => {
+    const resolvedSite = normalizePortalSite(site || sessionStorage.getItem('isoCurrentSite'));
+    const homePath = isFieldPortalSessionActive() ? '/field-portal' : fallbackPath;
+
+    if (!resolvedSite) return homePath;
+
+    const separator = homePath.includes('?') ? '&' : '?';
+    return `${homePath}${separator}site=${encodeURIComponent(resolvedSite)}`;
+};
+
 export const buildFieldPortalAuthErrorMessage = (error) => {
     const code = error?.code || '';
 

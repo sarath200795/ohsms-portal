@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { ref, get, update, push, remove } from 'firebase/database';
 import { rtdb } from '../config/firebase';
+import { getPortalAwareHomePath } from './FieldApp/portalAuth';
 import * as XLSX from 'xlsx';
 import QRious from 'qrious';
 import jsPDF from 'jspdf';
@@ -112,7 +113,10 @@ export default function Loto() {
 
                 if (!hasModuleAccess) {
                     alert("Security Alert: You do not have permission to access the LOTO module.");
-                    return navigate('/dashboard');
+                    return navigate(getPortalAwareHomePath({
+                        fallbackPath: '/dashboard',
+                        site: params.get('site') || sess.assignedSite || sessionStorage.getItem('isoCurrentSite') || 'All'
+                    }));
                 }
 
                 setSession(sess);
@@ -490,7 +494,7 @@ export default function Loto() {
 
             <header className="h-16 px-6 flex items-center justify-between border-b border-slate-800 bg-slate-900/80 backdrop-blur-md z-10 flex-shrink-0 no-print">
                 <div className="flex items-center gap-4">
-                    <button onClick={() => navigate(`/ohs-tools?site=${siteFilter}`)} className="text-slate-400 hover:text-white transition flex items-center gap-2"><i className="fas fa-arrow-left"></i> OHS Tools</button>
+                    <button onClick={() => navigate(getPortalAwareHomePath({ fallbackPath: '/ohs-tools', site: siteFilter }))} className="text-slate-400 hover:text-white transition flex items-center gap-2"><i className="fas fa-arrow-left"></i> OHS Tools</button>
                     <div className="h-6 w-px bg-slate-700 mx-2"></div>
                     <div className="w-8 h-8 bg-gradient-to-tr from-red-600 to-rose-600 rounded-lg flex items-center justify-center font-black italic text-white shadow-lg shadow-red-900/50">LP</div>
                     <h1 className="text-lg font-bold text-white tracking-wide hidden md:block">LOTO System</h1>

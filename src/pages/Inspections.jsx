@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { ref, get, push, update, remove } from 'firebase/database';
 import { rtdb } from '../config/firebase';
+import { getPortalAwareHomePath } from './FieldApp/portalAuth';
 import * as XLSX from 'xlsx';
 import ExcelJS from 'exceljs';
 import { saveAs } from 'file-saver';
@@ -522,7 +523,7 @@ export default function Inspections() {
 
                 <header className="h-16 px-6 flex items-center justify-between z-20 backdrop-blur-sm bg-slate-900/50 border-b border-slate-800 print:hidden">
                     <div className="flex items-center gap-4">
-                        <button onClick={() => navigate('/dashboard')} className="text-slate-400 hover:text-white transition-colors flex items-center gap-2"><i className="fas fa-arrow-left"></i> Hub</button>
+                        <button onClick={() => navigate(getPortalAwareHomePath({ fallbackPath: '/dashboard', site: siteFilter }))} className="text-slate-400 hover:text-white transition-colors flex items-center gap-2"><i className="fas fa-arrow-left"></i> Hub</button>
                         <div className="h-6 w-px bg-slate-700 mx-2"></div>
                         <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-lime-500 to-emerald-600 flex items-center justify-center text-slate-950 font-bold shadow-lg"><i className="fas fa-clipboard-check"></i></div>
                         <h1 className="text-base font-bold text-white hidden md:block uppercase tracking-wide">Inspection Manager</h1>

@@ -4,6 +4,7 @@ import { get, push, ref, update } from 'firebase/database';
 import QRious from 'qrious';
 
 import { rtdb } from '../../config/firebase';
+import { getPortalAwareHomePath } from '../FieldApp/portalAuth';
 import {
     CHECKLIST_ITEMS,
     COMMON_PPE,
@@ -1132,6 +1133,7 @@ export default function FullScreenPTW() {
             const cleanRole = String(sess.role || '').trim();
             const isGlobalAdmin = ['Global Owner', 'Global Manager', 'Owner', 'Admin'].includes(cleanRole);
             const isSiteAdmin = ['Site Owner', 'Site Manager'].includes(cleanRole);
+            const requestedSite = new URLSearchParams(location.search).get('site') || sessionStorage.getItem('isoCurrentSite') || sess.assignedSite || 'All';
             const hasModuleAccess = isGlobalAdmin || isSiteAdmin || safeArr(sess.accessibleModules).some((moduleName) => {
                 const lowerModule = String(moduleName).toLowerCase();
                 return lowerModule.includes('permit') || lowerModule.includes('ptw');
@@ -1139,7 +1141,7 @@ export default function FullScreenPTW() {
 
             if (!hasModuleAccess) {
                 alert('Security Alert: You do not have permission to access the Permit to Work module.');
-                navigate('/dashboard');
+                navigate(getPortalAwareHomePath({ fallbackPath: '/dashboard', site: requestedSite }));
                 return;
             }
 
@@ -1776,7 +1778,7 @@ export default function FullScreenPTW() {
 
                 <header className="z-20 flex h-16 flex-shrink-0 items-center justify-between border-b border-slate-800 bg-slate-900/80 px-6 backdrop-blur-md">
                     <div className="flex items-center gap-4">
-                        <button type="button" onClick={() => navigate('/dashboard')} className="flex items-center gap-2 text-slate-400 transition hover:text-white">
+                        <button type="button" onClick={() => navigate(getPortalAwareHomePath({ fallbackPath: '/dashboard', site: siteFilter }))} className="flex items-center gap-2 text-slate-400 transition hover:text-white">
                             <i className="fas fa-arrow-left"></i> Hub
                         </button>
                         <div className="mx-2 h-6 w-px bg-slate-700"></div>

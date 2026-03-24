@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { ref, get, push, remove } from 'firebase/database';
 import { rtdb } from '../config/firebase';
+import { getPortalAwareHomePath } from './FieldApp/portalAuth';
 
 const SCENARIOS = [
     {
@@ -76,11 +77,12 @@ export default function MockDrill() {
 
         // 1. STRICT MODULE GUARD
         const isGlobalAdmin = ['Global Owner', 'Global Manager', 'Owner', 'Admin'].includes(sess.role);
+        const requestedSite = new URLSearchParams(location.search).get('site') || sessionStorage.getItem('isoCurrentSite') || sess.assignedSite || 'All';
         const hasModuleAccess = isGlobalAdmin || (sess.accessibleModules || []).includes('Record Emergency');
 
         if (!hasModuleAccess) {
             alert("Security Alert: You do not have permission to access the Emergency Records module.");
-            navigate('/dashboard');
+            navigate(getPortalAwareHomePath({ fallbackPath: '/dashboard', site: requestedSite }));
             return;
         }
 
@@ -315,7 +317,7 @@ export default function MockDrill() {
             {/* HEADER */}
             <div className="app-ui h-16 border-b border-slate-800 bg-slate-900/80 backdrop-blur-md flex items-center justify-between px-6 no-print flex-shrink-0 z-20">
                 <div className="flex items-center gap-4">
-                    <button onClick={() => navigate('/dashboard')} className="text-slate-400 hover:text-white flex items-center gap-2 transition-colors">
+                    <button onClick={() => navigate(getPortalAwareHomePath({ fallbackPath: '/dashboard', site: siteFilter }))} className="text-slate-400 hover:text-white flex items-center gap-2 transition-colors">
                         <i className="fas fa-arrow-left"></i> Hub
                     </button>
                     <div className="h-6 w-px bg-slate-800 mx-2"></div>
