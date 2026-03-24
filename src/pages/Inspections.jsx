@@ -52,13 +52,19 @@ const getRecordScheduleDate = (record) => {
     return record.completedAt ? String(record.completedAt).split('T')[0] : '';
 };
 
+const subtractDays = (date, days) => {
+    const result = new Date(date);
+    result.setDate(result.getDate() - days);
+    return result;
+};
+
 const getNextScheduledOccurrence = (assignedFrom, assignedTo, frequency, pastRecords = []) => {
     const startDate = parseDateOnly(assignedFrom);
     if (!startDate) return null;
 
     const endDate = parseDateOnly(assignedTo);
     const completedSlots = new Set(pastRecords.map(getRecordScheduleDate).filter(Boolean));
-    let cursor = new Date(startDate);
+    let cursor = addFrequencyToDate(startDate, frequency);
     let safetyCounter = 0;
 
     while (safetyCounter < 1000) {
@@ -187,6 +193,7 @@ export default function Inspections() {
                     frequency: t.frequency,
                     dueDate: parseDateOnly(activeDueString),
                     dueString: activeDueString,
+                    visibleFromString: formatDateOnly(subtractDays(parseDateOnly(activeDueString), 7)),
                     originalDueString: originalDueString,
                     isDeferred: isDeferred,
                     lastCompleted: pastRecords[0] ? pastRecords[0].completedAt : 'Never',
@@ -212,7 +219,10 @@ export default function Inspections() {
             const dateStr = `${currentMonth.getFullYear()}-${String(currentMonth.getMonth() + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
             const isToday = new Date().toISOString().split('T')[0] === dateStr;
 
-            const tasksToday = scheduledTasks.filter(t => t.dueString === dateStr);
+            const tasksToday = scheduledTasks.filter(t => {
+                const visibleFrom = t.assignmentStart && t.visibleFromString < t.assignmentStart ? t.assignmentStart : t.visibleFromString;
+                return dateStr >= visibleFrom;
+            });
 
             days.push(
                 <div key={day} className={`p-2 border border-slate-700 min-h-[100px] flex flex-col ${isToday ? 'bg-blue-900/20' : 'bg-slate-900/60'}`}>
@@ -220,9 +230,10 @@ export default function Inspections() {
                     <div className="flex-1 space-y-1 overflow-y-auto custom-scroll pr-1">
 
                         {tasksToday.map((t, idx) => {
-                            const isOverdue = t.dueString < formatDateOnly(new Date());
+                            const isOverdue = dateStr > t.dueString;
+                            const isDueWindow = dateStr >= (t.assignmentStart && t.visibleFromString < t.assignmentStart ? t.assignmentStart : t.visibleFromString) && dateStr <= t.dueString;
                             return (
-                                <div key={`due-${idx}`} onClick={() => startInspection(t)} className={`text-[9px] p-1.5 rounded cursor-pointer truncate font-bold shadow-sm transition-transform hover:scale-105 ${isOverdue ? 'bg-red-500 text-white' : 'bg-lime-500 text-slate-950'}`} title={t.title}>
+                                <div key={`due-${idx}`} onClick={() => startInspection(t)} className={`text-[9px] p-1.5 rounded cursor-pointer truncate font-bold shadow-sm transition-transform hover:scale-105 ${isOverdue ? 'bg-red-500 text-white' : isDueWindow ? 'bg-amber-400 text-slate-950' : 'bg-lime-500 text-slate-950'}`} title={`${t.title} | Due: ${t.dueString}`}>
                                     {t.title} {t.isDeferred && ' (Def)'}
                                 </div>
                             );
@@ -500,7 +511,7 @@ export default function Inspections() {
                                 <div className="flex justify-between items-end mb-4">
                                     <div>
                                         <h2 className="text-3xl font-bold text-white mb-1">Inspection Schedule</h2>
-                                        <p className="text-sm text-slate-400">Only assigned active inspections appear here, and recurrence starts from the assigned start date.</p>
+                                        <p className="text-sm text-slate-400">Assigned inspections appear 7 days before their due date, and stay visible until they are completed.</p>
                                     </div>
                                     <div className="flex gap-4 items-center">
                                         <select value={siteFilter} onChange={e => { setSiteFilter(e.target.value); sessionStorage.setItem('isoCurrentSite', e.target.value); }} className="bg-slate-900 border border-slate-700 text-white text-xs font-bold px-4 py-2 rounded-xl outline-none">
@@ -709,7 +720,7 @@ export default function Inspections() {
                                     <div>
                                         <label className="text-[10px] uppercase font-bold text-slate-400 block mb-2">Assign From</label>
                                         <input type="date" value={editTemplate.assignedFrom || ''} onChange={e => setEditTemplate({ ...editTemplate, assignedFrom: e.target.value })} className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-white outline-none focus:border-lime-500 font-mono" />
-                                        <p className="text-[10px] text-slate-500 mt-2">The first scheduled occurrence starts on this date.</p>
+                                        <p className="text-[10px] text-slate-500 mt-2">This starts the inspection cycle. The first due date is one full frequency period after this date.</p>
                                     </div>
                                     <div>
                                         <label className="text-[10px] uppercase font-bold text-slate-400 block mb-2">Assign Until</label>
