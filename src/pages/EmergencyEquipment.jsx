@@ -24,7 +24,127 @@ const FIRE_EXT_TYPES = [
     { name: 'Clean Agent / Halotron', refillYears: 3, hptYears: 3 }
 ];
 
+const EQUIPMENT_TYPE_META = {
+    'Fire Extinguisher': {
+        icon: 'fa-fire-extinguisher',
+        iconClass: 'text-red-400',
+        accentTextClass: 'text-red-400',
+        bannerClass: 'border-red-500/30 bg-red-500/10',
+        bannerTextClass: 'text-red-300',
+        badgeClass: 'border-red-500/30 bg-red-950/40 text-red-300',
+        panelClass: 'border-red-500/30 bg-red-950/20',
+        inspectButtonClass: 'bg-red-900/20 hover:bg-red-600 border-red-500/30 text-red-300 hover:text-white',
+        checkboxClass: 'accent-red-500',
+        checklistTitle: 'ISO Visual Checklist'
+    },
+    'First Aid Kit': {
+        icon: 'fa-medkit',
+        iconClass: 'text-emerald-400',
+        accentTextClass: 'text-emerald-400',
+        bannerClass: 'border-emerald-500/30 bg-emerald-500/10',
+        bannerTextClass: 'text-emerald-300',
+        badgeClass: 'border-emerald-500/30 bg-emerald-950/40 text-emerald-300',
+        panelClass: 'border-emerald-500/30 bg-emerald-950/20',
+        inspectButtonClass: 'bg-emerald-900/20 hover:bg-emerald-600 border-emerald-500/30 text-emerald-300 hover:text-white',
+        checkboxClass: 'accent-emerald-500',
+        checklistTitle: 'OSHA-Aligned First Aid Checklist'
+    },
+    'AED / Defibrillator': {
+        icon: 'fa-heartbeat',
+        iconClass: 'text-rose-400',
+        accentTextClass: 'text-rose-400',
+        bannerClass: 'border-rose-500/30 bg-rose-500/10',
+        bannerTextClass: 'text-rose-300',
+        badgeClass: 'border-rose-500/30 bg-rose-950/40 text-rose-300',
+        panelClass: 'border-rose-500/30 bg-rose-950/20',
+        inspectButtonClass: 'bg-rose-900/20 hover:bg-rose-600 border-rose-500/30 text-rose-300 hover:text-white',
+        checkboxClass: 'accent-rose-500',
+        checklistTitle: 'OSHA-Aligned AED Readiness Checklist'
+    },
+    'Eye Wash Station': {
+        icon: 'fa-eye',
+        iconClass: 'text-sky-400',
+        accentTextClass: 'text-sky-400',
+        bannerClass: 'border-sky-500/30 bg-sky-500/10',
+        bannerTextClass: 'text-sky-300',
+        badgeClass: 'border-sky-500/30 bg-sky-950/40 text-sky-300',
+        panelClass: 'border-sky-500/30 bg-sky-950/20',
+        inspectButtonClass: 'bg-sky-900/20 hover:bg-sky-600 border-sky-500/30 text-sky-300 hover:text-white',
+        checkboxClass: 'accent-sky-500',
+        checklistTitle: 'OSHA-Aligned Eyewash Checklist'
+    },
+    'Spill Kit': {
+        icon: 'fa-fill-drip',
+        iconClass: 'text-amber-400',
+        accentTextClass: 'text-amber-400',
+        bannerClass: 'border-amber-500/30 bg-amber-500/10',
+        bannerTextClass: 'text-amber-300',
+        badgeClass: 'border-amber-500/30 bg-amber-950/40 text-amber-300',
+        panelClass: 'border-amber-500/30 bg-amber-950/20',
+        inspectButtonClass: 'bg-amber-900/20 hover:bg-amber-600 border-amber-500/30 text-amber-300 hover:text-white',
+        checkboxClass: 'accent-amber-500',
+        checklistTitle: 'OSHA-Aligned Spill Response Checklist'
+    },
+    'Evacuation Chair': {
+        icon: 'fa-wheelchair',
+        iconClass: 'text-violet-400',
+        accentTextClass: 'text-violet-400',
+        bannerClass: 'border-violet-500/30 bg-violet-500/10',
+        bannerTextClass: 'text-violet-300',
+        badgeClass: 'border-violet-500/30 bg-violet-950/40 text-violet-300',
+        panelClass: 'border-violet-500/30 bg-violet-950/20',
+        inspectButtonClass: 'bg-violet-900/20 hover:bg-violet-600 border-violet-500/30 text-violet-300 hover:text-white',
+        checkboxClass: 'accent-violet-500',
+        checklistTitle: 'OSHA-Aligned Egress Chair Checklist'
+    }
+};
+
+const EQUIPMENT_CHECKLISTS = {
+    'Fire Extinguisher': [
+        { id: 'gauge', summary: 'Gauge', label: 'Pressure gauge indicator is in the operable range.' },
+        { id: 'pin', summary: 'Pin', label: 'Safety pin is in place and tamper seal is intact.' },
+        { id: 'hose', summary: 'Hose', label: 'Discharge hose/nozzle is free of cracks, dirt, or blockages.' },
+        { id: 'body', summary: 'Body', label: 'Cylinder body has no dents, corrosion, or visible damage.' }
+    ],
+    'First Aid Kit': [
+        { id: 'accessible', summary: 'Accessible', label: 'Kit is accessible, clearly identified, and at the assigned location.' },
+        { id: 'contents', summary: 'Contents', label: 'Required first-aid contents are present, usable, and replenished.' },
+        { id: 'sterile', summary: 'Sterile Items', label: 'Sterile items, gloves, and barrier devices are sealed and within date.' },
+        { id: 'case', summary: 'Case', label: 'Kit case and mounting are clean, closed, and free from damage.' }
+    ],
+    'AED / Defibrillator': [
+        { id: 'accessible', summary: 'Accessible', label: 'AED is accessible, cabinet signage is visible, and access is unobstructed.' },
+        { id: 'ready', summary: 'Ready Status', label: 'Status indicator/self-test shows the AED is ready for use.' },
+        { id: 'battery', summary: 'Battery', label: 'Battery is installed and within service or replacement date.' },
+        { id: 'pads', summary: 'Pads & Rescue Kit', label: 'Electrode pads and rescue kit items are present, sealed, and within date.' }
+    ],
+    'Eye Wash Station': [
+        { id: 'accessible', summary: 'Accessible', label: 'Path to the eyewash station is unobstructed and signage is visible.' },
+        { id: 'nozzles', summary: 'Nozzles', label: 'Nozzles/caps are clean, protected, and free from contamination.' },
+        { id: 'flow', summary: 'Flow', label: 'Unit activates and provides immediate flushing flow.' },
+        { id: 'drain', summary: 'Drain & Basin', label: 'Basin, drain, and surrounding hardware are clean and undamaged.' }
+    ],
+    'Spill Kit': [
+        { id: 'accessible', summary: 'Accessible', label: 'Spill kit is at the designated location and ready for immediate access.' },
+        { id: 'contents', summary: 'Contents', label: 'Required absorbents, PPE, and cleanup tools are present for expected spills.' },
+        { id: 'containers', summary: 'Waste Handling', label: 'Waste bags/containers and response instructions are available in the kit.' },
+        { id: 'condition', summary: 'Condition', label: 'Kit container and contents are clean, dry, sealed, and free from damage.' }
+    ],
+    'Evacuation Chair': [
+        { id: 'accessible', summary: 'Accessible', label: 'Chair is accessible at the designated egress point and not obstructed.' },
+        { id: 'restraints', summary: 'Restraints', label: 'Seat, belts, restraints, and occupant supports are intact.' },
+        { id: 'mobility', summary: 'Mobility', label: 'Tracks, wheels, brakes, and handles move freely and operate correctly.' },
+        { id: 'instructions', summary: 'Instructions', label: 'Operating instructions and inspection markings are legible and present.' }
+    ]
+};
+
 const getTodayDate = () => new Date().toISOString().split('T')[0];
+
+const getEquipmentMeta = (type) => EQUIPMENT_TYPE_META[type] || EQUIPMENT_TYPE_META['Fire Extinguisher'];
+
+const createChecklistState = (type) => Object.fromEntries(
+    (EQUIPMENT_CHECKLISTS[type] || []).map((item) => [item.id, true])
+);
 
 const addDaysToDate = (dateString, days) => {
     if (!dateString) return '';
@@ -49,6 +169,12 @@ const countMissedInspectionCycles = (nextDueDate, referenceDate) => {
     return missedCount;
 };
 
+const buildChecklistSummary = (type, checks) => {
+    const checklist = EQUIPMENT_CHECKLISTS[type] || [];
+    if (!checklist.length || !checks) return '';
+    return `[Checklist - ${checklist.map((item) => `${item.summary}: ${checks[item.id] ? 'OK' : 'FAIL'}`).join(', ')}] `;
+};
+
 const createInspectionDraft = (record, { qrScanMode = false, notes = '' } = {}) => {
     const inspectionDate = getTodayDate();
     return {
@@ -56,7 +182,7 @@ const createInspectionDraft = (record, { qrScanMode = false, notes = '' } = {}) 
         date: inspectionDate,
         nextDate: addDaysToDate(inspectionDate, INSPECTION_INTERVAL_DAYS),
         notes,
-        checks: { gauge: true, pin: true, hose: true, body: true },
+        checks: createChecklistState(record.type),
         qrScanMode
     };
 };
@@ -218,6 +344,8 @@ export default function EmergencyEquipment() {
         return canEdit;
     }, [canEdit, hasInspectionSiteAccess, inspectData, isFieldQrMode, session]);
     const todayDate = getTodayDate();
+    const activeEquipmentMeta = useMemo(() => getEquipmentMeta(inspectData?.type), [inspectData?.type]);
+    const activeChecklistItems = useMemo(() => EQUIPMENT_CHECKLISTS[inspectData?.type] || [], [inspectData?.type]);
     const calculatedNextInspectionDate = useMemo(() => addDaysToDate(inspectData?.date, INSPECTION_INTERVAL_DAYS), [inspectData?.date]);
     const isInspectionOverdue = useMemo(() => {
         if (!inspectData?.nextInspection) return false;
@@ -334,11 +462,7 @@ export default function EmergencyEquipment() {
             return;
         }
         try {
-            let checklistStr = "";
-            if (inspectData.type === 'Fire Extinguisher' && inspectData.checks) {
-                const c = inspectData.checks;
-                checklistStr = `[Checks - Gauge: ${c.gauge ? 'OK' : 'FAIL'}, Pin: ${c.pin ? 'OK' : 'FAIL'}, Hose: ${c.hose ? 'OK' : 'FAIL'}, Body: ${c.body ? 'OK' : 'FAIL'}] `;
-            }
+            const checklistStr = buildChecklistSummary(inspectData.type, inspectData.checks);
 
             const finalNotes = inspectData.notes
                 ? `${checklistStr}${inspectData.notes} (Inspected by ${session.name})`
@@ -588,8 +712,8 @@ export default function EmergencyEquipment() {
         return (
             <div className="min-h-screen bg-slate-950 font-['Space_Grotesk'] text-white">
                 <div className="mx-auto max-w-4xl px-4 pb-16 pt-8 sm:px-6">
-                    <div className="mb-6 rounded-[2rem] border border-fuchsia-500/30 bg-fuchsia-500/10 p-5 shadow-xl">
-                        <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.3em] text-fuchsia-300">Public Read-Only</p>
+                    <div className={`mb-6 rounded-[2rem] border p-5 shadow-xl ${activeEquipmentMeta.bannerClass}`}>
+                        <p className={`mb-2 text-[10px] font-bold uppercase tracking-[0.3em] ${activeEquipmentMeta.bannerTextClass}`}>Public Read-Only</p>
                         <h1 className="text-2xl font-black text-white">Emergency Equipment</h1>
                         <p className="mt-2 text-sm text-slate-300">
                             You can review this equipment record now. Sign in through the field portal to log or submit an inspection.
@@ -601,9 +725,12 @@ export default function EmergencyEquipment() {
                             <div>
                                 <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.25em] text-slate-500">Asset</p>
                                 <h2 className="text-3xl font-black text-white">{inspectData.assetId || inspectData.firebaseKey}</h2>
-                                <p className="mt-2 text-sm text-slate-400">{inspectData.type}</p>
+                                <p className={`mt-2 text-sm font-bold ${activeEquipmentMeta.accentTextClass}`}>
+                                    <i className={`fas ${activeEquipmentMeta.icon} mr-2`}></i>
+                                    {inspectData.type}
+                                </p>
                             </div>
-                            <span className="rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-[10px] font-bold uppercase tracking-[0.25em] text-slate-300">
+                            <span className={`rounded-2xl border px-3 py-2 text-[10px] font-bold uppercase tracking-[0.25em] ${activeEquipmentMeta.badgeClass}`}>
                                 Site {inspectData.siteId || siteFilter}
                             </span>
                         </div>
@@ -739,16 +866,13 @@ export default function EmergencyEquipment() {
                                         <tr><th className="p-4 pl-6">Equipment / QR Tag</th><th className="p-4">Location</th><th className="p-4">Last Checked</th><th className="p-4">Compliance Status</th><th className="p-4 pr-6 text-right">Actions</th></tr>
                                     </thead>
                                     <tbody className="divide-y divide-slate-800/50 text-slate-300">
-                                        {visibleEquipment.map(e => (
+                                        {visibleEquipment.map(e => {
+                                            const equipmentMeta = getEquipmentMeta(e.type);
+                                            return (
                                             <tr key={e.firebaseKey} className="hover:bg-slate-800/40 transition-colors">
                                                 <td className="p-4 pl-6">
                                                     <div className="font-bold text-white flex items-center gap-2">
-                                                        {e.type === 'Fire Extinguisher' && <i className="fas fa-fire-extinguisher text-red-400"></i>}
-                                                        {e.type === 'First Aid Kit' && <i className="fas fa-medkit text-emerald-400"></i>}
-                                                        {e.type === 'AED / Defibrillator' && <i className="fas fa-heartbeat text-red-500"></i>}
-                                                        {e.type === 'Eye Wash Station' && <i className="fas fa-eye text-blue-400"></i>}
-                                                        {e.type === 'Spill Kit' && <i className="fas fa-fill-drip text-yellow-400"></i>}
-                                                        {e.type === 'Evacuation Chair' && <i className="fas fa-wheelchair text-purple-400"></i>}
+                                                        <i className={`fas ${equipmentMeta.icon} ${equipmentMeta.iconClass}`}></i>
                                                         {e.type}
                                                     </div>
                                                     <div className="text-[10px] text-slate-500 mt-0.5">Asset ID: <span className="font-mono text-orange-400">{e.assetId || 'N/A'}</span> | Site: <span className="font-bold text-blue-400">{e.siteId}</span></div>
@@ -763,14 +887,14 @@ export default function EmergencyEquipment() {
                                                             {/* QR TAG BUTTON */}
                                                             <button onClick={() => { setPrintTagData(e); setTimeout(() => window.print(), 500); }} className="bg-slate-800 hover:bg-slate-700 border border-slate-600 text-white px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-colors shadow" title="Print QR Tag"><i className="fas fa-qrcode"></i> Tag</button>
 
-                                                            <button onClick={() => { setInspectData(createInspectionDraft(e)); setView('inspect'); }} className="bg-emerald-900/20 hover:bg-emerald-600 border border-emerald-500/30 text-emerald-400 hover:text-white px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-colors"><i className="fas fa-clipboard-check mr-1"></i> Inspect</button>
+                                                            <button onClick={() => { setInspectData(createInspectionDraft(e)); setView('inspect'); }} className={`${equipmentMeta.inspectButtonClass} px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-colors border`}><i className="fas fa-clipboard-check mr-1"></i> Inspect</button>
                                                             <button onClick={() => { setFormData(e); setView('form'); }} className="bg-slate-800 hover:bg-slate-700 text-slate-300 w-8 h-8 rounded-lg flex items-center justify-center transition-colors"><i className="fas fa-edit"></i></button>
                                                             <button onClick={() => handleDelete(e.firebaseKey)} className="bg-red-900/20 hover:bg-red-600 text-red-500 hover:text-white w-8 h-8 rounded-lg flex items-center justify-center transition-colors"><i className="fas fa-trash-alt"></i></button>
                                                         </div>
                                                     )}
                                                 </td>
                                             </tr>
-                                        ))}
+                                        )})}
                                         {visibleEquipment.length === 0 && <tr><td colSpan="5" className="p-10 text-center text-slate-500 italic border-t border-slate-800">No equipment registered matching these filters.</td></tr>}
                                     </tbody>
                                 </table>
@@ -961,11 +1085,14 @@ export default function EmergencyEquipment() {
 
                     {/* PHYSICAL INSPECTION SHEET (QR SCANNED) */}
                     {view === 'inspect' && inspectData && (
-                        <div className="max-w-2xl mx-auto bg-slate-900 border border-slate-700 shadow-2xl rounded-3xl overflow-hidden animate-in slide-in-from-bottom-8">
+                        <div className={`max-w-2xl mx-auto bg-slate-900 border shadow-2xl rounded-3xl overflow-hidden animate-in slide-in-from-bottom-8 ${activeEquipmentMeta.panelClass}`}>
                             <div className="bg-slate-800 p-6 border-b border-slate-700 flex justify-between items-center">
                                 <div>
-                                    <div className="text-[10px] font-bold text-emerald-400 uppercase tracking-widest mb-1">Physical Inspection Sheet</div>
-                                    <h3 className="text-2xl font-bold text-white">{inspectData.type}</h3>
+                                    <div className={`text-[10px] font-bold uppercase tracking-widest mb-1 ${activeEquipmentMeta.accentTextClass}`}>Physical Inspection Sheet</div>
+                                    <h3 className="text-2xl font-bold text-white flex items-center gap-3">
+                                        <i className={`fas ${activeEquipmentMeta.icon} ${activeEquipmentMeta.iconClass}`}></i>
+                                        {inspectData.type}
+                                    </h3>
                                 </div>
                                 <div className="text-right">
                                     {(inspectData.qrScanMode || isFieldQrMode) && (
@@ -974,7 +1101,7 @@ export default function EmergencyEquipment() {
                                         </div>
                                     )}
                                     <div className="text-[10px] uppercase text-slate-400 font-bold mb-1">Asset ID</div>
-                                    <div className="bg-slate-950 border border-slate-700 px-3 py-1 rounded text-orange-400 font-mono font-bold">{inspectData.assetId}</div>
+                                    <div className={`bg-slate-950 border px-3 py-1 rounded font-mono font-bold ${activeEquipmentMeta.badgeClass}`}>{inspectData.assetId}</div>
                                 </div>
                             </div>
 
@@ -1004,27 +1131,22 @@ export default function EmergencyEquipment() {
                                     </div>
                                 )}
 
-                                {/* Fire Extinguisher Specific Checklist */}
-                                {inspectData.type === 'Fire Extinguisher' && (
+                                {activeChecklistItems.length > 0 && (
                                     <div>
-                                        <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4 border-b border-slate-800 pb-2">ISO Visual Checklist</h4>
-                                        <div className="space-y-3 bg-slate-950/50 p-5 rounded-2xl border border-slate-800">
-                                            <label className="flex items-center gap-4 cursor-pointer p-2 hover:bg-slate-900 rounded transition-colors">
-                                                <input type="checkbox" checked={inspectData.checks?.gauge || false} onChange={e => setInspectData({ ...inspectData, checks: { ...inspectData.checks, gauge: e.target.checked } })} disabled={!canOperateInspectionSheet} className="w-5 h-5 accent-emerald-500" />
-                                                <span className="text-sm font-bold text-slate-300">Pressure gauge indicator is in the green operable range.</span>
-                                            </label>
-                                            <label className="flex items-center gap-4 cursor-pointer p-2 hover:bg-slate-900 rounded transition-colors">
-                                                <input type="checkbox" checked={inspectData.checks?.pin || false} onChange={e => setInspectData({ ...inspectData, checks: { ...inspectData.checks, pin: e.target.checked } })} disabled={!canOperateInspectionSheet} className="w-5 h-5 accent-emerald-500" />
-                                                <span className="text-sm font-bold text-slate-300">Safety pin is in place and tamper seal is unbroken.</span>
-                                            </label>
-                                            <label className="flex items-center gap-4 cursor-pointer p-2 hover:bg-slate-900 rounded transition-colors">
-                                                <input type="checkbox" checked={inspectData.checks?.hose || false} onChange={e => setInspectData({ ...inspectData, checks: { ...inspectData.checks, hose: e.target.checked } })} disabled={!canOperateInspectionSheet} className="w-5 h-5 accent-emerald-500" />
-                                                <span className="text-sm font-bold text-slate-300">Discharge hose/nozzle is free of cracks, dirt, or blockages.</span>
-                                            </label>
-                                            <label className="flex items-center gap-4 cursor-pointer p-2 hover:bg-slate-900 rounded transition-colors">
-                                                <input type="checkbox" checked={inspectData.checks?.body || false} onChange={e => setInspectData({ ...inspectData, checks: { ...inspectData.checks, body: e.target.checked } })} disabled={!canOperateInspectionSheet} className="w-5 h-5 accent-emerald-500" />
-                                                <span className="text-sm font-bold text-slate-300">Cylinder body has no dents, corrosion, or signs of damage.</span>
-                                            </label>
+                                        <h4 className={`text-xs font-bold uppercase tracking-widest mb-4 border-b border-slate-800 pb-2 ${activeEquipmentMeta.accentTextClass}`}>{activeEquipmentMeta.checklistTitle}</h4>
+                                        <div className={`space-y-3 p-5 rounded-2xl border ${activeEquipmentMeta.panelClass}`}>
+                                            {activeChecklistItems.map((item) => (
+                                                <label key={item.id} className="flex items-center gap-4 cursor-pointer p-2 hover:bg-slate-900 rounded transition-colors">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={inspectData.checks?.[item.id] || false}
+                                                        onChange={e => setInspectData({ ...inspectData, checks: { ...inspectData.checks, [item.id]: e.target.checked } })}
+                                                        disabled={!canOperateInspectionSheet}
+                                                        className={`w-5 h-5 ${activeEquipmentMeta.checkboxClass}`}
+                                                    />
+                                                    <span className="text-sm font-bold text-slate-300">{item.label}</span>
+                                                </label>
+                                            ))}
                                         </div>
                                     </div>
                                 )}
