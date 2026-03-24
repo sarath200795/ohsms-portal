@@ -124,7 +124,7 @@ export default function FieldQrScannerModal({ isOpen, onClose, onDetected }) {
                 )}
 
                 <div className="rounded-2xl border border-slate-800 bg-slate-950/70 px-4 py-3 text-[11px] leading-relaxed text-slate-400">
-                    Authenticated field `User` role can operate scanned records. Other roles open the same QR target in read-only mode.
+                    Authenticated field users can operate scanned records. Public scans stay read-only until the user signs in.
                 </div>
             </div>
         </div>

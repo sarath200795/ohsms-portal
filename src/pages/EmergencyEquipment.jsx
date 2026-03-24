@@ -164,13 +164,19 @@ export default function EmergencyEquipment() {
 
     const isGlobalUser = ['Global Owner', 'Global Manager', 'Owner', 'Admin'].includes(session?.role);
     const canEdit = ['Global Owner', 'Global Manager', 'Owner', 'Admin', 'Site Owner', 'Site Manager', 'HSE Rep'].includes(session?.role);
+    const hasInspectionSiteAccess = useMemo(() => {
+        if (!inspectData || !session) return false;
+        if (isGlobalUser) return true;
+        if (session.assignedSite === 'GLOBAL') return true;
+        return inspectData.siteId === session.assignedSite || (session.accessibleSites || []).includes(inspectData.siteId);
+    }, [inspectData, isGlobalUser, session]);
     const canOperateInspectionSheet = useMemo(() => {
         if (!inspectData) return false;
         if (inspectData.qrScanMode || isFieldQrMode) {
-            return session?.role === 'User';
+            return Boolean(session) && hasInspectionSiteAccess;
         }
         return canEdit;
-    }, [canEdit, inspectData, isFieldQrMode, session?.role]);
+    }, [canEdit, hasInspectionSiteAccess, inspectData, isFieldQrMode, session]);
 
     // --- FILTER ENGINE ---
     const visibleEquipment = useMemo(() => {

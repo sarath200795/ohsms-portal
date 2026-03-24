@@ -64,8 +64,6 @@ export default function Loto() {
     const [isScanning, setIsScanning] = useState(false);
     const [procForm, setProcForm] = useState(null);
     const [executionProc, setExecutionProc] = useState(null);
-    const isFieldQrMode = useMemo(() => new URLSearchParams(location.search).get('fieldQr') === '1', [location.search]);
-    const isQrExecutionReadOnly = Boolean(isFieldQrMode && !isPublic && session?.role !== 'User');
 
     // =========================================================================
     // INITIALIZATION & ROUTING ENGINE
@@ -335,7 +333,7 @@ export default function Loto() {
     const triggerExecution = (proc) => { setExecutionProc(proc); setCurrentView('execute'); };
 
     const toggleLock = async (proc, step) => {
-        if (isPublic || isQrExecutionReadOnly) return;
+        if (isPublic) return;
         const globalLiveMap = {};
         [...logs].sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp)).forEach(log => {
             if (!globalLiveMap[log.procId]) globalLiveMap[log.procId] = new Set();
@@ -401,7 +399,7 @@ export default function Loto() {
             });
         }
 
-        const isReadOnlyExecution = isPublic || isQrExecutionReadOnly;
+        const isReadOnlyExecution = isPublic;
 
         return (
             <div className="min-h-screen bg-slate-950 p-4 md:p-8 max-w-lg mx-auto animate-fade-in pb-24 font-['Space_Grotesk']">
@@ -414,8 +412,6 @@ export default function Loto() {
                     </div>
                     {isPublic ? (
                         <div className="text-[10px] font-bold text-yellow-400 uppercase tracking-widest bg-yellow-900/30 px-3 py-1.5 rounded-lg border border-yellow-500/30">PUBLIC READ-ONLY</div>
-                    ) : isQrExecutionReadOnly ? (
-                        <div className="text-[10px] font-bold text-sky-300 uppercase tracking-widest bg-sky-900/30 px-3 py-1.5 rounded-lg border border-sky-500/30">QR READ-ONLY</div>
                     ) : (
                         <div className="text-[10px] font-bold text-emerald-400 uppercase tracking-widest bg-emerald-900/30 px-3 py-1.5 rounded-lg border border-emerald-500/30"><div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse inline-block mr-2"></div> ACTIVE</div>
                     )}
