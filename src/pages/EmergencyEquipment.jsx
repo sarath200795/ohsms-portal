@@ -11,6 +11,7 @@ import { saveAs } from 'file-saver';
 const TYPES = ['Fire Extinguisher', 'First Aid Kit', 'AED / Defibrillator', 'Eye Wash Station', 'Spill Kit', 'Evacuation Chair'];
 const STATUSES = ['Active', 'Needs Inspection', 'Out of Service', 'Missing'];
 const DUE_SOON_WINDOW_DAYS = 7;
+const INSPECTION_INTERVAL_DAYS = 30;
 
 const FIRE_EXT_TYPES = [
     { name: 'Water (Stored Pressure)', refillYears: 3, hptYears: 3 },
@@ -25,15 +26,15 @@ const FIRE_EXT_TYPES = [
 
 const getTodayDate = () => new Date().toISOString().split('T')[0];
 
-const addMonthsToDate = (dateString, months) => {
+const addDaysToDate = (dateString, days) => {
     if (!dateString) return '';
     const parsed = new Date(`${dateString}T00:00:00`);
     if (Number.isNaN(parsed.getTime())) return '';
-    parsed.setMonth(parsed.getMonth() + months);
+    parsed.setDate(parsed.getDate() + days);
     return parsed.toISOString().split('T')[0];
 };
 
-const countMissedMonthlyInspections = (nextDueDate, referenceDate) => {
+const countMissedInspectionCycles = (nextDueDate, referenceDate) => {
     if (!nextDueDate || !referenceDate || nextDueDate >= referenceDate) return 0;
 
     let missedCount = 0;
@@ -41,7 +42,7 @@ const countMissedMonthlyInspections = (nextDueDate, referenceDate) => {
 
     while (cursor < referenceDate && missedCount < 120) {
         missedCount += 1;
-        cursor = addMonthsToDate(cursor, 1);
+        cursor = addDaysToDate(cursor, INSPECTION_INTERVAL_DAYS);
         if (!cursor) break;
     }
 
@@ -53,7 +54,7 @@ const createInspectionDraft = (record, { qrScanMode = false, notes = '' } = {}) 
     return {
         ...record,
         date: inspectionDate,
-        nextDate: addMonthsToDate(inspectionDate, 1),
+        nextDate: addDaysToDate(inspectionDate, INSPECTION_INTERVAL_DAYS),
         notes,
         checks: { gauge: true, pin: true, hose: true, body: true },
         qrScanMode
@@ -80,7 +81,7 @@ export default function EmergencyEquipment() {
 
     const [formData, setFormData] = useState({
         firebaseKey: null, assetId: '', siteId: '', type: 'Fire Extinguisher', location: '',
-        lastInspection: getTodayDate(), nextInspection: addMonthsToDate(getTodayDate(), 1), status: 'Active', notes: '',
+        lastInspection: getTodayDate(), nextInspection: addDaysToDate(getTodayDate(), INSPECTION_INTERVAL_DAYS), status: 'Active', notes: '',
         extinguisherType: '', lastRefillDate: '', lastHptDate: '', nextRefillDate: '', nextHptDate: ''
     });
 
@@ -195,7 +196,7 @@ export default function EmergencyEquipment() {
 
     useEffect(() => {
         if (!formData.lastInspection) return;
-        const nextInspection = addMonthsToDate(formData.lastInspection, 1);
+        const nextInspection = addDaysToDate(formData.lastInspection, INSPECTION_INTERVAL_DAYS);
         if (nextInspection && nextInspection !== formData.nextInspection) {
             setFormData(prev => ({ ...prev, nextInspection }));
         }
@@ -217,12 +218,12 @@ export default function EmergencyEquipment() {
         return canEdit;
     }, [canEdit, hasInspectionSiteAccess, inspectData, isFieldQrMode, session]);
     const todayDate = getTodayDate();
-    const calculatedNextInspectionDate = useMemo(() => addMonthsToDate(inspectData?.date, 1), [inspectData?.date]);
+    const calculatedNextInspectionDate = useMemo(() => addDaysToDate(inspectData?.date, INSPECTION_INTERVAL_DAYS), [inspectData?.date]);
     const isInspectionOverdue = useMemo(() => {
         if (!inspectData?.nextInspection) return false;
         return inspectData.nextInspection < todayDate;
     }, [inspectData?.nextInspection, todayDate]);
-    const missedInspectionMonths = useMemo(() => countMissedMonthlyInspections(inspectData?.nextInspection, todayDate), [inspectData?.nextInspection, todayDate]);
+    const missedInspectionCycles = useMemo(() => countMissedInspectionCycles(inspectData?.nextInspection, todayDate), [inspectData?.nextInspection, todayDate]);
 
     // --- FILTER ENGINE ---
     const visibleEquipment = useMemo(() => {
@@ -313,7 +314,7 @@ export default function EmergencyEquipment() {
             const payload = {
                 ...formData,
                 assetId: finalAssetId,
-                nextInspection: addMonthsToDate(formData.lastInspection, 1),
+                nextInspection: addDaysToDate(formData.lastInspection, INSPECTION_INTERVAL_DAYS),
                 updatedBy: session.name || session.email,
                 lastUpdated: new Date().toISOString()
             };
@@ -342,7 +343,7 @@ export default function EmergencyEquipment() {
             const finalNotes = inspectData.notes
                 ? `${checklistStr}${inspectData.notes} (Inspected by ${session.name})`
                 : `${checklistStr}Routine inspection by ${session.name}`;
-            const nextInspection = addMonthsToDate(inspectData.date, 1);
+            const nextInspection = addDaysToDate(inspectData.date, INSPECTION_INTERVAL_DAYS);
 
             const payload = {
                 lastInspection: inspectData.date,
@@ -493,9 +494,7 @@ export default function EmergencyEquipment() {
                     }
 
                     const lastInsp = formatDate(row[inspCol]) || new Date().toISOString().split('T')[0];
-                    const nInspDate = new Date(lastInsp);
-                    nInspDate.setMonth(nInspDate.getMonth() + 1);
-                    const nextInsp = nInspDate.toISOString().split('T')[0];
+                    const nextInsp = addDaysToDate(lastInsp, INSPECTION_INTERVAL_DAYS);
 
                     const newItem = {
                         siteId, type: eqType, location, assetId,
@@ -684,7 +683,7 @@ export default function EmergencyEquipment() {
                                     <h2 className="text-2xl font-bold text-white flex items-center gap-3">Facility Registry</h2>
                                     <p className="text-sm text-slate-400">QR-Enabled inspection tracking for life-safety apparatus.</p>
                                 </div>
-                                {canEdit && <button onClick={() => { const today = getTodayDate(); setFormData({ id: '', siteId: siteFilter === 'All' ? '' : siteFilter, type: 'Fire Extinguisher', location: '', assetId: '', lastInspection: today, nextInspection: addMonthsToDate(today, 1), status: 'Active', notes: '', extinguisherType: '', lastRefillDate: '', lastHptDate: '', nextRefillDate: '', nextHptDate: '' }); setView('form'); }} className="bg-gradient-to-tr from-orange-600 to-red-500 hover:from-orange-500 hover:to-red-400 text-white px-5 py-2.5 rounded-xl font-bold text-sm shadow-lg flex items-center gap-2 transition-transform active:scale-95 whitespace-nowrap"><i className="fas fa-plus"></i> Add Equipment</button>}
+                                {canEdit && <button onClick={() => { const today = getTodayDate(); setFormData({ id: '', siteId: siteFilter === 'All' ? '' : siteFilter, type: 'Fire Extinguisher', location: '', assetId: '', lastInspection: today, nextInspection: addDaysToDate(today, INSPECTION_INTERVAL_DAYS), status: 'Active', notes: '', extinguisherType: '', lastRefillDate: '', lastHptDate: '', nextRefillDate: '', nextHptDate: '' }); setView('form'); }} className="bg-gradient-to-tr from-orange-600 to-red-500 hover:from-orange-500 hover:to-red-400 text-white px-5 py-2.5 rounded-xl font-bold text-sm shadow-lg flex items-center gap-2 transition-transform active:scale-95 whitespace-nowrap"><i className="fas fa-plus"></i> Add Equipment</button>}
                             </div>
 
                             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-2">
@@ -860,7 +859,7 @@ export default function EmergencyEquipment() {
                                         <input type="date" value={formData.lastInspection} onChange={e => setFormData({ ...formData, lastInspection: e.target.value })} className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-white outline-none focus:border-blue-500 font-mono" />
                                     </div>
                                     <div>
-                                        <label className="text-[10px] uppercase font-bold text-slate-400 block mb-2">Next Inspection Due Date (Auto +1 Month)</label>
+                                        <label className="text-[10px] uppercase font-bold text-slate-400 block mb-2">Next Inspection Due Date (Auto +30 Days)</label>
                                         <input type="date" value={formData.nextInspection} readOnly className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-white outline-none font-mono cursor-not-allowed" />
                                     </div>
                                 </div>
@@ -994,12 +993,12 @@ export default function EmergencyEquipment() {
                                         </div>
                                         <p className="mt-2 font-medium">
                                             {isInspectionOverdue
-                                                ? `This asset missed its due date of ${inspectData.nextInspection}. Submit this inspection to reset the monthly cycle from the new inspection date.`
-                                                : `The current inspection cycle is due on ${inspectData.nextInspection}. When you submit this inspection, the next due date will roll forward by one month from the inspection date below.`}
+                                                ? `This asset missed its due date of ${inspectData.nextInspection}. Submit this inspection to reset the 30-day cycle from the new inspection date.`
+                                                : `The current inspection cycle is due on ${inspectData.nextInspection}. When you submit this inspection, the next due date will roll forward by 30 days from the inspection date below.`}
                                         </p>
-                                        {isInspectionOverdue && missedInspectionMonths > 0 && (
+                                        {isInspectionOverdue && missedInspectionCycles > 0 && (
                                             <p className="mt-3 font-bold uppercase tracking-[0.2em] text-red-300">
-                                                Missed Monthly Inspections: {missedInspectionMonths}
+                                                Missed Inspection Cycles: {missedInspectionCycles}
                                             </p>
                                         )}
                                     </div>
