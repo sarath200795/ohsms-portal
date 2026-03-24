@@ -4,6 +4,7 @@ import { get, ref } from 'firebase/database';
 import { rtdb } from '../../config/firebase';
 import FieldHeader from './components/FieldHeader';
 import FieldModuleCard from './components/FieldModuleCard';
+import { clearFieldModuleHomeContext, setFieldModuleHomeContext } from './portalAuth';
 import {
     getVisibleFieldModules,
     getVisibleSites,
@@ -82,6 +83,7 @@ export default function FieldAppPage() {
 
     const openModule = (modulePath) => {
         const siteParam = selectedSite === 'All' ? 'All' : selectedSite;
+        setFieldModuleHomeContext('field-app');
         navigate(`${modulePath}?site=${siteParam}`);
     };
 
@@ -106,7 +108,10 @@ export default function FieldAppPage() {
                 firstName={firstName}
                 isGlobalUser={isGlobalUser}
                 selectedSite={selectedSite}
-                onBack={() => navigate('/dashboard')}
+                onBack={() => {
+                    clearFieldModuleHomeContext();
+                    navigate('/dashboard');
+                }}
                 onSiteChange={handleSiteChange}
                 visibleSites={visibleSites}
             />

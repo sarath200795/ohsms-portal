@@ -10,11 +10,13 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import FieldModuleCard from './FieldApp/components/FieldModuleCard';
 import FieldQrScannerModal from './FieldApp/components/FieldQrScannerModal';
 import {
+    clearFieldModuleHomeContext,
     FIELD_PORTAL_SESSION_KEY,
     buildFieldPortalAuthErrorMessage,
     fetchFieldPortalContext,
     getFieldPortalFirebase,
-    readFieldPortalSession
+    readFieldPortalSession,
+    setFieldModuleHomeContext
 } from './FieldApp/portalAuth';
 import {
     getVisibleFieldModules,
@@ -74,6 +76,7 @@ export default function FieldPortal() {
         setIsAuthenticated(true);
         setLoginData((prev) => ({ ...prev, email: normalizeEmail(sessionData.email) }));
         sessionStorage.setItem(FIELD_PORTAL_SESSION_KEY, JSON.stringify(sessionData));
+        setFieldModuleHomeContext('field-portal');
         syncMainSession(sessionData, targetSite);
 
         if (showAlert) {
@@ -188,6 +191,7 @@ export default function FieldPortal() {
         }
 
         sessionStorage.removeItem(FIELD_PORTAL_SESSION_KEY);
+        clearFieldModuleHomeContext();
         resetPortalState(true);
         setLoading(false);
         await signOut(fieldAuth).catch(() => {});
@@ -201,6 +205,7 @@ export default function FieldPortal() {
 
     const openModule = (modulePath) => {
         if (!portalSession) return;
+        setFieldModuleHomeContext('field-portal');
         syncMainSession(portalSession, selectedSite);
         const siteParam = selectedSite === 'All' ? 'All' : selectedSite;
         navigate(`${modulePath}?site=${siteParam}`);
@@ -225,6 +230,7 @@ export default function FieldPortal() {
         const nextSite = target.site || selectedSite;
         setSelectedSite(nextSite);
         setScannerOpen(false);
+        setFieldModuleHomeContext('field-portal');
         syncMainSession(portalSession, nextSite);
         navigate(target.path);
     };
@@ -316,6 +322,14 @@ export default function FieldPortal() {
             <header className="sticky top-0 z-30 border-b border-slate-800/80 bg-slate-950/85 backdrop-blur-xl">
                 <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-4 sm:px-6">
                     <div className="flex items-center gap-3">
+                        <button
+                            type="button"
+                            onClick={handleLogout}
+                            className="flex h-11 w-11 items-center justify-center rounded-2xl border border-slate-800 bg-slate-900 text-slate-300 transition-colors hover:border-slate-700 hover:text-white"
+                            title="Back to Field Portal Login"
+                        >
+                            <i className="fas fa-arrow-left"></i>
+                        </button>
                         <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-slate-800 bg-slate-900 text-cyan-300">
                             <i className="fas fa-mobile-screen-button"></i>
                         </div>

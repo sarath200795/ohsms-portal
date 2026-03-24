@@ -6,6 +6,7 @@ import { getVisibleFieldModules } from './utils';
 
 export const FIELD_PORTAL_APP_NAME = 'field-portal-app';
 export const FIELD_PORTAL_SESSION_KEY = 'fieldPortalSession';
+export const FIELD_MODULE_HOME_CONTEXT_KEY = 'fieldModuleHomeContext';
 
 export const getFieldPortalFirebase = () => {
     const existingApp = getApps().find((app) => app.name === FIELD_PORTAL_APP_NAME);
@@ -35,9 +36,29 @@ const normalizePortalSite = (site) => {
 
 export const isFieldPortalSessionActive = () => Boolean(readFieldPortalSession());
 
+export const setFieldModuleHomeContext = (context) => {
+    const value = String(context || '').trim();
+    if (!value) {
+        sessionStorage.removeItem(FIELD_MODULE_HOME_CONTEXT_KEY);
+        return;
+    }
+    sessionStorage.setItem(FIELD_MODULE_HOME_CONTEXT_KEY, value);
+};
+
+export const readFieldModuleHomeContext = () => sessionStorage.getItem(FIELD_MODULE_HOME_CONTEXT_KEY) || '';
+
+export const clearFieldModuleHomeContext = () => {
+    sessionStorage.removeItem(FIELD_MODULE_HOME_CONTEXT_KEY);
+};
+
 export const getPortalAwareHomePath = ({ site = '', fallbackPath = '/dashboard' } = {}) => {
     const resolvedSite = normalizePortalSite(site || sessionStorage.getItem('isoCurrentSite'));
-    const homePath = isFieldPortalSessionActive() ? '/field-portal' : fallbackPath;
+    const homeContext = readFieldModuleHomeContext();
+    const homePath = homeContext === 'field-portal'
+        ? '/field-portal'
+        : homeContext === 'field-app'
+            ? '/field-app'
+            : fallbackPath;
 
     if (!resolvedSite) return homePath;
 

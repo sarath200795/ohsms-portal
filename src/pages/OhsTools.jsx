@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { clearFieldModuleHomeContext } from './FieldApp/portalAuth';
 
 const OHS_MODULES = [
     { id: 'health-dashboard', label: 'Health Dashboard', desc: 'Occupational Health & Wellness', icon: 'fa-heart-pulse', color: 'text-rose-400' },
@@ -37,6 +38,10 @@ const NavCard = ({ module, onClick }) => (
 export default function OhsTools() {
     const navigate = useNavigate();
     const location = useLocation();
+
+    useEffect(() => {
+        clearFieldModuleHomeContext();
+    }, []);
 
     const [session, setSession] = useState(null);
     const [selectedSite, setSelectedSite] = useState('');

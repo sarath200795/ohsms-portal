@@ -4,6 +4,7 @@ import { auth, rtdb } from '../config/firebase';
 import { signOut } from 'firebase/auth';
 import { ref, get } from 'firebase/database';
 import useStore from '../store/useStore';
+import { clearFieldModuleHomeContext } from './FieldApp/portalAuth';
 
 const NavCard = ({ module, actions = [], onClick }) => {
     const topActions = actions.slice(0, 3);
@@ -51,6 +52,10 @@ const NavCard = ({ module, actions = [], onClick }) => {
 
 export default function Dashboard() {
     const navigate = useNavigate();
+
+    useEffect(() => {
+        clearFieldModuleHomeContext();
+    }, []);
     const { session, initializeSession, clearSession } = useStore();
 
     const [selectedSite, setSelectedSite] = useState('');
