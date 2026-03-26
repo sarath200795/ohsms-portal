@@ -104,37 +104,78 @@ const EQUIPMENT_CHECKLISTS = {
         { id: 'gauge', summary: 'Gauge', label: 'Pressure gauge indicator is in the operable range.' },
         { id: 'pin', summary: 'Pin', label: 'Safety pin is in place and tamper seal is intact.' },
         { id: 'hose', summary: 'Hose', label: 'Discharge hose/nozzle is free of cracks, dirt, or blockages.' },
-        { id: 'body', summary: 'Body', label: 'Cylinder body has no dents, corrosion, or visible damage.' }
+        { id: 'body', summary: 'Body', label: 'Cylinder body has no dents, corrosion, or visible damage.' },
+        { id: 'bracket', summary: 'Bracket', label: 'Extinguisher is secured properly on its bracket or in its cabinet.' },
+        { id: 'label', summary: 'Label', label: 'Operating label and classification markings are legible and facing outward.' },
+        { id: 'access', summary: 'Access', label: 'The extinguisher is visible, signed, and not blocked by storage or equipment.' },
+        { id: 'inspectionTag', summary: 'Inspection Tag', label: 'Inspection tag or record is present and reflects the latest check.' }
     ],
     'First Aid Kit': [
-        { id: 'accessible', summary: 'Accessible', label: 'Kit is accessible, clearly identified, and at the assigned location.' },
-        { id: 'contents', summary: 'Contents', label: 'Required first-aid contents are present, usable, and replenished.' },
-        { id: 'sterile', summary: 'Sterile Items', label: 'Sterile items, gloves, and barrier devices are sealed and within date.' },
-        { id: 'case', summary: 'Case', label: 'Kit case and mounting are clean, closed, and free from damage.' }
+        { id: 'instructions', summary: 'Instructions', label: 'Instructions for providing first aid, including CPR flow chart or first-aid guide, are available.' },
+        { id: 'notebook', summary: 'Notebook', label: 'Notebook and pen are available in the first aid kit.' },
+        { id: 'cprMask', summary: 'CPR Mask', label: 'Resuscitation face mask or face shield is present and usable.' },
+        { id: 'gloves', summary: 'Gloves', label: 'Disposable nitrile examination gloves are available in adequate quantity.' },
+        { id: 'gauzeSterile', summary: 'Sterile Gauze', label: 'Sterile gauze pieces or pads are present in suitable pack sizes.' },
+        { id: 'saline', summary: 'Saline', label: 'Saline or sodium chloride irrigation solution is available.' },
+        { id: 'wipes', summary: 'Wipes', label: 'Wound cleaning wipes or antiseptic wipes are available.' },
+        { id: 'adhesiveStrips', summary: 'Adhesive Strips', label: 'Adhesive dressing strips or adhesive bandages are stocked.' },
+        { id: 'adhesiveTape', summary: 'Adhesive Tape', label: 'Adhesive tape is available in usable condition.' },
+        { id: 'splinterProbe', summary: 'Splinter Probe', label: 'Splinter probes or similar disposable removal tools are present.' },
+        { id: 'tweezers', summary: 'Tweezers', label: 'Tweezers or forceps are available and clean.' },
+        { id: 'antiseptic', summary: 'Antiseptic', label: 'Antiseptic liquid, spray, cream, or povidone iodine is available.' },
+        { id: 'burnCare', summary: 'Burn Care', label: 'Burn dressing, burn treatment cream, or equivalent burn-care material is available.' },
+        { id: 'triangularBandage', summary: 'Triangular Bandage', label: 'Triangular bandages are available in the kit.' },
+        { id: 'tourniquet', summary: 'Tourniquet', label: 'Tourniquet is available where required by the site standard.' },
+        { id: 'cottonRoll', summary: 'Cotton Roll', label: 'Cotton roll and basic wound support material are available.' },
+        { id: 'eyePads', summary: 'Eye Pads', label: 'Eye pads are present and in usable condition.' },
+        { id: 'dressings', summary: 'Dressings', label: 'Sterilized dressings in small, medium, and large sizes are available.' },
+        { id: 'rollerBandage', summary: 'Roller Bandage', label: 'Roller bandages in required sizes are available.' },
+        { id: 'safetyPins', summary: 'Safety Pins', label: 'Safety pins are present in usable condition.' },
+        { id: 'blanket', summary: 'Blanket', label: 'Emergency blanket is available if required by the kit standard.' },
+        { id: 'case', summary: 'Case', label: 'Kit case and mounting are clean, closed, clearly identified, and free from damage.' }
     ],
     'AED / Defibrillator': [
-        { id: 'accessible', summary: 'Accessible', label: 'AED is accessible, cabinet signage is visible, and access is unobstructed.' },
-        { id: 'ready', summary: 'Ready Status', label: 'Status indicator/self-test shows the AED is ready for use.' },
-        { id: 'battery', summary: 'Battery', label: 'Battery is installed and within service or replacement date.' },
-        { id: 'pads', summary: 'Pads & Rescue Kit', label: 'Electrode pads and rescue kit items are present, sealed, and within date.' }
+        { id: 'readyCheck', summary: 'Green Check', label: 'Green check or readiness indicator shows that the AED is ready to use.' },
+        { id: 'clean', summary: 'Cleanliness', label: 'AED unit is clean, undamaged, and free of excessive wear.' },
+        { id: 'padsExpiry', summary: 'Pad Expiry', label: 'Electrodes are within their expiration date.' },
+        { id: 'padsConnected', summary: 'Pad Connection', label: 'Electrodes are connected to the unit and sealed in their package.' },
+        { id: 'cables', summary: 'Cables', label: 'All cables are free of cracks, cuts, or exposed or broken wires.' },
+        { id: 'powerCycle', summary: 'Power Test', label: 'Unit can be turned on and off and returns to ready status after the check.' },
+        { id: 'battery', summary: 'Battery', label: 'Batteries are within expiration date and ready for service.' },
+        { id: 'supplies', summary: 'Supplies', label: 'Mask, gloves, extra batteries, razor, and other rescue supplies are available.' },
+        { id: 'alarm', summary: 'Alarm', label: 'Alarm on the AED box or cabinet operates correctly.' }
     ],
     'Eye Wash Station': [
-        { id: 'accessible', summary: 'Accessible', label: 'Path to the eyewash station is unobstructed and signage is visible.' },
-        { id: 'nozzles', summary: 'Nozzles', label: 'Nozzles/caps are clean, protected, and free from contamination.' },
-        { id: 'flow', summary: 'Flow', label: 'Unit activates and provides immediate flushing flow.' },
-        { id: 'drain', summary: 'Drain & Basin', label: 'Basin, drain, and surrounding hardware are clean and undamaged.' }
+        { id: 'availability', summary: 'Availability', label: 'Eyewash bottle or station is available at the designated location.' },
+        { id: 'waterColour', summary: 'Water Colour', label: 'Water colour is acceptable and does not indicate contamination.' },
+        { id: 'capCondition', summary: 'Cap Condition', label: 'Caps/nozzle covers are present and in good condition.' },
+        { id: 'waterLevel', summary: 'Water Level', label: 'Water level is correct and ready for emergency use.' },
+        { id: 'updatedOn', summary: 'Updated On', label: 'Bottle/service date or update marking is current and visible.' },
+        { id: 'inspectorSign', summary: 'Inspector Sign', label: 'Inspection signature or inspector identification is recorded.' },
+        { id: 'access', summary: 'Access', label: 'Path to the station is unobstructed and eyewash signage is visible.' }
     ],
     'Spill Kit': [
-        { id: 'accessible', summary: 'Accessible', label: 'Spill kit is at the designated location and ready for immediate access.' },
-        { id: 'contents', summary: 'Contents', label: 'Required absorbents, PPE, and cleanup tools are present for expected spills.' },
-        { id: 'containers', summary: 'Waste Handling', label: 'Waste bags/containers and response instructions are available in the kit.' },
-        { id: 'condition', summary: 'Condition', label: 'Kit container and contents are clean, dry, sealed, and free from damage.' }
+        { id: 'visualDamage', summary: 'Visual Damage', label: 'Spill kit and storage condition show no visual damage and meet 5S expectations.' },
+        { id: 'absorbents', summary: 'Absorbents', label: 'Absorbent boom and pads are available in the spill kit.' },
+        { id: 'ppe', summary: 'PPE', label: 'Required PPE such as nitrile gloves, goggles, and nose mask are available.' },
+        { id: 'cover', summary: 'Disposable Cover', label: 'Disposable cover items are available in the kit.' },
+        { id: 'sop', summary: 'SOP', label: 'Spill response SOP or instruction sheet is available with the kit.' },
+        { id: 'wasteHandling', summary: 'Waste Handling', label: 'Waste collection/disposal items required for spill response are available.' },
+        { id: 'restock', summary: 'Restock', label: 'Critical spill kit consumables do not appear depleted from prior use.' }
     ],
     'Evacuation Chair': [
-        { id: 'accessible', summary: 'Accessible', label: 'Chair is accessible at the designated egress point and not obstructed.' },
-        { id: 'restraints', summary: 'Restraints', label: 'Seat, belts, restraints, and occupant supports are intact.' },
-        { id: 'mobility', summary: 'Mobility', label: 'Tracks, wheels, brakes, and handles move freely and operate correctly.' },
-        { id: 'instructions', summary: 'Instructions', label: 'Operating instructions and inspection markings are legible and present.' }
+        { id: 'availability', summary: 'Availability', label: 'Transport equipment is available and stored in the designated place.' },
+        { id: 'seatCloth', summary: 'Cloth/Seat', label: 'Seat cloth or stretcher fabric is in good condition with no wear or tear.' },
+        { id: 'sideHandles', summary: 'Handles', label: 'Handles are available on both sides and in good condition.' },
+        { id: 'lockMechanism', summary: 'Locking', label: 'Expandable lock or folding/locking mechanism secures correctly.' },
+        { id: 'standCondition', summary: 'Stand/Frame', label: 'Stand, frame, and support parts are in good condition with no cracks or damage.' },
+        { id: 'mainWheel', summary: 'Main Wheel', label: 'Main wheel is in good condition and rotates freely.' },
+        { id: 'guideWheel', summary: 'Guide Wheel', label: 'Guiding/caster wheel moves freely and has no visible damage.' },
+        { id: 'brake', summary: 'Brake', label: 'Hand brake is in good condition and stops the wheel when applied.' },
+        { id: 'footPad', summary: 'Foot Pad', label: 'Foot pad or footrest is in good condition with no damage.' },
+        { id: 'xFrame', summary: 'X-Frame', label: 'X-frame or structural brace is in good condition with no cracks or damage.' },
+        { id: 'housekeeping', summary: '5S Area', label: '5S condition is maintained and the designated area is clearly identified.' },
+        { id: 'inspectionRecord', summary: 'Inspection Record', label: 'Inspection record, remark field, and sign-off are updated.' }
     ]
 };
 
