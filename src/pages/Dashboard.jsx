@@ -11,42 +11,68 @@ const NavCard = ({ module, actions = [], onClick }) => {
     const extraCount = actions.length - 3;
 
     return (
-        <div onClick={onClick} className="glass-panel p-6 rounded-3xl relative overflow-hidden group min-h-[12rem] flex flex-col border border-slate-700/50 hover:border-blue-500/50 transition-all duration-300 cursor-pointer shadow-lg hover:shadow-blue-900/20 hover:-translate-y-1">
-            <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
-            <div className="absolute -right-8 -top-8 w-32 h-32 bg-white/5 rounded-full blur-2xl group-hover:bg-blue-500/10 transition-colors duration-500"></div>
+        <button
+            type="button"
+            onClick={onClick}
+            className="command-panel myth-hover group relative flex min-h-[15rem] w-full flex-col overflow-hidden rounded-[1.9rem] p-6 text-left"
+        >
+            <div className="myth-card-glow"></div>
+            <div className="absolute inset-x-6 top-0 h-px bg-gradient-to-r from-transparent via-[rgba(242,201,120,0.35)] to-transparent"></div>
 
-            <div className="relative z-10 flex justify-between items-start mb-4">
-                <div className={`w-12 h-12 rounded-2xl bg-slate-800/80 flex items-center justify-center text-2xl shadow-xl transition-transform duration-300 group-hover:scale-110 group-hover:rotate-3 ${module.color}`}>
-                    <i className={`fas ${module.icon}`}></i>
+            <div className="relative z-10 flex items-start justify-between gap-4">
+                <div className="flex items-start gap-4">
+                    <div className={`myth-icon-frame flex h-14 w-14 items-center justify-center rounded-[1.25rem] text-2xl transition-transform duration-300 group-hover:scale-110 ${module.color}`}>
+                        <i className={`fas ${module.icon}`}></i>
+                    </div>
+                    <div>
+                        <p className="myth-kicker">{module.id}</p>
+                        <h3 className="mt-2 text-3xl text-white">{module.label}</h3>
+                    </div>
                 </div>
+
                 {actions.length > 0 ? (
-                    <div className="bg-red-500 text-white text-[10px] font-bold px-2.5 py-1 rounded-lg shadow-lg animate-pulse border border-red-400">
-                        {actions.length} Action{actions.length > 1 ? 's' : ''}
-                    </div>
+                    <span className="war-chip !border-[rgba(215,131,57,0.3)] !bg-[rgba(88,37,19,0.55)] !text-[var(--myth-ember)]">
+                        {actions.length} active
+                    </span>
                 ) : (
-                    <div className="w-8 h-8 rounded-full bg-slate-800/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-300 -translate-x-2 group-hover:translate-x-0">
-                        <i className="fas fa-arrow-right text-slate-400 text-xs"></i>
-                    </div>
+                    <span className="war-chip !text-[var(--myth-muted)]">standby</span>
                 )}
             </div>
 
-            <div className="relative z-10 flex-1 flex flex-col justify-end">
-                <h3 className="text-lg font-bold text-white mb-1 group-hover:text-blue-400 transition-colors">{module.label}</h3>
+            <div className="relative z-10 mt-5 flex-1">
+                <p className="max-w-sm text-sm leading-relaxed text-[var(--myth-muted)]">
+                    Enter the module workspace, review operational status, and execute assigned actions from the central command deck.
+                </p>
+
                 {actions.length > 0 ? (
-                    <div className="mt-3 space-y-1.5 border-t border-slate-700/50 pt-3">
-                        {topActions.map((act, i) => (
-                            <div key={i} className="text-[10px] text-slate-300 flex items-start gap-1.5 truncate group-hover:text-white transition-colors">
-                                <i className="fas fa-circle text-[5px] mt-1.5 text-orange-400"></i>
-                                <span className="truncate">{act.title}</span>
-                            </div>
-                        ))}
-                        {extraCount > 0 && <div className="text-[9px] text-slate-500 italic mt-1 font-bold">+ {extraCount} more pending...</div>}
+                    <div className="mt-5 rounded-[1.3rem] border border-[rgba(242,201,120,0.12)] bg-[rgba(12,10,8,0.68)] p-4">
+                        <p className="myth-kicker mb-3 text-[10px]">Priority Queue</p>
+                        <div className="space-y-2">
+                            {topActions.map((act, i) => (
+                                <div key={i} className="flex items-start gap-2 text-[11px] text-[var(--myth-ink)]">
+                                    <i className="fas fa-diamond mt-1 text-[7px] text-[var(--myth-ember)]"></i>
+                                    <span className="block truncate">{act.title}</span>
+                                </div>
+                            ))}
+                            {extraCount > 0 ? (
+                                <div className="pt-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--myth-muted)]">
+                                    + {extraCount} more pending
+                                </div>
+                            ) : null}
+                        </div>
                     </div>
                 ) : (
-                    <p className="text-[10px] text-slate-500 uppercase tracking-widest font-semibold mt-auto">{module.id}</p>
+                    <div className="mt-6 flex items-center justify-between border-t border-[rgba(242,201,120,0.12)] pt-4">
+                        <span className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[var(--myth-muted)]">
+                            No queued tasks
+                        </span>
+                        <span className="flex h-10 w-10 items-center justify-center rounded-full border border-[rgba(242,201,120,0.14)] bg-[rgba(10,8,6,0.72)] text-[var(--myth-gold)] transition-transform group-hover:translate-x-1">
+                            <i className="fas fa-arrow-right"></i>
+                        </span>
+                    </div>
                 )}
             </div>
-        </div>
+        </button>
     );
 };
 
@@ -212,7 +238,19 @@ export default function Dashboard() {
         navigate(`${mod.path}?site=${paramSite}`);
     };
 
-    if (localLoading) return <div className="h-screen flex flex-col items-center justify-center bg-slate-950 text-slate-400 font-['Space_Grotesk'] tracking-widest text-xs uppercase animate-pulse"><div className="w-12 h-12 border-4 border-slate-800 border-t-blue-500 rounded-full animate-spin mb-4"></div>Loading Workspace...</div>;
+    if (localLoading) {
+        return (
+            <div className="myth-shell flex h-screen flex-col items-center justify-center bg-[#080705] px-6 text-[var(--myth-ink)]">
+                <div className="command-panel flex items-center gap-4 rounded-[1.8rem] px-8 py-6">
+                    <div className="h-12 w-12 animate-spin rounded-full border-4 border-[rgba(242,201,120,0.12)] border-t-[var(--myth-ember)]"></div>
+                    <div>
+                        <p className="myth-kicker">Command Sync</p>
+                        <p className="mt-1 text-lg font-semibold text-white">Loading Workspace</p>
+                    </div>
+                </div>
+            </div>
+        );
+    }
 
     const firstName = session?.name?.split(' ')[0] || 'Team Member';
     const isGlobalAdmin = ['Global Owner', 'Global Manager', 'Owner', 'Admin'].includes(session?.role);
@@ -220,184 +258,230 @@ export default function Dashboard() {
     const hasFieldAppAccess = isGlobalAdmin || visibleModules.some((module) => ['Incidents', 'Inspections', 'OHS Tools', 'Record Emergency'].includes(module.id));
 
     return (
-        <div className="flex flex-col h-screen bg-slate-950 text-white font-['Space_Grotesk'] overflow-hidden relative">
-            <style dangerouslySetInnerHTML={{
-                __html: `
-                .glass-panel { background: rgba(30, 41, 59, 0.6); backdrop-filter: blur(16px); }
-                .custom-scroll::-webkit-scrollbar { width: 6px; }
-                .custom-scroll::-webkit-scrollbar-track { background: #0f172a; }
-                .custom-scroll::-webkit-scrollbar-thumb { background: #334155; border-radius: 10px; }
-            `}} />
+        <div className="myth-shell relative flex h-screen flex-col overflow-hidden bg-[#080705] text-white">
 
             {/* FLOATING ACTION BUTTON */}
             <div className="fixed bottom-8 right-8 z-50 flex flex-col items-end gap-3">
-                <div className={`flex flex-col gap-3 transition-all duration-300 origin-bottom ${isFabOpen ? 'scale-100 opacity-100 mb-2' : 'scale-0 opacity-0 h-0 pointer-events-none'}`}>
+                <div className={`origin-bottom transition-all duration-300 ${isFabOpen ? 'mb-2 scale-100 opacity-100' : 'pointer-events-none h-0 scale-0 opacity-0'}`}>
+                    <div className="flex flex-col items-end gap-3">
                     {visibleModules.find(m => m.id === 'Incidents') && (
-                        <button onClick={() => { navigate('/incidents?site=' + (selectedSite === 'GLOBAL' ? 'All' : selectedSite)); setIsFabOpen(false); }} className="flex items-center gap-3 group">
-                            <span className="bg-slate-800/90 backdrop-blur-sm text-slate-200 text-xs font-bold px-4 py-2 rounded-xl shadow-lg border border-slate-700 group-hover:text-white group-hover:border-orange-500 transition-colors">Report Incident</span>
-                            <div className="w-12 h-12 rounded-full bg-orange-600 text-white flex items-center justify-center shadow-lg shadow-orange-900/50 hover:scale-110 transition-transform"><i className="fas fa-triangle-exclamation"></i></div>
+                        <button onClick={() => { navigate('/incidents?site=' + (selectedSite === 'GLOBAL' ? 'All' : selectedSite)); setIsFabOpen(false); }} className="flex items-center gap-3">
+                            <span className="myth-surface-soft rounded-2xl px-4 py-2 text-xs font-bold uppercase tracking-[0.18em] text-[var(--myth-ink)]">Report Incident</span>
+                            <div className="myth-button myth-button-primary flex h-12 w-12 items-center justify-center rounded-full text-lg"><i className="fas fa-triangle-exclamation"></i></div>
                         </button>
                     )}
                     {visibleModules.find(m => m.id === 'Inspections') && (
-                        <button onClick={() => { navigate('/inspections?site=' + (selectedSite === 'GLOBAL' ? 'All' : selectedSite)); setIsFabOpen(false); }} className="flex items-center gap-3 group">
-                            <span className="bg-slate-800/90 backdrop-blur-sm text-slate-200 text-xs font-bold px-4 py-2 rounded-xl shadow-lg border border-slate-700 group-hover:text-white group-hover:border-lime-500 transition-colors">Start Inspection</span>
-                            <div className="w-12 h-12 rounded-full bg-lime-600 text-white flex items-center justify-center shadow-lg shadow-lime-900/50 hover:scale-110 transition-transform"><i className="fas fa-search-location"></i></div>
+                        <button onClick={() => { navigate('/inspections?site=' + (selectedSite === 'GLOBAL' ? 'All' : selectedSite)); setIsFabOpen(false); }} className="flex items-center gap-3">
+                            <span className="myth-surface-soft rounded-2xl px-4 py-2 text-xs font-bold uppercase tracking-[0.18em] text-[var(--myth-ink)]">Start Inspection</span>
+                            <div className="myth-button myth-button-cyan flex h-12 w-12 items-center justify-center rounded-full text-lg"><i className="fas fa-search-location"></i></div>
                         </button>
                     )}
                     {visibleModules.find(m => m.id === 'OHS Tools') && (
-                        <button onClick={() => { navigate('/ohs-tools?site=' + (selectedSite === 'GLOBAL' ? 'All' : selectedSite)); setIsFabOpen(false); }} className="flex items-center gap-3 group">
-                            <span className="bg-slate-800/90 backdrop-blur-sm text-slate-200 text-xs font-bold px-4 py-2 rounded-xl shadow-lg border border-slate-700 group-hover:text-white group-hover:border-fuchsia-500 transition-colors">Safety Tools (PTW/LOTO)</span>
-                            <div className="w-12 h-12 rounded-full bg-fuchsia-600 text-white flex items-center justify-center shadow-lg shadow-fuchsia-900/50 hover:scale-110 transition-transform"><i className="fas fa-toolbox"></i></div>
+                        <button onClick={() => { navigate('/ohs-tools?site=' + (selectedSite === 'GLOBAL' ? 'All' : selectedSite)); setIsFabOpen(false); }} className="flex items-center gap-3">
+                            <span className="myth-surface-soft rounded-2xl px-4 py-2 text-xs font-bold uppercase tracking-[0.18em] text-[var(--myth-ink)]">Safety Tools</span>
+                            <div className="myth-outline-button flex h-12 w-12 items-center justify-center rounded-full text-lg text-[var(--myth-gold)]"><i className="fas fa-toolbox"></i></div>
                         </button>
                     )}
                     {visibleModules.find(m => m.id === 'CAPA Manager') && (
-                        <button onClick={() => { navigate('/capa?site=' + (selectedSite === 'GLOBAL' ? 'All' : selectedSite)); setIsFabOpen(false); }} className="flex items-center gap-3 group">
-                            <span className="bg-slate-800/90 backdrop-blur-sm text-slate-200 text-xs font-bold px-4 py-2 rounded-xl shadow-lg border border-slate-700 group-hover:text-white group-hover:border-cyan-500 transition-colors">Action Register</span>
-                            <div className="w-12 h-12 rounded-full bg-cyan-600 text-white flex items-center justify-center shadow-lg shadow-cyan-900/50 hover:scale-110 transition-transform"><i className="fas fa-list-check"></i></div>
+                        <button onClick={() => { navigate('/capa?site=' + (selectedSite === 'GLOBAL' ? 'All' : selectedSite)); setIsFabOpen(false); }} className="flex items-center gap-3">
+                            <span className="myth-surface-soft rounded-2xl px-4 py-2 text-xs font-bold uppercase tracking-[0.18em] text-[var(--myth-ink)]">Action Register</span>
+                            <div className="myth-outline-button flex h-12 w-12 items-center justify-center rounded-full text-lg text-[var(--myth-cyan)]"><i className="fas fa-list-check"></i></div>
                         </button>
                     )}
+                    </div>
                 </div>
 
                 <button
                     onClick={() => setIsFabOpen(!isFabOpen)}
-                    className={`w-14 h-14 rounded-full bg-gradient-to-tr from-blue-600 to-cyan-500 text-white flex items-center justify-center text-xl shadow-2xl shadow-blue-900/50 transition-transform duration-300 ${isFabOpen ? 'rotate-45 scale-110 bg-gradient-to-tr from-slate-700 to-slate-600' : 'hover:scale-110 animate-bounce-subtle'}`}>
+                    className={`myth-button myth-button-primary flex h-14 w-14 items-center justify-center rounded-full text-xl ${isFabOpen ? 'rotate-45' : ''}`}>
                     <i className={`fas ${isFabOpen ? 'fa-plus' : 'fa-bolt'}`}></i>
                 </button>
             </div>
 
-            <header className="h-16 px-6 flex items-center justify-between backdrop-blur-md bg-slate-900/80 border-b border-slate-800 z-40">
-                <div className="flex items-center gap-4">
-                    {/* --- BRANDING BLOCK (HEADER) --- */}
-                    <img
-                        src="/we-ehs-logo.jpg"
-                        alt="WE EHS"
-                        className="w-10 h-10 rounded-lg shadow-lg shadow-blue-900/50 object-cover border border-slate-700"
-                    />
-                    <h1 className="text-base font-black hidden md:block tracking-widest text-white uppercase">
-                        WE EHS SAFETY TOOL <span className="text-slate-500 font-medium tracking-normal ml-2 capitalize">| {orgName}</span>
-                    </h1>
+            <header className="myth-topbar z-40 px-4 sm:px-6">
+                <div className="mx-auto flex h-20 max-w-7xl items-center justify-between gap-4">
+                    <div className="flex items-center gap-4">
+                        <div className="myth-icon-frame flex h-12 w-12 items-center justify-center overflow-hidden rounded-[1.1rem]">
+                            <img src="/we-ehs-logo.jpg" alt="WE EHS" className="h-full w-full object-cover" />
+                        </div>
+                        <div>
+                            <p className="myth-kicker">Enterprise Command</p>
+                            <h1 className="text-3xl text-white">WE EHS Safety Tool</h1>
+                        </div>
 
-                    <div className="flex items-center gap-2 text-xs font-bold bg-slate-950 px-3 py-1.5 rounded-lg border border-slate-700 shadow-inner ml-2">
-                        <i className="fas fa-location-dot text-emerald-400"></i>
-                        <select
-                            value={selectedSite}
-                            onChange={handleSiteChange}
-                            className="bg-transparent border-none text-white outline-none cursor-pointer focus:ring-0 w-32 md:w-48 truncate"
-                        >
-                            {isGlobalAdmin && <option value="GLOBAL" className="bg-slate-800 text-white">Global View (All Sites)</option>}
-                            {sites.map(s => <option key={s.code} value={s.code} className="bg-slate-800 text-white">{s.name} ({s.code})</option>)}
-                        </select>
+                        <div className="myth-surface-soft ml-2 hidden items-center gap-2 rounded-2xl px-4 py-3 lg:flex">
+                            <i className="fas fa-location-dot text-[var(--myth-cyan)]"></i>
+                            <select
+                                value={selectedSite}
+                                onChange={handleSiteChange}
+                                className="w-44 cursor-pointer bg-transparent text-sm font-bold text-white outline-none"
+                            >
+                                {isGlobalAdmin && <option value="GLOBAL">Global View (All Sites)</option>}
+                                {sites.map(s => <option key={s.code} value={s.code}>{s.name} ({s.code})</option>)}
+                            </select>
+                        </div>
                     </div>
-                </div>
 
-                <div className="flex items-center gap-4">
-                    <button onClick={() => setIsNotificationOpen(true)} className="relative w-9 h-9 rounded-full bg-slate-800 flex items-center justify-center border border-slate-700 hover:bg-slate-700 transition-colors shadow-inner">
-                        <i className="fas fa-bell text-slate-300"></i>
-                        {myActions.length > 0 && <span className="absolute -top-1 -right-1 bg-red-500 text-[9px] font-bold w-4 h-4 rounded-full flex items-center justify-center animate-pulse border border-slate-900">{myActions.length}</span>}
-                    </button>
-                    <div className="text-right hidden md:block">
-                        <p className="text-xs font-bold text-white">{session?.name || session?.email}</p>
-                        <p className="text-[9px] text-blue-400 uppercase tracking-widest">{session?.role}</p>
+                    <div className="flex items-center gap-3">
+                        <button onClick={() => setIsNotificationOpen(true)} className="myth-outline-button relative flex h-11 w-11 items-center justify-center rounded-2xl">
+                            <i className="fas fa-bell text-[var(--myth-gold)]"></i>
+                            {myActions.length > 0 && <span className="absolute -right-1 -top-1 flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-[var(--myth-ember)] px-1 text-[10px] font-bold text-[#140e08]">{myActions.length}</span>}
+                        </button>
+                        <div className="myth-surface-soft hidden rounded-2xl px-4 py-2 text-right md:block">
+                            <p className="text-sm font-bold text-white">{session?.name || session?.email}</p>
+                            <p className="text-[10px] uppercase tracking-[0.22em] text-[var(--myth-cyan)]">{session?.role}</p>
+                        </div>
+                        <button onClick={handleLogout} className="myth-button myth-button-danger flex h-11 w-11 items-center justify-center rounded-2xl text-sm"><i className="fas fa-power-off"></i></button>
                     </div>
-                    <button onClick={handleLogout} className="w-9 h-9 rounded-full bg-red-900/20 flex items-center justify-center border border-red-500/30 text-red-400 hover:bg-red-600 hover:text-white transition-colors shadow-inner"><i className="fas fa-power-off"></i></button>
                 </div>
             </header>
 
-            <main className="flex-1 overflow-y-auto p-4 md:p-8 custom-scroll relative">
-                <div className="max-w-7xl mx-auto pb-24">
+            <main className="relative flex-1 overflow-y-auto px-4 py-6 sm:px-6 sm:py-8">
+                <div className="mx-auto max-w-7xl pb-24">
+                    <section className="hero-banner relative mb-10 overflow-hidden rounded-[2.4rem] p-6 sm:p-8 lg:p-10">
+                        <div className="absolute inset-y-0 right-0 hidden w-[34%] bg-[radial-gradient(circle_at_center,rgba(119,195,214,0.12),transparent_65%)] lg:block"></div>
+                        <div className="relative z-10 grid gap-8 lg:grid-cols-[1.35fr_0.65fr]">
+                            <div>
+                                <p className="hud-chip mb-4">Command Deck</p>
+                                <h2 className="myth-section-title text-5xl leading-none text-white sm:text-6xl">
+                                    Welcome back, {firstName}
+                                </h2>
+                                <p className="mt-4 max-w-3xl text-base leading-relaxed text-[var(--myth-muted)] sm:text-lg">
+                                    Orchestrate incidents, permits, audits, training, and field execution from a tactical workspace built for live operational control.
+                                </p>
 
-                    <div className="mb-10 p-8 rounded-[2rem] bg-gradient-to-br from-slate-800 to-slate-900 border border-slate-700 relative overflow-hidden shadow-2xl">
-                        <div className="absolute top-0 right-0 w-96 h-96 bg-blue-500/10 rounded-full blur-[100px] pointer-events-none"></div>
-                        <div className="absolute bottom-0 left-0 w-64 h-64 bg-emerald-500/10 rounded-full blur-[80px] pointer-events-none"></div>
-
-                        <div className="relative z-10">
-                            <h2 className="text-4xl font-black text-white mb-4 tracking-tight">Welcome back, {firstName}.</h2>
-
-                            <div className="flex flex-wrap items-center gap-3 md:gap-6 text-sm font-medium mb-6">
-                                <div className="flex items-center gap-2 bg-slate-950/50 border border-slate-800 px-4 py-2 rounded-xl">
-                                    <i className="fas fa-building text-blue-400"></i>
-                                    <span className="text-slate-400">Org: <strong className="text-white">{orgName}</strong></span>
+                                <div className="mt-6 flex flex-wrap gap-3">
+                                    <div className="myth-surface-soft rounded-2xl px-4 py-3 text-sm">
+                                        <span className="text-[var(--myth-muted)]">Organization:</span>{' '}
+                                        <strong className="text-white">{orgName}</strong>
+                                    </div>
+                                    <div className="myth-surface-soft rounded-2xl px-4 py-3 text-sm">
+                                        <span className="text-[var(--myth-muted)]">Site Context:</span>{' '}
+                                        <strong className="text-white">{activeSiteName}</strong>
+                                    </div>
                                 </div>
-                                <div className="flex items-center gap-2 bg-slate-950/50 border border-slate-800 px-4 py-2 rounded-xl">
-                                    <i className="fas fa-map-marker-alt text-emerald-400"></i>
-                                    <span className="text-slate-400">Site: <strong className="text-white">{activeSiteName}</strong></span>
+
+                                <div className="mt-6 flex flex-wrap gap-3">
+                                    {myActions.length > 0 ? (
+                                        <button type="button" onClick={() => setIsNotificationOpen(true)} className="myth-button myth-button-primary px-5 py-3 text-xs">
+                                            {myActions.length} action{myActions.length > 1 ? 's' : ''} required
+                                        </button>
+                                    ) : (
+                                        <span className="war-chip !bg-[rgba(18,45,31,0.48)] !text-[#8fd0aa] !border-[rgba(113,188,149,0.28)]">
+                                            All systems clear
+                                        </span>
+                                    )}
+
+                                    {hasFieldAppAccess && (
+                                        <button
+                                            type="button"
+                                            onClick={() => navigate(`/field-portal?site=${selectedSite === 'GLOBAL' ? 'All' : selectedSite}`)}
+                                            className="myth-button myth-button-cyan px-5 py-3 text-xs"
+                                        >
+                                            Open Field Portal
+                                        </button>
+                                    )}
                                 </div>
                             </div>
 
-                            <div className="flex flex-wrap items-center gap-4 text-slate-400 text-sm font-medium">
-                                <span>You have access to <strong className="text-white bg-slate-800 px-2 py-0.5 rounded border border-slate-600">{visibleModules.length}</strong> modules.</span>
-
-                                {myActions.length > 0 ? (
-                                    <button onClick={() => setIsNotificationOpen(true)} className="bg-orange-500/20 text-orange-400 hover:bg-orange-500 hover:text-white transition-colors px-3 py-1 rounded-lg text-xs font-bold uppercase tracking-widest border border-orange-500/30 flex items-center gap-2">
-                                        <div className="w-2 h-2 rounded-full bg-orange-400 animate-pulse"></div>
-                                        {myActions.length} Action{myActions.length > 1 ? 's' : ''} Required
-                                    </button>
-                                ) : (
-                                    <span className="bg-emerald-900/30 text-emerald-400 px-3 py-1 rounded-lg text-xs font-bold uppercase tracking-widest border border-emerald-500/30 flex items-center gap-2">
-                                        <i className="fas fa-check-circle"></i> All caught up
-                                    </span>
-                                )}
-
-                                {hasFieldAppAccess && (
-                                    <button
-                                        type="button"
-                                        onClick={() => navigate(`/field-portal?site=${selectedSite === 'GLOBAL' ? 'All' : selectedSite}`)}
-                                        className="bg-cyan-500/15 text-cyan-300 hover:bg-cyan-500 hover:text-slate-950 transition-colors px-3 py-1 rounded-lg text-xs font-bold uppercase tracking-widest border border-cyan-500/30 flex items-center gap-2"
-                                    >
-                                        <i className="fas fa-mobile-screen-button"></i> Open Field Portal
-                                    </button>
-                                )}
+                            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-1">
+                                <div className="myth-stat-card p-5">
+                                    <p className="myth-kicker relative z-10">Modules Unlocked</p>
+                                    <div className="relative z-10 mt-3 text-5xl font-black text-white">{visibleModules.length}</div>
+                                    <p className="relative z-10 mt-2 text-sm text-[var(--myth-muted)]">Mission systems available in your command stack.</p>
+                                </div>
+                                <div className="myth-stat-card p-5">
+                                    <p className="myth-kicker relative z-10">Action Queue</p>
+                                    <div className="relative z-10 mt-3 text-5xl font-black text-white">{myActions.length}</div>
+                                    <p className="relative z-10 mt-2 text-sm text-[var(--myth-muted)]">Items awaiting approval, CAPA closure, or direct response.</p>
+                                </div>
                             </div>
                         </div>
-                    </div>
+                    </section>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 md:gap-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-                        {visibleModules.map(mod => {
-                            const modActions = myActions.filter(a => a.module === mod.id);
-                            return <NavCard key={mod.id} module={mod} actions={modActions} onClick={() => handleNavigation(mod)} />
-                        })}
-                    </div>
-
-                    {visibleModules.length === 0 && (
-                        <div className="text-center py-20 bg-slate-900/30 border-2 border-dashed border-slate-800 rounded-3xl animate-in fade-in duration-500">
-                            <div className="w-20 h-20 bg-slate-800 rounded-full flex items-center justify-center mx-auto mb-6 shadow-inner">
-                                <i className="fas fa-lock text-3xl text-slate-600"></i>
+                    <section className="mb-6">
+                        <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+                            <div>
+                                <p className="myth-kicker">Operational Modules</p>
+                                <h3 className="text-4xl text-white">Command Stations</h3>
+                                <p className="text-sm text-[var(--myth-muted)]">
+                                    Each station opens with your selected site context and live authorization state.
+                                </p>
                             </div>
-                            <p className="text-slate-400 font-bold uppercase tracking-widest mb-2">No Modules Assigned</p>
-                            <p className="text-sm text-slate-500 mb-6">Your account is active, but you don't have access to any tools yet.</p>
-                            <button onClick={() => navigate('/users')} className="bg-blue-600 hover:bg-blue-500 text-white font-bold px-6 py-3 rounded-xl transition-all shadow-lg shadow-blue-900/50 uppercase tracking-widest text-xs">
-                                <i className="fas fa-hand-paper mr-2"></i> Request Access
-                            </button>
+
+                            <div className="myth-surface-soft rounded-2xl px-4 py-3 text-sm text-[var(--myth-muted)] lg:hidden">
+                                <label className="mr-3 text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--myth-gold)]">Site</label>
+                                <select
+                                    value={selectedSite}
+                                    onChange={handleSiteChange}
+                                    className="min-w-[180px] bg-transparent font-bold text-white outline-none"
+                                >
+                                    {isGlobalAdmin && <option value="GLOBAL">Global View (All Sites)</option>}
+                                    {sites.map(s => <option key={s.code} value={s.code}>{s.name} ({s.code})</option>)}
+                                </select>
+                            </div>
                         </div>
-                    )}
+
+                        {visibleModules.length === 0 ? (
+                            <div className="command-panel rounded-[2rem] p-10 text-center">
+                                <div className="myth-icon-frame mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-full text-3xl text-[var(--myth-muted)]">
+                                    <i className="fas fa-lock"></i>
+                                </div>
+                                <p className="myth-kicker">Access Gate</p>
+                                <h4 className="mt-3 text-3xl text-white">No Modules Assigned</h4>
+                                <p className="mx-auto mt-3 max-w-xl text-sm leading-relaxed text-[var(--myth-muted)]">
+                                    Your account is active, but no operational systems have been assigned yet. Request access to unlock the relevant command stations.
+                                </p>
+                                <button type="button" onClick={() => navigate('/users')} className="myth-button myth-button-primary mt-6 px-6 py-3 text-xs">
+                                    Request Access
+                                </button>
+                            </div>
+                        ) : (
+                            <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-3">
+                                {visibleModules.map(mod => {
+                                    const modActions = myActions.filter(a => a.module === mod.id);
+                                    return <NavCard key={mod.id} module={mod} actions={modActions} onClick={() => handleNavigation(mod)} />;
+                                })}
+                            </div>
+                        )}
+                    </section>
                 </div>
             </main>
 
-            {/* NOTIFICATION SIDEBAR */}
             {isNotificationOpen && (
                 <div className="fixed inset-0 z-[100] flex justify-end">
-                    <div className="absolute inset-0 bg-slate-950/60 backdrop-blur-sm transition-opacity" onClick={() => setIsNotificationOpen(false)}></div>
-                    <div className="relative w-80 md:w-96 bg-slate-900 h-full border-l border-slate-700 shadow-2xl animate-in slide-in-from-right duration-300 flex flex-col">
-                        <div className="p-6 border-b border-slate-800 flex justify-between items-center bg-slate-900/50">
-                            <h2 className="text-lg font-bold text-white flex items-center gap-2"><i className="fas fa-inbox text-blue-400"></i> Action Center</h2>
-                            <button onClick={() => setIsNotificationOpen(false)} className="w-8 h-8 rounded-full bg-slate-800 flex items-center justify-center text-slate-400 hover:text-white hover:bg-slate-700 transition-colors"><i className="fas fa-times"></i></button>
+                    <div className="absolute inset-0 bg-black/55 backdrop-blur-sm" onClick={() => setIsNotificationOpen(false)}></div>
+                    <div className="command-panel relative flex h-full w-80 flex-col border-l border-[rgba(242,201,120,0.14)] md:w-[26rem]">
+                        <div className="flex items-center justify-between border-b border-[rgba(242,201,120,0.1)] px-6 py-5">
+                            <div>
+                                <p className="myth-kicker">Action Center</p>
+                                <h2 className="mt-1 text-3xl text-white">Priority Inbox</h2>
+                            </div>
+                            <button onClick={() => setIsNotificationOpen(false)} className="myth-outline-button flex h-10 w-10 items-center justify-center rounded-full"><i className="fas fa-times"></i></button>
                         </div>
 
-                        <div className="p-6 flex-1 overflow-y-auto custom-scroll space-y-4">
+                        <div className="flex-1 space-y-4 overflow-y-auto px-6 py-6">
                             {myActions.map((act, i) => (
-                                <div key={i} onClick={() => { setIsNotificationOpen(false); navigate(act.path); }} className="p-4 bg-slate-950 border border-slate-800 rounded-2xl cursor-pointer hover:border-orange-500 transition-colors group shadow-lg">
-                                    <div className="flex justify-between items-start mb-2">
-                                        <p className="text-[10px] font-bold uppercase tracking-widest text-orange-400 bg-orange-500/10 px-2 py-1 rounded border border-orange-500/20">{act.module}</p>
-                                        <i className="fas fa-arrow-right text-slate-600 group-hover:text-orange-500 transition-colors text-xs mt-1"></i>
+                                <button
+                                    type="button"
+                                    key={i}
+                                    onClick={() => { setIsNotificationOpen(false); navigate(act.path); }}
+                                    className="command-panel myth-hover w-full rounded-[1.5rem] p-4 text-left"
+                                >
+                                    <p className="myth-kicker text-[10px]">{act.module}</p>
+                                    <div className="mt-3 flex items-start justify-between gap-3">
+                                        <p className="text-sm font-semibold leading-snug text-white">{act.title}</p>
+                                        <i className="fas fa-arrow-right mt-1 text-[var(--myth-ember)]"></i>
                                     </div>
-                                    <p className="text-sm font-bold text-white leading-snug">{act.title}</p>
-                                </div>
+                                </button>
                             ))}
                             {myActions.length === 0 && (
-                                <div className="flex flex-col items-center justify-center h-full text-center text-slate-500 opacity-60">
-                                    <i className="fas fa-mug-hot text-4xl mb-4"></i>
-                                    <p className="text-sm font-bold uppercase tracking-widest">Inbox Zero</p>
-                                    <p className="text-xs mt-1">No pending actions required.</p>
+                                <div className="flex h-full flex-col items-center justify-center text-center">
+                                    <div className="myth-icon-frame mb-5 flex h-16 w-16 items-center justify-center rounded-full text-[var(--myth-gold)]">
+                                        <i className="fas fa-shield-check text-2xl"></i>
+                                    </div>
+                                    <p className="myth-kicker">Inbox Zero</p>
+                                    <p className="mt-2 text-sm text-[var(--myth-muted)]">No pending actions required.</p>
                                 </div>
                             )}
                         </div>

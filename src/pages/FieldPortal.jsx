@@ -237,69 +237,96 @@ export default function FieldPortal() {
 
     if (loading) {
         return (
-            <div className="flex h-screen items-center justify-center bg-slate-950 font-['Space_Grotesk'] text-cyan-300">
-                <div className="mr-3 h-10 w-10 animate-spin rounded-full border-2 border-slate-800 border-t-cyan-400"></div>
-                <span className="text-xs font-bold uppercase tracking-[0.3em]">Verifying Field Access</span>
+            <div className="myth-shell flex h-screen items-center justify-center bg-[#080705] font-['Space_Grotesk'] text-[var(--myth-ink)]">
+                <div className="command-panel flex items-center gap-4 rounded-[1.8rem] px-8 py-6">
+                    <div className="h-10 w-10 animate-spin rounded-full border-2 border-[rgba(242,201,120,0.12)] border-t-[var(--myth-cyan)]"></div>
+                    <span className="myth-kicker">Verifying Field Access</span>
+                </div>
             </div>
         );
     }
 
     if (!isAuthenticated) {
         return (
-            <div className="min-h-screen overflow-hidden bg-slate-950 font-['Space_Grotesk'] text-white">
-                <div className="pointer-events-none fixed inset-0 overflow-hidden">
-                    <div className="absolute left-[-6rem] top-[-4rem] h-72 w-72 rounded-full bg-cyan-500/15 blur-3xl"></div>
-                    <div className="absolute bottom-[-8rem] right-[-4rem] h-80 w-80 rounded-full bg-orange-500/10 blur-3xl"></div>
-                </div>
-
+            <div className="myth-shell min-h-screen overflow-hidden bg-[#080705] font-['Space_Grotesk'] text-white">
                 <div className="relative z-10 flex min-h-screen items-center justify-center px-4 py-10">
-                    <div className="w-full max-w-md rounded-[2rem] border border-slate-800 bg-slate-900/80 p-8 shadow-2xl backdrop-blur-xl">
-                        <div className="mb-8 text-center">
-                            <div className="mx-auto mb-5 flex h-20 w-20 items-center justify-center rounded-[1.75rem] border border-cyan-500/20 bg-cyan-500/10 text-3xl text-cyan-300 shadow-xl">
-                                <i className="fas fa-mobile-screen-button"></i>
-                            </div>
-                            <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.35em] text-cyan-300">Standalone Portal</p>
-                            <h1 className="text-3xl font-black tracking-tight text-white">Field Portal</h1>
-                            <p className="mt-3 text-sm leading-relaxed text-slate-400">
-                                Secure field access for inspections, permits, isolations, incidents, and emergency tools.
-                            </p>
-                        </div>
-
-                        <form onSubmit={handleLogin} className="space-y-5">
+                    <div className="grid w-full max-w-6xl grid-cols-1 gap-6 lg:grid-cols-[1.15fr_0.85fr]">
+                        <section className="hero-banner flex flex-col justify-between rounded-[2.2rem] p-8 lg:p-10">
                             <div>
-                                <label className="mb-2 block text-[10px] font-bold uppercase tracking-[0.25em] text-slate-500">Email</label>
+                                <p className="hud-chip mb-5">Standalone Portal</p>
+                                <h1 className="text-6xl text-white sm:text-7xl">Field Command</h1>
+                                <p className="mt-4 max-w-2xl text-base leading-relaxed text-[var(--myth-muted)] sm:text-lg">
+                                    Separate operational access for mobile teams executing inspections, permits, isolations, incidents, and emergency tasks in live site conditions.
+                                </p>
+                            </div>
+
+                            <div className="grid gap-4 md:grid-cols-3">
+                                <div className="command-panel rounded-[1.5rem] p-5">
+                                    <p className="myth-kicker">Rapid Entry</p>
+                                    <h3 className="mt-2 text-3xl text-white">Scan QR</h3>
+                                    <p className="mt-2 text-sm text-[var(--myth-muted)]">Jump straight into PTW, LOTO, or equipment tasks.</p>
+                                </div>
+                                <div className="command-panel rounded-[1.5rem] p-5">
+                                    <p className="myth-kicker">Field Ready</p>
+                                    <h3 className="mt-2 text-3xl text-white">Operate</h3>
+                                    <p className="mt-2 text-sm text-[var(--myth-muted)]">Use the same live records without the enterprise dashboard.</p>
+                                </div>
+                                <div className="command-panel rounded-[1.5rem] p-5">
+                                    <p className="myth-kicker">Secure Role Sync</p>
+                                    <h3 className="mt-2 text-3xl text-white">Auth Bridge</h3>
+                                    <p className="mt-2 text-sm text-[var(--myth-muted)]">Permissions follow the employee account automatically.</p>
+                                </div>
+                            </div>
+                        </section>
+
+                        <section className="command-panel rounded-[2.2rem] p-8 shadow-2xl">
+                            <div className="mb-8 text-center">
+                                <div className="myth-icon-frame mx-auto mb-5 flex h-20 w-20 items-center justify-center rounded-[1.75rem] text-3xl text-[var(--myth-cyan)] shadow-xl">
+                                    <i className="fas fa-mobile-screen-button"></i>
+                                </div>
+                                <p className="myth-kicker mb-2">Portal Authentication</p>
+                                <h2 className="text-5xl text-white">Field Portal</h2>
+                                <p className="mt-3 text-sm leading-relaxed text-[var(--myth-muted)]">
+                                    Secure field access for inspections, permits, isolations, incidents, and emergency tools.
+                                </p>
+                            </div>
+
+                            <form onSubmit={handleLogin} className="space-y-5">
+                            <div>
+                                <label className="myth-kicker mb-2 block text-[10px]">Email</label>
                                 <input
                                     type="email"
                                     value={loginData.email}
                                     onChange={(event) => setLoginData((prev) => ({ ...prev, email: event.target.value }))}
-                                    className="w-full rounded-2xl border border-slate-800 bg-slate-950 px-4 py-3 text-white outline-none transition-colors focus:border-cyan-500"
+                                    className="w-full rounded-2xl border px-4 py-3 text-white outline-none transition-colors"
                                     placeholder="you@company.com"
                                 />
                             </div>
 
                             <div>
-                                <label className="mb-2 block text-[10px] font-bold uppercase tracking-[0.25em] text-slate-500">Password</label>
+                                <label className="myth-kicker mb-2 block text-[10px]">Password</label>
                                 <input
                                     type="password"
                                     value={loginData.password}
                                     onChange={(event) => setLoginData((prev) => ({ ...prev, password: event.target.value }))}
-                                    className="w-full rounded-2xl border border-slate-800 bg-slate-950 px-4 py-3 text-white outline-none transition-colors focus:border-cyan-500"
+                                    className="w-full rounded-2xl border px-4 py-3 text-white outline-none transition-colors"
                                     placeholder="Enter your employee password"
                                 />
                             </div>
 
-                            <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-4 text-[11px] leading-relaxed text-slate-400">
+                            <div className="myth-surface-soft rounded-2xl p-4 text-[11px] leading-relaxed text-[var(--myth-muted)]">
                                 Use the same employee email and password that you use for the main WE EHS workspace. Your field module permissions are applied automatically after sign-in.
                             </div>
 
                             <button
                                 type="submit"
-                                className="flex w-full items-center justify-center gap-2 rounded-2xl bg-cyan-500 px-4 py-3.5 text-sm font-black uppercase tracking-[0.25em] text-slate-950 transition-colors hover:bg-cyan-400"
+                                className="myth-button myth-button-cyan flex w-full items-center justify-center gap-2 px-4 py-3.5 text-sm"
                             >
                                 <i className="fas fa-right-to-bracket"></i>
                                 Access Field Portal
                             </button>
                         </form>
+                        </section>
                     </div>
                 </div>
             </div>
@@ -312,36 +339,30 @@ export default function FieldPortal() {
         : visibleSites.find((site) => site.code === selectedSite) || { code: selectedSite, name: selectedSite };
 
     return (
-        <div className="min-h-screen bg-slate-950 font-['Space_Grotesk'] text-white">
-            <div className="pointer-events-none fixed inset-0 overflow-hidden">
-                <div className="absolute left-[-8rem] top-[-6rem] h-80 w-80 rounded-full bg-cyan-500/10 blur-3xl"></div>
-                <div className="absolute right-[-6rem] top-24 h-80 w-80 rounded-full bg-orange-500/10 blur-3xl"></div>
-                <div className="absolute bottom-[-10rem] left-1/3 h-96 w-96 rounded-full bg-emerald-500/10 blur-3xl"></div>
-            </div>
-
-            <header className="sticky top-0 z-30 border-b border-slate-800/80 bg-slate-950/85 backdrop-blur-xl">
+        <div className="myth-shell min-h-screen bg-[#080705] font-['Space_Grotesk'] text-white">
+            <header className="myth-topbar sticky top-0 z-30">
                 <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-4 sm:px-6">
                     <div className="flex items-center gap-3">
                         <button
                             type="button"
                             onClick={handleLogout}
-                            className="flex h-11 w-11 items-center justify-center rounded-2xl border border-slate-800 bg-slate-900 text-slate-300 transition-colors hover:border-slate-700 hover:text-white"
+                            className="myth-outline-button flex h-11 w-11 items-center justify-center rounded-2xl"
                             title="Back to Field Portal Login"
                         >
                             <i className="fas fa-arrow-left"></i>
                         </button>
-                        <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-slate-800 bg-slate-900 text-cyan-300">
+                        <div className="myth-icon-frame flex h-11 w-11 items-center justify-center rounded-2xl text-[var(--myth-cyan)]">
                             <i className="fas fa-mobile-screen-button"></i>
                         </div>
                         <div>
-                            <p className="text-[10px] font-bold uppercase tracking-[0.3em] text-cyan-300">Field Portal</p>
-                            <h1 className="text-lg font-black tracking-tight text-white sm:text-xl">Site Operations for {firstName}</h1>
+                            <p className="myth-kicker">Field Portal</p>
+                            <h1 className="text-3xl text-white sm:text-[2.15rem]">Site Operations for {firstName}</h1>
                         </div>
                     </div>
 
                     <div className="flex items-center gap-3">
-                        <div className="rounded-2xl border border-slate-800 bg-slate-900/80 px-3 py-2">
-                            <label className="mb-1 block text-[10px] font-bold uppercase tracking-[0.25em] text-slate-500">
+                        <div className="myth-surface-soft rounded-2xl px-3 py-2">
+                            <label className="myth-kicker mb-1 block text-[10px]">
                                 Site
                             </label>
                             <select
@@ -349,9 +370,9 @@ export default function FieldPortal() {
                                 onChange={handleSiteChange}
                                 className="min-w-[140px] bg-transparent text-sm font-bold text-white outline-none"
                             >
-                                {isGlobalUser && <option value="All" className="bg-slate-900">All Sites</option>}
+                                {isGlobalUser && <option value="All">All Sites</option>}
                                 {visibleSites.map((site) => (
-                                    <option key={site.code} value={site.code} className="bg-slate-900">
+                                    <option key={site.code} value={site.code}>
                                         {site.name}
                                     </option>
                                 ))}
@@ -361,7 +382,7 @@ export default function FieldPortal() {
                         <button
                             type="button"
                             onClick={() => setScannerOpen(true)}
-                            className="flex h-11 w-11 items-center justify-center rounded-2xl border border-cyan-500/30 bg-cyan-500/10 text-cyan-300 transition-colors hover:bg-cyan-500 hover:text-slate-950"
+                            className="myth-button myth-button-cyan flex h-11 w-11 items-center justify-center rounded-2xl"
                             title="Scan QR"
                         >
                             <i className="fas fa-qrcode"></i>
@@ -370,7 +391,7 @@ export default function FieldPortal() {
                         <button
                             type="button"
                             onClick={handleLogout}
-                            className="flex h-11 w-11 items-center justify-center rounded-2xl border border-red-500/30 bg-red-500/10 text-red-300 transition-colors hover:bg-red-500 hover:text-white"
+                            className="myth-button myth-button-danger flex h-11 w-11 items-center justify-center rounded-2xl"
                         >
                             <i className="fas fa-power-off"></i>
                         </button>
@@ -379,32 +400,32 @@ export default function FieldPortal() {
             </header>
 
             <main className="relative z-10 mx-auto max-w-6xl px-4 pb-16 pt-6 sm:px-6">
-                <section className="mb-8 overflow-hidden rounded-[2rem] border border-slate-800 bg-gradient-to-br from-slate-900 via-slate-900 to-slate-950 p-6 shadow-2xl sm:p-8">
+                <section className="hero-banner mb-8 overflow-hidden rounded-[2.2rem] p-6 sm:p-8">
                     <div className="mb-6 flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
                         <div className="max-w-2xl">
-                            <p className="mb-3 inline-flex items-center gap-2 rounded-full border border-cyan-500/20 bg-cyan-500/10 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.3em] text-cyan-300">
-                                <span className="h-2 w-2 rounded-full bg-cyan-300"></span>
+                            <p className="hud-chip mb-3">
+                                <span className="h-2 w-2 rounded-full bg-[var(--myth-cyan)]"></span>
                                 Hosted Field Workspace
                             </p>
-                            <h2 className="mb-3 text-3xl font-black tracking-tight text-white sm:text-4xl">
+                            <h2 className="mb-3 text-5xl tracking-tight text-white sm:text-6xl">
                                 Separate access for operational teams in the field.
                             </h2>
-                            <p className="max-w-xl text-sm leading-relaxed text-slate-300 sm:text-base">
+                            <p className="max-w-xl text-sm leading-relaxed text-[var(--myth-muted)] sm:text-base">
                                 Open the same live safety modules from a dedicated field portal without going through the enterprise dashboard.
                             </p>
                         </div>
 
                         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-                            <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-4">
-                                <p className="text-[10px] font-bold uppercase tracking-[0.25em] text-slate-500">Modules</p>
+                            <div className="myth-stat-card p-4">
+                                <p className="myth-kicker relative z-10 text-[10px]">Modules</p>
                                 <p className="mt-2 text-2xl font-black text-white">{visibleModules.length}</p>
                             </div>
-                            <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-4">
-                                <p className="text-[10px] font-bold uppercase tracking-[0.25em] text-slate-500">Active Site</p>
+                            <div className="myth-stat-card p-4">
+                                <p className="myth-kicker relative z-10 text-[10px]">Active Site</p>
                                 <p className="mt-2 text-sm font-bold text-white">{activeSite.name}</p>
                             </div>
-                            <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-4 sm:col-span-1 col-span-2">
-                                <p className="text-[10px] font-bold uppercase tracking-[0.25em] text-slate-500">Session</p>
+                            <div className="myth-stat-card col-span-2 p-4 sm:col-span-1">
+                                <p className="myth-kicker relative z-10 text-[10px]">Session</p>
                                 <p className="mt-2 text-sm font-bold text-white">Standalone portal auth</p>
                             </div>
                         </div>
@@ -414,20 +435,20 @@ export default function FieldPortal() {
                         <button
                             type="button"
                             onClick={() => setScannerOpen(true)}
-                            className="rounded-2xl border border-cyan-500/30 bg-cyan-500/10 px-4 py-3 text-left transition-colors hover:bg-cyan-500 hover:text-slate-950"
+                            className="myth-button myth-button-cyan rounded-2xl px-4 py-3 text-left"
                         >
-                            <div className="mb-2 text-sm font-black text-cyan-300">Scan Any QR</div>
-                            <div className="text-xs uppercase tracking-[0.2em] text-slate-400">PTW, LOTO, equipment</div>
+                            <div className="mb-2 text-sm font-black">Scan Any QR</div>
+                            <div className="text-xs uppercase tracking-[0.2em] text-[#081114]">PTW, LOTO, equipment</div>
                         </button>
                         {visibleModules.slice(0, 3).map((module) => (
                             <button
                                 key={module.id}
                                 type="button"
                                 onClick={() => openModule(module.path)}
-                                className="rounded-2xl border border-slate-800 bg-slate-950/70 px-4 py-3 text-left transition-colors hover:border-slate-700 hover:bg-slate-900"
+                                className="myth-surface-soft rounded-2xl px-4 py-3 text-left transition-colors hover:border-[rgba(242,201,120,0.35)]"
                             >
                                 <div className={`mb-2 text-sm font-black ${module.accent}`}>{module.label}</div>
-                                <div className="text-xs uppercase tracking-[0.2em] text-slate-400">{module.actionLabel}</div>
+                                <div className="text-xs uppercase tracking-[0.2em] text-[var(--myth-muted)]">{module.actionLabel}</div>
                             </button>
                         ))}
                     </div>
@@ -435,8 +456,9 @@ export default function FieldPortal() {
 
                 <section>
                     <div className="mb-4">
-                        <h3 className="text-xl font-black tracking-tight text-white">Field Modules</h3>
-                        <p className="text-sm text-slate-400">Every module opens with the current site selection and field portal session.</p>
+                        <p className="myth-kicker">Field Modules</p>
+                        <h3 className="text-4xl tracking-tight text-white">Operational Stations</h3>
+                        <p className="text-sm text-[var(--myth-muted)]">Every module opens with the current site selection and field portal session.</p>
                     </div>
 
                     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">

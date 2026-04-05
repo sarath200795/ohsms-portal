@@ -9,11 +9,9 @@ export default function Login() {
     const [isRegistering, setIsRegistering] = useState(false);
     const [loading, setLoading] = useState(false);
 
-    // Login Form State
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
 
-    // Registration Form State
     const [orgName, setOrgName] = useState('');
     const [userName, setUserName] = useState('');
     const [regEmail, setRegEmail] = useState('');
@@ -26,14 +24,11 @@ export default function Login() {
             const userCredential = await signInWithEmailAndPassword(auth, email, password);
             const user = userCredential.user;
 
-            // 1. SECURE LOOKUP: Find which Org this user belongs to using the new directory
             const userDirRef = ref(rtdb, `userDirectory/${user.uid}`);
             const userDirSnap = await get(userDirRef);
 
             if (userDirSnap.exists()) {
                 const userOrgId = userDirSnap.val().orgId;
-
-                // 2. Fetch their specific profile from their isolated Organization
                 const orgUserRef = ref(rtdb, `organizations/${userOrgId}/users/${user.uid}`);
                 const orgUserSnap = await get(orgUserRef);
 
@@ -43,13 +38,13 @@ export default function Login() {
                     if (userData.status === 'Pending') {
                         setLoading(false);
                         await signOut(auth);
-                        return alert("Your account is currently Pending. Please wait for your Organization Admin to approve your access.");
+                        return alert('Your account is currently Pending. Please wait for your Organization Admin to approve your access.');
                     }
 
                     if (userData.status === 'Deleted' || userData.status === 'Inactive') {
                         setLoading(false);
                         await signOut(auth);
-                        return alert("This account has been deactivated. Please contact your administrator.");
+                        return alert('This account has been deactivated. Please contact your administrator.');
                     }
 
                     const sessionData = {
@@ -67,14 +62,14 @@ export default function Login() {
                     navigate('/dashboard');
                 } else {
                     await signOut(auth);
-                    alert("Your account exists but was removed from the organization directory.");
+                    alert('Your account exists but was removed from the organization directory.');
                 }
             } else {
                 await signOut(auth);
-                alert("Security Error: No organization mapping found for this account. You may be using a legacy test account. Please register a new one.");
+                alert('Security Error: No organization mapping found for this account. You may be using a legacy test account. Please register a new one.');
             }
         } catch (error) {
-            alert("Login Failed: " + error.message);
+            alert(`Login Failed: ${error.message}`);
         } finally {
             setLoading(false);
         }
@@ -82,165 +77,191 @@ export default function Login() {
 
     const handleRegister = async (e) => {
         e.preventDefault();
-        if (regPassword.length < 6) return alert("Password must be at least 6 characters.");
+        if (regPassword.length < 6) return alert('Password must be at least 6 characters.');
         setLoading(true);
 
         try {
-            // 1. Create Firebase Auth User FIRST so we get a token
             const userCredential = await createUserWithEmailAndPassword(auth, regEmail, regPassword);
             const user = userCredential.user;
 
-            // 2. Use the secure registry to check if org exists, NOT the root organizations folder
-            const safeOrgName = orgName.toLowerCase().trim().replace(/[\.#$\[\]]/g, '');
+            const safeOrgName = orgName.toLowerCase().trim().replace(/[.#$[\]]/g, '');
             const orgRegRef = ref(rtdb, `orgRegistry/${safeOrgName}`);
             const orgRegSnap = await get(orgRegRef);
+            const existingOrgId = orgRegSnap.val();
 
-            let existingOrgId = orgRegSnap.val();
-
-            // 3. Join Existing OR Create New
             if (existingOrgId) {
-                // JOIN EXISTING AS PENDING
                 await set(ref(rtdb, `organizations/${existingOrgId}/users/${user.uid}`), {
                     name: userName,
                     email: user.email.toLowerCase().trim(),
-                    role: "User",
-                    assignedSite: "",
-                    status: "Pending",
+                    role: 'User',
+                    assignedSite: '',
+                    status: 'Pending',
                     createdAt: new Date().toISOString()
                 });
 
-                // Map User to Org in the Secure Directory
                 await set(ref(rtdb, `userDirectory/${user.uid}`), { orgId: existingOrgId });
 
                 await signOut(auth);
                 alert(`Registration successful!\n\nThe workspace "${orgName}" already exists. Your account is in the 'Pending' queue.\nPlease ask your Organization Admin to approve you.`);
 
                 setIsRegistering(false);
-                setRegEmail(''); setRegPassword(''); setUserName(''); setOrgName('');
-
+                setRegEmail('');
+                setRegPassword('');
+                setUserName('');
+                setOrgName('');
             } else {
-                // CREATE BRAND NEW ORG (TENANT GENESIS)
                 const newOrgRef = push(ref(rtdb, 'organizations'));
                 const orgId = newOrgRef.key;
 
                 await set(newOrgRef, {
                     details: { name: orgName, createdAt: new Date().toISOString(), ownerEmail: user.email },
-                    sites: { "HQ-01": { code: "HQ-01", name: "Headquarters" } },
+                    sites: { 'HQ-01': { code: 'HQ-01', name: 'Headquarters' } },
                     users: {
                         [user.uid]: {
                             name: userName,
                             email: user.email.toLowerCase().trim(),
-                            role: "Global Owner",
-                            assignedSite: "GLOBAL",
-                            accessibleSites: ["GLOBAL"],
-                            status: "Active",
+                            role: 'Global Owner',
+                            assignedSite: 'GLOBAL',
+                            accessibleSites: ['GLOBAL'],
+                            status: 'Active',
                             createdAt: new Date().toISOString()
                         }
                     }
                 });
 
-                // Update Public Registries so future users can find it
                 await set(ref(rtdb, `orgRegistry/${safeOrgName}`), orgId);
-                await set(ref(rtdb, `userDirectory/${user.uid}`), { orgId: orgId });
+                await set(ref(rtdb, `userDirectory/${user.uid}`), { orgId });
 
                 const sessionData = {
                     uid: user.uid,
                     email: user.email,
-                    orgId: orgId,
+                    orgId,
                     name: userName,
-                    role: "Global Owner",
-                    assignedSite: "GLOBAL",
-                    accessibleSites: ["GLOBAL"],
+                    role: 'Global Owner',
+                    assignedSite: 'GLOBAL',
+                    accessibleSites: ['GLOBAL'],
                     accessibleModules: [
-                        "Analytics", "Incidents", "Risk Assessment", "Participation",
-                        "Internal Audit", "CAPA Manager", "Training", "Improvement",
-                        "Record Emergency", "OHS Tools", "Contractors", "MOC",
-                        "Inspections", "Sites", "Users"
+                        'Analytics', 'Incidents', 'Risk Assessment', 'Participation',
+                        'Internal Audit', 'CAPA Manager', 'Training', 'Improvement',
+                        'Record Emergency', 'OHS Tools', 'Contractors', 'MOC',
+                        'Inspections', 'Sites', 'Users'
                     ]
                 };
 
                 sessionStorage.setItem('isoSession', JSON.stringify(sessionData));
-                alert("Workspace created successfully! You are the Global Owner.");
+                alert('Workspace created successfully! You are the Global Owner.');
                 navigate('/dashboard');
             }
         } catch (error) {
-            alert("Registration Failed: " + error.message);
+            alert(`Registration Failed: ${error.message}`);
         } finally {
             setLoading(false);
         }
     };
 
     return (
-        <div className="h-screen bg-slate-950 flex flex-col items-center justify-center font-['Space_Grotesk'] p-4 relative overflow-hidden">
+        <div className="myth-shell min-h-screen overflow-hidden bg-[#080705] px-4 py-8 text-white">
+            <div className="mx-auto grid min-h-[calc(100vh-4rem)] max-w-7xl grid-cols-1 gap-6 lg:grid-cols-[1.18fr_0.82fr]">
+                <section className="hero-banner flex flex-col justify-between rounded-[2rem] p-8 lg:p-12">
+                    <div>
+                        <p className="hud-chip mb-5">Mythic Command Interface</p>
+                        <div className="mb-6 flex items-center gap-5">
+                            <img
+                                src="/we-ehs-logo.jpg"
+                                alt="WE EHS Logo"
+                                className="h-24 w-24 rounded-[1.6rem] border border-[var(--myth-border-strong)] object-cover shadow-2xl"
+                            />
+                            <div>
+                                <p className="legendary-title text-sm text-[var(--myth-gold)]">WE EHS Safety Tool</p>
+                                <h1 className="mt-2 text-6xl text-white sm:text-7xl">Forge Safer Operations</h1>
+                            </div>
+                        </div>
+                        <p className="max-w-2xl text-base leading-relaxed text-[var(--myth-muted)] sm:text-lg">
+                            A battle-ready operations console for modern EHS programs, blending tactical command clarity with monumental mythic atmosphere.
+                        </p>
+                    </div>
 
-            <div className="absolute top-[-20%] left-[-10%] w-96 h-96 bg-blue-600/20 blur-[120px] rounded-full pointer-events-none"></div>
-            <div className="absolute bottom-[-20%] right-[-10%] w-96 h-96 bg-emerald-600/10 blur-[120px] rounded-full pointer-events-none"></div>
+                    <div className="grid gap-4 md:grid-cols-3">
+                        <div className="command-panel rounded-[1.6rem] p-5">
+                            <p className="legendary-title text-[11px] text-[var(--myth-gold)]">Mission Set</p>
+                            <h3 className="mt-2 text-3xl text-white">Incidents</h3>
+                            <p className="mt-2 text-sm text-[var(--myth-muted)]">Investigations, CAPA, evidence, and reporting workflows.</p>
+                        </div>
+                        <div className="command-panel rounded-[1.6rem] p-5">
+                            <p className="legendary-title text-[11px] text-[var(--myth-gold)]">Control Layer</p>
+                            <h3 className="mt-2 text-3xl text-white">PTW + LOTO</h3>
+                            <p className="mt-2 text-sm text-[var(--myth-muted)]">Live work controls, isolations, and field execution.</p>
+                        </div>
+                        <div className="command-panel rounded-[1.6rem] p-5">
+                            <p className="legendary-title text-[11px] text-[var(--myth-gold)]">Field Reach</p>
+                            <h3 className="mt-2 text-3xl text-white">Portal Ops</h3>
+                            <p className="mt-2 text-sm text-[var(--myth-muted)]">Separate field access with QR-driven operational tasks.</p>
+                        </div>
+                    </div>
+                </section>
 
-            <div className="max-w-md w-full bg-slate-900/80 backdrop-blur-xl border border-slate-800 p-8 rounded-3xl shadow-2xl relative z-10">
+                <section className="command-panel flex flex-col justify-between rounded-[2rem] p-8 lg:p-10">
+                    <div>
+                        <p className="legendary-title text-[11px] text-[var(--myth-gold)]">
+                            {isRegistering ? 'Initialize Enterprise Workspace' : 'Enterprise Access'}
+                        </p>
+                        <h2 className="mt-3 text-5xl text-white">{isRegistering ? 'Raise a New Standard' : 'Enter the Command Deck'}</h2>
+                        <p className="mt-3 text-sm leading-relaxed text-[var(--myth-muted)]">
+                            {isRegistering
+                                ? 'Create a new workspace or join an existing one as a pending team member.'
+                                : 'Use your enterprise credentials to access the unified safety command environment.'}
+                        </p>
 
-                {/* --- BRANDING BLOCK --- */}
-                <div className="text-center mb-10">
-                    <img
-                        src="/we-ehs-logo.jpg"
-                        alt="WE EHS Logo"
-                        className="w-24 h-24 rounded-2xl mx-auto mb-4 shadow-xl shadow-blue-900/30 object-cover border border-slate-700"
-                    />
-                    <h1 className="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-white to-slate-400 tracking-widest uppercase">
-                        WE EHS SAFETY TOOL
-                    </h1>
-                    <p className="text-blue-400/80 text-xs font-bold uppercase tracking-widest mt-2">
-                        {isRegistering ? 'Initialize Enterprise Workspace' : 'Enterprise OHS Management'}
+                        <div className="mt-8 grid grid-cols-2 gap-3 rounded-[1.25rem] border border-[var(--myth-border)] bg-[rgba(10,8,6,0.82)] p-2">
+                            <button type="button" onClick={() => setIsRegistering(false)} className={`myth-button px-4 py-3 text-sm ${!isRegistering ? 'myth-button-primary' : 'myth-button-secondary'}`}>Sign In</button>
+                            <button type="button" onClick={() => setIsRegistering(true)} className={`myth-button px-4 py-3 text-sm ${isRegistering ? 'myth-button-primary' : 'myth-button-secondary'}`}>Register Org</button>
+                        </div>
+                    </div>
+
+                    {!isRegistering ? (
+                        <form onSubmit={handleLogin} className="mt-8 space-y-5">
+                            <div>
+                                <label className="legendary-title mb-2 block text-[11px] text-[var(--myth-gold)]">Email Address</label>
+                                <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} className="w-full rounded-2xl border px-4 py-3.5 text-base outline-none transition" placeholder="you@company.com" />
+                            </div>
+                            <div>
+                                <label className="legendary-title mb-2 block text-[11px] text-[var(--myth-gold)]">Password</label>
+                                <input type="password" required value={password} onChange={(e) => setPassword(e.target.value)} className="w-full rounded-2xl border px-4 py-3.5 text-base outline-none transition" placeholder="Enter your secure password" />
+                            </div>
+                            <button type="submit" disabled={loading} className="myth-button myth-button-primary w-full px-4 py-4 text-sm">
+                                {loading ? 'Authenticating...' : 'Secure Sign In'}
+                            </button>
+                        </form>
+                    ) : (
+                        <form onSubmit={handleRegister} className="mt-8 space-y-4">
+                            <div>
+                                <label className="legendary-title mb-2 block text-[11px] text-[var(--myth-gold)]">Organization Name</label>
+                                <input type="text" required value={orgName} onChange={(e) => setOrgName(e.target.value)} className="w-full rounded-2xl border px-4 py-3 text-sm outline-none transition" placeholder="e.g. Acme Corp" />
+                                <p className="mt-2 text-[11px] text-[var(--myth-muted)]">If the workspace already exists, your account will enter the approval queue.</p>
+                            </div>
+                            <div>
+                                <label className="legendary-title mb-2 block text-[11px] text-[var(--myth-gold)]">Your Full Name</label>
+                                <input type="text" required value={userName} onChange={(e) => setUserName(e.target.value)} className="w-full rounded-2xl border px-4 py-3 text-sm outline-none transition" placeholder="John Doe" />
+                            </div>
+                            <div>
+                                <label className="legendary-title mb-2 block text-[11px] text-[var(--myth-gold)]">Account Email</label>
+                                <input type="email" required value={regEmail} onChange={(e) => setRegEmail(e.target.value)} className="w-full rounded-2xl border px-4 py-3 text-sm outline-none transition" placeholder="john@acme.com" />
+                            </div>
+                            <div>
+                                <label className="legendary-title mb-2 block text-[11px] text-[var(--myth-gold)]">Secure Password</label>
+                                <input type="password" required value={regPassword} onChange={(e) => setRegPassword(e.target.value)} className="w-full rounded-2xl border px-4 py-3 text-sm outline-none transition" placeholder="Minimum 6 characters" />
+                            </div>
+                            <button type="submit" disabled={loading} className="myth-button myth-button-cyan mt-3 w-full px-4 py-4 text-sm">
+                                {loading ? 'Processing...' : 'Register & Initialize'}
+                            </button>
+                        </form>
+                    )}
+
+                    <div className="command-divider mt-8"></div>
+                    <p className="mt-5 text-center text-[11px] uppercase tracking-[0.28em] text-[var(--myth-muted)]">
+                        Powered by WE EHS Safety Tool
                     </p>
-                </div>
-
-                <div className="flex bg-slate-950 rounded-xl p-1 mb-8 border border-slate-800">
-                    <button type="button" onClick={() => setIsRegistering(false)} className={`flex-1 py-2 text-sm font-bold rounded-lg transition ${!isRegistering ? 'bg-slate-800 text-white shadow' : 'text-slate-500 hover:text-white'}`}>Sign In</button>
-                    <button type="button" onClick={() => setIsRegistering(true)} className={`flex-1 py-2 text-sm font-bold rounded-lg transition ${isRegistering ? 'bg-slate-800 text-white shadow' : 'text-slate-500 hover:text-white'}`}>Register Org</button>
-                </div>
-
-                {!isRegistering ? (
-                    <form onSubmit={handleLogin} className="space-y-5 animate-in fade-in zoom-in duration-300">
-                        <div>
-                            <label className="text-[10px] uppercase font-bold text-slate-500 tracking-widest block mb-2">Email Address</label>
-                            <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white focus:border-blue-500 outline-none transition" placeholder="you@company.com" />
-                        </div>
-                        <div>
-                            <label className="text-[10px] uppercase font-bold text-slate-500 tracking-widest block mb-2">Password</label>
-                            <input type="password" required value={password} onChange={(e) => setPassword(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white focus:border-blue-500 outline-none transition" placeholder="••••••••" />
-                        </div>
-                        <button type="submit" disabled={loading} className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3.5 rounded-xl transition shadow-lg shadow-blue-900/20 uppercase tracking-widest text-sm mt-4">
-                            {loading ? 'Authenticating...' : 'Secure Sign In'}
-                        </button>
-                    </form>
-                ) : (
-                    <form onSubmit={handleRegister} className="space-y-4 animate-in fade-in zoom-in duration-300">
-                        <div>
-                            <label className="text-[10px] uppercase font-bold text-slate-500 tracking-widest block mb-1">Organization Name</label>
-                            <input type="text" required value={orgName} onChange={(e) => setOrgName(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-white focus:border-emerald-500 outline-none text-sm" placeholder="e.g. Acme Corp" />
-                            <p className="text-[9px] text-slate-500 mt-1.5 ml-1"><i className="fas fa-info-circle mr-1"></i>If this name already exists, you will join as a pending user.</p>
-                        </div>
-                        <div>
-                            <label className="text-[10px] uppercase font-bold text-slate-500 tracking-widest block mb-1">Your Full Name</label>
-                            <input type="text" required value={userName} onChange={(e) => setUserName(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-white focus:border-emerald-500 outline-none text-sm" placeholder="John Doe" />
-                        </div>
-                        <div>
-                            <label className="text-[10px] uppercase font-bold text-slate-500 tracking-widest block mb-1">Account Email</label>
-                            <input type="email" required value={regEmail} onChange={(e) => setRegEmail(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-white focus:border-emerald-500 outline-none text-sm" placeholder="john@acme.com" />
-                        </div>
-                        <div>
-                            <label className="text-[10px] uppercase font-bold text-slate-500 tracking-widest block mb-1">Secure Password</label>
-                            <input type="password" required value={regPassword} onChange={(e) => setRegPassword(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-white focus:border-emerald-500 outline-none text-sm" placeholder="••••••••" />
-                        </div>
-                        <button type="submit" disabled={loading} className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3.5 rounded-xl transition shadow-lg shadow-emerald-900/20 uppercase tracking-widest text-sm mt-6">
-                            {loading ? 'Processing...' : 'Register & Initialize'}
-                        </button>
-                    </form>
-                )}
-            </div>
-
-            {/* --- FOOTER BRANDING --- */}
-            <div className="mt-8 text-slate-600 text-xs font-bold tracking-widest uppercase">
-                Powered by WE EHS SAFETY TOOL
+                </section>
             </div>
         </div>
     );

@@ -1,68 +1,356 @@
+@import url("https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Cinzel:wght@500;700&family=Rajdhani:wght@400;500;600;700&display=swap");
 @import "tailwindcss";
+
+:root {
+  color-scheme: dark;
+  --myth-bg: #080705;
+  --myth-surface: rgba(21, 17, 12, 0.86);
+  --myth-surface-strong: rgba(16, 13, 9, 0.94);
+  --myth-border: rgba(196, 149, 80, 0.22);
+  --myth-border-strong: rgba(230, 183, 113, 0.48);
+  --myth-ink: #f6efe2;
+  --myth-muted: #aa9c86;
+  --myth-ember: #d78339;
+  --myth-gold: #f2c978;
+  --myth-bronze: #8b5a2b;
+  --myth-ash: #171411;
+  --myth-cyan: #77c3d6;
+  --myth-shadow: 0 22px 60px -26px rgba(0, 0, 0, 0.82);
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+html {
+  background: var(--myth-bg);
+}
+
+body {
+  margin: 0;
+  color: var(--myth-ink);
+  font-family: "Rajdhani", sans-serif;
+  background:
+    radial-gradient(circle at 18% 16%, rgba(215, 131, 57, 0.18), transparent 24%),
+    radial-gradient(circle at 82% 12%, rgba(119, 195, 214, 0.12), transparent 24%),
+    radial-gradient(circle at 50% 100%, rgba(242, 201, 120, 0.08), transparent 28%),
+    linear-gradient(180deg, #0b0907 0%, #140f0b 45%, #080705 100%);
+  letter-spacing: 0.02em;
+  position: relative;
+}
+
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.015) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.015) 1px, transparent 1px),
+    radial-gradient(circle at center, transparent 0%, rgba(0, 0, 0, 0.35) 78%);
+  background-size: 64px 64px, 64px 64px, 100% 100%;
+  mix-blend-mode: screen;
+  opacity: 0.35;
+  z-index: 0;
+}
+
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(180deg, rgba(0, 0, 0, 0.08), transparent 18%),
+    linear-gradient(0deg, rgba(0, 0, 0, 0.4), transparent 22%);
+  z-index: 0;
+}
+
+#root {
+  position: relative;
+  z-index: 1;
+}
+
+h1,
+h2,
+h3,
+h4,
+.display-title {
+  font-family: "Bebas Neue", sans-serif;
+  letter-spacing: 0.08em;
+}
+
+.legendary-title,
+.rune-title {
+  font-family: "Cinzel", serif;
+  letter-spacing: 0.12em;
+}
+
+.myth-shell {
+  position: relative;
+  overflow: hidden;
+}
+
+.myth-shell::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at top left, rgba(242, 201, 120, 0.12), transparent 20%),
+    radial-gradient(circle at bottom right, rgba(119, 195, 214, 0.08), transparent 22%);
+  opacity: 0.85;
+}
+
+.myth-panel,
+.glass-panel,
+.command-panel {
+  background:
+    linear-gradient(180deg, rgba(40, 31, 22, 0.94) 0%, rgba(20, 16, 11, 0.92) 100%);
+  border: 1px solid var(--myth-border);
+  box-shadow: var(--myth-shadow);
+  position: relative;
+}
+
+.myth-panel::after,
+.glass-panel::after,
+.command-panel::after {
+  content: "";
+  position: absolute;
+  inset: 1px;
+  border: 1px solid rgba(242, 201, 120, 0.06);
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+.glass-panel {
+  backdrop-filter: blur(12px);
+  transition: transform 0.28s ease, border-color 0.28s ease, box-shadow 0.28s ease;
+  cursor: pointer;
+}
+
+.glass-panel:hover,
+.command-panel:hover,
+.myth-hover:hover {
+  border-color: var(--myth-border-strong);
+  transform: translateY(-3px);
+  box-shadow: 0 26px 60px -28px rgba(0, 0, 0, 0.9);
+}
+
+.myth-card-glow,
+.card-glow {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at 20% 0%, rgba(242, 201, 120, 0.16), transparent 42%),
+    radial-gradient(circle at 100% 100%, rgba(119, 195, 214, 0.08), transparent 32%);
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  pointer-events: none;
+}
+
+.glass-panel:hover .card-glow,
+.glass-panel:hover .myth-card-glow,
+.command-panel:hover .myth-card-glow {
+  opacity: 1;
+}
+
+.hero-banner {
+  background:
+    linear-gradient(135deg, rgba(27, 20, 14, 0.95) 0%, rgba(15, 11, 8, 0.92) 65%),
+    radial-gradient(circle at top right, rgba(215, 131, 57, 0.2), transparent 28%);
+  border: 1px solid var(--myth-border);
+  box-shadow: var(--myth-shadow);
+  position: relative;
+  overflow: hidden;
+}
+
+.hero-banner::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(90deg, transparent 0%, rgba(242, 201, 120, 0.06) 50%, transparent 100%);
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+.hud-chip,
+.war-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.45rem 0.8rem;
+  border-radius: 999px;
+  border: 1px solid rgba(242, 201, 120, 0.18);
+  background: rgba(23, 18, 13, 0.82);
+  color: var(--myth-gold);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+}
+
+.myth-button {
+  border-radius: 1rem;
+  border: 1px solid rgba(242, 201, 120, 0.2);
+  font-family: "Rajdhani", sans-serif;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  transition: transform 0.24s ease, border-color 0.24s ease, background-color 0.24s ease, color 0.24s ease;
+}
+
+.myth-button:hover {
+  transform: translateY(-1px);
+}
+
+.myth-button-primary {
+  background: linear-gradient(135deg, #d78339 0%, #9c4f17 100%);
+  color: #130e08;
+  border-color: rgba(242, 201, 120, 0.42);
+  box-shadow: 0 18px 38px -20px rgba(215, 131, 57, 0.9);
+}
+
+.myth-button-secondary {
+  background: rgba(24, 19, 14, 0.88);
+  color: var(--myth-ink);
+}
+
+.myth-button-cyan {
+  background: linear-gradient(135deg, #77c3d6 0%, #2f6d7d 100%);
+  color: #081114;
+  border-color: rgba(119, 195, 214, 0.48);
+  box-shadow: 0 18px 38px -20px rgba(66, 142, 163, 0.95);
+}
+
+.myth-button-danger {
+  background: linear-gradient(135deg, #7f2727 0%, #471515 100%);
+  color: #f8e8e3;
+  border-color: rgba(225, 138, 138, 0.4);
+}
+
+.command-divider {
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(242, 201, 120, 0.3), transparent);
+}
+
+.myth-topbar {
+  background:
+    linear-gradient(180deg, rgba(18, 14, 10, 0.92) 0%, rgba(10, 8, 6, 0.88) 100%);
+  border-bottom: 1px solid rgba(242, 201, 120, 0.12);
+  backdrop-filter: blur(16px);
+}
+
+.myth-stat-card {
+  background:
+    linear-gradient(180deg, rgba(25, 20, 15, 0.92) 0%, rgba(14, 11, 8, 0.92) 100%);
+  border: 1px solid rgba(196, 149, 80, 0.16);
+  border-radius: 1.4rem;
+  box-shadow: 0 20px 40px -28px rgba(0, 0, 0, 0.9);
+  position: relative;
+  overflow: hidden;
+}
+
+.myth-stat-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(135deg, rgba(242, 201, 120, 0.08), transparent 35%),
+    radial-gradient(circle at bottom right, rgba(119, 195, 214, 0.08), transparent 25%);
+}
+
+.myth-surface-soft {
+  background: rgba(18, 14, 10, 0.78);
+  border: 1px solid rgba(196, 149, 80, 0.14);
+  backdrop-filter: blur(12px);
+}
+
+.myth-icon-frame {
+  background:
+    linear-gradient(180deg, rgba(39, 29, 21, 0.98) 0%, rgba(16, 12, 9, 0.94) 100%);
+  border: 1px solid rgba(242, 201, 120, 0.18);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03), 0 14px 32px -24px rgba(0, 0, 0, 0.95);
+}
+
+.myth-section-title {
+  color: var(--myth-ink);
+  text-shadow: 0 0 20px rgba(242, 201, 120, 0.08);
+}
+
+.myth-kicker {
+  font-family: "Cinzel", serif;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--myth-gold);
+  font-size: 0.72rem;
+}
+
+.myth-outline-button {
+  border-radius: 1rem;
+  border: 1px solid rgba(242, 201, 120, 0.2);
+  background: rgba(17, 13, 10, 0.78);
+  color: var(--myth-ink);
+  transition: transform 0.22s ease, border-color 0.22s ease, color 0.22s ease, background-color 0.22s ease;
+}
+
+.myth-outline-button:hover {
+  transform: translateY(-1px);
+  border-color: rgba(242, 201, 120, 0.45);
+  color: var(--myth-gold);
+  background: rgba(25, 18, 13, 0.92);
+}
 
 /* =========================================
    1. CORE UI & GLASSMORPHISM
 ========================================= */
-.glass-panel {
-  background: rgba(30, 41, 59, 0.4);
-  backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.05);
-  transition: all 0.3s;
-  cursor: pointer;
-}
-
-.glass-panel:hover {
-  border-color: rgba(59, 130, 246, 0.3);
-  transform: translateY(-2px);
-  box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.5);
-}
-
-.card-glow {
-  position: absolute;
-  inset: 0;
-  background: radial-gradient(circle at 50% 0%, rgba(59, 130, 246, 0.1), transparent 70%);
-  opacity: 0;
-  transition: opacity 0.3s;
-  pointer-events: none;
-}
-
-.glass-panel:hover .card-glow {
-  opacity: 1;
-}
-
 /* Custom scrollbar matched to home.html */
 ::-webkit-scrollbar {
-  width: 6px;
+  width: 8px;
 }
 
 ::-webkit-scrollbar-track {
-  background: #0f172a;
+  background: #0f0b08;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #334155;
-  border-radius: 3px;
+  background: linear-gradient(180deg, #4f3a22 0%, #c08a4f 100%);
+  border-radius: 999px;
 }
 
 /* =========================================
    2. NATIVE DATE/TIME PICKERS (DARK MODE)
 ========================================= */
-/* Forces the entire document to tell the browser it's a dark theme */
-:root {
-  color-scheme: dark;
-}
-
 input[type="date"],
 input[type="time"],
-input[type="datetime-local"] {
+input[type="datetime-local"],
+input[type="text"],
+input[type="email"],
+input[type="password"],
+textarea,
+select {
   color-scheme: dark !important;
-  color: white !important;
+  color: var(--myth-ink) !important;
+}
+
+input[type="text"],
+input[type="email"],
+input[type="password"],
+textarea,
+select {
+  background-color: rgba(10, 8, 6, 0.92) !important;
+  border-color: rgba(196, 149, 80, 0.18) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.02);
 }
 
 ::-webkit-calendar-picker-indicator {
   cursor: pointer;
-  opacity: 0.6;
+  opacity: 0.8;
   transition: opacity 0.2s;
+  filter: sepia(0.65) saturate(1.4);
 }
 
 ::-webkit-calendar-picker-indicator:hover {
@@ -86,7 +374,7 @@ input[type="datetime-local"] {
   left: 0;
   right: 120px;
   height: 3px;
-  background: #64748b;
+  background: #9f7a4a;
   z-index: 0;
 }
 
@@ -95,7 +383,7 @@ input[type="datetime-local"] {
   position: absolute;
   right: -20px;
   top: -10px;
-  border-left: 20px solid #64748b;
+  border-left: 20px solid #9f7a4a;
   border-top: 10px solid transparent;
   border-bottom: 10px solid transparent;
 }
@@ -107,14 +395,14 @@ input[type="datetime-local"] {
   transform: translateY(-50%);
   width: 100px;
   height: 80px;
-  border: 3px solid #ef4444;
+  border: 3px solid #d78339;
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #1e293b;
+  background: #1b140f;
   z-index: 10;
-  color: #ef4444;
+  color: #f2c978;
   font-weight: bold;
   text-align: center;
   font-size: 12px;
@@ -128,8 +416,8 @@ input[type="datetime-local"] {
 }
 
 .rib-box {
-  background: #1e293b;
-  border: 1px solid #475569;
+  background: #19130f;
+  border: 1px solid rgba(196, 149, 80, 0.24);
   padding: 8px;
   border-radius: 6px;
   width: 18%;
@@ -152,7 +440,7 @@ input[type="datetime-local"] {
   left: 50%;
   width: 2px;
   height: 40px;
-  background: #64748b;
+  background: #8b6a40;
   transform: skewX(-20deg);
   transform-origin: top;
 }
@@ -164,7 +452,7 @@ input[type="datetime-local"] {
   left: 50%;
   width: 2px;
   height: 40px;
-  background: #64748b;
+  background: #8b6a40;
   transform: skewX(20deg);
   transform-origin: bottom;
 }
@@ -196,7 +484,7 @@ input[type="datetime-local"] {
   position: absolute;
   top: 0;
   right: 50%;
-  border-top: 2px solid #64748b;
+  border-top: 2px solid #8b6a40;
   width: 50%;
   height: 20px;
 }
@@ -204,7 +492,7 @@ input[type="datetime-local"] {
 .tree li::after {
   right: auto;
   left: 50%;
-  border-left: 2px solid #64748b;
+  border-left: 2px solid #8b6a40;
 }
 
 .tree li:only-child::after,
@@ -222,7 +510,7 @@ input[type="datetime-local"] {
 }
 
 .tree li:last-child::before {
-  border-right: 2px solid #64748b;
+  border-right: 2px solid #8b6a40;
   border-radius: 0 5px 0 0;
 }
 
@@ -235,7 +523,7 @@ input[type="datetime-local"] {
   position: absolute;
   top: 0;
   left: 50%;
-  border-left: 2px solid #64748b;
+  border-left: 2px solid #8b6a40;
   width: 0;
   height: 20px;
 }
@@ -244,8 +532,8 @@ input[type="datetime-local"] {
   display: inline-block;
   padding: 10px;
   border-radius: 8px;
-  background: #1e293b;
-  border: 1px solid #475569;
+  background: #1a1410;
+  border: 1px solid rgba(196, 149, 80, 0.24);
   min-width: 140px;
   position: relative;
   z-index: 10;
