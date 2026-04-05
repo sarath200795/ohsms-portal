@@ -163,6 +163,7 @@ export default function Login() {
         <div className="myth-shell min-h-screen overflow-hidden bg-[#080705] px-4 py-8 text-white">
             <div className="mx-auto grid min-h-[calc(100vh-4rem)] max-w-7xl grid-cols-1 gap-6 lg:grid-cols-[1.18fr_0.82fr]">
                 <section className="hero-banner flex flex-col justify-between rounded-[2rem] p-8 lg:p-12">
+                    <img src="/safety-transition.svg" alt="" className="hero-safety-visual hidden lg:block" aria-hidden="true" />
                     <div>
                         <p className="hud-chip mb-5">Tactical Operations Interface</p>
                         <div className="mb-6 flex items-center gap-5">

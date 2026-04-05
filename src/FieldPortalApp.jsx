@@ -8,6 +8,7 @@ import EmergencyEquipment from './pages/EmergencyEquipment';
 import Inspections from './pages/Inspections';
 import FieldPortal from './pages/FieldPortal';
 import { FIELD_PORTAL_SESSION_KEY } from './pages/FieldApp/portalAuth';
+import AppExperienceShell from './components/AppExperienceShell';
 
 const FieldProtectedRoute = ({ children }) => {
     let session = sessionStorage.getItem('isoSession');
@@ -28,23 +29,25 @@ const FieldProtectedRoute = ({ children }) => {
 export default function FieldPortalApp() {
     return (
         <Router>
-            <Routes>
-                <Route path="/" element={<FieldPortal />} />
-                <Route path="/field-portal" element={<FieldPortal />} />
-                <Route path="/field-app" element={<FieldPortal />} />
-                <Route path="/dashboard" element={<FieldPortal />} />
-                <Route path="/ohs-tools" element={<FieldPortal />} />
+            <AppExperienceShell>
+                <Routes>
+                    <Route path="/" element={<FieldPortal />} />
+                    <Route path="/field-portal" element={<FieldPortal />} />
+                    <Route path="/field-app" element={<FieldPortal />} />
+                    <Route path="/dashboard" element={<FieldPortal />} />
+                    <Route path="/ohs-tools" element={<FieldPortal />} />
 
-                <Route path="/loto" element={<LOTO />} />
-                <Route path="/ptw" element={<PTW />} />
-                <Route path="/emergency-equipment" element={<EmergencyEquipment />} />
+                    <Route path="/loto" element={<LOTO />} />
+                    <Route path="/ptw" element={<PTW />} />
+                    <Route path="/emergency-equipment" element={<EmergencyEquipment />} />
 
-                <Route path="/incidents" element={<FieldProtectedRoute><Incidents /></FieldProtectedRoute>} />
-                <Route path="/mock-drill" element={<FieldProtectedRoute><MockDrill /></FieldProtectedRoute>} />
-                <Route path="/inspections" element={<FieldProtectedRoute><Inspections /></FieldProtectedRoute>} />
+                    <Route path="/incidents" element={<FieldProtectedRoute><Incidents /></FieldProtectedRoute>} />
+                    <Route path="/mock-drill" element={<FieldProtectedRoute><MockDrill /></FieldProtectedRoute>} />
+                    <Route path="/inspections" element={<FieldProtectedRoute><Inspections /></FieldProtectedRoute>} />
 
-                <Route path="*" element={<Navigate to="/" replace />} />
-            </Routes>
+                    <Route path="*" element={<Navigate to="/" replace />} />
+                </Routes>
+            </AppExperienceShell>
         </Router>
     );
 }

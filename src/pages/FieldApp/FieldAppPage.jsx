@@ -12,6 +12,13 @@ import {
     resolveInitialSite
 } from './utils';
 
+const getDayGreeting = () => {
+    const hour = new Date().getHours();
+    if (hour < 12) return 'Good morning';
+    if (hour < 17) return 'Good afternoon';
+    return 'Good evening';
+};
+
 export default function FieldAppPage() {
     const navigate = useNavigate();
     const location = useLocation();
@@ -74,6 +81,7 @@ export default function FieldAppPage() {
     }, [selectedSite, visibleSites]);
 
     const firstName = session?.name?.split(' ')[0] || session?.email?.split('@')[0] || 'Team';
+    const greeting = getDayGreeting();
 
     const handleSiteChange = (event) => {
         const nextSite = event.target.value;
@@ -115,6 +123,7 @@ export default function FieldAppPage() {
 
             <main className="relative z-10 mx-auto max-w-6xl px-4 pb-16 pt-6 sm:px-6">
                 <section className="hero-banner mb-8 overflow-hidden rounded-[2.2rem] p-6 sm:p-8">
+                    <img src="/safety-transition.svg" alt="" className="hero-safety-visual hidden lg:block" aria-hidden="true" />
                     <div className="mb-6 flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
                         <div className="max-w-2xl">
                             <p className="hud-chip mb-3">
@@ -122,7 +131,7 @@ export default function FieldAppPage() {
                                 Live Site Workspace
                             </p>
                             <h2 className="mb-3 text-5xl tracking-tight text-white sm:text-6xl">
-                                One field-ready workspace for operational safety.
+                                {greeting}, {firstName}
                             </h2>
                             <p className="max-w-xl text-sm leading-relaxed text-[var(--myth-muted)] sm:text-base">
                                 Launch inspections, permits, isolations, incidents, and emergency tools from one mobile-first screen while keeping the active site context with you.

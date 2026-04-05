@@ -305,6 +305,123 @@ h4,
   background: rgba(15, 21, 27, 0.96);
 }
 
+.safety-ambient-layer {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.ambient-grid-glow {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at 10% 18%, rgba(70, 215, 255, 0.08), transparent 20%),
+    radial-gradient(circle at 84% 22%, rgba(247, 146, 51, 0.08), transparent 22%),
+    radial-gradient(circle at 58% 88%, rgba(70, 215, 255, 0.06), transparent 26%);
+}
+
+.ambient-sticker {
+  position: absolute;
+  width: clamp(92px, 11vw, 148px);
+  opacity: 0.14;
+  filter: drop-shadow(0 20px 40px rgba(0, 0, 0, 0.45));
+  animation: ambientFloat 14s ease-in-out infinite;
+}
+
+.ambient-sticker--helmet {
+  top: 7%;
+  left: 2.5%;
+  animation-duration: 15s;
+}
+
+.ambient-sticker--extinguisher {
+  top: 55%;
+  right: 4%;
+  animation-duration: 16s;
+  animation-delay: -4s;
+}
+
+.ambient-sticker--shield {
+  bottom: 8%;
+  left: 10%;
+  animation-duration: 18s;
+  animation-delay: -6s;
+}
+
+.page-route-shell {
+  position: relative;
+  z-index: 1;
+  animation: routeFadeIn 0.42s ease;
+}
+
+.route-transition-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9998;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.28s ease;
+  background:
+    radial-gradient(circle at center, rgba(70, 215, 255, 0.1), transparent 28%),
+    linear-gradient(180deg, rgba(6, 9, 13, 0.2), rgba(6, 9, 13, 0.55));
+}
+
+.route-transition-overlay.is-visible {
+  opacity: 1;
+}
+
+.route-transition-card {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  min-width: min(88vw, 420px);
+  padding: 1rem 1.25rem;
+  border-radius: 1.4rem;
+  border: 1px solid rgba(70, 215, 255, 0.18);
+  background: rgba(7, 10, 14, 0.88);
+  box-shadow: 0 28px 50px -32px rgba(0, 0, 0, 0.95);
+  backdrop-filter: blur(16px);
+}
+
+.route-transition-image {
+  width: 82px;
+  height: 82px;
+  flex-shrink: 0;
+}
+
+.route-transition-kicker {
+  margin: 0 0 0.25rem;
+  font-family: "Barlow Condensed", sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 0.22em;
+  font-size: 0.7rem;
+  color: var(--myth-cyan);
+}
+
+.route-transition-label {
+  margin: 0;
+  font-family: "Bebas Neue", sans-serif;
+  letter-spacing: 0.08em;
+  font-size: 1.75rem;
+  color: var(--myth-ink);
+}
+
+.hero-safety-visual {
+  position: absolute;
+  right: 1.25rem;
+  top: 1.25rem;
+  width: min(18vw, 150px);
+  opacity: 0.24;
+  pointer-events: none;
+  filter: drop-shadow(0 16px 30px rgba(0, 0, 0, 0.42));
+  animation: ambientFloat 14s ease-in-out infinite;
+}
+
 /* =========================================
    1. CORE UI & GLASSMORPHISM
 ========================================= */
@@ -409,6 +526,32 @@ table tbody tr:hover {
 .border-slate-700,
 .border-slate-800 {
   border-color: rgba(103, 119, 137, 0.16) !important;
+}
+
+@keyframes ambientFloat {
+  0% {
+    transform: translate3d(0, 0, 0) rotate(0deg) scale(1);
+  }
+  33% {
+    transform: translate3d(8px, -10px, 0) rotate(2deg) scale(1.04);
+  }
+  66% {
+    transform: translate3d(-10px, 12px, 0) rotate(-3deg) scale(0.98);
+  }
+  100% {
+    transform: translate3d(0, 0, 0) rotate(0deg) scale(1);
+  }
+}
+
+@keyframes routeFadeIn {
+  0% {
+    opacity: 0;
+    transform: translateY(10px) scale(0.992);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 
 

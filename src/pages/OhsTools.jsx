@@ -104,6 +104,7 @@ export default function OhsTools() {
 
             <main className="relative z-10 mx-auto flex-1 w-full max-w-7xl overflow-y-auto px-4 py-6 sm:px-6 sm:py-8">
                 <section className="hero-banner mb-8 rounded-[2.2rem] p-6 sm:p-8">
+                    <img src="/safety-transition.svg" alt="" className="hero-safety-visual hidden lg:block" aria-hidden="true" />
                     <p className="hud-chip mb-4">Hazard Control Suite</p>
                     <h2 className="text-5xl text-white sm:text-6xl">Operational Controls and Compliance</h2>
                     <p className="mt-4 max-w-3xl text-base leading-relaxed text-[var(--myth-muted)]">

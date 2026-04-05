@@ -6,6 +6,13 @@ import { ref, get } from 'firebase/database';
 import useStore from '../store/useStore';
 import { clearFieldModuleHomeContext } from './FieldApp/portalAuth';
 
+const getDayGreeting = () => {
+    const hour = new Date().getHours();
+    if (hour < 12) return 'Good morning';
+    if (hour < 17) return 'Good afternoon';
+    return 'Good evening';
+};
+
 const NavCard = ({ module, actions = [], onClick }) => {
     const topActions = actions.slice(0, 3);
     const extraCount = actions.length - 3;
@@ -256,6 +263,7 @@ export default function Dashboard() {
     const isGlobalAdmin = ['Global Owner', 'Global Manager', 'Owner', 'Admin'].includes(session?.role);
     const activeSiteName = selectedSite === 'GLOBAL' ? 'Global View (All Sites)' : (sites.find(s => s.code === selectedSite)?.name || selectedSite);
     const hasFieldAppAccess = isGlobalAdmin || visibleModules.some((module) => ['Incidents', 'Inspections', 'OHS Tools', 'Record Emergency'].includes(module.id));
+    const greeting = getDayGreeting();
 
     return (
         <div className="myth-shell relative flex h-screen flex-col overflow-hidden bg-[#080705] text-white">
@@ -339,18 +347,23 @@ export default function Dashboard() {
             <main className="relative flex-1 overflow-y-auto px-4 py-6 sm:px-6 sm:py-8">
                 <div className="mx-auto max-w-7xl pb-24">
                     <section className="hero-banner relative mb-10 overflow-hidden rounded-[2.4rem] p-6 sm:p-8 lg:p-10">
+                        <img src="/safety-transition.svg" alt="" className="hero-safety-visual hidden lg:block" aria-hidden="true" />
                         <div className="absolute inset-y-0 right-0 hidden w-[34%] bg-[radial-gradient(circle_at_center,rgba(119,195,214,0.12),transparent_65%)] lg:block"></div>
                         <div className="relative z-10 grid gap-8 lg:grid-cols-[1.35fr_0.65fr]">
                             <div>
                                 <p className="hud-chip mb-4">Command Deck</p>
                                 <h2 className="myth-section-title text-5xl leading-none text-white sm:text-6xl">
-                                    Welcome back, {firstName}
+                                    {greeting}, {firstName}
                                 </h2>
                                 <p className="mt-4 max-w-3xl text-base leading-relaxed text-[var(--myth-muted)] sm:text-lg">
                                     Orchestrate incidents, permits, audits, training, and field execution from a tactical workspace built for live operational control.
                                 </p>
 
                                 <div className="mt-6 flex flex-wrap gap-3">
+                                    <div className="myth-surface-soft rounded-2xl px-4 py-3 text-sm">
+                                        <span className="text-[var(--myth-muted)]">Shift Status:</span>{' '}
+                                        <strong className="text-white">{greeting} operations check active</strong>
+                                    </div>
                                     <div className="myth-surface-soft rounded-2xl px-4 py-3 text-sm">
                                         <span className="text-[var(--myth-muted)]">Organization:</span>{' '}
                                         <strong className="text-white">{orgName}</strong>

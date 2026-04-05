@@ -29,6 +29,12 @@ import {
 const { fieldAuth, fieldDb } = getFieldPortalFirebase();
 
 const normalizeEmail = (value) => String(value || '').trim().toLowerCase();
+const getDayGreeting = () => {
+    const hour = new Date().getHours();
+    if (hour < 12) return 'Good morning';
+    if (hour < 17) return 'Good afternoon';
+    return 'Good evening';
+};
 
 export default function FieldPortal() {
     const navigate = useNavigate();
@@ -252,6 +258,7 @@ export default function FieldPortal() {
                 <div className="relative z-10 flex min-h-screen items-center justify-center px-4 py-10">
                     <div className="grid w-full max-w-6xl grid-cols-1 gap-6 lg:grid-cols-[1.15fr_0.85fr]">
                         <section className="hero-banner flex flex-col justify-between rounded-[2.2rem] p-8 lg:p-10">
+                            <img src="/safety-transition.svg" alt="" className="hero-safety-visual hidden lg:block" aria-hidden="true" />
                             <div>
                                 <p className="hud-chip mb-5">Standalone Portal</p>
                                 <h1 className="text-6xl text-white sm:text-7xl">Field Command</h1>
@@ -337,6 +344,7 @@ export default function FieldPortal() {
     const activeSite = selectedSite === 'All'
         ? { code: 'All', name: 'All Sites' }
         : visibleSites.find((site) => site.code === selectedSite) || { code: selectedSite, name: selectedSite };
+    const greeting = getDayGreeting();
 
     return (
         <div className="myth-shell min-h-screen bg-[#080705] font-['Space_Grotesk'] text-white">
@@ -401,15 +409,14 @@ export default function FieldPortal() {
 
             <main className="relative z-10 mx-auto max-w-6xl px-4 pb-16 pt-6 sm:px-6">
                 <section className="hero-banner mb-8 overflow-hidden rounded-[2.2rem] p-6 sm:p-8">
+                    <img src="/safety-transition.svg" alt="" className="hero-safety-visual hidden lg:block" aria-hidden="true" />
                     <div className="mb-6 flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
                         <div className="max-w-2xl">
                             <p className="hud-chip mb-3">
                                 <span className="h-2 w-2 rounded-full bg-[var(--myth-cyan)]"></span>
                                 Hosted Field Workspace
                             </p>
-                            <h2 className="mb-3 text-5xl tracking-tight text-white sm:text-6xl">
-                                Separate access for operational teams in the field.
-                            </h2>
+                            <h2 className="mb-3 text-5xl tracking-tight text-white sm:text-6xl">{greeting}, {firstName}</h2>
                             <p className="max-w-xl text-sm leading-relaxed text-[var(--myth-muted)] sm:text-base">
                                 Open the same live safety modules from a dedicated field portal without going through the enterprise dashboard.
                             </p>

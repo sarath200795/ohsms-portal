@@ -1,0 +1,28 @@
+<svg width="260" height="260" viewBox="0 0 260 260" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="helmetBg" x1="32" y1="26" x2="220" y2="230" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0E141B"/>
+      <stop offset="1" stop-color="#081017"/>
+    </linearGradient>
+    <linearGradient id="helmetAccent" x1="72" y1="76" x2="193" y2="195" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#46D7FF"/>
+      <stop offset="1" stop-color="#F79233"/>
+    </linearGradient>
+  </defs>
+  <g opacity="0.95">
+    <circle cx="130" cy="130" r="106" fill="url(#helmetBg)" stroke="#273341" stroke-width="6"/>
+    <circle cx="130" cy="130" r="88" stroke="#46D7FF" stroke-opacity="0.25" stroke-width="3" stroke-dasharray="8 10">
+      <animateTransform attributeName="transform" type="rotate" from="0 130 130" to="360 130 130" dur="20s" repeatCount="indefinite"/>
+    </circle>
+    <path d="M72 146C72 103.294 106.623 68.6667 149.333 68.6667H150.667C186.329 68.6667 215.333 97.6713 215.333 133.333V140.667C215.333 144.348 212.348 147.333 208.667 147.333H72.6667C72.2985 147.333 72 147.035 72 146.667V146Z" fill="url(#helmetAccent)"/>
+    <path d="M95 149H197C198.657 149 200 150.343 200 152V163C200 176.255 189.255 187 176 187H116C102.745 187 92 176.255 92 163V152C92 150.343 93.3431 149 95 149Z" fill="#EAF4FF" fill-opacity="0.12" stroke="#EAF4FF" stroke-opacity="0.22" stroke-width="3"/>
+    <path d="M146 79C163.121 82.1554 176.577 95.6119 179.733 112.733" stroke="#EAF4FF" stroke-width="8" stroke-linecap="round" opacity="0.55"/>
+    <rect x="121" y="59" width="18" height="34" rx="9" fill="#0B1117" stroke="#46D7FF" stroke-opacity="0.45" stroke-width="4"/>
+    <g opacity="0.78">
+      <path d="M49 69L65 53" stroke="#F79233" stroke-width="5" stroke-linecap="round"/>
+      <path d="M195 203L211 187" stroke="#46D7FF" stroke-width="5" stroke-linecap="round"/>
+      <path d="M191 57L209 75" stroke="#F79233" stroke-width="5" stroke-linecap="round"/>
+      <path d="M52 193L70 211" stroke="#46D7FF" stroke-width="5" stroke-linecap="round"/>
+    </g>
+  </g>
+</svg>
