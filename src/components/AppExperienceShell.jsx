@@ -71,14 +71,25 @@ export default function AppExperienceShell({ children }) {
         startRouteMotion(Math.max(leadMs + tailMs + 80, 320));
 
         const actionTimer = setTimeout(() => {
-            if (typeof action === 'function') action();
+            try {
+                if (typeof action === 'function') action();
+            } catch (error) {
+                console.error('Route transition action failed:', error);
+                skipNextRouteEffectRef.current = false;
+                setOverlayVisible(false);
+            }
         }, leadMs);
 
         const hideTimer = setTimeout(() => {
             setOverlayVisible(false);
         }, leadMs + tailMs);
 
-        timersRef.current = [actionTimer, hideTimer];
+        const failSafeTimer = setTimeout(() => {
+            skipNextRouteEffectRef.current = false;
+            setOverlayVisible(false);
+        }, Math.max(leadMs + tailMs + 900, 1400));
+
+        timersRef.current = [actionTimer, hideTimer, failSafeTimer];
     };
 
     useEffect(() => {
@@ -99,9 +110,7 @@ export default function AppExperienceShell({ children }) {
             setOverlayVisible(false);
         }, 220);
 
-        timersRef.current = [hideTimer];
-
-        return () => clearTransitionTimers();
+        return () => clearTimeout(hideTimer);
     }, [routeKey, transitionLabel]);
 
     useEffect(() => () => {
