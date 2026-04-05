@@ -1,21 +1,21 @@
-@import url("https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Cinzel:wght@500;700&family=Rajdhani:wght@400;500;600;700&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Bebas+Neue&family=Rajdhani:wght@400;500;600;700&display=swap");
 @import "tailwindcss";
 
 :root {
   color-scheme: dark;
-  --myth-bg: #080705;
-  --myth-surface: rgba(21, 17, 12, 0.86);
-  --myth-surface-strong: rgba(16, 13, 9, 0.94);
-  --myth-border: rgba(196, 149, 80, 0.22);
-  --myth-border-strong: rgba(230, 183, 113, 0.48);
-  --myth-ink: #f6efe2;
-  --myth-muted: #aa9c86;
-  --myth-ember: #d78339;
-  --myth-gold: #f2c978;
-  --myth-bronze: #8b5a2b;
-  --myth-ash: #171411;
-  --myth-cyan: #77c3d6;
-  --myth-shadow: 0 22px 60px -26px rgba(0, 0, 0, 0.82);
+  --myth-bg: #06090d;
+  --myth-surface: rgba(14, 18, 23, 0.88);
+  --myth-surface-strong: rgba(9, 12, 16, 0.96);
+  --myth-border: rgba(103, 119, 137, 0.22);
+  --myth-border-strong: rgba(247, 146, 51, 0.48);
+  --myth-ink: #edf4ff;
+  --myth-muted: #8b96a5;
+  --myth-ember: #f79233;
+  --myth-gold: #ffb84d;
+  --myth-bronze: #4c5663;
+  --myth-ash: #10151a;
+  --myth-cyan: #46d7ff;
+  --myth-shadow: 0 24px 54px -28px rgba(0, 0, 0, 0.86);
 }
 
 html,
@@ -33,10 +33,9 @@ body {
   color: var(--myth-ink);
   font-family: "Rajdhani", sans-serif;
   background:
-    radial-gradient(circle at 18% 16%, rgba(215, 131, 57, 0.18), transparent 24%),
-    radial-gradient(circle at 82% 12%, rgba(119, 195, 214, 0.12), transparent 24%),
-    radial-gradient(circle at 50% 100%, rgba(242, 201, 120, 0.08), transparent 28%),
-    linear-gradient(180deg, #0b0907 0%, #140f0b 45%, #080705 100%);
+    radial-gradient(circle at 15% 12%, rgba(70, 215, 255, 0.12), transparent 18%),
+    radial-gradient(circle at 82% 10%, rgba(247, 146, 51, 0.12), transparent 22%),
+    linear-gradient(180deg, #0a0d11 0%, #0b1117 45%, #06090d 100%);
   letter-spacing: 0.02em;
   position: relative;
 }
@@ -47,12 +46,12 @@ body::before {
   inset: 0;
   pointer-events: none;
   background:
-    linear-gradient(rgba(255, 255, 255, 0.015) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.015) 1px, transparent 1px),
-    radial-gradient(circle at center, transparent 0%, rgba(0, 0, 0, 0.35) 78%);
-  background-size: 64px 64px, 64px 64px, 100% 100%;
-  mix-blend-mode: screen;
-  opacity: 0.35;
+    linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px),
+    repeating-linear-gradient(135deg, rgba(255, 255, 255, 0.012) 0 3px, transparent 3px 17px),
+    radial-gradient(circle at center, transparent 0%, rgba(0, 0, 0, 0.42) 78%);
+  background-size: 72px 72px, 72px 72px, 100% 100%, 100% 100%;
+  opacity: 0.32;
   z-index: 0;
 }
 
@@ -62,8 +61,8 @@ body::after {
   inset: 0;
   pointer-events: none;
   background:
-    linear-gradient(180deg, rgba(0, 0, 0, 0.08), transparent 18%),
-    linear-gradient(0deg, rgba(0, 0, 0, 0.4), transparent 22%);
+    linear-gradient(180deg, rgba(0, 0, 0, 0.14), transparent 18%),
+    linear-gradient(0deg, rgba(0, 0, 0, 0.46), transparent 24%);
   z-index: 0;
 }
 
@@ -83,8 +82,8 @@ h4,
 
 .legendary-title,
 .rune-title {
-  font-family: "Cinzel", serif;
-  letter-spacing: 0.12em;
+  font-family: "Barlow Condensed", sans-serif;
+  letter-spacing: 0.18em;
 }
 
 .myth-shell {
@@ -98,8 +97,8 @@ h4,
   inset: 0;
   pointer-events: none;
   background:
-    radial-gradient(circle at top left, rgba(242, 201, 120, 0.12), transparent 20%),
-    radial-gradient(circle at bottom right, rgba(119, 195, 214, 0.08), transparent 22%);
+    radial-gradient(circle at top left, rgba(70, 215, 255, 0.08), transparent 18%),
+    radial-gradient(circle at bottom right, rgba(247, 146, 51, 0.09), transparent 24%);
   opacity: 0.85;
 }
 
@@ -107,7 +106,7 @@ h4,
 .glass-panel,
 .command-panel {
   background:
-    linear-gradient(180deg, rgba(40, 31, 22, 0.94) 0%, rgba(20, 16, 11, 0.92) 100%);
+    linear-gradient(180deg, rgba(18, 24, 30, 0.95) 0%, rgba(11, 15, 20, 0.94) 100%);
   border: 1px solid var(--myth-border);
   box-shadow: var(--myth-shadow);
   position: relative;
@@ -119,7 +118,7 @@ h4,
   content: "";
   position: absolute;
   inset: 1px;
-  border: 1px solid rgba(242, 201, 120, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.03);
   border-radius: inherit;
   pointer-events: none;
 }
@@ -135,7 +134,7 @@ h4,
 .myth-hover:hover {
   border-color: var(--myth-border-strong);
   transform: translateY(-3px);
-  box-shadow: 0 26px 60px -28px rgba(0, 0, 0, 0.9);
+  box-shadow: 0 30px 60px -30px rgba(0, 0, 0, 0.95);
 }
 
 .myth-card-glow,
@@ -143,8 +142,8 @@ h4,
   position: absolute;
   inset: 0;
   background:
-    radial-gradient(circle at 20% 0%, rgba(242, 201, 120, 0.16), transparent 42%),
-    radial-gradient(circle at 100% 100%, rgba(119, 195, 214, 0.08), transparent 32%);
+    radial-gradient(circle at 15% 0%, rgba(70, 215, 255, 0.14), transparent 38%),
+    radial-gradient(circle at 100% 100%, rgba(247, 146, 51, 0.12), transparent 34%);
   opacity: 0;
   transition: opacity 0.3s ease;
   pointer-events: none;
@@ -158,8 +157,9 @@ h4,
 
 .hero-banner {
   background:
-    linear-gradient(135deg, rgba(27, 20, 14, 0.95) 0%, rgba(15, 11, 8, 0.92) 65%),
-    radial-gradient(circle at top right, rgba(215, 131, 57, 0.2), transparent 28%);
+    linear-gradient(135deg, rgba(16, 22, 28, 0.97) 0%, rgba(10, 14, 18, 0.95) 65%),
+    radial-gradient(circle at top right, rgba(70, 215, 255, 0.12), transparent 24%),
+    radial-gradient(circle at bottom left, rgba(247, 146, 51, 0.1), transparent 28%);
   border: 1px solid var(--myth-border);
   box-shadow: var(--myth-shadow);
   position: relative;
@@ -171,8 +171,9 @@ h4,
   position: absolute;
   inset: 0;
   background:
-    linear-gradient(90deg, transparent 0%, rgba(242, 201, 120, 0.06) 50%, transparent 100%);
-  opacity: 0.6;
+    linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.035) 50%, transparent 100%),
+    repeating-linear-gradient(135deg, rgba(255, 255, 255, 0.012) 0 2px, transparent 2px 14px);
+  opacity: 0.72;
   pointer-events: none;
 }
 
@@ -183,9 +184,9 @@ h4,
   gap: 0.45rem;
   padding: 0.45rem 0.8rem;
   border-radius: 999px;
-  border: 1px solid rgba(242, 201, 120, 0.18);
-  background: rgba(23, 18, 13, 0.82);
-  color: var(--myth-gold);
+  border: 1px solid rgba(247, 146, 51, 0.22);
+  background: rgba(12, 17, 22, 0.86);
+  color: var(--myth-cyan);
   font-size: 0.7rem;
   font-weight: 700;
   letter-spacing: 0.22em;
@@ -193,13 +194,13 @@ h4,
 }
 
 .myth-button {
-  border-radius: 1rem;
-  border: 1px solid rgba(242, 201, 120, 0.2);
+  border-radius: 0.95rem;
+  border: 1px solid rgba(103, 119, 137, 0.28);
   font-family: "Rajdhani", sans-serif;
   font-weight: 700;
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  transition: transform 0.24s ease, border-color 0.24s ease, background-color 0.24s ease, color 0.24s ease;
+  transition: transform 0.22s ease, border-color 0.22s ease, background-color 0.22s ease, color 0.22s ease, box-shadow 0.22s ease;
 }
 
 .myth-button:hover {
@@ -207,46 +208,46 @@ h4,
 }
 
 .myth-button-primary {
-  background: linear-gradient(135deg, #d78339 0%, #9c4f17 100%);
-  color: #130e08;
-  border-color: rgba(242, 201, 120, 0.42);
-  box-shadow: 0 18px 38px -20px rgba(215, 131, 57, 0.9);
+  background: linear-gradient(135deg, #f79233 0%, #cf5f14 100%);
+  color: #081016;
+  border-color: rgba(247, 146, 51, 0.54);
+  box-shadow: 0 18px 38px -20px rgba(247, 146, 51, 0.86);
 }
 
 .myth-button-secondary {
-  background: rgba(24, 19, 14, 0.88);
+  background: rgba(17, 22, 28, 0.92);
   color: var(--myth-ink);
 }
 
 .myth-button-cyan {
-  background: linear-gradient(135deg, #77c3d6 0%, #2f6d7d 100%);
-  color: #081114;
-  border-color: rgba(119, 195, 214, 0.48);
-  box-shadow: 0 18px 38px -20px rgba(66, 142, 163, 0.95);
+  background: linear-gradient(135deg, #46d7ff 0%, #1e7fa3 100%);
+  color: #061015;
+  border-color: rgba(70, 215, 255, 0.5);
+  box-shadow: 0 18px 38px -20px rgba(70, 215, 255, 0.7);
 }
 
 .myth-button-danger {
-  background: linear-gradient(135deg, #7f2727 0%, #471515 100%);
+  background: linear-gradient(135deg, #912f2f 0%, #571919 100%);
   color: #f8e8e3;
   border-color: rgba(225, 138, 138, 0.4);
 }
 
 .command-divider {
   height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(242, 201, 120, 0.3), transparent);
+  background: linear-gradient(90deg, transparent, rgba(70, 215, 255, 0.28), rgba(247, 146, 51, 0.2), transparent);
 }
 
 .myth-topbar {
   background:
-    linear-gradient(180deg, rgba(18, 14, 10, 0.92) 0%, rgba(10, 8, 6, 0.88) 100%);
-  border-bottom: 1px solid rgba(242, 201, 120, 0.12);
+    linear-gradient(180deg, rgba(11, 16, 22, 0.94) 0%, rgba(7, 10, 14, 0.92) 100%);
+  border-bottom: 1px solid rgba(103, 119, 137, 0.22);
   backdrop-filter: blur(16px);
 }
 
 .myth-stat-card {
   background:
-    linear-gradient(180deg, rgba(25, 20, 15, 0.92) 0%, rgba(14, 11, 8, 0.92) 100%);
-  border: 1px solid rgba(196, 149, 80, 0.16);
+    linear-gradient(180deg, rgba(17, 23, 29, 0.94) 0%, rgba(10, 14, 18, 0.94) 100%);
+  border: 1px solid rgba(103, 119, 137, 0.2);
   border-radius: 1.4rem;
   box-shadow: 0 20px 40px -28px rgba(0, 0, 0, 0.9);
   position: relative;
@@ -259,49 +260,49 @@ h4,
   inset: 0;
   pointer-events: none;
   background:
-    linear-gradient(135deg, rgba(242, 201, 120, 0.08), transparent 35%),
-    radial-gradient(circle at bottom right, rgba(119, 195, 214, 0.08), transparent 25%);
+    linear-gradient(135deg, rgba(247, 146, 51, 0.08), transparent 35%),
+    radial-gradient(circle at bottom right, rgba(70, 215, 255, 0.08), transparent 25%);
 }
 
 .myth-surface-soft {
-  background: rgba(18, 14, 10, 0.78);
-  border: 1px solid rgba(196, 149, 80, 0.14);
+  background: rgba(13, 18, 23, 0.82);
+  border: 1px solid rgba(103, 119, 137, 0.18);
   backdrop-filter: blur(12px);
 }
 
 .myth-icon-frame {
   background:
-    linear-gradient(180deg, rgba(39, 29, 21, 0.98) 0%, rgba(16, 12, 9, 0.94) 100%);
-  border: 1px solid rgba(242, 201, 120, 0.18);
+    linear-gradient(180deg, rgba(21, 27, 34, 0.98) 0%, rgba(9, 13, 18, 0.95) 100%);
+  border: 1px solid rgba(103, 119, 137, 0.24);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03), 0 14px 32px -24px rgba(0, 0, 0, 0.95);
 }
 
 .myth-section-title {
   color: var(--myth-ink);
-  text-shadow: 0 0 20px rgba(242, 201, 120, 0.08);
+  text-shadow: 0 0 18px rgba(70, 215, 255, 0.06);
 }
 
 .myth-kicker {
-  font-family: "Cinzel", serif;
+  font-family: "Barlow Condensed", sans-serif;
   letter-spacing: 0.18em;
   text-transform: uppercase;
-  color: var(--myth-gold);
+  color: var(--myth-cyan);
   font-size: 0.72rem;
 }
 
 .myth-outline-button {
   border-radius: 1rem;
-  border: 1px solid rgba(242, 201, 120, 0.2);
-  background: rgba(17, 13, 10, 0.78);
+  border: 1px solid rgba(103, 119, 137, 0.24);
+  background: rgba(12, 17, 22, 0.84);
   color: var(--myth-ink);
   transition: transform 0.22s ease, border-color 0.22s ease, color 0.22s ease, background-color 0.22s ease;
 }
 
 .myth-outline-button:hover {
   transform: translateY(-1px);
-  border-color: rgba(242, 201, 120, 0.45);
-  color: var(--myth-gold);
-  background: rgba(25, 18, 13, 0.92);
+  border-color: rgba(70, 215, 255, 0.36);
+  color: var(--myth-cyan);
+  background: rgba(15, 21, 27, 0.96);
 }
 
 /* =========================================
@@ -313,11 +314,11 @@ h4,
 }
 
 ::-webkit-scrollbar-track {
-  background: #0f0b08;
+  background: #0b1117;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: linear-gradient(180deg, #4f3a22 0%, #c08a4f 100%);
+  background: linear-gradient(180deg, #33404d 0%, #f79233 100%);
   border-radius: 999px;
 }
 
@@ -341,20 +342,73 @@ input[type="email"],
 input[type="password"],
 textarea,
 select {
-  background-color: rgba(10, 8, 6, 0.92) !important;
-  border-color: rgba(196, 149, 80, 0.18) !important;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.02);
+  background-color: rgba(9, 13, 18, 0.92) !important;
+  border-color: rgba(103, 119, 137, 0.18) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.02), 0 0 0 1px rgba(255, 255, 255, 0.01);
 }
 
 ::-webkit-calendar-picker-indicator {
   cursor: pointer;
   opacity: 0.8;
   transition: opacity 0.2s;
-  filter: sepia(0.65) saturate(1.4);
+  filter: brightness(0.8) sepia(0.35) saturate(1.6) hue-rotate(340deg);
 }
 
 ::-webkit-calendar-picker-indicator:hover {
   opacity: 1;
+}
+
+button:not([disabled]),
+[role="button"]:not([disabled]) {
+  transition: transform 0.18s ease, box-shadow 0.18s ease, background-color 0.18s ease, border-color 0.18s ease, color 0.18s ease;
+}
+
+button:not([disabled]):hover,
+[role="button"]:not([disabled]):hover {
+  box-shadow: 0 18px 30px -24px rgba(0, 0, 0, 0.8);
+}
+
+button:not([disabled]):active,
+[role="button"]:not([disabled]):active {
+  transform: translateY(1px) scale(0.99);
+}
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid rgba(70, 215, 255, 0.34);
+  outline-offset: 2px;
+}
+
+table thead {
+  letter-spacing: 0.12em;
+}
+
+table tbody tr {
+  transition: background-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+table tbody tr:hover {
+  box-shadow: inset 3px 0 0 rgba(247, 146, 51, 0.45);
+}
+
+.bg-slate-950 {
+  background-color: rgba(9, 13, 18, 1) !important;
+}
+
+.bg-slate-900\/40,
+.bg-slate-900\/50,
+.bg-slate-900\/80,
+.bg-slate-950\/50,
+.bg-slate-950\/70,
+.bg-slate-950\/80 {
+  backdrop-filter: blur(16px);
+}
+
+.border-slate-700,
+.border-slate-800 {
+  border-color: rgba(103, 119, 137, 0.16) !important;
 }
 
 

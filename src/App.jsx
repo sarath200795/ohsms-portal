@@ -76,10 +76,10 @@ export default function App() {
             <div className="myth-shell flex h-screen items-center justify-center bg-[#080705] text-white">
                 <div className="command-panel rounded-[2rem] px-8 py-7">
                     <div className="flex items-center gap-4">
-                        <i className="fas fa-circle-notch fa-spin text-3xl text-[var(--myth-ember)]"></i>
+                        <i className="fas fa-circle-notch fa-spin text-3xl text-[var(--myth-cyan)]"></i>
                         <div>
-                            <p className="legendary-title text-[11px] font-bold uppercase tracking-[0.35em] text-[var(--myth-gold)]">Command Sync</p>
-                            <h2 className="mt-1 text-2xl font-black uppercase tracking-[0.22em] text-white">Verifying Secure Session</h2>
+                            <p className="legendary-title text-[11px] font-bold uppercase tracking-[0.35em] text-[var(--myth-cyan)]">Session Check</p>
+                            <h2 className="mt-1 text-2xl font-black uppercase tracking-[0.22em] text-white">Validating Access</h2>
                         </div>
                     </div>
                 </div>

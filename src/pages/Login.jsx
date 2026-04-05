@@ -164,7 +164,7 @@ export default function Login() {
             <div className="mx-auto grid min-h-[calc(100vh-4rem)] max-w-7xl grid-cols-1 gap-6 lg:grid-cols-[1.18fr_0.82fr]">
                 <section className="hero-banner flex flex-col justify-between rounded-[2rem] p-8 lg:p-12">
                     <div>
-                        <p className="hud-chip mb-5">Mythic Command Interface</p>
+                        <p className="hud-chip mb-5">Tactical Operations Interface</p>
                         <div className="mb-6 flex items-center gap-5">
                             <img
                                 src="/we-ehs-logo.jpg"
@@ -172,28 +172,28 @@ export default function Login() {
                                 className="h-24 w-24 rounded-[1.6rem] border border-[var(--myth-border-strong)] object-cover shadow-2xl"
                             />
                             <div>
-                                <p className="legendary-title text-sm text-[var(--myth-gold)]">WE EHS Safety Tool</p>
-                                <h1 className="mt-2 text-6xl text-white sm:text-7xl">Forge Safer Operations</h1>
+                                <p className="legendary-title text-sm text-[var(--myth-cyan)]">WE EHS Safety Tool</p>
+                                <h1 className="mt-2 text-6xl text-white sm:text-7xl">Control Safer Operations</h1>
                             </div>
                         </div>
                         <p className="max-w-2xl text-base leading-relaxed text-[var(--myth-muted)] sm:text-lg">
-                            A battle-ready operations console for modern EHS programs, blending tactical command clarity with monumental mythic atmosphere.
+                            A tactical command interface for modern EHS teams, designed for fast navigation, clear priorities, and confident action in live operations.
                         </p>
                     </div>
 
                     <div className="grid gap-4 md:grid-cols-3">
                         <div className="command-panel rounded-[1.6rem] p-5">
-                            <p className="legendary-title text-[11px] text-[var(--myth-gold)]">Mission Set</p>
+                            <p className="legendary-title text-[11px] text-[var(--myth-cyan)]">Incident Control</p>
                             <h3 className="mt-2 text-3xl text-white">Incidents</h3>
                             <p className="mt-2 text-sm text-[var(--myth-muted)]">Investigations, CAPA, evidence, and reporting workflows.</p>
                         </div>
                         <div className="command-panel rounded-[1.6rem] p-5">
-                            <p className="legendary-title text-[11px] text-[var(--myth-gold)]">Control Layer</p>
+                            <p className="legendary-title text-[11px] text-[var(--myth-cyan)]">Work Controls</p>
                             <h3 className="mt-2 text-3xl text-white">PTW + LOTO</h3>
                             <p className="mt-2 text-sm text-[var(--myth-muted)]">Live work controls, isolations, and field execution.</p>
                         </div>
                         <div className="command-panel rounded-[1.6rem] p-5">
-                            <p className="legendary-title text-[11px] text-[var(--myth-gold)]">Field Reach</p>
+                            <p className="legendary-title text-[11px] text-[var(--myth-cyan)]">Field Access</p>
                             <h3 className="mt-2 text-3xl text-white">Portal Ops</h3>
                             <p className="mt-2 text-sm text-[var(--myth-muted)]">Separate field access with QR-driven operational tasks.</p>
                         </div>
@@ -202,10 +202,10 @@ export default function Login() {
 
                 <section className="command-panel flex flex-col justify-between rounded-[2rem] p-8 lg:p-10">
                     <div>
-                        <p className="legendary-title text-[11px] text-[var(--myth-gold)]">
+                        <p className="legendary-title text-[11px] text-[var(--myth-cyan)]">
                             {isRegistering ? 'Initialize Enterprise Workspace' : 'Enterprise Access'}
                         </p>
-                        <h2 className="mt-3 text-5xl text-white">{isRegistering ? 'Raise a New Standard' : 'Enter the Command Deck'}</h2>
+                        <h2 className="mt-3 text-5xl text-white">{isRegistering ? 'Deploy a New Workspace' : 'Access the Control Room'}</h2>
                         <p className="mt-3 text-sm leading-relaxed text-[var(--myth-muted)]">
                             {isRegistering
                                 ? 'Create a new workspace or join an existing one as a pending team member.'
@@ -221,11 +221,11 @@ export default function Login() {
                     {!isRegistering ? (
                         <form onSubmit={handleLogin} className="mt-8 space-y-5">
                             <div>
-                                <label className="legendary-title mb-2 block text-[11px] text-[var(--myth-gold)]">Email Address</label>
+                                <label className="legendary-title mb-2 block text-[11px] text-[var(--myth-cyan)]">Email Address</label>
                                 <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} className="w-full rounded-2xl border px-4 py-3.5 text-base outline-none transition" placeholder="you@company.com" />
                             </div>
                             <div>
-                                <label className="legendary-title mb-2 block text-[11px] text-[var(--myth-gold)]">Password</label>
+                                <label className="legendary-title mb-2 block text-[11px] text-[var(--myth-cyan)]">Password</label>
                                 <input type="password" required value={password} onChange={(e) => setPassword(e.target.value)} className="w-full rounded-2xl border px-4 py-3.5 text-base outline-none transition" placeholder="Enter your secure password" />
                             </div>
                             <button type="submit" disabled={loading} className="myth-button myth-button-primary w-full px-4 py-4 text-sm">
@@ -235,20 +235,20 @@ export default function Login() {
                     ) : (
                         <form onSubmit={handleRegister} className="mt-8 space-y-4">
                             <div>
-                                <label className="legendary-title mb-2 block text-[11px] text-[var(--myth-gold)]">Organization Name</label>
+                                <label className="legendary-title mb-2 block text-[11px] text-[var(--myth-cyan)]">Organization Name</label>
                                 <input type="text" required value={orgName} onChange={(e) => setOrgName(e.target.value)} className="w-full rounded-2xl border px-4 py-3 text-sm outline-none transition" placeholder="e.g. Acme Corp" />
                                 <p className="mt-2 text-[11px] text-[var(--myth-muted)]">If the workspace already exists, your account will enter the approval queue.</p>
                             </div>
                             <div>
-                                <label className="legendary-title mb-2 block text-[11px] text-[var(--myth-gold)]">Your Full Name</label>
+                                <label className="legendary-title mb-2 block text-[11px] text-[var(--myth-cyan)]">Your Full Name</label>
                                 <input type="text" required value={userName} onChange={(e) => setUserName(e.target.value)} className="w-full rounded-2xl border px-4 py-3 text-sm outline-none transition" placeholder="John Doe" />
                             </div>
                             <div>
-                                <label className="legendary-title mb-2 block text-[11px] text-[var(--myth-gold)]">Account Email</label>
+                                <label className="legendary-title mb-2 block text-[11px] text-[var(--myth-cyan)]">Account Email</label>
                                 <input type="email" required value={regEmail} onChange={(e) => setRegEmail(e.target.value)} className="w-full rounded-2xl border px-4 py-3 text-sm outline-none transition" placeholder="john@acme.com" />
                             </div>
                             <div>
-                                <label className="legendary-title mb-2 block text-[11px] text-[var(--myth-gold)]">Secure Password</label>
+                                <label className="legendary-title mb-2 block text-[11px] text-[var(--myth-cyan)]">Secure Password</label>
                                 <input type="password" required value={regPassword} onChange={(e) => setRegPassword(e.target.value)} className="w-full rounded-2xl border px-4 py-3 text-sm outline-none transition" placeholder="Minimum 6 characters" />
                             </div>
                             <button type="submit" disabled={loading} className="myth-button myth-button-cyan mt-3 w-full px-4 py-4 text-sm">
