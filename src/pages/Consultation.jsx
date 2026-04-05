@@ -506,14 +506,14 @@ export default function Consultation() {
                         {permissions.viewOnly && <span className="text-[10px] uppercase font-bold tracking-widest bg-yellow-500/10 text-yellow-400 px-2 py-1 rounded border border-yellow-500/20"><i className="fas fa-eye mr-1"></i> Read Only</span>}
                     </div>
                 </div>
-                <div className="flex bg-slate-950 p-1.5 rounded-xl border border-slate-800 shadow-inner gap-1">
-                    <button type="button" onClick={() => setView('list')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-widest transition-all ${view === 'list' || view === 'detail' ? 'bg-teal-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}><i className="fas fa-database mr-1"></i> Dashboard</button>
-                    <button type="button" onClick={() => setView('calendar')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-widest transition-all ${view === 'calendar' ? 'bg-teal-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}><i className="fas fa-calendar-alt mr-1"></i> Calendar</button>
+                <div className="app-tabbar gap-1">
+                    <button type="button" onClick={() => setView('list')} className={`app-tab ${view === 'list' || view === 'detail' ? 'app-tab-active' : ''}`}><i className="fas fa-database"></i> Dashboard</button>
+                    <button type="button" onClick={() => setView('calendar')} className={`app-tab ${view === 'calendar' ? 'app-tab-active' : ''}`}><i className="fas fa-calendar-alt"></i> Calendar</button>
                     {permissions.canEditCreate && (
                         <button type="button" onClick={() => {
                             setFormData({ id: '', firebaseKey: '', siteId: (!isGlobalUser && visibleSites.length === 1) ? visibleSites[0].code : (filterSite !== 'All' ? filterSite : ''), type: 'HSE Committee Meeting', subject: '', date: new Date().toISOString().split('T')[0], time: '', preRequisites: '', minutes: '', attendees: [], actions: [] });
                             setView('form');
-                        }} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-widest transition-all ${view === 'form' ? 'bg-emerald-600 text-white shadow-lg' : 'text-emerald-400 hover:text-white hover:bg-slate-800'}`}><i className="fas fa-plus mr-1"></i> New Meeting</button>
+                        }} className={`app-tab app-tab-success ${view === 'form' ? 'app-tab-active' : ''}`}><i className="fas fa-plus"></i> New Meeting</button>
                     )}
                 </div>
             </header>

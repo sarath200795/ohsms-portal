@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { clearFieldModuleHomeContext } from './FieldApp/portalAuth';
+import { useAppTransition } from '../components/AppExperienceShell';
 
 const OHS_MODULES = [
     { id: 'health-dashboard', label: 'Health Dashboard', desc: 'Occupational Health & Wellness', icon: 'fa-heart-pulse', color: 'text-rose-400' },
@@ -47,6 +48,7 @@ const NavCard = ({ module, onClick }) => (
 export default function OhsTools() {
     const navigate = useNavigate();
     const location = useLocation();
+    const playTransition = useAppTransition();
 
     useEffect(() => {
         clearFieldModuleHomeContext();
@@ -73,7 +75,10 @@ export default function OhsTools() {
 
     const handleNav = (moduleId) => {
         // Navigate to respective sub-module while maintaining the site context parameter
-        navigate(`/${moduleId}?site=${selectedSite}`);
+        playTransition({
+            label: `Opening ${OHS_MODULES.find((module) => module.id === moduleId)?.label || 'Tool'}`,
+            action: () => navigate(`/${moduleId}?site=${selectedSite}`)
+        });
     };
 
     if (!session) return null;
@@ -83,7 +88,7 @@ export default function OhsTools() {
             <header className="myth-topbar z-20 px-4 sm:px-6">
                 <div className="mx-auto flex h-20 max-w-7xl items-center justify-between gap-4">
                     <div className="flex items-center gap-4">
-                        <button onClick={() => navigate('/dashboard')} className="myth-outline-button flex items-center gap-2 rounded-2xl px-4 py-3 text-sm font-bold uppercase tracking-[0.18em]">
+                        <button onClick={() => playTransition({ label: 'Returning to Dashboard', action: () => navigate('/dashboard') })} className="myth-outline-button flex items-center gap-2 rounded-2xl px-4 py-3 text-sm font-bold uppercase tracking-[0.18em]">
                             <i className="fas fa-arrow-left"></i> Hub
                         </button>
                         <div className="myth-icon-frame flex h-12 w-12 items-center justify-center rounded-[1.1rem] text-[var(--myth-gold)]">

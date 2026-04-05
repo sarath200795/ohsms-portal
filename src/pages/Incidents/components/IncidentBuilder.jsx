@@ -10,9 +10,9 @@ export default function IncidentBuilder(props) {
 
     return (
         <div className="max-w-6xl mx-auto pb-20 animate-in fade-in slide-in-from-bottom-4 duration-500">
-            <div className="flex gap-2 mb-8 form-view-tabs bg-slate-900/40 p-2 rounded-2xl border border-slate-800 backdrop-blur-sm shadow-xl">
+            <div className="app-tabbar mb-8 form-view-tabs">
                 {steps.map((s, index) => (
-                    <button key={s.id} type="button" onClick={() => props.setStep(s.id)} className={`flex-1 py-3.5 rounded-xl text-xs font-bold uppercase tracking-widest transition-all ${step === s.id ? 'bg-red-600 text-white shadow-lg shadow-red-600/20 scale-[1.02]' : 'bg-transparent text-slate-500 hover:text-slate-300 hover:bg-slate-800'}`}>
+                    <button key={s.id} type="button" onClick={() => props.setStep(s.id)} className={`app-tab flex-1 ${step === s.id ? 'app-tab-active' : ''}`}>
                         <span className="opacity-50 mr-1">{index + 1}.</span> {s.label}
                     </button>
                 ))}

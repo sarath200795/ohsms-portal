@@ -25,6 +25,7 @@ import {
     resolveFieldQrNavigation,
     resolveInitialSite
 } from './FieldApp/utils';
+import { useAppTransition } from '../components/AppExperienceShell';
 
 const { fieldAuth, fieldDb } = getFieldPortalFirebase();
 
@@ -39,6 +40,7 @@ const getDayGreeting = () => {
 export default function FieldPortal() {
     const navigate = useNavigate();
     const location = useLocation();
+    const playTransition = useAppTransition();
 
     const [loading, setLoading] = useState(true);
     const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -90,7 +92,10 @@ export default function FieldPortal() {
         }
 
         if (redirectPath && redirectPath.startsWith('/')) {
-            navigate(redirectPath, { replace: true });
+            playTransition({
+                label: 'Opening Requested Workspace',
+                action: () => navigate(redirectPath, { replace: true })
+            });
         }
     };
 
@@ -214,7 +219,10 @@ export default function FieldPortal() {
         setFieldModuleHomeContext('field-portal');
         syncMainSession(portalSession, selectedSite);
         const siteParam = selectedSite === 'All' ? 'All' : selectedSite;
-        navigate(`${modulePath}?site=${siteParam}`);
+        playTransition({
+            label: 'Opening Field Module',
+            action: () => navigate(`${modulePath}?site=${siteParam}`)
+        });
     };
 
     const handleQrDetected = (decodedText) => {
@@ -238,7 +246,10 @@ export default function FieldPortal() {
         setScannerOpen(false);
         setFieldModuleHomeContext('field-portal');
         syncMainSession(portalSession, nextSite);
-        navigate(target.path);
+        playTransition({
+            label: 'Opening Scanned Record',
+            action: () => navigate(target.path)
+        });
     };
 
     if (loading) {

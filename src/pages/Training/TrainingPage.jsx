@@ -40,12 +40,12 @@ export default function TrainingPage() {
                         <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center text-white font-bold shadow-lg"><i className="fas fa-graduation-cap"></i></div>
                         <h1 className="font-bold text-lg tracking-wide hidden md:block">Training & Competence</h1>
                     </div>
-                    <div className="flex gap-2 bg-slate-950 p-1.5 rounded-xl border border-slate-800 shadow-inner overflow-x-auto custom-scroll">
-                        <button type="button" onClick={() => module.setView('dashboard')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-widest transition-all ${module.view === 'dashboard' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}><i className="fas fa-chart-line mr-1"></i> Dashboard</button>
-                        <button type="button" onClick={() => module.setView('matrix')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-widest transition-all ${module.view === 'matrix' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}><i className="fas fa-table mr-1"></i> Matrix</button>
-                        <button type="button" onClick={() => module.setView('calendar')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-widest transition-all ${module.view === 'calendar' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}><i className="fas fa-calendar-alt mr-1"></i> Calendar</button>
-                        <button type="button" onClick={() => module.setView('repo')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-widest transition-all ${module.view === 'repo' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}><i className="fas fa-history mr-1"></i> Logs</button>
-                        {module.permissions.canEditCreate && <button type="button" onClick={module.openNewForm} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-widest transition-all ${module.view === 'form' ? 'bg-emerald-600 text-white shadow-lg' : 'text-emerald-400 hover:text-white hover:bg-slate-800'}`}><i className="fas fa-plus mr-1"></i> New</button>}
+                    <div className="app-tabbar overflow-x-auto custom-scroll">
+                        <button type="button" onClick={() => module.setView('dashboard')} className={`app-tab ${module.view === 'dashboard' ? 'app-tab-active' : ''}`}><i className="fas fa-chart-line"></i> Dashboard</button>
+                        <button type="button" onClick={() => module.setView('matrix')} className={`app-tab ${module.view === 'matrix' ? 'app-tab-active' : ''}`}><i className="fas fa-table"></i> Matrix</button>
+                        <button type="button" onClick={() => module.setView('calendar')} className={`app-tab ${module.view === 'calendar' ? 'app-tab-active' : ''}`}><i className="fas fa-calendar-alt"></i> Calendar</button>
+                        <button type="button" onClick={() => module.setView('repo')} className={`app-tab ${module.view === 'repo' ? 'app-tab-active' : ''}`}><i className="fas fa-history"></i> Logs</button>
+                        {module.permissions.canEditCreate && <button type="button" onClick={module.openNewForm} className={`app-tab app-tab-success ${module.view === 'form' ? 'app-tab-active' : ''}`}><i className="fas fa-plus"></i> New</button>}
                     </div>
                 </header>
 

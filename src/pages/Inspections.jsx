@@ -521,17 +521,17 @@ export default function Inspections() {
             <div className="flex flex-col h-screen bg-slate-950 font-['Space_Grotesk'] text-slate-200 overflow-hidden relative print:h-auto print:overflow-visible print:bg-white print:text-black">
                 <div className="absolute top-0 left-0 w-[600px] h-[600px] bg-lime-600/10 rounded-full blur-[120px] pointer-events-none z-0 print:hidden"></div>
 
-                <header className="h-16 px-6 flex items-center justify-between z-20 backdrop-blur-sm bg-slate-900/50 border-b border-slate-800 print:hidden">
+                <header className="h-16 px-6 flex items-center justify-between z-20 bg-slate-900/50 border-b border-slate-800 print:hidden">
                     <div className="flex items-center gap-4">
                         <button onClick={() => navigate(getPortalAwareHomePath({ fallbackPath: '/dashboard', site: siteFilter }))} className="text-slate-400 hover:text-white transition-colors flex items-center gap-2"><i className="fas fa-arrow-left"></i> Hub</button>
                         <div className="h-6 w-px bg-slate-700 mx-2"></div>
                         <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-lime-500 to-emerald-600 flex items-center justify-center text-slate-950 font-bold shadow-lg"><i className="fas fa-clipboard-check"></i></div>
                         <h1 className="text-base font-bold text-white hidden md:block uppercase tracking-wide">Inspection Manager</h1>
                     </div>
-                    <div className="flex bg-slate-900 border border-slate-800 p-1.5 rounded-xl shadow-inner">
-                        <button onClick={() => setView('calendar')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-widest transition-all ${view === 'calendar' ? 'bg-lime-500 text-slate-950 shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}><i className="fas fa-calendar-alt mr-1"></i> Schedule</button>
-                        <button onClick={() => setView('history')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-widest transition-all ${view === 'history' ? 'bg-lime-500 text-slate-950 shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}><i className="fas fa-history mr-1"></i> History</button>
-                        {canEdit && <button onClick={() => setView('templates')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-widest transition-all ${view === 'templates' || view === 'builder' ? 'bg-lime-500 text-slate-950 shadow-lg' : 'text-lime-400 hover:text-lime-300 hover:bg-slate-800'}`}><i className="fas fa-layer-group mr-1"></i> Manage Forms</button>}
+                    <div className="app-tabbar">
+                        <button onClick={() => setView('calendar')} className={`app-tab ${view === 'calendar' ? 'app-tab-active' : ''}`}><i className="fas fa-calendar-alt"></i> Schedule</button>
+                        <button onClick={() => setView('history')} className={`app-tab ${view === 'history' ? 'app-tab-active' : ''}`}><i className="fas fa-history"></i> History</button>
+                        {canEdit && <button onClick={() => setView('templates')} className={`app-tab app-tab-success ${view === 'templates' || view === 'builder' ? 'app-tab-active' : ''}`}><i className="fas fa-layer-group"></i> Manage Forms</button>}
                     </div>
                 </header>
 

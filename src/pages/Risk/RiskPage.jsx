@@ -40,13 +40,13 @@ export default function RiskPage() {
                         {module.permissions.viewOnly && <span className="text-[10px] uppercase font-bold tracking-widest bg-yellow-500/10 text-yellow-400 px-2 py-1 rounded border border-yellow-500/20"><i className="fas fa-eye mr-1"></i> Read Only</span>}
                     </div>
                 </div>
-                <div className="flex bg-slate-950 p-1.5 rounded-xl border border-slate-800 shadow-inner">
-                    <button type="button" onClick={() => module.setView('list')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-widest transition-all ${module.view === 'list' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}><i className="fas fa-database mr-1"></i> Dashboard</button>
-                    <button type="button" onClick={() => module.setView('logs')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-widest transition-all ${module.view === 'logs' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}><i className="fas fa-history mr-1"></i> Revision Logs</button>
+                <div className="app-tabbar max-w-full overflow-x-auto custom-scroll">
+                    <button type="button" onClick={() => module.setView('list')} className={`app-tab ${module.view === 'list' ? 'app-tab-active' : ''}`}><i className="fas fa-database"></i> Dashboard</button>
+                    <button type="button" onClick={() => module.setView('logs')} className={`app-tab ${module.view === 'logs' ? 'app-tab-active' : ''}`}><i className="fas fa-history"></i> Revision Logs</button>
                     {module.permissions.canEditCreate && (
                         <>
-                            <button type="button" onClick={() => module.setView('import')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-widest transition-all ${module.view === 'import' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}><i className="fas fa-file-excel mr-1"></i> Smart Import</button>
-                            <button type="button" onClick={module.openNewForm} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-widest transition-all ${module.view === 'form' ? 'bg-emerald-600 text-white shadow-lg' : 'text-emerald-400 hover:text-white hover:bg-slate-800'}`}><i className="fas fa-plus mr-1"></i> New Assessment</button>
+                            <button type="button" onClick={() => module.setView('import')} className={`app-tab ${module.view === 'import' ? 'app-tab-active' : ''}`}><i className="fas fa-file-excel"></i> Smart Import</button>
+                            <button type="button" onClick={module.openNewForm} className={`app-tab app-tab-success ${module.view === 'form' ? 'app-tab-active' : ''}`}><i className="fas fa-plus"></i> New Assessment</button>
                         </>
                     )}
                 </div>

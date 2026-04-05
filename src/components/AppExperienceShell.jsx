@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 
 const STICKERS = [
@@ -22,32 +22,95 @@ const getTransitionLabel = (pathname) => {
     return 'Loading safety workspace';
 };
 
+const AppTransitionContext = createContext(() => {});
+
+export const useAppTransition = () => useContext(AppTransitionContext);
+
 export default function AppExperienceShell({ children }) {
     const location = useLocation();
     const routeKey = `${location.pathname}${location.search}`;
     const previousRouteRef = useRef(routeKey);
+    const skipNextRouteEffectRef = useRef(false);
+    const timersRef = useRef([]);
+    const routeMotionTimerRef = useRef(null);
     const [overlayVisible, setOverlayVisible] = useState(false);
+    const [overlayLabel, setOverlayLabel] = useState(getTransitionLabel(location.pathname));
+    const [routeSettling, setRouteSettling] = useState(false);
 
     const transitionLabel = useMemo(
         () => getTransitionLabel(location.pathname),
         [location.pathname]
     );
 
+    const clearTransitionTimers = () => {
+        timersRef.current.forEach((timerId) => clearTimeout(timerId));
+        timersRef.current = [];
+    };
+
+    const clearRouteMotionTimer = () => {
+        if (routeMotionTimerRef.current) {
+            clearTimeout(routeMotionTimerRef.current);
+            routeMotionTimerRef.current = null;
+        }
+    };
+
+    const startRouteMotion = (duration = 320) => {
+        clearRouteMotionTimer();
+        setRouteSettling(true);
+        routeMotionTimerRef.current = setTimeout(() => {
+            setRouteSettling(false);
+            routeMotionTimerRef.current = null;
+        }, duration);
+    };
+
+    const playTransition = ({ label, action, leadMs = 110, tailMs = 220 } = {}) => {
+        clearTransitionTimers();
+        skipNextRouteEffectRef.current = true;
+        setOverlayLabel(label || transitionLabel);
+        setOverlayVisible(true);
+        startRouteMotion(Math.max(leadMs + tailMs + 80, 320));
+
+        const actionTimer = setTimeout(() => {
+            if (typeof action === 'function') action();
+        }, leadMs);
+
+        const hideTimer = setTimeout(() => {
+            setOverlayVisible(false);
+        }, leadMs + tailMs);
+
+        timersRef.current = [actionTimer, hideTimer];
+    };
+
     useEffect(() => {
         if (previousRouteRef.current === routeKey) return undefined;
 
         previousRouteRef.current = routeKey;
+        if (skipNextRouteEffectRef.current) {
+            skipNextRouteEffectRef.current = false;
+            return undefined;
+        }
+
+        clearTransitionTimers();
+        setOverlayLabel(transitionLabel);
         setOverlayVisible(true);
+        startRouteMotion(340);
 
-        const timer = setTimeout(() => {
+        const hideTimer = setTimeout(() => {
             setOverlayVisible(false);
-        }, 700);
+        }, 220);
 
-        return () => clearTimeout(timer);
-    }, [routeKey]);
+        timersRef.current = [hideTimer];
+
+        return () => clearTransitionTimers();
+    }, [routeKey, transitionLabel]);
+
+    useEffect(() => () => {
+        clearTransitionTimers();
+        clearRouteMotionTimer();
+    }, []);
 
     return (
-        <>
+        <AppTransitionContext.Provider value={playTransition}>
             <div className="safety-ambient-layer" aria-hidden="true">
                 {STICKERS.map((sticker) => (
                     <img
@@ -60,7 +123,7 @@ export default function AppExperienceShell({ children }) {
                 <div className="ambient-grid-glow"></div>
             </div>
 
-            <div key={routeKey} className="page-route-shell">
+            <div className={`page-route-shell ${routeSettling ? 'is-settling' : ''}`}>
                 {children}
             </div>
 
@@ -73,10 +136,10 @@ export default function AppExperienceShell({ children }) {
                     />
                     <div>
                         <p className="route-transition-kicker">Safety System Transfer</p>
-                        <p className="route-transition-label">{transitionLabel}</p>
+                        <p className="route-transition-label">{overlayLabel}</p>
                     </div>
                 </div>
             </div>
-        </>
+        </AppTransitionContext.Provider>
     );
 }

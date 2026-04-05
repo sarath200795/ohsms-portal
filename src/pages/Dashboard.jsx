@@ -5,6 +5,7 @@ import { signOut } from 'firebase/auth';
 import { ref, get } from 'firebase/database';
 import useStore from '../store/useStore';
 import { clearFieldModuleHomeContext } from './FieldApp/portalAuth';
+import { useAppTransition } from '../components/AppExperienceShell';
 
 const getDayGreeting = () => {
     const hour = new Date().getHours();
@@ -85,6 +86,7 @@ const NavCard = ({ module, actions = [], onClick }) => {
 
 export default function Dashboard() {
     const navigate = useNavigate();
+    const playTransition = useAppTransition();
 
     useEffect(() => {
         clearFieldModuleHomeContext();
@@ -242,7 +244,10 @@ export default function Dashboard() {
     const handleNavigation = (mod) => {
         sessionStorage.setItem('isoCurrentSite', selectedSite);
         const paramSite = selectedSite === 'GLOBAL' ? 'All' : selectedSite;
-        navigate(`${mod.path}?site=${paramSite}`);
+        playTransition({
+            label: `Opening ${mod.label}`,
+            action: () => navigate(`${mod.path}?site=${paramSite}`)
+        });
     };
 
     if (localLoading) {
@@ -273,25 +278,49 @@ export default function Dashboard() {
                 <div className={`origin-bottom transition-all duration-300 ${isFabOpen ? 'mb-2 scale-100 opacity-100' : 'pointer-events-none h-0 scale-0 opacity-0'}`}>
                     <div className="flex flex-col items-end gap-3">
                     {visibleModules.find(m => m.id === 'Incidents') && (
-                        <button onClick={() => { navigate('/incidents?site=' + (selectedSite === 'GLOBAL' ? 'All' : selectedSite)); setIsFabOpen(false); }} className="flex items-center gap-3">
+                        <button onClick={() => {
+                            setIsFabOpen(false);
+                            playTransition({
+                                label: 'Opening Incidents',
+                                action: () => navigate('/incidents?site=' + (selectedSite === 'GLOBAL' ? 'All' : selectedSite))
+                            });
+                        }} className="flex items-center gap-3">
                             <span className="myth-surface-soft rounded-2xl px-4 py-2 text-xs font-bold uppercase tracking-[0.18em] text-[var(--myth-ink)]">Report Incident</span>
                             <div className="myth-button myth-button-primary flex h-12 w-12 items-center justify-center rounded-full text-lg"><i className="fas fa-triangle-exclamation"></i></div>
                         </button>
                     )}
                     {visibleModules.find(m => m.id === 'Inspections') && (
-                        <button onClick={() => { navigate('/inspections?site=' + (selectedSite === 'GLOBAL' ? 'All' : selectedSite)); setIsFabOpen(false); }} className="flex items-center gap-3">
+                        <button onClick={() => {
+                            setIsFabOpen(false);
+                            playTransition({
+                                label: 'Opening Inspections',
+                                action: () => navigate('/inspections?site=' + (selectedSite === 'GLOBAL' ? 'All' : selectedSite))
+                            });
+                        }} className="flex items-center gap-3">
                             <span className="myth-surface-soft rounded-2xl px-4 py-2 text-xs font-bold uppercase tracking-[0.18em] text-[var(--myth-ink)]">Start Inspection</span>
                             <div className="myth-button myth-button-cyan flex h-12 w-12 items-center justify-center rounded-full text-lg"><i className="fas fa-search-location"></i></div>
                         </button>
                     )}
                     {visibleModules.find(m => m.id === 'OHS Tools') && (
-                        <button onClick={() => { navigate('/ohs-tools?site=' + (selectedSite === 'GLOBAL' ? 'All' : selectedSite)); setIsFabOpen(false); }} className="flex items-center gap-3">
+                        <button onClick={() => {
+                            setIsFabOpen(false);
+                            playTransition({
+                                label: 'Opening OHS Tools',
+                                action: () => navigate('/ohs-tools?site=' + (selectedSite === 'GLOBAL' ? 'All' : selectedSite))
+                            });
+                        }} className="flex items-center gap-3">
                             <span className="myth-surface-soft rounded-2xl px-4 py-2 text-xs font-bold uppercase tracking-[0.18em] text-[var(--myth-ink)]">Safety Tools</span>
                             <div className="myth-outline-button flex h-12 w-12 items-center justify-center rounded-full text-lg text-[var(--myth-gold)]"><i className="fas fa-toolbox"></i></div>
                         </button>
                     )}
                     {visibleModules.find(m => m.id === 'CAPA Manager') && (
-                        <button onClick={() => { navigate('/capa?site=' + (selectedSite === 'GLOBAL' ? 'All' : selectedSite)); setIsFabOpen(false); }} className="flex items-center gap-3">
+                        <button onClick={() => {
+                            setIsFabOpen(false);
+                            playTransition({
+                                label: 'Opening CAPA Manager',
+                                action: () => navigate('/capa?site=' + (selectedSite === 'GLOBAL' ? 'All' : selectedSite))
+                            });
+                        }} className="flex items-center gap-3">
                             <span className="myth-surface-soft rounded-2xl px-4 py-2 text-xs font-bold uppercase tracking-[0.18em] text-[var(--myth-ink)]">Action Register</span>
                             <div className="myth-outline-button flex h-12 w-12 items-center justify-center rounded-full text-lg text-[var(--myth-cyan)]"><i className="fas fa-list-check"></i></div>
                         </button>
@@ -388,7 +417,10 @@ export default function Dashboard() {
                                     {hasFieldAppAccess && (
                                         <button
                                             type="button"
-                                            onClick={() => navigate(`/field-portal?site=${selectedSite === 'GLOBAL' ? 'All' : selectedSite}`)}
+                                            onClick={() => playTransition({
+                                                label: 'Opening Field Portal',
+                                                action: () => navigate(`/field-portal?site=${selectedSite === 'GLOBAL' ? 'All' : selectedSite}`)
+                                            })}
                                             className="myth-button myth-button-cyan px-5 py-3 text-xs"
                                         >
                                             Open Field Portal

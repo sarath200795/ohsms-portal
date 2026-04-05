@@ -11,6 +11,7 @@ import {
     isGlobalRole,
     resolveInitialSite
 } from './utils';
+import { useAppTransition } from '../../components/AppExperienceShell';
 
 const getDayGreeting = () => {
     const hour = new Date().getHours();
@@ -22,6 +23,7 @@ const getDayGreeting = () => {
 export default function FieldAppPage() {
     const navigate = useNavigate();
     const location = useLocation();
+    const playTransition = useAppTransition();
 
     const [session, setSession] = useState(null);
     const [sites, setSites] = useState([]);
@@ -92,7 +94,10 @@ export default function FieldAppPage() {
     const openModule = (modulePath) => {
         const siteParam = selectedSite === 'All' ? 'All' : selectedSite;
         setFieldModuleHomeContext('field-app');
-        navigate(`${modulePath}?site=${siteParam}`);
+        playTransition({
+            label: 'Opening Field Module',
+            action: () => navigate(`${modulePath}?site=${siteParam}`)
+        });
     };
 
     if (loading) {
@@ -115,7 +120,10 @@ export default function FieldAppPage() {
                 selectedSite={selectedSite}
                 onBack={() => {
                     clearFieldModuleHomeContext();
-                    navigate('/dashboard');
+                    playTransition({
+                        label: 'Returning to Dashboard',
+                        action: () => navigate('/dashboard')
+                    });
                 }}
                 onSiteChange={handleSiteChange}
                 visibleSites={visibleSites}
