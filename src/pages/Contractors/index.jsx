@@ -22,6 +22,7 @@ import {
     normalizeVendorCode,
     parseContractors
 } from './utils';
+import { hasAccessibleModule, normalizeSessionPermissions } from '../../utils/permissions';
 
 export default function Contractors() {
     const navigate = useNavigate();
@@ -62,9 +63,10 @@ export default function Contractors() {
             return;
         }
 
-        const sess = JSON.parse(rawSession);
+        const sess = normalizeSessionPermissions(JSON.parse(rawSession));
+        sessionStorage.setItem('isoSession', JSON.stringify(sess));
         const isGlobalAdmin = ['Global Owner', 'Global Manager', 'Owner', 'Admin'].includes(sess.role);
-        const hasModuleAccess = isGlobalAdmin || safeArr(sess.accessibleModules).includes('Contractor Management');
+        const hasModuleAccess = isGlobalAdmin || hasAccessibleModule(sess.accessibleModules, 'Contractors');
 
         if (!hasModuleAccess) {
             alert('Security Alert: You do not have permission.');

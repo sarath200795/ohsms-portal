@@ -3,6 +3,7 @@ import { getAuth } from 'firebase/auth';
 import { getDatabase, get, ref } from 'firebase/database';
 import { auth } from '../../config/firebase';
 import { getVisibleFieldModules } from './utils';
+import { normalizeSessionPermissions } from '../../utils/permissions';
 
 export const FIELD_PORTAL_APP_NAME = 'field-portal-app';
 export const FIELD_PORTAL_SESSION_KEY = 'fieldPortalSession';
@@ -123,7 +124,7 @@ export const fetchFieldPortalContext = async ({ fieldDb, user, expectedOrgId = '
         throw new Error('This account has been deactivated.');
     }
 
-    const sessionData = {
+    const sessionData = normalizeSessionPermissions({
         uid: user.uid,
         email: user.email,
         orgId,
@@ -132,7 +133,7 @@ export const fetchFieldPortalContext = async ({ fieldDb, user, expectedOrgId = '
         assignedSite: userData.assignedSite || 'GLOBAL',
         accessibleSites: userData.accessibleSites || [],
         accessibleModules: userData.accessibleModules || []
-    };
+    });
 
     if (getVisibleFieldModules(sessionData).length === 0) {
         throw new Error('This account does not have access to any field portal modules.');

@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { auth, rtdb } from '../config/firebase';
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut } from 'firebase/auth';
 import { ref, get, set, push } from 'firebase/database';
+import { normalizeSessionPermissions } from '../utils/permissions';
 
 export default function Login() {
     const navigate = useNavigate();
@@ -47,7 +48,7 @@ export default function Login() {
                         return alert('This account has been deactivated. Please contact your administrator.');
                     }
 
-                    const sessionData = {
+                    const sessionData = normalizeSessionPermissions({
                         uid: user.uid,
                         email: user.email,
                         orgId: userOrgId,
@@ -56,7 +57,7 @@ export default function Login() {
                         assignedSite: userData.assignedSite || 'GLOBAL',
                         accessibleSites: userData.accessibleSites || [],
                         accessibleModules: userData.accessibleModules || []
-                    };
+                    });
 
                     sessionStorage.setItem('isoSession', JSON.stringify(sessionData));
                     navigate('/dashboard');
@@ -132,7 +133,7 @@ export default function Login() {
                 await set(ref(rtdb, `orgRegistry/${safeOrgName}`), orgId);
                 await set(ref(rtdb, `userDirectory/${user.uid}`), { orgId });
 
-                const sessionData = {
+                const sessionData = normalizeSessionPermissions({
                     uid: user.uid,
                     email: user.email,
                     orgId,
@@ -146,7 +147,7 @@ export default function Login() {
                         'Record Emergency', 'OHS Tools', 'Contractors', 'MOC',
                         'Inspections', 'Sites', 'Users'
                     ]
-                };
+                });
 
                 sessionStorage.setItem('isoSession', JSON.stringify(sessionData));
                 alert('Workspace created successfully! You are the Global Owner.');

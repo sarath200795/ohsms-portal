@@ -9,6 +9,7 @@ import {
     HAZARD_DICTIONARY,
     getRiskStyle
 } from '../utils';
+import { hasAccessibleModule, normalizeSessionPermissions } from '../../../utils/permissions';
 
 const normalizeRiskAssessments = (collection = {}) => (
     Object.keys(collection).map((key) => {
@@ -69,9 +70,10 @@ export function useRiskModule() {
             return;
         }
 
-        const parsedSession = JSON.parse(storedSession);
+        const parsedSession = normalizeSessionPermissions(JSON.parse(storedSession));
+        sessionStorage.setItem('isoSession', JSON.stringify(parsedSession));
         const isGlobalAdmin = ['Global Owner', 'Global Manager', 'Owner', 'Admin'].includes(parsedSession.role);
-        const hasModuleAccess = isGlobalAdmin || (parsedSession.accessibleModules || []).includes('Risk Assessment');
+        const hasModuleAccess = isGlobalAdmin || hasAccessibleModule(parsedSession.accessibleModules, 'Risk Assessment');
 
         if (!hasModuleAccess) {
             alert('Security Alert: You do not have permission to access the Risk Assessment module.');

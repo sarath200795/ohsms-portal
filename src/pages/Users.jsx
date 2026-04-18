@@ -2,26 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ref, get, set, update, remove } from 'firebase/database';
 import { rtdb } from '../config/firebase';
-
-// --- ALL AVAILABLE SYSTEM MODULES ---
-const ALL_MODULES = [
-    "Incidents",
-    "Risk Assessments",
-    "Consultation & Participation",
-    "Audits",
-    "Standards",
-    "CAPA",
-    "Training",
-    "Improvement",
-    "PTW",
-    "LOTO",
-    "Health Dashboard",
-    "Mock Drills",
-    "Emergency Equipment",
-    "Inspections",             // Added
-    "Contractor Management",   // Added
-    "Management of Change"     // Added
-];
+import { toCanonicalModuleIds, USER_ASSIGNABLE_MODULES } from '../utils/permissions';
 
 const ROLES = [
     "Global Owner",
@@ -96,7 +77,7 @@ export default function Users() {
                             id: key,
                             ...val,
                             accessibleSites: safeArr(val.accessibleSites),
-                            accessibleModules: safeArr(val.accessibleModules)
+                            accessibleModules: toCanonicalModuleIds(val.accessibleModules)
                         }));
                         setUsers(loadedUsers);
                     }
@@ -120,7 +101,7 @@ export default function Users() {
                 role: user.role || 'User',
                 assignedSite: user.assignedSite || '',
                 accessibleSites: safeArr(user.accessibleSites),
-                accessibleModules: safeArr(user.accessibleModules),
+                accessibleModules: toCanonicalModuleIds(user.accessibleModules),
                 status: user.status || 'Active'
             });
         } else {
@@ -150,7 +131,7 @@ export default function Users() {
     };
 
     const selectAllModules = () => {
-        setFormData(prev => ({ ...prev, accessibleModules: [...ALL_MODULES] }));
+        setFormData(prev => ({ ...prev, accessibleModules: USER_ASSIGNABLE_MODULES.map((module) => module.id) }));
     };
 
     const clearAllModules = () => {
@@ -165,14 +146,19 @@ export default function Users() {
 
         setSaving(true);
         try {
+            const payload = {
+                ...formData,
+                accessibleModules: toCanonicalModuleIds(formData.accessibleModules)
+            };
+
             // If editing existing user
             if (editingUserId) {
-                await update(ref(rtdb, `organizations/${session.orgId}/users/${editingUserId}`), formData);
-                setUsers(prev => prev.map(u => u.id === editingUserId ? { ...formData, id: editingUserId } : u));
+                await update(ref(rtdb, `organizations/${session.orgId}/users/${editingUserId}`), payload);
+                setUsers(prev => prev.map(u => u.id === editingUserId ? { ...payload, id: editingUserId } : u));
                 alert("User permissions updated successfully!");
             } else {
                 // For new users (Using email as safe key by replacing dots)
-                const safeEmailKey = formData.email.replace(/\./g, '_');
+                const safeEmailKey = payload.email.replace(/\./g, '_');
 
                 // Check if exists
                 const userRef = ref(rtdb, `organizations/${session.orgId}/users/${safeEmailKey}`);
@@ -183,8 +169,8 @@ export default function Users() {
                     return alert("A user with this email already exists in this organization.");
                 }
 
-                await set(userRef, { ...formData, createdAt: new Date().toISOString() });
-                setUsers(prev => [...prev, { ...formData, id: safeEmailKey }]);
+                await set(userRef, { ...payload, createdAt: new Date().toISOString() });
+                setUsers(prev => [...prev, { ...payload, id: safeEmailKey }]);
                 alert("New user added successfully! Note: They must sign up with this exact email to authenticate via Firebase.");
             }
             setIsModalOpen(false);
@@ -414,12 +400,12 @@ export default function Users() {
                                 </div>
                             ) : (
                                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 bg-slate-900/30 p-6 rounded-2xl border border-slate-800 shadow-inner">
-                                    {ALL_MODULES.map(mod => {
-                                        const isSelected = formData.accessibleModules.includes(mod);
+                                    {USER_ASSIGNABLE_MODULES.map((module) => {
+                                        const isSelected = formData.accessibleModules.includes(module.id);
                                         return (
-                                            <label key={mod} className={`flex items-start gap-3 p-4 rounded-xl border transition-all cursor-pointer ${isSelected ? 'bg-blue-900/20 border-blue-500 text-blue-300 shadow-inner' : 'bg-slate-950 border-slate-800 text-slate-500 hover:border-slate-600 hover:text-slate-300'}`}>
-                                                <input type="checkbox" className="mt-0.5 accent-blue-500 w-4 h-4 cursor-pointer" checked={isSelected} onChange={() => toggleArrayItem('accessibleModules', mod)} />
-                                                <span className="text-xs font-bold uppercase tracking-wide leading-tight mt-[1px]">{mod}</span>
+                                            <label key={module.id} className={`flex items-start gap-3 p-4 rounded-xl border transition-all cursor-pointer ${isSelected ? 'bg-blue-900/20 border-blue-500 text-blue-300 shadow-inner' : 'bg-slate-950 border-slate-800 text-slate-500 hover:border-slate-600 hover:text-slate-300'}`}>
+                                                <input type="checkbox" className="mt-0.5 accent-blue-500 w-4 h-4 cursor-pointer" checked={isSelected} onChange={() => toggleArrayItem('accessibleModules', module.id)} />
+                                                <span className="text-xs font-bold uppercase tracking-wide leading-tight mt-[1px]">{module.label}</span>
                                             </label>
                                         )
                                     })}

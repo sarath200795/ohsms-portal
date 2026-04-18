@@ -1,3 +1,5 @@
+import { hasAccessibleModule } from '../../utils/permissions';
+
 export const FIELD_MODULES = [
     {
         id: 'inspections',
@@ -95,8 +97,7 @@ export const getVisibleFieldModules = (session) => {
     if (!session) return [];
     if (isGlobalRole(session.role)) return FIELD_MODULES;
 
-    const accessibleModules = new Set(session.accessibleModules || []);
-    return FIELD_MODULES.filter((module) => module.requiredModules.some((requiredModule) => accessibleModules.has(requiredModule)));
+    return FIELD_MODULES.filter((module) => module.requiredModules.some((requiredModule) => hasAccessibleModule(session.accessibleModules, requiredModule)));
 };
 
 export const resolveInitialSite = ({ search, session, visibleSites }) => {

@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { ref, get, push, remove } from 'firebase/database';
 import { rtdb } from '../config/firebase';
 import { getPortalAwareHomePath } from './FieldApp/portalAuth';
+import { hasAccessibleModule, normalizeSessionPermissions } from '../utils/permissions';
 
 const SCENARIOS = [
     {
@@ -73,12 +74,13 @@ export default function MockDrill() {
     useEffect(() => {
         const s = sessionStorage.getItem('isoSession');
         if (!s) { navigate('/'); return; }
-        const sess = JSON.parse(s);
+        const sess = normalizeSessionPermissions(JSON.parse(s));
+        sessionStorage.setItem('isoSession', JSON.stringify(sess));
 
         // 1. STRICT MODULE GUARD
         const isGlobalAdmin = ['Global Owner', 'Global Manager', 'Owner', 'Admin'].includes(sess.role);
         const requestedSite = new URLSearchParams(location.search).get('site') || sessionStorage.getItem('isoCurrentSite') || sess.assignedSite || 'All';
-        const hasModuleAccess = isGlobalAdmin || (sess.accessibleModules || []).includes('Record Emergency');
+        const hasModuleAccess = isGlobalAdmin || hasAccessibleModule(sess.accessibleModules, 'Record Emergency');
 
         if (!hasModuleAccess) {
             alert("Security Alert: You do not have permission to access the Emergency Records module.");

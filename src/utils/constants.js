@@ -71,8 +71,7 @@ export const ROLES = [
 ];
 
 export const ALL_MODULES = [
-    "Incidents", "Risk Assessments", "Consultation & Participation", "Audits",
-    "Standards", "CAPA", "Training", "Improvement", "PTW", "LOTO",
-    "Health Dashboard", "Mock Drills", "Emergency Equipment", "Inspections",
-    "Contractor Management", "Management of Change"
+    "Analytics", "Incidents", "Risk Assessment", "Participation", "Internal Audit",
+    "Standards", "CAPA Manager", "Training", "Improvement", "OHS Tools",
+    "Record Emergency", "Contractors", "MOC", "Inspections"
 ];

@@ -6,6 +6,7 @@ import { ref, get } from 'firebase/database';
 import useStore from '../store/useStore';
 import { clearFieldModuleHomeContext } from './FieldApp/portalAuth';
 import { useAppTransition } from '../components/AppExperienceShell';
+import { hasAccessibleModule, normalizeSessionPermissions } from '../utils/permissions';
 
 const getDayGreeting = () => {
     const hour = new Date().getHours();
@@ -126,7 +127,8 @@ export default function Dashboard() {
     useEffect(() => {
         const raw = sessionStorage.getItem('isoSession');
         if (!raw) return navigate('/');
-        const sess = JSON.parse(raw);
+        const sess = normalizeSessionPermissions(JSON.parse(raw));
+        sessionStorage.setItem('isoSession', JSON.stringify(sess));
 
         initializeSession(sess);
 
@@ -193,14 +195,14 @@ export default function Dashboard() {
                 }
             }
 
-            const hasActivityCalendarAccess = isGlobalAdmin || DASHBOARD_ACTIVITY_MODULES.some((moduleId) => session.accessibleModules?.includes(moduleId));
+            const hasActivityCalendarAccess = isGlobalAdmin || DASHBOARD_ACTIVITY_MODULES.some((moduleId) => hasAccessibleModule(session.accessibleModules, moduleId));
 
             if (isGlobalAdmin) vModules = ALL_MODULES;
             else {
                 vModules = ALL_MODULES.filter((mod) => {
                     if (mod.id === 'Tutorials') return true;
                     if (mod.id === 'Activity Calendar') return hasActivityCalendarAccess;
-                    return session.accessibleModules?.includes(mod.id);
+                    return hasAccessibleModule(session.accessibleModules, mod.id);
                 });
             }
 

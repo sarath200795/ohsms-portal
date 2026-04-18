@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { ref, get, update } from 'firebase/database';
 import { rtdb } from '../config/firebase';
 import * as XLSX from 'xlsx';
+import { hasAccessibleModule, normalizeSessionPermissions } from '../utils/permissions';
 
 // --- UTILITIES ---
 const fileToBase64 = (file) => new Promise((resolve, reject) => {
@@ -37,11 +38,12 @@ export default function Capa() {
     useEffect(() => {
         const s = sessionStorage.getItem('isoSession');
         if (!s) { navigate('/'); return; }
-        const sess = JSON.parse(s);
+        const sess = normalizeSessionPermissions(JSON.parse(s));
+        sessionStorage.setItem('isoSession', JSON.stringify(sess));
 
         // 1. STRICT MODULE GUARD
         const isGlobalAdmin = ['Global Owner', 'Global Manager', 'Owner', 'Admin'].includes(sess.role);
-        const hasModuleAccess = isGlobalAdmin || (sess.accessibleModules || []).includes('CAPA Manager');
+        const hasModuleAccess = isGlobalAdmin || hasAccessibleModule(sess.accessibleModules, 'CAPA Manager');
 
         if (!hasModuleAccess) {
             alert("Security Alert: You do not have permission to access the CAPA Manager module.");

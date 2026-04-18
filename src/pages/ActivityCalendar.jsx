@@ -4,6 +4,7 @@ import { get, ref } from 'firebase/database';
 
 import { rtdb } from '../config/firebase';
 import { useAppTransition } from '../components/AppExperienceShell';
+import { hasAccessibleModule, normalizeSessionPermissions } from '../utils/permissions';
 
 const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -190,7 +191,7 @@ const resolveSiteName = (sites, siteId) => {
 const canAccessSource = (session, sourceId) => {
     if (!session) return false;
     if (['Global Owner', 'Global Manager', 'Owner', 'Admin'].includes(session.role)) return true;
-    return (SOURCE_ACCESS[sourceId] || []).some((moduleId) => (session.accessibleModules || []).includes(moduleId));
+    return (SOURCE_ACCESS[sourceId] || []).some((moduleId) => hasAccessibleModule(session.accessibleModules, moduleId));
 };
 
 const isCommitteeMeeting = (meeting) => /committee/i.test(String(meeting.type || meeting.subject || ''));
@@ -232,9 +233,10 @@ export default function ActivityCalendar() {
             return;
         }
 
-        const parsedSession = JSON.parse(rawSession);
+        const parsedSession = normalizeSessionPermissions(JSON.parse(rawSession));
+        sessionStorage.setItem('isoSession', JSON.stringify(parsedSession));
         const isGlobalAdmin = ['Global Owner', 'Global Manager', 'Owner', 'Admin'].includes(parsedSession.role);
-        const hasAccess = isGlobalAdmin || RELEVANT_MODULES.some((moduleId) => (parsedSession.accessibleModules || []).includes(moduleId));
+        const hasAccess = isGlobalAdmin || RELEVANT_MODULES.some((moduleId) => hasAccessibleModule(parsedSession.accessibleModules, moduleId));
 
         if (!hasAccess) {
             alert('Security Alert: You do not have permission to access the Activity Calendar.');
