@@ -14,6 +14,8 @@ const getDayGreeting = () => {
     return 'Good evening';
 };
 
+const DASHBOARD_ACTIVITY_MODULES = ['Incidents', 'OHS Tools', 'Health Dashboard', 'Inspections', 'Record Emergency', 'Participation', 'CAPA Manager'];
+
 const NavCard = ({ module, actions = [], onClick }) => {
     const topActions = actions.slice(0, 3);
     const extraCount = actions.length - 3;
@@ -103,6 +105,7 @@ export default function Dashboard() {
 
     const ALL_MODULES = [
         { id: 'Analytics', label: 'Analytics', icon: 'fa-chart-pie', color: 'text-purple-400', path: '/analytics' },
+        { id: 'Activity Calendar', label: 'Activity Calendar', icon: 'fa-calendar-days', color: 'text-cyan-300', path: '/activity-calendar' },
         { id: 'Incidents', label: 'Incidents', icon: 'fa-triangle-exclamation', color: 'text-orange-400', path: '/incidents' },
         { id: 'Risk Assessment', label: 'Risk Assessment', icon: 'fa-shield-virus', color: 'text-red-400', path: '/risk' },
         { id: 'Participation', label: 'Participation', icon: 'fa-comments', color: 'text-teal-400', path: '/consultation' },
@@ -189,8 +192,15 @@ export default function Dashboard() {
                 }
             }
 
+            const hasActivityCalendarAccess = isGlobalAdmin || DASHBOARD_ACTIVITY_MODULES.some((moduleId) => session.accessibleModules?.includes(moduleId));
+
             if (isGlobalAdmin) vModules = ALL_MODULES;
-            else vModules = ALL_MODULES.filter(mod => session.accessibleModules?.includes(mod.id));
+            else {
+                vModules = ALL_MODULES.filter((mod) => {
+                    if (mod.id === 'Activity Calendar') return hasActivityCalendarAccess;
+                    return session.accessibleModules?.includes(mod.id);
+                });
+            }
 
             if (localOrgData.ptwRecords) {
                 Object.values(localOrgData.ptwRecords).forEach(p => {
