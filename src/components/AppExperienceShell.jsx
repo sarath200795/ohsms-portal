@@ -1,5 +1,7 @@
 import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
+
+import { getTutorialForPath } from '../tutorials/catalog';
 
 const STICKERS = [
     { src: '/safety-sticker-helmet.svg', alt: 'Safety helmet sticker', className: 'ambient-sticker ambient-sticker--helmet' },
@@ -28,14 +30,17 @@ export const useAppTransition = () => useContext(AppTransitionContext);
 
 export default function AppExperienceShell({ children }) {
     const location = useLocation();
+    const navigate = useNavigate();
     const routeKey = `${location.pathname}${location.search}`;
     const previousRouteRef = useRef(routeKey);
     const skipNextRouteEffectRef = useRef(false);
     const timersRef = useRef([]);
     const routeMotionTimerRef = useRef(null);
+    const tutorialTimerRef = useRef(null);
     const [overlayVisible, setOverlayVisible] = useState(false);
     const [overlayLabel, setOverlayLabel] = useState(getTransitionLabel(location.pathname));
     const [routeSettling, setRouteSettling] = useState(false);
+    const [tutorialPrompt, setTutorialPrompt] = useState(null);
 
     const transitionLabel = useMemo(
         () => getTransitionLabel(location.pathname),
@@ -51,6 +56,13 @@ export default function AppExperienceShell({ children }) {
         if (routeMotionTimerRef.current) {
             clearTimeout(routeMotionTimerRef.current);
             routeMotionTimerRef.current = null;
+        }
+    };
+
+    const clearTutorialTimer = () => {
+        if (tutorialTimerRef.current) {
+            clearTimeout(tutorialTimerRef.current);
+            tutorialTimerRef.current = null;
         }
     };
 
@@ -92,6 +104,13 @@ export default function AppExperienceShell({ children }) {
         timersRef.current = [actionTimer, hideTimer, failSafeTimer];
     };
 
+    const dismissTutorialPrompt = (markSeen = true) => {
+        if (tutorialPrompt && markSeen) {
+            localStorage.setItem(`ohsms:tutorial-seen:${tutorialPrompt.id}`, '1');
+        }
+        setTutorialPrompt(null);
+    };
+
     useEffect(() => {
         if (previousRouteRef.current === routeKey) return undefined;
 
@@ -113,9 +132,43 @@ export default function AppExperienceShell({ children }) {
         return () => clearTimeout(hideTimer);
     }, [routeKey, transitionLabel]);
 
+    useEffect(() => {
+        clearTutorialTimer();
+
+        const isAuthenticated = Boolean(
+            sessionStorage.getItem('isoSession')
+            || sessionStorage.getItem('fieldPortalSession')
+            || sessionStorage.getItem('vendorSession')
+        );
+
+        if (!isAuthenticated) {
+            setTutorialPrompt(null);
+            return undefined;
+        }
+
+        const tutorial = getTutorialForPath(location.pathname);
+        if (!tutorial) {
+            setTutorialPrompt(null);
+            return undefined;
+        }
+
+        if (localStorage.getItem(`ohsms:tutorial-seen:${tutorial.id}`) === '1') {
+            setTutorialPrompt(null);
+            return undefined;
+        }
+
+        tutorialTimerRef.current = setTimeout(() => {
+            setTutorialPrompt(tutorial);
+            tutorialTimerRef.current = null;
+        }, 260);
+
+        return () => clearTutorialTimer();
+    }, [location.pathname]);
+
     useEffect(() => () => {
         clearTransitionTimers();
         clearRouteMotionTimer();
+        clearTutorialTimer();
     }, []);
 
     return (
@@ -149,6 +202,64 @@ export default function AppExperienceShell({ children }) {
                     </div>
                 </div>
             </div>
+
+            {tutorialPrompt && (
+                <div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/85 p-4 backdrop-blur-sm">
+                    <div className="command-panel relative w-full max-w-4xl rounded-[2rem] p-5 sm:p-6">
+                        <button
+                            type="button"
+                            onClick={() => dismissTutorialPrompt(true)}
+                            className="myth-outline-button absolute right-5 top-5 flex h-10 w-10 items-center justify-center rounded-full"
+                        >
+                            <i className="fas fa-times"></i>
+                        </button>
+
+                        <div className="pr-12">
+                            <p className="myth-kicker">Module Tutorial</p>
+                            <h2 className="mt-2 text-3xl text-white">{tutorialPrompt.title}</h2>
+                            <p className="mt-3 max-w-3xl text-sm leading-relaxed text-[var(--myth-muted)]">
+                                {tutorialPrompt.description}
+                            </p>
+                            <p className="mt-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--myth-gold)]">
+                                This prompt appears once for this module.
+                            </p>
+                        </div>
+
+                        <div className="mt-5 overflow-hidden rounded-[1.6rem] border border-[rgba(242,201,120,0.08)] bg-black">
+                            <video
+                                key={tutorialPrompt.videoUrl}
+                                controls
+                                preload="metadata"
+                                className="h-auto w-full"
+                                src={tutorialPrompt.videoUrl}
+                            />
+                        </div>
+
+                        <div className="mt-5 flex flex-wrap gap-3">
+                            <button
+                                type="button"
+                                onClick={() => dismissTutorialPrompt(true)}
+                                className="myth-button myth-button-primary rounded-2xl px-5 py-3 text-xs"
+                            >
+                                Continue to Module
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    dismissTutorialPrompt(true);
+                                    playTransition({
+                                        label: 'Opening Tutorials',
+                                        action: () => navigate('/tutorials')
+                                    });
+                                }}
+                                className="myth-outline-button rounded-2xl px-5 py-3 text-xs"
+                            >
+                                Open Tutorial Library
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </AppTransitionContext.Provider>
     );
 }

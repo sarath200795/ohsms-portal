@@ -9,6 +9,7 @@ import AppExperienceShell from './components/AppExperienceShell';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import ActivityCalendar from './pages/ActivityCalendar';
+import Tutorials from './pages/Tutorials';
 import Users from './pages/Users';
 import Sites from './pages/Sites';
 import Analytics from "./pages/Analytics";
@@ -106,6 +107,7 @@ export default function App() {
                     {/* PROTECTED ROUTES */}
                     <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
                     <Route path="/activity-calendar" element={<ProtectedRoute><ActivityCalendar /></ProtectedRoute>} />
+                    <Route path="/tutorials" element={<ProtectedRoute><Tutorials /></ProtectedRoute>} />
                     <Route path="/Analytics" element={<ProtectedRoute><Analytics /></ProtectedRoute>} />
                     <Route path="/users" element={<ProtectedRoute><Users /></ProtectedRoute>} />
                     <Route path="/sites" element={<ProtectedRoute><Sites /></ProtectedRoute>} />

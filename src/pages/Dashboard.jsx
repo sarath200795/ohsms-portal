@@ -105,6 +105,7 @@ export default function Dashboard() {
 
     const ALL_MODULES = [
         { id: 'Analytics', label: 'Analytics', icon: 'fa-chart-pie', color: 'text-purple-400', path: '/analytics' },
+        { id: 'Tutorials', label: 'Tutorials', icon: 'fa-circle-play', color: 'text-amber-300', path: '/tutorials' },
         { id: 'Activity Calendar', label: 'Activity Calendar', icon: 'fa-calendar-days', color: 'text-cyan-300', path: '/activity-calendar' },
         { id: 'Incidents', label: 'Incidents', icon: 'fa-triangle-exclamation', color: 'text-orange-400', path: '/incidents' },
         { id: 'Risk Assessment', label: 'Risk Assessment', icon: 'fa-shield-virus', color: 'text-red-400', path: '/risk' },
@@ -197,6 +198,7 @@ export default function Dashboard() {
             if (isGlobalAdmin) vModules = ALL_MODULES;
             else {
                 vModules = ALL_MODULES.filter((mod) => {
+                    if (mod.id === 'Tutorials') return true;
                     if (mod.id === 'Activity Calendar') return hasActivityCalendarAccess;
                     return session.accessibleModules?.includes(mod.id);
                 });

@@ -7,6 +7,7 @@ import MockDrill from './pages/MockDrill';
 import EmergencyEquipment from './pages/EmergencyEquipment';
 import Inspections from './pages/Inspections';
 import FieldPortal from './pages/FieldPortal';
+import Tutorials from './pages/Tutorials';
 import { FIELD_PORTAL_SESSION_KEY } from './pages/FieldApp/portalAuth';
 import AppExperienceShell from './components/AppExperienceShell';
 
@@ -36,6 +37,7 @@ export default function FieldPortalApp() {
                     <Route path="/field-app" element={<FieldPortal />} />
                     <Route path="/dashboard" element={<FieldPortal />} />
                     <Route path="/ohs-tools" element={<FieldPortal />} />
+                    <Route path="/tutorials" element={<FieldProtectedRoute><Tutorials /></FieldProtectedRoute>} />
 
                     <Route path="/loto" element={<LOTO />} />
                     <Route path="/ptw" element={<PTW />} />
