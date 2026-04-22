@@ -11,7 +11,7 @@ import {
     isGlobalRole,
     resolveInitialSite
 } from './utils';
-import { useAppTransition } from '../../components/AppExperienceShell';
+import { useAppTransition } from '../../hooks/useAppTransition';
 
 const getDayGreeting = () => {
     const hour = new Date().getHours();

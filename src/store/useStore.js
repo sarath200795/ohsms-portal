@@ -1,7 +1,8 @@
 import { create } from 'zustand';
 import { ref, onValue, off } from 'firebase/database';
 import { rtdb } from '../config/firebase';
-import { haveModulesChanged, normalizeSessionPermissions } from '../utils/permissions';
+import { haveModulesChanged } from '../utils/permissions';
+import { normalizeSessionData, normalizeUserStatus, writeStoredSession } from '../utils/session';
 
 const useStore = create((set, get) => ({
     session: null,
@@ -11,11 +12,11 @@ const useStore = create((set, get) => ({
 
     // 1. Call this when any protected page loads
     initializeSession: (sess) => {
-        const normalizedSession = normalizeSessionPermissions(sess);
+        const normalizedSession = normalizeSessionData(sess);
         set({ session: normalizedSession });
 
         if (sess && JSON.stringify(sess) !== JSON.stringify(normalizedSession)) {
-            sessionStorage.setItem('isoSession', JSON.stringify(normalizedSession));
+            writeStoredSession(normalizedSession);
         }
         
         // If we are already connected to Firebase, don't do it again! (This makes navigation instant)
@@ -33,27 +34,25 @@ const useStore = create((set, get) => ({
                 const liveUser = currentSession?.uid ? orgData?.users?.[currentSession.uid] : null;
 
                 if (currentSession && liveUser) {
-                    const refreshedSession = normalizeSessionPermissions({
+                    const refreshedSession = normalizeSessionData({
                         ...currentSession,
                         name: liveUser.name || currentSession.name || currentSession.email?.split('@')[0] || 'User',
                         role: liveUser.role || currentSession.role || 'User',
+                        status: liveUser.status || currentSession.status || 'Active',
                         assignedSite: liveUser.assignedSite || 'GLOBAL',
                         accessibleSites: liveUser.accessibleSites || [],
                         accessibleModules: liveUser.accessibleModules || []
                     });
 
-                    const statusChanged = String(liveUser.status || '') !== String(currentSession.status || '');
+                    const statusChanged = normalizeUserStatus(liveUser.status || '') !== normalizeUserStatus(currentSession.status || '');
                     const modulesChanged = haveModulesChanged(currentSession.accessibleModules || [], refreshedSession.accessibleModules || []);
                     const sitesChanged = JSON.stringify(currentSession.accessibleSites || []) !== JSON.stringify(refreshedSession.accessibleSites || []);
                     const roleChanged = String(currentSession.role || '') !== String(refreshedSession.role || '');
                     const assignedSiteChanged = String(currentSession.assignedSite || '') !== String(refreshedSession.assignedSite || '');
 
                     if (statusChanged || modulesChanged || sitesChanged || roleChanged || assignedSiteChanged) {
-                        const nextSession = {
-                            ...refreshedSession,
-                            status: liveUser.status || currentSession.status || 'Active'
-                        };
-                        sessionStorage.setItem('isoSession', JSON.stringify(nextSession));
+                        const nextSession = refreshedSession;
+                        writeStoredSession(nextSession);
                         set({ session: nextSession });
                     }
                 }

@@ -2,6 +2,8 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ref, get, push, update, remove, onValue } from 'firebase/database';
 import { rtdb } from '../config/firebase';
+import { hasAccessibleModule } from '../utils/permissions';
+import { canAuthenticateStatus, readStoredSession } from '../utils/session';
 
 const fileToBase64 = (file) => new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -64,7 +66,7 @@ const AuditScheduler = ({ setView, session }) => {
                         const parsedUsers = Object.keys(val.users).map(key => {
                             const uVal = val.users[key];
                             return typeof uVal === 'object' ? { id: key, name: uVal.name || uVal.email || "System Owner", role: uVal.role || 'User', email: uVal.email || '', ...uVal } : { id: key, name: uVal || "System Owner", role: 'User', email: '' };
-                        }).filter(u => u.status !== 'Inactive' && u.status !== 'Deleted');
+                        }).filter(u => canAuthenticateStatus(u.status));
                         setAllUsers(parsedUsers);
                     }
                 }
@@ -790,7 +792,7 @@ const AuditeeWorkplace = ({ setView, session }) => {
                         setMyAudits(mine);
                     }
                     if (val.users) {
-                        const parsedUsers = safeArrayParse(val.users).filter(u => u.status !== 'Inactive' && u.status !== 'Deleted');
+                        const parsedUsers = safeArrayParse(val.users).filter(u => canAuthenticateStatus(u.status));
                         setUsers(parsedUsers);
                     }
                 }
@@ -1769,12 +1771,23 @@ export default function Audit() {
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        const s = sessionStorage.getItem('isoSession');
-        if (!s) {
+        const sess = readStoredSession();
+        if (!sess || !canAuthenticateStatus(sess.status)) {
             navigate('/');
             return;
         }
-        setSession(JSON.parse(s));
+
+        const isGlobalAdmin = ['Global Owner', 'Global Manager', 'Owner', 'Admin'].includes(sess.role);
+        const isSiteAdmin = ['Site Owner', 'Site Manager'].includes(sess.role);
+        const hasModuleAccess = isGlobalAdmin || isSiteAdmin || hasAccessibleModule(sess.accessibleModules, 'Internal Audit');
+
+        if (!hasModuleAccess) {
+            alert('Security Alert: You do not have permission to access the Internal Audit module.');
+            navigate('/dashboard');
+            return;
+        }
+
+        setSession(sess);
         setLoading(false);
     }, [navigate]);
 

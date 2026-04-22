@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
-import { useAppTransition } from '../components/AppExperienceShell';
+import { useAppTransition } from '../hooks/useAppTransition';
 import { TUTORIAL_CATALOG } from '../tutorials/catalog';
 
 const CATEGORY_ORDER = ['Platform', 'Enterprise Modules', 'OHS Tools', 'Portals'];

@@ -5,7 +5,7 @@ import { signOut } from 'firebase/auth';
 import { ref, get } from 'firebase/database';
 import useStore from '../store/useStore';
 import { clearFieldModuleHomeContext } from './FieldApp/portalAuth';
-import { useAppTransition } from '../components/AppExperienceShell';
+import { useAppTransition } from '../hooks/useAppTransition';
 import { hasAccessibleModule, normalizeSessionPermissions } from '../utils/permissions';
 
 const getDayGreeting = () => {

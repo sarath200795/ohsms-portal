@@ -13,6 +13,8 @@ import {
     WAH_EQUIP_OPTIONS
 } from '../../utils/constants';
 import { safeArr, safeArrayParse } from '../../utils/helpers';
+import { hasAccessibleModule } from '../../utils/permissions';
+import { canAuthenticateStatus, readStoredSession } from '../../utils/session';
 import PtwDashboardComponent from './components/PtwDashboard';
 import PtwRegistryComponent from './components/PtwRegistry';
 import PermitViewerComponent from './components/PermitViewer';
@@ -1127,8 +1129,8 @@ export default function FullScreenPTW() {
             const params = new URLSearchParams(location.search);
             const permitIdFromQuery = params.get('ptw');
             const publicOrgId = params.get('org');
-            const raw = sessionStorage.getItem('isoSession');
-            if (!raw) {
+            const sess = readStoredSession();
+            if (!sess || !canAuthenticateStatus(sess.status)) {
                 if (!permitIdFromQuery || !publicOrgId) {
                     navigate('/');
                     return;
@@ -1163,15 +1165,11 @@ export default function FullScreenPTW() {
                 return;
             }
 
-            const sess = JSON.parse(raw);
             const cleanRole = String(sess.role || '').trim();
             const isGlobalAdmin = ['Global Owner', 'Global Manager', 'Owner', 'Admin'].includes(cleanRole);
             const isSiteAdmin = ['Site Owner', 'Site Manager'].includes(cleanRole);
             const requestedSite = new URLSearchParams(location.search).get('site') || sessionStorage.getItem('isoCurrentSite') || sess.assignedSite || 'All';
-            const hasModuleAccess = isGlobalAdmin || isSiteAdmin || safeArr(sess.accessibleModules).some((moduleName) => {
-                const lowerModule = String(moduleName).toLowerCase();
-                return lowerModule.includes('permit') || lowerModule.includes('ptw');
-            });
+            const hasModuleAccess = isGlobalAdmin || isSiteAdmin || hasAccessibleModule(sess.accessibleModules, 'OHS Tools');
 
             if (!hasModuleAccess) {
                 alert('Security Alert: You do not have permission to access the Permit to Work module.');
@@ -1238,7 +1236,7 @@ export default function FullScreenPTW() {
                                             status: 'Active'
                                         };
                                 })
-                                .filter((user) => user.status !== 'Inactive' && user.status !== 'Deleted')
+                                .filter((user) => canAuthenticateStatus(user.status))
                         );
                     }
 

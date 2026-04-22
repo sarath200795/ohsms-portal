@@ -3,6 +3,8 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { ref, onValue, update, push, remove } from 'firebase/database';
 import * as firebaseSetup from '../config/firebase';
 import * as XLSX from 'xlsx';
+import { hasAccessibleModule } from '../utils/permissions';
+import { canAuthenticateStatus, readStoredSession } from '../utils/session';
 
 // Auto-detect Firebase export name to prevent import crashes
 const rtdb = firebaseSetup.rtdb || firebaseSetup.db;
@@ -81,9 +83,8 @@ export default function Standards() {
                 throw new Error("Firebase Realtime Database (rtdb) is completely missing from config/firebase.js");
             }
 
-            const s = sessionStorage.getItem('isoSession');
-            if (!s) { navigate('/'); return; }
-            const sess = JSON.parse(s);
+            const sess = readStoredSession();
+            if (!sess || !canAuthenticateStatus(sess.status)) { navigate('/'); return; }
 
             // Clean the role string just in case there are trailing spaces in the DB
             const cleanRole = String(sess.role || '').trim();
@@ -93,10 +94,7 @@ export default function Standards() {
             const isSiteAdmin = ['Site Owner', 'Site Manager'].includes(cleanRole);
 
             // Fuzzy match to catch "Standards", "Standard", "Document Control", etc.
-            const hasModuleAccess = isGlobalAdmin || isSiteAdmin || (sess.accessibleModules || []).some(m => {
-                const lowerM = String(m).toLowerCase();
-                return lowerM.includes('standard') || lowerM.includes('document');
-            });
+            const hasModuleAccess = isGlobalAdmin || isSiteAdmin || hasAccessibleModule(sess.accessibleModules, 'Standards');
 
             if (!hasModuleAccess) {
                 alert("Security Alert: You do not have permission to access the Standards & Documents module.");

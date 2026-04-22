@@ -4,6 +4,7 @@ import { auth, rtdb } from '../config/firebase';
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut } from 'firebase/auth';
 import { ref, get, set, push } from 'firebase/database';
 import { normalizeSessionPermissions } from '../utils/permissions';
+import { ACCOUNT_STATUS, canAuthenticateStatus, isDeletedStatus, isPendingStatus, writeStoredSession } from '../utils/session';
 
 export default function Login() {
     const navigate = useNavigate();
@@ -36,13 +37,13 @@ export default function Login() {
                 if (orgUserSnap.exists()) {
                     const userData = orgUserSnap.val();
 
-                    if (userData.status === 'Pending') {
+                    if (isPendingStatus(userData.status)) {
                         setLoading(false);
                         await signOut(auth);
                         return alert('Your account is currently Pending. Please wait for your Organization Admin to approve your access.');
                     }
 
-                    if (userData.status === 'Deleted' || userData.status === 'Inactive') {
+                    if (!canAuthenticateStatus(userData.status) || isDeletedStatus(userData.status)) {
                         setLoading(false);
                         await signOut(auth);
                         return alert('This account has been deactivated. Please contact your administrator.');
@@ -54,12 +55,13 @@ export default function Login() {
                         orgId: userOrgId,
                         name: userData.name || user.email.split('@')[0],
                         role: userData.role || 'User',
+                        status: userData.status || ACCOUNT_STATUS.ACTIVE,
                         assignedSite: userData.assignedSite || 'GLOBAL',
                         accessibleSites: userData.accessibleSites || [],
                         accessibleModules: userData.accessibleModules || []
                     });
 
-                    sessionStorage.setItem('isoSession', JSON.stringify(sessionData));
+                    writeStoredSession(sessionData);
                     navigate('/dashboard');
                 } else {
                     await signOut(auth);
@@ -139,6 +141,7 @@ export default function Login() {
                     orgId,
                     name: userName,
                     role: 'Global Owner',
+                    status: ACCOUNT_STATUS.ACTIVE,
                     assignedSite: 'GLOBAL',
                     accessibleSites: ['GLOBAL'],
                     accessibleModules: [
@@ -149,7 +152,7 @@ export default function Login() {
                     ]
                 });
 
-                sessionStorage.setItem('isoSession', JSON.stringify(sessionData));
+                writeStoredSession(sessionData);
                 alert('Workspace created successfully! You are the Global Owner.');
                 navigate('/dashboard');
             }

@@ -9,6 +9,8 @@ import * as XLSX from 'xlsx';
 import QRious from 'qrious';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import { hasAccessibleModule } from '../utils/permissions';
+import { canAuthenticateStatus, readStoredSession } from '../utils/session';
 
 // ==========================================
 // CONFIGURATION & CONSTANTS
@@ -77,10 +79,10 @@ export default function Loto() {
                 const execId = params.get('execute');
                 const orgId = params.get('org');
 
-                const s = sessionStorage.getItem('isoSession');
+                const sess = readStoredSession();
 
                 // HYBRID LOGIC: If no session, check if it's a valid QR code scan
-                if (!s) {
+                if (!sess || !canAuthenticateStatus(sess.status)) {
                     if (execId && orgId) {
                         // Public Read-Only Mode triggered by QR Code
                         setIsPublic(true);
@@ -101,16 +103,12 @@ export default function Loto() {
                 }
 
                 // If logged in, proceed normally as an internal employee
-                const sess = JSON.parse(s);
                 const cleanRole = String(sess.role || '').trim();
 
                 const isGlobalAdmin = ['Global Owner', 'Global Manager', 'Owner', 'Admin'].includes(cleanRole);
                 const isSiteAdmin = ['Site Owner', 'Site Manager'].includes(cleanRole);
 
-                const hasModuleAccess = isGlobalAdmin || isSiteAdmin || (sess.accessibleModules || []).some(m => {
-                    const lowerM = String(m).toLowerCase();
-                    return lowerM.includes('loto') || lowerM.includes('lockout');
-                });
+                const hasModuleAccess = isGlobalAdmin || isSiteAdmin || hasAccessibleModule(sess.accessibleModules, 'OHS Tools');
 
                 if (!hasModuleAccess) {
                     alert("Security Alert: You do not have permission to access the LOTO module.");

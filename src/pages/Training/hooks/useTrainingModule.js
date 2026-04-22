@@ -10,6 +10,8 @@ import {
     formatDate,
     safeArr
 } from '../utils';
+import { hasAccessibleModule } from '../../../utils/permissions';
+import { canAuthenticateStatus, readStoredSession } from '../../../utils/session';
 
 const normalizeTrainings = (collection = {}) => (
     Object.entries(collection).map(([key, value]) => ({
@@ -35,7 +37,7 @@ const normalizeUsers = (collection = {}) => (
             name: value.name || value.email || 'System Owner',
             accessibleSites: safeArr(value.accessibleSites)
         }))
-        .filter((user) => user.status !== 'Inactive' && user.status !== 'Deleted')
+        .filter((user) => canAuthenticateStatus(user.status))
 );
 
 const buildTrainingCapas = (orgData) => {
@@ -172,15 +174,14 @@ export function useTrainingModule() {
     const [externalName, setExternalName] = useState('');
 
     useEffect(() => {
-        const storedSession = sessionStorage.getItem('isoSession');
-        if (!storedSession) {
+        const parsedSession = readStoredSession();
+        if (!parsedSession || !canAuthenticateStatus(parsedSession.status)) {
             navigate('/');
             return;
         }
 
-        const parsedSession = JSON.parse(storedSession);
         const isGlobalAdmin = ['Global Owner', 'Global Manager', 'Owner', 'Admin'].includes(parsedSession.role);
-        const hasModuleAccess = isGlobalAdmin || (parsedSession.accessibleModules || []).includes('Training');
+        const hasModuleAccess = isGlobalAdmin || hasAccessibleModule(parsedSession.accessibleModules, 'Training');
 
         if (!hasModuleAccess) {
             alert('Security Alert: You do not have permission to access the Training module.');

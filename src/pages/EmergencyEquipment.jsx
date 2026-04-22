@@ -5,8 +5,6 @@ import { rtdb } from '../config/firebase';
 import { getFieldPortalLoginPath, getPortalAwareHomePath } from './FieldApp/portalAuth';
 import { QRCodeSVG } from 'qrcode.react';
 import * as XLSX from 'xlsx';
-import ExcelJS from 'exceljs';
-import { saveAs } from 'file-saver';
 
 const TYPES = ['Fire Extinguisher', 'First Aid Kit', 'AED / Defibrillator', 'Eye Wash Station', 'Spill Kit', 'Evacuation Chair'];
 const STATUSES = ['Active', 'Needs Inspection', 'Out of Service', 'Missing'];
@@ -540,47 +538,38 @@ export default function EmergencyEquipment() {
         }
     };
 
-    const downloadTemplate = async () => {
-        const workbook = new ExcelJS.Workbook();
-        const sheet = workbook.addWorksheet('Equipment_Upload_Template');
-        const listSheet = workbook.addWorksheet('Allowed_Values');
-
-        TYPES.forEach((t, i) => listSheet.getCell(`A${i + 1}`).value = t);
-        FIRE_EXT_TYPES.forEach((t, i) => listSheet.getCell(`B${i + 1}`).value = t.name);
-        STATUSES.forEach((s, i) => listSheet.getCell(`C${i + 1}`).value = s);
-
-        listSheet.state = 'hidden';
-
-        sheet.columns = [
-            { header: 'Site ID (Req)', key: 'site', width: 15 },
-            { header: 'Equipment Type (Req)', key: 'type', width: 25 },
-            { header: 'Location (Req)', key: 'loc', width: 30 },
-            { header: 'Asset/Serial ID', key: 'asset', width: 20 },
-            { header: 'Status', key: 'status', width: 15 },
-            { header: 'Last Inspection', key: 'insp', width: 20 },
-            { header: 'Extinguisher Type (IS 2190)', key: 'extType', width: 35 },
-            { header: 'Last Refill Date', key: 'refill', width: 20 },
-            { header: 'Last HPT Date', key: 'hpt', width: 20 },
-            { header: 'Notes', key: 'notes', width: 35 }
+    const downloadTemplate = () => {
+        const workbook = XLSX.utils.book_new();
+        const templateSheet = XLSX.utils.aoa_to_sheet([
+            ['Site ID (Req)', 'Equipment Type (Req)', 'Location (Req)', 'Asset/Serial ID', 'Status', 'Last Inspection', 'Extinguisher Type (IS 2190)', 'Last Refill Date', 'Last HPT Date', 'Notes'],
+            ['HQ-01', 'Fire Extinguisher', 'Main Lobby Exit', 'HQ-LOB-101', 'Active', '2025-01-15', 'ABC Powder / DCP (Stored Pressure)', '2023-05-10', '2023-05-10', 'Mounted securely.']
+        ]);
+        templateSheet['!cols'] = [
+            { wch: 15 },
+            { wch: 25 },
+            { wch: 30 },
+            { wch: 20 },
+            { wch: 15 },
+            { wch: 20 },
+            { wch: 35 },
+            { wch: 20 },
+            { wch: 20 },
+            { wch: 35 }
         ];
 
-        sheet.getRow(1).font = { bold: true };
-        sheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE0E0E0' } };
+        const allowedValuesSheet = XLSX.utils.aoa_to_sheet([
+            ['Allowed Equipment Types', 'Allowed Extinguisher Types', 'Allowed Statuses'],
+            ...Array.from({ length: Math.max(TYPES.length, FIRE_EXT_TYPES.length, STATUSES.length) }, (_, index) => ([
+                TYPES[index] || '',
+                FIRE_EXT_TYPES[index]?.name || '',
+                STATUSES[index] || ''
+            ]))
+        ]);
+        allowedValuesSheet['!cols'] = [{ wch: 28 }, { wch: 38 }, { wch: 18 }];
 
-        for (let i = 2; i <= 100; i++) {
-            sheet.getCell(`B${i}`).dataValidation = { type: 'list', allowBlank: true, formulae: [`Allowed_Values!$A$1:$A$${TYPES.length}`] };
-            sheet.getCell(`G${i}`).dataValidation = { type: 'list', allowBlank: true, formulae: [`Allowed_Values!$B$1:$B$${FIRE_EXT_TYPES.length}`] };
-            sheet.getCell(`E${i}`).dataValidation = { type: 'list', allowBlank: true, formulae: [`Allowed_Values!$C$1:$C$${STATUSES.length}`] };
-        }
-
-        sheet.addRow({
-            site: 'HQ-01', type: 'Fire Extinguisher', loc: 'Main Lobby Exit', asset: 'HQ-LOB-101',
-            status: 'Active', insp: '2025-01-15', extType: 'ABC Powder / DCP (Stored Pressure)',
-            refill: '2023-05-10', hpt: '2023-05-10', notes: 'Mounted securely.'
-        });
-
-        const buffer = await workbook.xlsx.writeBuffer();
-        saveAs(new Blob([buffer]), "Emergency_Equipment_Upload_Template.xlsx");
+        XLSX.utils.book_append_sheet(workbook, templateSheet, 'Equipment_Upload_Template');
+        XLSX.utils.book_append_sheet(workbook, allowedValuesSheet, 'Allowed_Values');
+        XLSX.writeFile(workbook, 'Emergency_Equipment_Upload_Template.xlsx');
     };
 
     const handleExcelImport = (e) => {

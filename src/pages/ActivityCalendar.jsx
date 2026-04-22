@@ -3,7 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { get, ref } from 'firebase/database';
 
 import { rtdb } from '../config/firebase';
-import { useAppTransition } from '../components/AppExperienceShell';
+import { useAppTransition } from '../hooks/useAppTransition';
 import { hasAccessibleModule, normalizeSessionPermissions } from '../utils/permissions';
 
 const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];

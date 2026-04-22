@@ -2,6 +2,8 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { ref, get, update, push, remove } from 'firebase/database';
 import { rtdb } from '../config/firebase';
+import { hasAccessibleModule } from '../utils/permissions';
+import { canAuthenticateStatus, readStoredSession } from '../utils/session';
 
 // --- COMPONENTS ---
 const DynamicList = ({ label, items, onChange, placeholder, color = "text-slate-500", disabled }) => {
@@ -198,13 +200,12 @@ export default function Improvement() {
     });
 
     useEffect(() => {
-        const s = sessionStorage.getItem('isoSession');
-        if (!s) { navigate('/'); return; }
-        const sess = JSON.parse(s);
+        const sess = readStoredSession();
+        if (!sess || !canAuthenticateStatus(sess.status)) { navigate('/'); return; }
 
         // 1. STRICT MODULE GUARD
         const isGlobalAdmin = ['Global Owner', 'Global Manager', 'Owner', 'Admin'].includes(sess.role);
-        const hasModuleAccess = isGlobalAdmin || (sess.accessibleModules || []).includes('Improvement');
+        const hasModuleAccess = isGlobalAdmin || hasAccessibleModule(sess.accessibleModules, 'Improvement');
 
         if (!hasModuleAccess) {
             alert("Security Alert: You do not have permission to access the Improvement module.");
@@ -262,7 +263,7 @@ export default function Improvement() {
                         const allUsers = Object.keys(val.users).map(key => {
                             const uVal = val.users[key];
                             return typeof uVal === 'object' ? { id: key, name: uVal.name || uVal.email || "System Owner", role: uVal.role || "User", ...uVal } : { id: key, name: uVal || "System Owner", role: "User" };
-                        }).filter(u => u.status !== 'Inactive' && u.status !== 'Deleted');
+                        }).filter(u => canAuthenticateStatus(u.status));
                         setUsers(allUsers);
                     }
 

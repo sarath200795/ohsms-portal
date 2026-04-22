@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { clearFieldModuleHomeContext } from './FieldApp/portalAuth';
-import { useAppTransition } from '../components/AppExperienceShell';
+import { useAppTransition } from '../hooks/useAppTransition';
 
 const OHS_MODULES = [
     { id: 'health-dashboard', label: 'Health Dashboard', desc: 'Occupational Health & Wellness', icon: 'fa-heart-pulse', color: 'text-rose-400' },

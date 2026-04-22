@@ -4,8 +4,6 @@ import { ref, get, push, update, remove } from 'firebase/database';
 import { rtdb } from '../config/firebase';
 import { getPortalAwareHomePath } from './FieldApp/portalAuth';
 import * as XLSX from 'xlsx';
-import ExcelJS from 'exceljs';
-import { saveAs } from 'file-saver';
 
 const FREQUENCIES = ['Daily', 'Weekly', 'Monthly', 'Quarterly', 'Bi-Annually', 'Annually'];
 const STATUSES = ['Draft', 'Active', 'Inactive'];
@@ -339,35 +337,26 @@ export default function Inspections() {
     };
 
     // --- BULK EXCEL QUESTION IMPORT ---
-    const downloadQuestionTemplate = async () => {
-        const workbook = new ExcelJS.Workbook();
-        const sheet = workbook.addWorksheet('Inspection_Questions');
-        const listSheet = workbook.addWorksheet('Allowed_Values');
-
+    const downloadQuestionTemplate = () => {
         const questionTypes = ['Pass/Fail', 'Text Input', 'Number'];
-        questionTypes.forEach((t, i) => listSheet.getCell(`A${i + 1}`).value = t);
-        listSheet.state = 'hidden';
+        const workbook = XLSX.utils.book_new();
+        const questionsSheet = XLSX.utils.aoa_to_sheet([
+            ['Question / Check Requirement (Required)', 'Answer Type (Required)'],
+            ['Are fire exits clear and unobstructed?', 'Pass/Fail'],
+            ['Current pressure reading of compressor?', 'Number'],
+            ['General observations of the work area:', 'Text Input']
+        ]);
+        questionsSheet['!cols'] = [{ wch: 60 }, { wch: 25 }];
 
-        sheet.columns = [
-            { header: 'Question / Check Requirement (Required)', key: 'question', width: 60 },
-            { header: 'Answer Type (Required)', key: 'type', width: 25 }
-        ];
+        const allowedValuesSheet = XLSX.utils.aoa_to_sheet([
+            ['Allowed Answer Types'],
+            ...questionTypes.map(type => [type])
+        ]);
+        allowedValuesSheet['!cols'] = [{ wch: 24 }];
 
-        sheet.getRow(1).font = { bold: true };
-        sheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE0E0E0' } };
-
-        for (let i = 2; i <= 200; i++) {
-            sheet.getCell(`B${i}`).dataValidation = {
-                type: 'list', allowBlank: false, formulae: [`Allowed_Values!$A$1:$A$${questionTypes.length}`]
-            };
-        }
-
-        sheet.addRow({ question: 'Are fire exits clear and unobstructed?', type: 'Pass/Fail' });
-        sheet.addRow({ question: 'Current pressure reading of compressor?', type: 'Number' });
-        sheet.addRow({ question: 'General observations of the work area:', type: 'Text Input' });
-
-        const buffer = await workbook.xlsx.writeBuffer();
-        saveAs(new Blob([buffer]), "Inspection_Questions_Template.xlsx");
+        XLSX.utils.book_append_sheet(workbook, questionsSheet, 'Inspection_Questions');
+        XLSX.utils.book_append_sheet(workbook, allowedValuesSheet, 'Allowed_Values');
+        XLSX.writeFile(workbook, 'Inspection_Questions_Template.xlsx');
     };
 
     const handleQuestionImport = (e) => {

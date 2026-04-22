@@ -25,7 +25,7 @@ import {
     resolveFieldQrNavigation,
     resolveInitialSite
 } from './FieldApp/utils';
-import { useAppTransition } from '../components/AppExperienceShell';
+import { useAppTransition } from '../hooks/useAppTransition';
 
 const { fieldAuth, fieldDb } = getFieldPortalFirebase();
 

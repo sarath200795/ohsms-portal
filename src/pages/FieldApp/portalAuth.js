@@ -3,7 +3,7 @@ import { getAuth } from 'firebase/auth';
 import { getDatabase, get, ref } from 'firebase/database';
 import { auth } from '../../config/firebase';
 import { getVisibleFieldModules } from './utils';
-import { normalizeSessionPermissions } from '../../utils/permissions';
+import { ACCOUNT_STATUS, canAuthenticateStatus, isPendingStatus, normalizeSessionData, readStoredSession } from '../../utils/session';
 
 export const FIELD_PORTAL_APP_NAME = 'field-portal-app';
 export const FIELD_PORTAL_SESSION_KEY = 'fieldPortalSession';
@@ -20,12 +20,7 @@ export const getFieldPortalFirebase = () => {
 };
 
 export const readFieldPortalSession = () => {
-    try {
-        const raw = sessionStorage.getItem(FIELD_PORTAL_SESSION_KEY);
-        return raw ? JSON.parse(raw) : null;
-    } catch {
-        return null;
-    }
+    return readStoredSession(FIELD_PORTAL_SESSION_KEY);
 };
 
 const normalizePortalSite = (site) => {
@@ -35,7 +30,10 @@ const normalizePortalSite = (site) => {
     return value;
 };
 
-export const isFieldPortalSessionActive = () => Boolean(readFieldPortalSession());
+export const isFieldPortalSessionActive = () => {
+    const session = readFieldPortalSession();
+    return Boolean(session && canAuthenticateStatus(session.status));
+};
 
 export const setFieldModuleHomeContext = (context) => {
     const value = String(context || '').trim();
@@ -117,19 +115,20 @@ export const fetchFieldPortalContext = async ({ fieldDb, user, expectedOrgId = '
     }
 
     const userData = orgUserSnap.val();
-    if (userData.status === 'Pending') {
+    if (isPendingStatus(userData.status)) {
         throw new Error('Your account is currently pending approval. Please contact your administrator.');
     }
-    if (userData.status === 'Deleted' || userData.status === 'Inactive') {
+    if (!canAuthenticateStatus(userData.status)) {
         throw new Error('This account has been deactivated.');
     }
 
-    const sessionData = normalizeSessionPermissions({
+    const sessionData = normalizeSessionData({
         uid: user.uid,
         email: user.email,
         orgId,
         name: userData.name || user.email.split('@')[0],
         role: userData.role || 'User',
+        status: userData.status || ACCOUNT_STATUS.ACTIVE,
         assignedSite: userData.assignedSite || 'GLOBAL',
         accessibleSites: userData.accessibleSites || [],
         accessibleModules: userData.accessibleModules || []

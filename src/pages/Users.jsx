@@ -1,8 +1,15 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ref, get, set, update, remove } from 'firebase/database';
+import { ref, get, set, update, remove, push } from 'firebase/database';
 import { rtdb } from '../config/firebase';
 import { toCanonicalModuleIds, USER_ASSIGNABLE_MODULES } from '../utils/permissions';
+import { ACCOUNT_STATUS, readStoredSession } from '../utils/session';
+import {
+    buildPermissionRequestUpdates,
+    buildUserAccessAuditEntry,
+    normalizeUserAccessPayload,
+    validateUserAccessPayload
+} from '../utils/userAccess';
 
 const ROLES = [
     "Global Owner",
@@ -29,6 +36,7 @@ export default function Users() {
 
     const [users, setUsers] = useState([]);
     const [sites, setSites] = useState([]);
+    const [permissionRequests, setPermissionRequests] = useState({});
 
     // Modal State
     const [isModalOpen, setIsModalOpen] = useState(false);
@@ -41,13 +49,17 @@ export default function Users() {
         assignedSite: '',
         accessibleSites: [],
         accessibleModules: [],
-        status: 'Active'
+        status: ACCOUNT_STATUS.ACTIVE
     });
 
+    const editingUser = useMemo(
+        () => users.find((user) => user.id === editingUserId) || null,
+        [users, editingUserId]
+    );
+
     useEffect(() => {
-        const s = sessionStorage.getItem('isoSession');
-        if (!s) { navigate('/'); return; }
-        const sess = JSON.parse(s);
+        const sess = readStoredSession();
+        if (!sess) { navigate('/'); return; }
 
         // Security Check: Only Global Admins or Owners should manage users
         const isGlobalAdmin = ['Global Owner', 'Global Manager', 'Owner', 'Admin'].includes(sess.role);
@@ -81,6 +93,8 @@ export default function Users() {
                         }));
                         setUsers(loadedUsers);
                     }
+
+                    setPermissionRequests(data.permissionRequests || {});
                 }
             } catch (err) {
                 console.error("Error fetching users:", err);
@@ -102,7 +116,8 @@ export default function Users() {
                 assignedSite: user.assignedSite || '',
                 accessibleSites: safeArr(user.accessibleSites),
                 accessibleModules: toCanonicalModuleIds(user.accessibleModules),
-                status: user.status || 'Active'
+                // Pending users are opened in approval-ready mode so a normal save activates them.
+                status: user.status === ACCOUNT_STATUS.PENDING ? ACCOUNT_STATUS.ACTIVE : (user.status || ACCOUNT_STATUS.ACTIVE)
             });
         } else {
             setEditingUserId(null);
@@ -113,7 +128,7 @@ export default function Users() {
                 assignedSite: '',
                 accessibleSites: [],
                 accessibleModules: [],
-                status: 'Active'
+                status: ACCOUNT_STATUS.ACTIVE
             });
         }
         setIsModalOpen(true);
@@ -140,20 +155,52 @@ export default function Users() {
 
     const handleSaveUser = async (e) => {
         e.preventDefault();
-        if (!formData.name || !formData.email || !formData.role) {
-            return alert("Name, Email, and Role are required.");
-        }
-
         setSaving(true);
         try {
-            const payload = {
-                ...formData,
-                accessibleModules: toCanonicalModuleIds(formData.accessibleModules)
-            };
+            const payload = normalizeUserAccessPayload(formData, { editingExistingUser: Boolean(editingUserId) });
+            const validation = validateUserAccessPayload(payload);
+
+            if (!validation.isValid) {
+                setSaving(false);
+                return alert(validation.errors.join('\n'));
+            }
 
             // If editing existing user
             if (editingUserId) {
                 await update(ref(rtdb, `organizations/${session.orgId}/users/${editingUserId}`), payload);
+
+                const requestUpdates = buildPermissionRequestUpdates({
+                    permissionRequests,
+                    email: payload.email,
+                    nextStatus: payload.status,
+                    actorSession: session
+                });
+
+                if (Object.keys(requestUpdates).length > 0) {
+                    await update(ref(rtdb, `organizations/${session.orgId}/permissionRequests`), requestUpdates);
+                    setPermissionRequests((prev) => {
+                        const next = { ...prev };
+                        Object.entries(requestUpdates).forEach(([path, value]) => {
+                            const [requestId, field] = path.split('/');
+                            next[requestId] = { ...(next[requestId] || {}), [field]: value };
+                        });
+                        return next;
+                    });
+                }
+
+                await set(
+                    push(ref(rtdb, `organizations/${session.orgId}/accessAuditLogs`)),
+                    buildUserAccessAuditEntry({
+                        actorSession: session,
+                        beforeUser: editingUser,
+                        afterUser: payload,
+                        targetUserId: editingUserId,
+                        action: editingUser?.status === ACCOUNT_STATUS.PENDING && payload.status === ACCOUNT_STATUS.ACTIVE
+                            ? 'user-approved'
+                            : 'user-access-updated'
+                    })
+                );
+
                 setUsers(prev => prev.map(u => u.id === editingUserId ? { ...payload, id: editingUserId } : u));
                 alert("User permissions updated successfully!");
             } else {
@@ -170,6 +217,16 @@ export default function Users() {
                 }
 
                 await set(userRef, { ...payload, createdAt: new Date().toISOString() });
+                await set(
+                    push(ref(rtdb, `organizations/${session.orgId}/accessAuditLogs`)),
+                    buildUserAccessAuditEntry({
+                        actorSession: session,
+                        beforeUser: null,
+                        afterUser: payload,
+                        targetUserId: safeEmailKey,
+                        action: 'user-created'
+                    })
+                );
                 setUsers(prev => [...prev, { ...payload, id: safeEmailKey }]);
                 alert("New user added successfully! Note: They must sign up with this exact email to authenticate via Firebase.");
             }
@@ -227,14 +284,18 @@ export default function Users() {
                 <div className="max-w-7xl mx-auto animate-in fade-in duration-500">
 
                     {/* OVERVIEW STATS */}
-                    <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+                    <div className="grid grid-cols-1 md:grid-cols-5 gap-6 mb-8">
                         <div className="bg-slate-900/60 backdrop-blur-md p-6 rounded-2xl border border-slate-700 shadow-xl border-l-4 border-l-blue-500">
                             <h3 className="text-xs text-slate-400 font-bold uppercase tracking-widest mb-1">Total Users</h3>
                             <div className="text-3xl font-black text-white">{users.length}</div>
                         </div>
                         <div className="bg-slate-900/60 backdrop-blur-md p-6 rounded-2xl border border-slate-700 shadow-xl border-l-4 border-l-emerald-500">
                             <h3 className="text-xs text-slate-400 font-bold uppercase tracking-widest mb-1">Active Accounts</h3>
-                            <div className="text-3xl font-black text-emerald-400">{users.filter(u => u.status !== 'Inactive').length}</div>
+                            <div className="text-3xl font-black text-emerald-400">{users.filter(u => u.status === ACCOUNT_STATUS.ACTIVE).length}</div>
+                        </div>
+                        <div className="bg-slate-900/60 backdrop-blur-md p-6 rounded-2xl border border-slate-700 shadow-xl border-l-4 border-l-amber-500">
+                            <h3 className="text-xs text-slate-400 font-bold uppercase tracking-widest mb-1">Pending Approval</h3>
+                            <div className="text-3xl font-black text-amber-400">{users.filter(u => u.status === ACCOUNT_STATUS.PENDING).length}</div>
                         </div>
                         <div className="bg-slate-900/60 backdrop-blur-md p-6 rounded-2xl border border-slate-700 shadow-xl border-l-4 border-l-purple-500">
                             <h3 className="text-xs text-slate-400 font-bold uppercase tracking-widest mb-1">Global Admins</h3>
@@ -285,7 +346,7 @@ export default function Users() {
                                             </td>
                                             <td className="p-5">
                                                 <div className="flex items-center gap-2">
-                                                    <div className={`w-2 h-2 rounded-full ${u.status === 'Active' ? 'bg-emerald-500 shadow-[0_0_8px_#10b981]' : 'bg-red-500'}`}></div>
+                                                    <div className={`w-2 h-2 rounded-full ${u.status === ACCOUNT_STATUS.ACTIVE ? 'bg-emerald-500 shadow-[0_0_8px_#10b981]' : u.status === ACCOUNT_STATUS.PENDING ? 'bg-amber-400 shadow-[0_0_8px_#f59e0b]' : 'bg-red-500'}`}></div>
                                                     <span className="text-xs uppercase tracking-widest font-bold text-slate-400">{u.status}</span>
                                                 </div>
                                             </td>
@@ -346,9 +407,16 @@ export default function Users() {
                                 <div>
                                     <label className="text-[10px] uppercase font-bold text-slate-400 block mb-2 tracking-widest">Account Status</label>
                                     <select value={formData.status} onChange={e => setFormData({ ...formData, status: e.target.value })} className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-white outline-none focus:border-blue-500 font-bold shadow-inner">
-                                        <option value="Active">Active</option>
-                                        <option value="Inactive">Inactive (Suspended)</option>
+                                        <option value={ACCOUNT_STATUS.PENDING}>Pending Approval</option>
+                                        <option value={ACCOUNT_STATUS.ACTIVE}>Active</option>
+                                        <option value={ACCOUNT_STATUS.INACTIVE}>Inactive (Suspended)</option>
+                                        <option value={ACCOUNT_STATUS.DELETED}>Deleted</option>
                                     </select>
+                                    {editingUser?.status === ACCOUNT_STATUS.PENDING && (
+                                        <p className="mt-2 text-[11px] text-amber-400 font-medium">
+                                            This user is still pending approval. Saving with <strong>Active</strong> will approve the account and let them access assigned modules.
+                                        </p>
+                                    )}
                                 </div>
                             </div>
 

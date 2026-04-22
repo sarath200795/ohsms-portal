@@ -2,6 +2,8 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { ref, get, update, push } from 'firebase/database';
 import { rtdb } from '../config/firebase';
+import { hasAccessibleModule } from '../utils/permissions';
+import { canAuthenticateStatus, readStoredSession } from '../utils/session';
 
 const fileToBase64 = (file) => new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -193,15 +195,14 @@ export default function HealthDashboard() {
 
     // Auth & Data Fetch
     useEffect(() => {
-        const s = sessionStorage.getItem('isoSession');
-        if (!s) { navigate('/'); return; }
-        const sess = JSON.parse(s);
+        const sess = readStoredSession();
+        if (!sess || !canAuthenticateStatus(sess.status)) { navigate('/'); return; }
 
         // 1. STRICT MODULE GUARD (UPDATED to allow Site Owners/Managers)
         const isGlobalAdmin = ['Global Owner', 'Global Manager', 'Owner', 'Admin'].includes(sess.role);
         const isSiteAdmin = ['Site Owner', 'Site Manager'].includes(sess.role);
 
-        const hasModuleAccess = isGlobalAdmin || isSiteAdmin || (sess.accessibleModules || []).some(m => m.includes('Health'));
+        const hasModuleAccess = isGlobalAdmin || isSiteAdmin || hasAccessibleModule(sess.accessibleModules, 'OHS Tools');
 
         if (!hasModuleAccess) {
             alert("Security Alert: You do not have permission to access the Occupational Health module.");
@@ -252,7 +253,7 @@ export default function HealthDashboard() {
                     if (data.users) {
                         setUsers(Object.entries(data.users)
                             .map(([k, v]) => ({ id: k, name: v.name || v.email || 'System Owner', ...v }))
-                            .filter(u => u.status !== 'Inactive' && u.status !== 'Deleted'));
+                            .filter(u => canAuthenticateStatus(u.status)));
                     }
 
                     const existingCases = data.healthCases || {};

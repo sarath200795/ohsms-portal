@@ -3,6 +3,8 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { ref, get, update, push, remove } from 'firebase/database';
 import { rtdb } from '../config/firebase';
 import * as XLSX from 'xlsx';
+import { hasAccessibleModule } from '../utils/permissions';
+import { canAuthenticateStatus, readStoredSession } from '../utils/session';
 
 const MEETING_TYPES = [
     "HSE Committee Meeting",
@@ -176,9 +178,8 @@ export default function Consultation() {
     // Load Session and Bulletproof Data
     useEffect(() => {
         try {
-            const s = sessionStorage.getItem('isoSession');
-            if (!s) { navigate('/'); return; }
-            const sess = JSON.parse(s);
+            const sess = readStoredSession();
+            if (!sess || !canAuthenticateStatus(sess.status)) { navigate('/'); return; }
 
             const cleanRole = String(sess.role || '').trim();
 
@@ -186,10 +187,7 @@ export default function Consultation() {
             const isGlobalAdmin = ['Global Owner', 'Global Manager', 'Owner', 'Admin'].includes(cleanRole);
             const isSiteAdmin = ['Site Owner', 'Site Manager'].includes(cleanRole);
 
-            const hasModuleAccess = isGlobalAdmin || isSiteAdmin || (sess.accessibleModules || []).some(m => {
-                const lowerM = String(m).toLowerCase();
-                return lowerM.includes('consultation') || lowerM.includes('communication') || lowerM.includes('meeting');
-            });
+            const hasModuleAccess = isGlobalAdmin || isSiteAdmin || hasAccessibleModule(sess.accessibleModules, 'Participation');
 
             if (!hasModuleAccess) {
                 alert("Security Alert: You do not have permission to access the Consultation & Communication module.");
@@ -249,7 +247,7 @@ export default function Consultation() {
                             const allUsers = Object.keys(orgData.users).map(key => {
                                 const uVal = orgData.users[key];
                                 return typeof uVal === 'object' ? { id: key, name: uVal.name || uVal.email || "System Owner", role: uVal.role || "User", ...uVal } : { id: key, name: uVal || "System Owner", role: "User" };
-                            }).filter(u => u.status !== 'Inactive' && u.status !== 'Deleted');
+                            }).filter(u => canAuthenticateStatus(u.status));
                             setUsers(allUsers);
                         }
 

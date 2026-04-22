@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ref, get } from 'firebase/database';
 import { rtdb } from '../config/firebase';
 import { safeArrayParse } from '../utils/helpers';
@@ -12,9 +12,15 @@ export function useFirebaseData(orgId, tables = []) {
     const [data, setData] = useState({});
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
+    const tablesKey = useMemo(
+        () => JSON.stringify(Array.isArray(tables) ? tables : []),
+        [tables]
+    );
 
     useEffect(() => {
-        if (!orgId || tables.length === 0) {
+        const requestedTables = tablesKey ? JSON.parse(tablesKey) : [];
+
+        if (!orgId || requestedTables.length === 0) {
             setData({});
             setError(null);
             setLoading(false);
@@ -28,14 +34,14 @@ export function useFirebaseData(orgId, tables = []) {
                 const orgRef = `organizations/${orgId}`;
                 
                 // Create an array of Firebase get() promises based on requested tables
-                const promises = tables.map(table => get(ref(rtdb, `${orgRef}/${table}`)));
+                const promises = requestedTables.map(table => get(ref(rtdb, `${orgRef}/${table}`)));
                 const snapshots = await Promise.all(promises);
 
                 const resultData = {};
                 
                 // Map the results back to their table names
                 snapshots.forEach((snap, index) => {
-                    const tableName = tables[index];
+                    const tableName = requestedTables[index];
                     if (snap.exists()) {
                         // Keep Sites as an object for mapping, parse everything else as safe arrays
                         resultData[tableName] = tableName === 'sites' 
@@ -56,7 +62,7 @@ export function useFirebaseData(orgId, tables = []) {
         };
 
         fetchData();
-    }, [orgId, JSON.stringify(tables)]); // Trigger re-fetch if tables array changes
+    }, [orgId, tablesKey]);
 
     return { data, loading, error };
 }

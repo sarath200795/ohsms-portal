@@ -1,32 +1,17 @@
-import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
 import { getTutorialForPath } from '../tutorials/catalog';
+import { AppTransitionContext } from '../hooks/useAppTransition';
+import { FIELD_PORTAL_SESSION_KEY } from '../pages/FieldApp/portalAuth';
+import { getPageTitle, getTransitionLabel } from '../utils/appShell';
+import { canAuthenticateStatus, readStoredSession } from '../utils/session';
 
 const STICKERS = [
     { src: '/safety-sticker-helmet.svg', alt: 'Safety helmet sticker', className: 'ambient-sticker ambient-sticker--helmet' },
     { src: '/safety-sticker-extinguisher.svg', alt: 'Fire extinguisher sticker', className: 'ambient-sticker ambient-sticker--extinguisher' },
     { src: '/safety-sticker-shield.svg', alt: 'Safety shield sticker', className: 'ambient-sticker ambient-sticker--shield' }
 ];
-
-const getTransitionLabel = (pathname) => {
-    const lowerPath = String(pathname || '').toLowerCase();
-
-    if (lowerPath.includes('incident')) return 'Opening incident workspace';
-    if (lowerPath.includes('inspection')) return 'Opening inspection workspace';
-    if (lowerPath.includes('loto')) return 'Opening loto controls';
-    if (lowerPath.includes('ptw')) return 'Opening permit controls';
-    if (lowerPath.includes('emergency')) return 'Opening emergency workspace';
-    if (lowerPath.includes('risk')) return 'Opening risk controls';
-    if (lowerPath.includes('training')) return 'Opening training center';
-    if (lowerPath.includes('dashboard')) return 'Loading command hub';
-    if (lowerPath.includes('field')) return 'Switching to field mode';
-    return 'Loading safety workspace';
-};
-
-const AppTransitionContext = createContext(() => {});
-
-export const useAppTransition = () => useContext(AppTransitionContext);
 
 export default function AppExperienceShell({ children }) {
     const location = useLocation();
@@ -37,13 +22,22 @@ export default function AppExperienceShell({ children }) {
     const timersRef = useRef([]);
     const routeMotionTimerRef = useRef(null);
     const tutorialTimerRef = useRef(null);
+    const connectionTimerRef = useRef(null);
     const [overlayVisible, setOverlayVisible] = useState(false);
     const [overlayLabel, setOverlayLabel] = useState(getTransitionLabel(location.pathname));
     const [routeSettling, setRouteSettling] = useState(false);
     const [tutorialPrompt, setTutorialPrompt] = useState(null);
+    const [isOnline, setIsOnline] = useState(() => (
+        typeof navigator === 'undefined' ? true : navigator.onLine
+    ));
+    const [connectionMessage, setConnectionMessage] = useState('');
 
     const transitionLabel = useMemo(
         () => getTransitionLabel(location.pathname),
+        [location.pathname]
+    );
+    const pageTitle = useMemo(
+        () => getPageTitle(location.pathname),
         [location.pathname]
     );
 
@@ -63,6 +57,13 @@ export default function AppExperienceShell({ children }) {
         if (tutorialTimerRef.current) {
             clearTimeout(tutorialTimerRef.current);
             tutorialTimerRef.current = null;
+        }
+    };
+
+    const clearConnectionTimer = () => {
+        if (connectionTimerRef.current) {
+            clearTimeout(connectionTimerRef.current);
+            connectionTimerRef.current = null;
         }
     };
 
@@ -111,6 +112,45 @@ export default function AppExperienceShell({ children }) {
         setTutorialPrompt(null);
     };
 
+    const showConnectionMessage = useEffectEvent((message, autoDismiss = true) => {
+        clearConnectionTimer();
+        setConnectionMessage(message);
+
+        if (!autoDismiss) return;
+
+        connectionTimerRef.current = setTimeout(() => {
+            setConnectionMessage('');
+            connectionTimerRef.current = null;
+        }, 2400);
+    });
+
+    const syncTutorialPrompt = useEffectEvent((tutorial) => {
+        clearTutorialTimer();
+
+        if (!tutorial) {
+            setTutorialPrompt(null);
+            return;
+        }
+
+        tutorialTimerRef.current = setTimeout(() => {
+            setTutorialPrompt(tutorial);
+            tutorialTimerRef.current = null;
+        }, 260);
+    });
+
+    const triggerPassiveRouteTransition = useEffectEvent((label) => {
+        clearTransitionTimers();
+        setOverlayLabel(label);
+        setOverlayVisible(true);
+        startRouteMotion(340);
+
+        const hideTimer = setTimeout(() => {
+            setOverlayVisible(false);
+        }, 220);
+
+        timersRef.current = [hideTimer];
+    });
+
     useEffect(() => {
         if (previousRouteRef.current === routeKey) return undefined;
 
@@ -120,59 +160,88 @@ export default function AppExperienceShell({ children }) {
             return undefined;
         }
 
-        clearTransitionTimers();
-        setOverlayLabel(transitionLabel);
-        setOverlayVisible(true);
-        startRouteMotion(340);
-
-        const hideTimer = setTimeout(() => {
-            setOverlayVisible(false);
-        }, 220);
-
-        return () => clearTimeout(hideTimer);
+        triggerPassiveRouteTransition(transitionLabel);
+        return undefined;
     }, [routeKey, transitionLabel]);
 
     useEffect(() => {
-        clearTutorialTimer();
+        document.title = pageTitle;
+    }, [pageTitle]);
 
+    useEffect(() => {
+        const mainSession = readStoredSession();
+        const fieldPortalSession = readStoredSession(FIELD_PORTAL_SESSION_KEY);
         const isAuthenticated = Boolean(
-            sessionStorage.getItem('isoSession')
-            || sessionStorage.getItem('fieldPortalSession')
+            (mainSession && canAuthenticateStatus(mainSession.status))
+            || (fieldPortalSession && canAuthenticateStatus(fieldPortalSession.status))
             || sessionStorage.getItem('vendorSession')
         );
 
         if (!isAuthenticated) {
-            setTutorialPrompt(null);
+            syncTutorialPrompt(null);
             return undefined;
         }
 
         const tutorial = getTutorialForPath(location.pathname);
         if (!tutorial) {
-            setTutorialPrompt(null);
+            syncTutorialPrompt(null);
             return undefined;
         }
 
         if (localStorage.getItem(`ohsms:tutorial-seen:${tutorial.id}`) === '1') {
-            setTutorialPrompt(null);
+            syncTutorialPrompt(null);
             return undefined;
         }
 
-        tutorialTimerRef.current = setTimeout(() => {
-            setTutorialPrompt(tutorial);
-            tutorialTimerRef.current = null;
-        }, 260);
+        syncTutorialPrompt(tutorial);
 
         return () => clearTutorialTimer();
     }, [location.pathname]);
+
+    useEffect(() => {
+        if (typeof window === 'undefined') return undefined;
+
+        const handleOffline = () => {
+            setIsOnline(false);
+            showConnectionMessage('Offline mode. Live sync and saves may pause until the connection returns.', false);
+        };
+
+        const handleOnline = () => {
+            setIsOnline(true);
+            showConnectionMessage('Connection restored. Live sync is active again.');
+        };
+
+        window.addEventListener('offline', handleOffline);
+        window.addEventListener('online', handleOnline);
+
+        if (!navigator.onLine) {
+            handleOffline();
+        }
+
+        return () => {
+            window.removeEventListener('offline', handleOffline);
+            window.removeEventListener('online', handleOnline);
+        };
+    }, []);
 
     useEffect(() => () => {
         clearTransitionTimers();
         clearRouteMotionTimer();
         clearTutorialTimer();
+        clearConnectionTimer();
     }, []);
 
     return (
         <AppTransitionContext.Provider value={playTransition}>
+            <a href="#app-main-content" className="skip-link">
+                Skip to main content
+            </a>
+
+            <div className="sr-only" aria-live="polite" aria-atomic="true">
+                {pageTitle}
+                {connectionMessage ? ` ${connectionMessage}` : isOnline ? ' Online.' : ' Offline.'}
+            </div>
+
             <div className="safety-ambient-layer" aria-hidden="true">
                 {STICKERS.map((sticker) => (
                     <img
@@ -185,11 +254,19 @@ export default function AppExperienceShell({ children }) {
                 <div className="ambient-grid-glow"></div>
             </div>
 
-            <div className={`page-route-shell ${routeSettling ? 'is-settling' : ''}`}>
+            <div
+                id="app-main-content"
+                role="main"
+                tabIndex={-1}
+                className={`page-route-shell ${routeSettling ? 'is-settling' : ''}`}
+            >
                 {children}
             </div>
 
-            <div className={`route-transition-overlay ${overlayVisible ? 'is-visible' : ''}`} aria-hidden={!overlayVisible}>
+            <div
+                className={`route-transition-overlay ${overlayVisible ? 'is-visible' : ''}`}
+                aria-hidden={!overlayVisible}
+            >
                 <div className="route-transition-card">
                     <img
                         src="/safety-transition.svg"
@@ -202,6 +279,17 @@ export default function AppExperienceShell({ children }) {
                     </div>
                 </div>
             </div>
+
+            {connectionMessage && (
+                <div
+                    className={`connectivity-pill ${isOnline ? 'connectivity-pill--online' : 'connectivity-pill--offline'}`}
+                    role="status"
+                    aria-live="polite"
+                >
+                    <i className={`fas ${isOnline ? 'fa-wifi' : 'fa-triangle-exclamation'}`}></i>
+                    <span>{connectionMessage}</span>
+                </div>
+            )}
 
             {tutorialPrompt && (
                 <div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/85 p-4 backdrop-blur-sm">

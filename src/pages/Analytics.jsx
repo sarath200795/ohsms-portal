@@ -2,6 +2,8 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { ref, push, onValue } from 'firebase/database';
 import { rtdb } from '../config/firebase';
+import { hasAccessibleModule } from '../utils/permissions';
+import { readStoredSession } from '../utils/session';
 
 const KPICard = ({ title, value, subtext, color, icon }) => (
     <div className={`glass-panel p-6 rounded-xl border-l-4 ${color} relative overflow-hidden transition-transform hover:-translate-y-1 shadow-lg`}>
@@ -42,9 +44,8 @@ export default function Analytics() {
 
     useEffect(() => {
         try {
-            const s = sessionStorage.getItem('isoSession');
-            if (!s) { navigate('/'); return; }
-            const sess = JSON.parse(s);
+            const sess = readStoredSession();
+            if (!sess) { navigate('/'); return; }
 
             const cleanRole = String(sess.role || '').trim();
 
@@ -52,10 +53,7 @@ export default function Analytics() {
             const isGlobalAdmin = ['Global Owner', 'Global Manager', 'Owner', 'Admin'].includes(cleanRole);
             const isSiteAdmin = ['Site Owner', 'Site Manager'].includes(cleanRole);
 
-            const hasModuleAccess = isGlobalAdmin || isSiteAdmin || (sess.accessibleModules || []).some(m => {
-                const lowerM = String(m).toLowerCase();
-                return lowerM.includes('analytic') || lowerM.includes('dashboard');
-            });
+            const hasModuleAccess = isGlobalAdmin || isSiteAdmin || hasAccessibleModule(sess.accessibleModules, 'Analytics');
 
             if (!hasModuleAccess) {
                 alert("Security Alert: You do not have permission to access the Analytics module.");

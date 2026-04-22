@@ -4,6 +4,8 @@ import { get, push, ref, remove, update } from 'firebase/database';
 import * as XLSX from 'xlsx';
 import { rtdb } from '../../config/firebase';
 import { getPortalAwareHomePath } from '../FieldApp/portalAuth';
+import { hasAccessibleModule } from '../../utils/permissions';
+import { canAuthenticateStatus, readStoredSession } from '../../utils/session';
 import IncidentBuilder from './components/IncidentBuilder';
 import IncidentHazardEditorModal from './components/IncidentHazardEditorModal';
 import IncidentHazardMatchesModal from './components/IncidentHazardMatchesModal';
@@ -400,16 +402,15 @@ export default function Incidents() {
     const [data, setData] = useState(initialDataState);
 
     useEffect(() => {
-        const rawSession = sessionStorage.getItem('isoSession');
-        if (!rawSession) {
+        const sess = readStoredSession();
+        if (!sess || !canAuthenticateStatus(sess.status)) {
             navigate('/');
             return;
         }
 
-        const sess = JSON.parse(rawSession);
         const isGlobalAdmin = ['Global Owner', 'Global Manager', 'Owner', 'Admin'].includes(sess.role);
         const requestedSite = new URLSearchParams(location.search).get('site') || sessionStorage.getItem('isoCurrentSite') || sess.assignedSite || 'All';
-        const hasModuleAccess = isGlobalAdmin || (sess.accessibleModules || []).includes('Incidents');
+        const hasModuleAccess = isGlobalAdmin || hasAccessibleModule(sess.accessibleModules, 'Incidents');
 
         if (!hasModuleAccess) {
             alert('Security Alert: You do not have permission to access the Incidents module.');
@@ -486,7 +487,7 @@ export default function Incidents() {
                     if (orgData.users) {
                         fetchedUsers = Object.entries(orgData.users)
                             .map(([k, v]) => ({ id: k, ...v }))
-                            .filter((u) => u.status !== 'Inactive');
+                            .filter((u) => canAuthenticateStatus(u.status));
                     }
                 }
 
