@@ -138,7 +138,7 @@ export default function HealthDashboard() {
     const [sites, setSites] = useState([]);
     const [users, setUsers] = useState([]);
     const [siteFilter, setSiteFilter] = useState('All');
-    const [illnessSeq, setIllnessSeq] = useState(Math.floor(100000 + Math.random() * 900000));
+    const [illnessSeq] = useState(Math.floor(100000 + Math.random() * 900000));
 
     // Core Data States
     const [incidents, setIncidents] = useState([]);

@@ -321,7 +321,7 @@ export default function Inspections() {
         try {
             await update(ref(rtdb, `organizations/${session.orgId}/inspectionTemplates/${key}`), { status: newStatus });
             setTemplates(prev => prev.map(t => t.firebaseKey === key ? { ...t, status: newStatus } : t));
-        } catch (e) {
+        } catch {
             alert("Failed to update status");
         }
     };
@@ -331,7 +331,7 @@ export default function Inspections() {
         try {
             await remove(ref(rtdb, `organizations/${session.orgId}/inspectionTemplates/${key}`));
             setTemplates(prev => prev.filter(t => t.firebaseKey !== key));
-        } catch (e) {
+        } catch {
             alert("Failed to delete template");
         }
     };

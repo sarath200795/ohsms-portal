@@ -45,25 +45,67 @@ const EMERGENCY_TEAMS = [
     "Medical Emergency Team", "Security", "Public Relation"
 ];
 
+const GLOBAL_MOCK_DRILL_ROLES = ['Global Owner', 'Global Manager', 'Owner', 'Admin'];
+const DELETE_MOCK_DRILL_ROLES = ['Global Owner', 'Owner', 'Admin', 'Site Owner'];
+const EDIT_MOCK_DRILL_ROLES = ['Global Owner', 'Global Manager', 'Owner', 'Admin', 'Site Owner', 'Site Manager', 'User'];
+
+const resolveInitialMockDrillSite = (session, search) => {
+    const urlSite = new URLSearchParams(search).get('site');
+
+    let storedSite = sessionStorage.getItem('isoCurrentSite');
+    if (storedSite === 'GLOBAL') storedSite = 'All';
+
+    let nextSite = urlSite || storedSite || 'All';
+    if (!GLOBAL_MOCK_DRILL_ROLES.includes(session?.role) && nextSite === 'All') {
+        nextSite = (session?.assignedSite && session.assignedSite !== 'GLOBAL') ? session.assignedSite : (session?.accessibleSites?.[0] || '');
+    }
+
+    return nextSite;
+};
+
+const buildMockDrillPermissions = (session) => {
+    const role = session?.role || '';
+    const canDelete = DELETE_MOCK_DRILL_ROLES.includes(role);
+    const canEditCreate = EDIT_MOCK_DRILL_ROLES.includes(role);
+
+    return {
+        viewOnly: !canEditCreate,
+        canDelete,
+        canEditCreate
+    };
+};
+
 export default function MockDrill() {
     const navigate = useNavigate();
     const location = useLocation();
 
-    const [session, setSession] = useState(null);
+    const [session] = useState(() => {
+        const rawSession = sessionStorage.getItem('isoSession');
+        if (!rawSession) return null;
+
+        try {
+            return normalizeSessionPermissions(JSON.parse(rawSession));
+        } catch {
+            return null;
+        }
+    });
     const [selectedDrill, setSelectedDrill] = useState(null);
     const [history, setHistory] = useState([]);
     const [sites, setSites] = useState([]);
     const [users, setUsers] = useState([]);
     const [loading, setLoading] = useState(true);
     const [printData, setPrintData] = useState(null);
+    const isGlobalUser = GLOBAL_MOCK_DRILL_ROLES.includes(session?.role);
+    const permissions = buildMockDrillPermissions(session);
+    const initialSiteFilter = resolveInitialMockDrillSite(session, location.search);
 
     // RBAC & Filter States
-    const [permissions, setPermissions] = useState({ viewOnly: false, canDelete: false, canEditCreate: false });
-    const [siteFilter, setSiteFilter] = useState('All');
+    const [siteFilter, setSiteFilter] = useState(initialSiteFilter);
 
     // Form State
     const [form, setForm] = useState({
-        siteId: '', eventType: 'Mock Drill', date: new Date().toISOString().split('T')[0], time: '',
+        siteId: initialSiteFilter !== 'All' ? initialSiteFilter : ((session?.assignedSite !== 'GLOBAL') ? session?.assignedSite || '' : ''),
+        eventType: 'Mock Drill', date: new Date().toISOString().split('T')[0], time: '',
         shift: 'Day', commander: '', evacTime: '', ertResponseTime: '', headCount: '', debrief: '', capa: []
     });
     const [checks, setChecks] = useState({});
@@ -72,15 +114,13 @@ export default function MockDrill() {
 
     // --- CHECK AUTH & LOAD DATA ---
     useEffect(() => {
-        const s = sessionStorage.getItem('isoSession');
-        if (!s) { navigate('/'); return; }
-        const sess = normalizeSessionPermissions(JSON.parse(s));
-        sessionStorage.setItem('isoSession', JSON.stringify(sess));
+        if (!session) { navigate('/'); return; }
+        sessionStorage.setItem('isoSession', JSON.stringify(session));
 
         // 1. STRICT MODULE GUARD
-        const isGlobalAdmin = ['Global Owner', 'Global Manager', 'Owner', 'Admin'].includes(sess.role);
-        const requestedSite = new URLSearchParams(location.search).get('site') || sessionStorage.getItem('isoCurrentSite') || sess.assignedSite || 'All';
-        const hasModuleAccess = isGlobalAdmin || hasAccessibleModule(sess.accessibleModules, 'Record Emergency');
+        const isGlobalAdmin = GLOBAL_MOCK_DRILL_ROLES.includes(session.role);
+        const requestedSite = new URLSearchParams(location.search).get('site') || sessionStorage.getItem('isoCurrentSite') || session.assignedSite || 'All';
+        const hasModuleAccess = isGlobalAdmin || hasAccessibleModule(session.accessibleModules, 'Record Emergency');
 
         if (!hasModuleAccess) {
             alert("Security Alert: You do not have permission to access the Emergency Records module.");
@@ -88,39 +128,10 @@ export default function MockDrill() {
             return;
         }
 
-        setSession(sess);
-
-        // 2. STRICT RBAC MATRIX
-        const canDel = ['Global Owner', 'Owner', 'Admin', 'Site Owner'].includes(sess.role);
-        const canEditCr = ['Global Owner', 'Global Manager', 'Owner', 'Admin', 'Site Owner', 'Site Manager', 'User'].includes(sess.role);
-
-        setPermissions({
-            viewOnly: !canEditCr,
-            canDelete: canDel,
-            canEditCreate: canEditCr
-        });
-
-        // 3. SYNCHRONIZED SITE PERSISTENCE
-        const params = new URLSearchParams(location.search);
-        const urlSite = params.get('site');
-
-        let storedSite = sessionStorage.getItem('isoCurrentSite');
-        if (storedSite === 'GLOBAL') storedSite = 'All';
-
-        let ctxSite = urlSite || storedSite || 'All';
-
-        if (!isGlobalAdmin && ctxSite === 'All') {
-            ctxSite = (sess.assignedSite && sess.assignedSite !== 'GLOBAL') ? sess.assignedSite : (sess.accessibleSites?.[0] || '');
-        }
-
-        setSiteFilter(ctxSite);
-        sessionStorage.setItem('isoCurrentSite', ctxSite === 'All' ? 'GLOBAL' : ctxSite);
-        setForm(f => ({ ...f, siteId: ctxSite !== 'All' ? ctxSite : ((sess.assignedSite !== 'GLOBAL') ? sess.assignedSite : '') }));
-
         const fetchAll = async () => {
             setLoading(true);
             try {
-                const dbRef = ref(rtdb, `organizations/${sess.orgId}`);
+                const dbRef = ref(rtdb, `organizations/${session.orgId}`);
                 const snap = await get(dbRef);
                 if (snap.exists()) {
                     const val = snap.val();
@@ -147,14 +158,15 @@ export default function MockDrill() {
         };
 
         fetchAll();
-    }, [navigate, location]);
+    }, [location.search, navigate, session]);
+
+    useEffect(() => {
+        sessionStorage.setItem('isoCurrentSite', siteFilter === 'All' ? 'GLOBAL' : siteFilter);
+    }, [siteFilter]);
 
     // ==========================================
     // 4. STRICT ROW-LEVEL SECURITY (RLS)
     // ==========================================
-    const role = session?.role || 'User';
-    const isGlobalUser = ['Global Owner', 'Global Manager', 'Owner', 'Admin'].includes(role);
-
     const allowedSiteCodes = useMemo(() => {
         if (!session) return new Set();
         const codes = new Set([session.assignedSite, ...(session.accessibleSites || [])].filter(Boolean));

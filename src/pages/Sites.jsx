@@ -104,7 +104,7 @@ export default function Sites() {
             await remove(ref(rtdb, `organizations/${session.orgId}/sites/${firebaseKey}`));
             setSites(sites.filter(s => s.firebaseKey !== firebaseKey));
             alert("Site deleted successfully.");
-        } catch (e) {
+        } catch {
             alert("Failed to delete site.");
         }
     };

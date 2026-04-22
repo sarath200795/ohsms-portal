@@ -267,11 +267,11 @@ export const navigateFromOhsTools = async (page, {
 };
 
 export const showGuideOverlay = async (page, {
-  moduleTitle,
-  stepTitle,
-  bullets,
-  footer,
-  kicker = 'STEP WALKTHROUGH'
+  moduleTitle: _moduleTitle,
+  stepTitle: _stepTitle,
+  bullets: _bullets,
+  footer: _footer,
+  kicker: _kicker = 'STEP WALKTHROUGH'
 }) => {
   await page.evaluate(() => {
     document.getElementById('codex-video-guide')?.remove();
@@ -284,7 +284,7 @@ export const clearGuideOverlay = async (page) => {
   });
 };
 
-export const showTitleCard = async (page, { title, description, kicker = 'OHSMS ENTERPRISE TRAINING' }) => {
+export const showTitleCard = async (page, { title: _title, description: _description, kicker: _kicker = 'OHSMS ENTERPRISE TRAINING' }) => {
   await page.evaluate(() => {
     document.getElementById('codex-video-title-card')?.remove();
   });

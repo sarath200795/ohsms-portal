@@ -614,7 +614,7 @@ export default function EmergencyEquipment() {
 
                     const formatDate = (val) => {
                         if (!val) return '';
-                        try { return new Date(val).toISOString().split('T')[0]; } catch (e) { return ''; }
+                        try { return new Date(val).toISOString().split('T')[0]; } catch { return ''; }
                     };
 
                     let assetId = row[assetCol];

@@ -182,7 +182,7 @@ const readSessionObject = async (page) =>
     }
   });
 
-const readAccessToken = async (page) =>
+const _readAccessToken = async (page) =>
   page.evaluate(() => {
     const key = Object.keys(localStorage).find((entry) => entry.startsWith('firebase:authUser:'));
     if (!key) return '';
@@ -255,19 +255,19 @@ const openDashboardModule = async (page, moduleLabel, site = 'HQ-01') => {
   await page.waitForTimeout(1400);
 };
 
-const showGuideOverlay = async (page, { moduleTitle, stepTitle, bullets, footer }) => {
+const showGuideOverlay = async (page, { moduleTitle: _moduleTitle, stepTitle: _stepTitle, bullets: _bullets, footer: _footer }) => {
   await page.evaluate(() => {
     document.getElementById('codex-video-guide')?.remove();
   });
 };
 
-const showTitleCard = async (page) => {
+const _showTitleCard = async (page) => {
   await page.evaluate(() => {
     document.getElementById('codex-video-title-card')?.remove();
   });
 };
 
-const hideTitleCard = async (page) => {
+const _hideTitleCard = async (page) => {
   await page.evaluate(() => {
     document.getElementById('codex-video-title-card')?.remove();
   });

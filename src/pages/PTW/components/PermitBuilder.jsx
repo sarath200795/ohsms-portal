@@ -44,8 +44,6 @@ export default function PermitBuilder({ session, sites, contractors, onCancel, o
     };
 
     const activeChecklist = CHECKLIST_ITEMS[formData.permitType] || CHECKLIST_ITEMS['GEN'];
-    const activeTypeConfig = PERMIT_TYPES.find(t => t.id === formData.permitType);
-
     return (
         <div className="max-w-4xl mx-auto pb-12 animate-in fade-in slide-in-from-bottom-4 duration-500">
             <div className="flex justify-between items-center mb-8">

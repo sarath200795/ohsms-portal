@@ -3,23 +3,16 @@ import { Html5Qrcode } from 'html5-qrcode';
 
 const SCANNER_ELEMENT_ID = 'field-portal-qr-reader';
 
-export default function FieldQrScannerModal({ isOpen, onClose, onDetected }) {
+function ActiveFieldQrScannerModal({ onClose, onDetected }) {
     const scannerRef = useRef(null);
     const handledRef = useRef(false);
     const [errorMessage, setErrorMessage] = useState('');
 
     useEffect(() => {
-        if (!isOpen) {
-            setErrorMessage('');
-            handledRef.current = false;
-            return undefined;
-        }
-
         let active = true;
         const scanner = new Html5Qrcode(SCANNER_ELEMENT_ID);
         scannerRef.current = scanner;
         handledRef.current = false;
-        setErrorMessage('');
 
         const startScanner = async () => {
             try {
@@ -87,9 +80,7 @@ export default function FieldQrScannerModal({ isOpen, onClose, onDetected }) {
 
             cleanup();
         };
-    }, [isOpen, onDetected]);
-
-    if (!isOpen) return null;
+    }, [onDetected]);
 
     return (
         <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-950/90 p-4 backdrop-blur-xl">
@@ -129,4 +120,10 @@ export default function FieldQrScannerModal({ isOpen, onClose, onDetected }) {
             </div>
         </div>
     );
+}
+
+export default function FieldQrScannerModal({ isOpen, onClose, onDetected }) {
+    if (!isOpen) return null;
+
+    return <ActiveFieldQrScannerModal onClose={onClose} onDetected={onDetected} />;
 }

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { ref, get, update, push, remove } from 'firebase/database';
+import { ref, get, update, push } from 'firebase/database';
 import { rtdb } from '../config/firebase';
 import { getFieldPortalLoginPath, getPortalAwareHomePath } from './FieldApp/portalAuth';
 import FieldQrScannerModal from './FieldApp/components/FieldQrScannerModal';
@@ -267,7 +267,7 @@ export default function Loto() {
             if (procForm.firebaseKey) { await update(ref(rtdb, `organizations/${session.orgId}/lotoProcedures/${procForm.firebaseKey}`), payload); setProcedures(procedures.map(p => p.firebaseKey === procForm.firebaseKey ? payload : p)); }
             else { const newRef = push(ref(rtdb, `organizations/${session.orgId}/lotoProcedures`)); await update(newRef, payload); payload.firebaseKey = newRef.key; setProcedures([payload, ...procedures]); }
             alert("Saved successfully!"); setCurrentView('inventory');
-        } catch (e) { alert("Save failed."); }
+        } catch { alert("Save failed."); }
     };
 
     const approveProcedure = async (proc) => {
@@ -276,7 +276,7 @@ export default function Loto() {
             const payload = { ...proc, status: 'Approved', approvedBy: session.name || session.user, date: new Date().toISOString().split('T')[0] };
             await update(ref(rtdb, `organizations/${session.orgId}/lotoProcedures/${proc.firebaseKey}`), payload);
             setProcedures(procedures.map(p => p.firebaseKey === proc.firebaseKey ? payload : p));
-        } catch (e) { alert("Approval failed."); }
+        } catch { alert("Approval failed."); }
     };
 
     // ==========================================
@@ -292,7 +292,9 @@ export default function Loto() {
                     const scanUrl = proc.firebaseKey ? `${window.location.origin}${window.location.pathname}?execute=${proc.firebaseKey}&org=${session.orgId}&site=${encodeURIComponent(proc.facility || siteFilter || 'All')}&fieldQr=1` : 'UNSAVED_DRAFT';
                     qrData = new QRious({ value: scanUrl, size: 250 }).toDataURL();
                 }
-            } catch (e) { }
+            } catch (error) {
+                console.warn("QR generation skipped.", error);
+            }
 
             const lockCounts = {}; const energyCounts = {};
             (proc.steps || []).forEach(s => { if (s.type) energyCounts[s.type] = (energyCounts[s.type] || 0) + 1; (s.devices || []).forEach(l => lockCounts[l] = (lockCounts[l] || 0) + 1); });
@@ -314,7 +316,7 @@ export default function Loto() {
             autoTable(doc, { startY: 30, head: [['SHUTDOWN SEQUENCE', 'RESTORATION SEQUENCE']], body: [['1. Notify all affected employees', '1. Check equipment for tools/debris'], ['2. Identify all energy sources', '2. Ensure all guards are replaced'], ['3. Perform normal equipment stop', '3. Clear all personnel from area'], ['4. Isolate all energy valves/breakers', '4. Remove LOTO devices and tags'], ['5. Apply personal locks and tags', '5. Restore energy and test operation'], ['6. Verify Zero Energy State', '6. Notify staff of completion']], headStyles: { fillColor: [30, 41, 59] } });
 
             doc.addPage(); renderTagsPage(doc, proc, qrData); doc.save(`${proc.id}.pdf`);
-        } catch (error) { alert("Failed to generate PDF."); }
+        } catch { alert("Failed to generate PDF."); }
     };
 
     const renderTagsPage = (doc, proc, qrData) => {
@@ -343,7 +345,7 @@ export default function Loto() {
         const currentlyLocked = globalLiveMap[proc.firebaseKey] && globalLiveMap[proc.firebaseKey].has(step.tag);
         const logEntry = { timestamp: new Date().toISOString(), procId: proc.firebaseKey, procRef: proc.id, equipment: proc.description, stepTag: step.tag, energy: step.type, action: currentlyLocked ? 'LOCK REMOVED' : 'LOCK APPLIED', user: session.name || session.user || session.email };
         try { const newRef = push(ref(rtdb, `organizations/${session.orgId}/lotoLogs`)); await update(newRef, logEntry); logEntry.firebaseKey = newRef.key; setLogs([logEntry, ...logs]); }
-        catch (e) { alert("Network error logging lock."); }
+        catch { alert("Network error logging lock."); }
     };
 
     const exportLogsToExcel = () => {

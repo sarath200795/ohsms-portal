@@ -274,7 +274,7 @@ export default function Standards() {
             try {
                 const b64 = await fileToBase64(file);
                 setFormData({ ...formData, fileData: b64, fileName: file.name });
-            } catch (err) {
+            } catch {
                 alert("Error reading file.");
             }
         }
@@ -308,7 +308,7 @@ export default function Standards() {
         if (!window.confirm("Permanently delete this document? This cannot be undone.")) return;
         try {
             await remove(ref(rtdb, `organizations/${session.orgId}/documents/${key}`));
-        } catch (e) {
+        } catch {
             alert("Error deleting document.");
         }
     };
@@ -331,7 +331,7 @@ export default function Standards() {
             const wb = XLSX.utils.book_new();
             XLSX.utils.book_append_sheet(wb, ws, "Document_Register");
             XLSX.writeFile(wb, `Document_Register_${new Date().toISOString().slice(0, 10)}.xlsx`);
-        } catch (error) {
+        } catch {
             alert("Export failed. Ensure 'xlsx' package is installed.");
         }
     };
@@ -356,8 +356,6 @@ export default function Standards() {
             Loading Document Control...
         </div>
     );
-
-    const urlSite = new URLSearchParams(location.search).get('site') || session?.assignedSite || 'GLOBAL';
 
     return (
         <div className="flex flex-col h-screen bg-slate-950 font-sans overflow-hidden relative">

@@ -312,7 +312,7 @@ export default function Contractors() {
                     workers: payload.workers ? safeArr(payload.workers) : safeArr(prev.workers)
                 }));
             }
-        } catch (error) {
+        } catch {
             alert('Failed to update database.');
         }
     };
@@ -599,7 +599,7 @@ export default function Contractors() {
                 }
                 return updated;
             });
-        } catch (error) {
+        } catch {
             alert('Failed to process document.');
         }
     };
@@ -653,7 +653,7 @@ export default function Contractors() {
                     doc.id === docId ? { ...doc, file: base64, fileName: file.name, status: 'Uploaded' } : doc
                 ))
             }));
-        } catch (error) {
+        } catch {
             alert('Upload failed.');
         }
     };

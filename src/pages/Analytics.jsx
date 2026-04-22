@@ -5,6 +5,20 @@ import { rtdb } from '../config/firebase';
 import { hasAccessibleModule } from '../utils/permissions';
 import { readStoredSession } from '../utils/session';
 
+const GLOBAL_ANALYTICS_ROLES = ['Global Owner', 'Global Manager', 'Owner', 'Admin'];
+const EDIT_ANALYTICS_ROLES = ['Global Owner', 'Global Manager', 'Owner', 'Admin', 'Site Owner', 'Site Manager', 'User'];
+
+const resolveInitialAnalyticsSite = (session, search) => {
+    const params = new URLSearchParams(search);
+    let ctxSite = params.get('site') || sessionStorage.getItem('isoCurrentSite') || 'All';
+
+    if (!GLOBAL_ANALYTICS_ROLES.includes(session?.role) && ctxSite === 'All') {
+        ctxSite = (session?.assignedSite && session.assignedSite !== 'GLOBAL') ? session.assignedSite : (session?.accessibleSites?.[0] || '');
+    }
+
+    return ctxSite;
+};
+
 const KPICard = ({ title, value, subtext, color, icon }) => (
     <div className={`glass-panel p-6 rounded-xl border-l-4 ${color} relative overflow-hidden transition-transform hover:-translate-y-1 shadow-lg`}>
         <div className="flex justify-between items-start z-10 relative">
@@ -22,8 +36,15 @@ export default function Analytics() {
     const navigate = useNavigate();
     const location = useLocation();
 
-    const [session, setSession] = useState(null);
+    const [session] = useState(() => readStoredSession());
     const [loading, setLoading] = useState(true);
+    const cleanRole = String(session?.role || '').trim();
+    const isGlobalUser = GLOBAL_ANALYTICS_ROLES.includes(cleanRole);
+    const permissions = useMemo(() => {
+        const canEditCreate = EDIT_ANALYTICS_ROLES.includes(cleanRole);
+        return { viewOnly: !canEditCreate, canEditCreate };
+    }, [cleanRole]);
+    const initialSiteFilter = resolveInitialAnalyticsSite(session, location.search);
 
     // Core Data
     const [sites, setSites] = useState([]);
@@ -31,80 +52,54 @@ export default function Analytics() {
     const [manHours, setManHours] = useState([]);
 
     // Security & Filtering
-    const [permissions, setPermissions] = useState({ viewOnly: false, canEditCreate: false });
-    const [siteFilter, setSiteFilter] = useState('All');
+    const [siteFilter, setSiteFilter] = useState(initialSiteFilter);
     const [filterStart, setFilterStart] = useState(new Date(new Date().getFullYear(), 0, 1).toISOString().split('T')[0]);
     const [filterEnd, setFilterEnd] = useState(new Date().toISOString().split('T')[0]);
 
     // Exposure Logging Form
     const [logDate, setLogDate] = useState(new Date().toISOString().split('T')[0]);
-    const [logSite, setLogSite] = useState('');
+    const [logSite, setLogSite] = useState(initialSiteFilter !== 'All' ? initialSiteFilter : '');
     const [permHours, setPermHours] = useState(0);
     const [contHours, setContHours] = useState(0);
 
     useEffect(() => {
-        try {
-            const sess = readStoredSession();
-            if (!sess) { navigate('/'); return; }
+        if (!session) { navigate('/'); return; }
 
-            const cleanRole = String(sess.role || '').trim();
+        // 1. STRICT MODULE GUARD
+        const isGlobalAdmin = GLOBAL_ANALYTICS_ROLES.includes(cleanRole);
+        const isSiteAdmin = ['Site Owner', 'Site Manager'].includes(cleanRole);
 
-            // 1. STRICT MODULE GUARD
-            const isGlobalAdmin = ['Global Owner', 'Global Manager', 'Owner', 'Admin'].includes(cleanRole);
-            const isSiteAdmin = ['Site Owner', 'Site Manager'].includes(cleanRole);
+        const hasModuleAccess = isGlobalAdmin || isSiteAdmin || hasAccessibleModule(session.accessibleModules, 'Analytics');
 
-            const hasModuleAccess = isGlobalAdmin || isSiteAdmin || hasAccessibleModule(sess.accessibleModules, 'Analytics');
-
-            if (!hasModuleAccess) {
-                alert("Security Alert: You do not have permission to access the Analytics module.");
-                navigate('/dashboard');
-                return;
-            }
-
-            setSession(sess);
-
-            // 2. STRICT RBAC MATRIX
-            const canEditCr = ['Global Owner', 'Global Manager', 'Owner', 'Admin', 'Site Owner', 'Site Manager', 'User'].includes(cleanRole);
-            setPermissions({ viewOnly: !canEditCr, canEditCreate: canEditCr });
-
-            // 3. SYNCHRONIZED SITE PERSISTENCE
-            const params = new URLSearchParams(location.search);
-            let ctxSite = params.get('site') || sessionStorage.getItem('isoCurrentSite') || 'All';
-
-            if (!isGlobalAdmin && ctxSite === 'All') {
-                ctxSite = (sess.assignedSite && sess.assignedSite !== 'GLOBAL') ? sess.assignedSite : (sess.accessibleSites?.[0] || '');
-            }
-
-            setSiteFilter(ctxSite);
-            setLogSite(ctxSite !== 'All' ? ctxSite : ''); // Auto-fill log form if specific site is selected
-            sessionStorage.setItem('isoCurrentSite', ctxSite === 'All' ? 'GLOBAL' : ctxSite);
-
-            // 4. FETCH DATA
-            const dbRef = ref(rtdb, `organizations/${sess.orgId}`);
-            const unsubscribe = onValue(dbRef, (snap) => {
-                if (snap.exists()) {
-                    const val = snap.val();
-                    if (val.sites) {
-                        setSites(Object.keys(val.sites).map(k => ({ code: val.sites[k].code || k, name: val.sites[k].name || k })));
-                    }
-                    setIncidents(val.incidents ? Object.values(val.incidents) : []);
-                    setManHours(val.manHours ? Object.values(val.manHours) : []);
-                }
-                setLoading(false);
-            });
-            return () => unsubscribe();
-        } catch (e) {
-            console.error("Initialization Error", e);
-            setLoading(false);
+        if (!hasModuleAccess) {
+            alert("Security Alert: You do not have permission to access the Analytics module.");
+            navigate('/dashboard');
+            return;
         }
-    }, [navigate, location]);
+
+        // 4. FETCH DATA
+        const dbRef = ref(rtdb, `organizations/${session.orgId}`);
+        const unsubscribe = onValue(dbRef, (snap) => {
+            if (snap.exists()) {
+                const val = snap.val();
+                if (val.sites) {
+                    setSites(Object.keys(val.sites).map(k => ({ code: val.sites[k].code || k, name: val.sites[k].name || k })));
+                }
+                setIncidents(val.incidents ? Object.values(val.incidents) : []);
+                setManHours(val.manHours ? Object.values(val.manHours) : []);
+            }
+            setLoading(false);
+        });
+        return () => unsubscribe();
+    }, [cleanRole, navigate, session]);
+
+    useEffect(() => {
+        sessionStorage.setItem('isoCurrentSite', siteFilter === 'All' ? 'GLOBAL' : siteFilter);
+    }, [siteFilter]);
 
     // ==========================================
     // STRICT SITE & ROLE AUTHORIZATION LOGIC
     // ==========================================
-    const role = session?.role?.trim() || 'User';
-    const isGlobalUser = ['Global Owner', 'Global Manager', 'Owner', 'Admin'].includes(role);
-
     const allowedSiteCodes = useMemo(() => {
         if (!session) return new Set();
         const codes = new Set([session.assignedSite, ...(session.accessibleSites || [])].filter(Boolean));

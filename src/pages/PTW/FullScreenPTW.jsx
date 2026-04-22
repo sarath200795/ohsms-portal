@@ -21,7 +21,7 @@ import PermitViewerComponent from './components/PermitViewer';
 import InspectionModalComponent from './components/InspectionModal';
 import ReassignModalComponent from './components/ReassignModal';
 import PrintViewComponent from './components/PrintView';
-import { getStatusColor, isPermitOverdue, normalizePermit } from './utils';
+import { getStatusColor, normalizePermit } from './utils';
 
 function PtwDashboardView({
     allowedSites,

@@ -1,4 +1,5 @@
 import React from 'react';
+import { buildCompanyIncidentEntries } from '../../../utils/contractorIncidents';
 import { safeArr } from '../../../utils/helpers';
 
 export default function CompanyProfileModal({
@@ -25,24 +26,12 @@ export default function CompanyProfileModal({
 }) {
     const permitMatches = globalPermits.filter((permit) => permit.contractorId === activeVendor.firebaseKey || (permit.contractorName && permit.contractorName.toLowerCase() === activeVendor.companyName.toLowerCase()));
 
-    const companyIncidents = [
-        ...safeArr(activeVendor.incidents).map((incident) => ({
-            id: incident.id || 'INC',
-            date: incident.date,
-            type: incident.type || 'Incident',
-            desc: incident.desc || incident.description,
-            key: `${incident.id || 'local'}-${incident.date || Math.random().toString(36).slice(2)}`
-        })),
-        ...globalIncidents
-            .filter((incident) => incident.affectedPersonType === 'Contractor' && incident.contractorId === activeVendor.firebaseKey)
-            .map((incident) => ({
-                id: incident.id,
-                date: incident.incidentDate || incident.date,
-                type: incident.incidentType || incident.type,
-                desc: incident.description || incident.title,
-                key: incident.firebaseKey || incident.id
-            }))
-    ].sort((left, right) => new Date(right.date || '1970-01-01') - new Date(left.date || '1970-01-01'));
+    const companyIncidents = buildCompanyIncidentEntries({
+        vendorIncidents: safeArr(activeVendor.incidents),
+        globalIncidents,
+        contractorId: activeVendor.firebaseKey,
+        fallbackPrefix: activeVendor.firebaseKey || activeVendor.companyName || 'contractor-incident'
+    });
 
     return (
         <div className="fixed inset-0 z-[100] bg-black/80 flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in">

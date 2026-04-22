@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ref, get, push, update, remove, onValue } from 'firebase/database';
+import { ref, get, push, update, onValue } from 'firebase/database';
 import { rtdb } from '../config/firebase';
 import { hasAccessibleModule } from '../utils/permissions';
 import { canAuthenticateStatus, readStoredSession } from '../utils/session';
@@ -29,7 +29,7 @@ const safeArrayParse = (data) => {
             const item = data[key];
             return typeof item === 'object' ? { firebaseKey: key, ...item } : item;
         });
-    } catch (e) { return []; }
+    } catch { return []; }
 };
 
 // ============================================================================
@@ -459,6 +459,8 @@ const AuditorWorkplace = ({ setView, session }) => {
 
     if (loading) return <div className="flex h-full items-center justify-center text-white"><div className="w-12 h-12 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin mr-4"></div>Loading Workplace...</div>;
 
+    const currentAuditRecord = currentTask?.findingRecord || null;
+
     const renderPrintView = (data) => (
         <div className="hidden print:block p-10 bg-white text-black min-h-screen absolute inset-0 z-[9999]" style={{ WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
             <div className="flex justify-between items-end border-b-4 border-black pb-4 mb-8">
@@ -680,7 +682,7 @@ const AuditorWorkplace = ({ setView, session }) => {
                 )}
 
                 {/* VERIFICATION / READONLY VIEW */}
-                {(workplaceView === 'readOnly' || workplaceView === 'verify') && currentTask.findingRecord && (
+                {(workplaceView === 'readOnly' || workplaceView === 'verify') && currentAuditRecord && (
                     <div className="animate-in slide-in-from-bottom-8 duration-500 max-w-5xl mx-auto">
                         <div className="flex justify-between items-center mb-6">
                             <button onClick={() => setWorkplaceView('list')} className="text-slate-400 hover:text-white transition font-bold text-sm flex items-center gap-2"><i className="fas fa-arrow-left"></i> Back to Audit List</button>
@@ -694,28 +696,28 @@ const AuditorWorkplace = ({ setView, session }) => {
                             <div className="flex justify-between items-start mb-8 border-b border-slate-700 pb-6">
                                 <div>
                                     <h2 className="text-3xl font-bold text-white mb-2">Audit Report Details</h2>
-                                    <p className="text-sm text-emerald-400 font-mono font-bold bg-emerald-900/20 px-3 py-1 rounded-lg border border-emerald-500/30 inline-block">Ref: {selectedAudit.docId}</p>
+                                    <p className="text-sm text-emerald-400 font-mono font-bold bg-emerald-900/20 px-3 py-1 rounded-lg border border-emerald-500/30 inline-block">Ref: {currentAuditRecord.docId}</p>
                                 </div>
                                 <div className="text-right bg-slate-900 p-4 rounded-2xl border border-slate-800 shadow-inner">
                                     <p className="text-xs text-slate-500 uppercase tracking-widest mb-1">Status</p>
-                                    <span className={`text-sm font-bold uppercase tracking-wider ${selectedAudit.status === 'Closed' ? 'text-emerald-400' : selectedAudit.status === 'Submitted for Verification' ? 'text-orange-400' : 'text-red-400'}`}>{selectedAudit.status}</span>
+                                    <span className={`text-sm font-bold uppercase tracking-wider ${currentAuditRecord.status === 'Closed' ? 'text-emerald-400' : currentAuditRecord.status === 'Submitted for Verification' ? 'text-orange-400' : 'text-red-400'}`}>{currentAuditRecord.status}</span>
                                 </div>
                             </div>
 
                             <div className="grid grid-cols-2 md:grid-cols-4 gap-6 mb-10 bg-slate-900/50 p-6 rounded-2xl border border-slate-800 shadow-inner">
-                                <div><label className="text-[10px] text-slate-500 uppercase tracking-widest block mb-1">Site</label><span className="text-sm text-white font-bold">{selectedAudit.taskDetails?.siteId}</span></div>
-                                <div><label className="text-[10px] text-slate-500 uppercase tracking-widest block mb-1">Audit Date</label><span className="text-sm text-white font-bold font-mono">{(selectedAudit.auditDate || '').split('T')[0]}</span></div>
-                                <div><label className="text-[10px] text-slate-500 uppercase tracking-widest block mb-1">Auditor</label><span className="text-sm text-white font-bold">{selectedAudit.auditor}</span></div>
-                                <div><label className="text-[10px] text-slate-500 uppercase tracking-widest block mb-1">Auditee</label><span className="text-sm text-amber-400 font-bold">{selectedAudit.taskDetails?.auditee}</span></div>
-                                <div><label className="text-[10px] text-slate-500 uppercase tracking-widest block mb-1">Department</label><span className="text-sm text-white font-bold">{selectedAudit.taskDetails?.dept}</span></div>
-                                <div><label className="text-[10px] text-slate-500 uppercase tracking-widest block mb-1">Area</label><span className="text-sm text-white font-bold">{selectedAudit.taskDetails?.area}</span></div>
-                                <div className="col-span-2"><label className="text-[10px] text-slate-500 uppercase tracking-widest block mb-1">Scope / Standard</label><span className="text-sm text-white font-bold">{selectedAudit.taskDetails?.scope} / {selectedAudit.taskDetails?.criteria || selectedAudit.taskDetails?.standard}</span></div>
+                                <div><label className="text-[10px] text-slate-500 uppercase tracking-widest block mb-1">Site</label><span className="text-sm text-white font-bold">{currentAuditRecord.taskDetails?.siteId}</span></div>
+                                <div><label className="text-[10px] text-slate-500 uppercase tracking-widest block mb-1">Audit Date</label><span className="text-sm text-white font-bold font-mono">{(currentAuditRecord.auditDate || '').split('T')[0]}</span></div>
+                                <div><label className="text-[10px] text-slate-500 uppercase tracking-widest block mb-1">Auditor</label><span className="text-sm text-white font-bold">{currentAuditRecord.auditor}</span></div>
+                                <div><label className="text-[10px] text-slate-500 uppercase tracking-widest block mb-1">Auditee</label><span className="text-sm text-amber-400 font-bold">{currentAuditRecord.taskDetails?.auditee}</span></div>
+                                <div><label className="text-[10px] text-slate-500 uppercase tracking-widest block mb-1">Department</label><span className="text-sm text-white font-bold">{currentAuditRecord.taskDetails?.dept}</span></div>
+                                <div><label className="text-[10px] text-slate-500 uppercase tracking-widest block mb-1">Area</label><span className="text-sm text-white font-bold">{currentAuditRecord.taskDetails?.area}</span></div>
+                                <div className="col-span-2"><label className="text-[10px] text-slate-500 uppercase tracking-widest block mb-1">Scope / Standard</label><span className="text-sm text-white font-bold">{currentAuditRecord.taskDetails?.scope} / {currentAuditRecord.taskDetails?.criteria || currentAuditRecord.taskDetails?.standard}</span></div>
                             </div>
 
-                            <h3 className="text-blue-400 font-bold uppercase text-xs tracking-widest mb-6 border-b border-slate-700 pb-2 flex items-center gap-2"><i className="fas fa-list-check"></i> Documented Findings ({(selectedAudit.findings || []).length})</h3>
+                            <h3 className="text-blue-400 font-bold uppercase text-xs tracking-widest mb-6 border-b border-slate-700 pb-2 flex items-center gap-2"><i className="fas fa-list-check"></i> Documented Findings ({(currentAuditRecord.findings || []).length})</h3>
 
                             <div className="space-y-6">
-                                {(selectedAudit.findings || []).map((f, i) => (
+                                {(currentAuditRecord.findings || []).map((f, i) => (
                                     <div key={i} className="bg-slate-900/80 p-6 rounded-2xl border border-slate-700 shadow-inner">
                                         <div className="flex justify-between items-start mb-4 border-b border-slate-700/50 pb-3">
                                             <div className="flex items-center gap-3">
@@ -1766,15 +1768,11 @@ const AuditCalendar = ({ setView, session }) => {
 // ============================================================================
 export default function Audit() {
     const navigate = useNavigate();
-    const [session, setSession] = useState(null);
     const [view, setView] = useState('hub');
-    const [loading, setLoading] = useState(true);
-
-    useEffect(() => {
+    const authState = (() => {
         const sess = readStoredSession();
         if (!sess || !canAuthenticateStatus(sess.status)) {
-            navigate('/');
-            return;
+            return { session: null, redirectTo: '/', alertMessage: '' };
         }
 
         const isGlobalAdmin = ['Global Owner', 'Global Manager', 'Owner', 'Admin'].includes(sess.role);
@@ -1782,16 +1780,31 @@ export default function Audit() {
         const hasModuleAccess = isGlobalAdmin || isSiteAdmin || hasAccessibleModule(sess.accessibleModules, 'Internal Audit');
 
         if (!hasModuleAccess) {
-            alert('Security Alert: You do not have permission to access the Internal Audit module.');
-            navigate('/dashboard');
+            return {
+                session: null,
+                redirectTo: '/dashboard',
+                alertMessage: 'Security Alert: You do not have permission to access the Internal Audit module.'
+            };
+        }
+
+        return { session: sess, redirectTo: '', alertMessage: '' };
+    })();
+
+    const { session, redirectTo, alertMessage } = authState;
+
+    useEffect(() => {
+        if (!redirectTo) {
             return;
         }
 
-        setSession(sess);
-        setLoading(false);
-    }, [navigate]);
+        if (alertMessage) {
+            alert(alertMessage);
+        }
 
-    if (loading || !session) return <div className="flex h-screen items-center justify-center text-white bg-slate-950 font-['Space_Grotesk']"><div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mr-4"></div> Loading Audit System...</div>;
+        navigate(redirectTo);
+    }, [alertMessage, navigate, redirectTo]);
+
+    if (!session) return <div className="flex h-screen items-center justify-center text-white bg-slate-950 font-['Space_Grotesk']"><div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mr-4"></div> Loading Audit System...</div>;
 
     let ViewComponent;
     switch (view) {

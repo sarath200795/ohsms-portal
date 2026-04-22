@@ -9,7 +9,6 @@ import {
   findLongestPlayableVideo,
   gentleScan,
   getMediaDurationSeconds,
-  hideTitleCard,
   injectPdfPreviewOverlay,
   loginMainApp,
   mixAudioFiles,
@@ -20,7 +19,6 @@ import {
   renderPdfPagesToImages,
   resetDirectory,
   showGuideOverlay,
-  showTitleCard,
   sleep,
   synthesizeNeuralSpeechToMp3,
   transcodeAudioToWav,
@@ -51,7 +49,7 @@ const pdfOutput = path.join(pdfDir, `${scenarioId}.pdf`);
 const viewport = { width: 1280, height: 720 };
 
 const stamp = Date.now();
-const demoTopic = `Video Tutorial Training Session ${stamp}`;
+const _demoTopic = `Video Tutorial Training Session ${stamp}`;
 
 resetDirectory(rawDir);
 resetDirectory(segmentAudioDir);
@@ -60,9 +58,9 @@ fs.rmSync(mp4Output, { force: true });
 fs.rmSync(combinedAudioOutput, { force: true });
 fs.rmSync(pdfOutput, { force: true });
 
-const trainingRow = (page, topic) => page.locator('tr', { hasText: topic }).first();
+const _trainingRow = (page, topic) => page.locator('tr', { hasText: topic }).first();
 
-const buildSegments = (state) => ([
+const buildSegments = (_state) => ([
   {
     key: 'dashboard',
     moduleTitle: 'Training Module',

@@ -336,7 +336,7 @@ export default function Capa() {
             try {
                 const base64 = await fileToBase64(file);
                 setClosureModal(prev => ({ ...prev, evidence: base64 }));
-            } catch (error) {
+            } catch {
                 alert("Failed to process file.");
             }
         }
@@ -366,7 +366,7 @@ export default function Capa() {
         try {
             await update(ref(rtdb, action.dbPath), payload);
             fetchActions(session.orgId); // Re-fetch to guarantee sync
-        } catch (e) {
+        } catch {
             alert("Failed to update database.");
         }
     };
@@ -376,7 +376,7 @@ export default function Capa() {
         setActions(prev => prev.map(a => a.uid === action.uid ? { ...a, owner: newOwner } : a));
         try {
             await update(ref(rtdb, action.dbPath), { owner: newOwner, own: newOwner });
-        } catch (e) {
+        } catch {
             alert("Failed to update owner.");
             fetchActions(session.orgId);
         }

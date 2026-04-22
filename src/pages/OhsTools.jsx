@@ -49,29 +49,21 @@ export default function OhsTools() {
     const navigate = useNavigate();
     const location = useLocation();
     const playTransition = useAppTransition();
+    const [session] = useState(() => {
+        const rawSession = sessionStorage.getItem('isoSession');
+        return rawSession ? JSON.parse(rawSession) : null;
+    });
+    const selectedSite = new URLSearchParams(location.search).get('site') || session?.assignedSite || 'GLOBAL';
 
     useEffect(() => {
         clearFieldModuleHomeContext();
     }, []);
 
-    const [session, setSession] = useState(null);
-    const [selectedSite, setSelectedSite] = useState('');
-
     useEffect(() => {
-        const s = sessionStorage.getItem('isoSession');
-        if (!s) {
+        if (!session) {
             navigate('/');
-            return;
         }
-
-        const sess = JSON.parse(s);
-        setSession(sess);
-
-        // Derive site context from URL or fallback to assigned site / Global
-        const params = new URLSearchParams(location.search);
-        const site = params.get('site') || sess.assignedSite || 'GLOBAL';
-        setSelectedSite(site);
-    }, [navigate, location]);
+    }, [navigate, session]);
 
     const handleNav = (moduleId) => {
         // Navigate to respective sub-module while maintaining the site context parameter

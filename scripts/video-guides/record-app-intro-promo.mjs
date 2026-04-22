@@ -153,7 +153,7 @@ const withTimeout = async (promise, timeoutMs, label) => {
   }
 };
 
-const readSessionStorage = async (page) =>
+const _readSessionStorage = async (page) =>
   page.evaluate(() => {
     const state = {};
     for (let index = 0; index < sessionStorage.length; index += 1) {
@@ -172,7 +172,7 @@ const loginMainApp = async (page) => {
   await page.waitForTimeout(1400);
 };
 
-const showGuideOverlay = async (page, { moduleTitle, stepTitle, bullets, footer }) => {
+const _showGuideOverlay = async (page, { moduleTitle, stepTitle, bullets, footer }) => {
   await page.evaluate((payload) => {
     document.getElementById('codex-video-guide')?.remove();
 

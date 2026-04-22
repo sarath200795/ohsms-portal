@@ -98,7 +98,7 @@ const ActionPlanBuilder = ({ actions, users, sites, defaultSiteId, onChange, dis
 };
 
 // --- STRICT ROLE-BASED APPROVAL BLOCK ---
-const ApprovalBlock = ({ roleName, icon, color, data, form, setForm, session, disabled, users }) => {
+const ApprovalBlock = ({ roleName, icon, color, data: _data, form, setForm, session, disabled, users }) => {
     const appData = form.approvals?.[roleName] || { status: 'Pending', comment: '', by: '', date: '', assignedTo: '' };
 
     const currentUser = session?.name || session?.email;
@@ -328,8 +328,6 @@ export default function Improvement() {
         if (!form.siteId) return true;
         return allowedSiteCodes.has(form.siteId);
     }, [permissions.canEditCreate, isGlobalUser, allowedSiteCodes, form.siteId]);
-
-    const canChangeStatus = false; // Status is fully automated via approvals now
 
     // --- FILTERS & USERS ---
     const siteUsers = useMemo(() => {

@@ -4,6 +4,7 @@ import { get, push, ref, remove, update } from 'firebase/database';
 import * as XLSX from 'xlsx';
 import { rtdb } from '../../config/firebase';
 import { getPortalAwareHomePath } from '../FieldApp/portalAuth';
+import { buildEditableIncidentData, buildPrintableIncidentData } from '../../utils/incidents';
 import { hasAccessibleModule } from '../../utils/permissions';
 import { canAuthenticateStatus, readStoredSession } from '../../utils/session';
 import IncidentBuilder from './components/IncidentBuilder';
@@ -17,6 +18,42 @@ const SMART_CATEGORIES = [
     'Work at Height', 'Slips, Trips & Falls', 'Manual Handling',
     'Machinery & Equipment', 'Workplace Transport / Vehicles', 'Electrical Safety'
 ];
+
+const GLOBAL_INCIDENT_ROLES = ['Global Owner', 'Global Manager', 'Owner', 'Admin'];
+const INCIDENT_DELETE_ROLES = ['Global Owner', 'Owner', 'Admin', 'Site Owner'];
+const INCIDENT_EDIT_ROLES = ['Global Owner', 'Global Manager', 'Owner', 'Admin', 'Site Owner', 'Site Manager', 'User'];
+
+const createInitialDataState = () => ({
+    id: '',
+    title: '',
+    siteId: '',
+    date: new Date().toISOString().split('T')[0],
+    time: '',
+    type: 'Near Miss',
+    severity: 'Level A',
+    smartType: 'Fire & Explosion',
+    equipmentInvolved: '',
+    description: '',
+    immediateAction: '',
+    affectedPersonType: 'None',
+    contractorId: '',
+    affectedPersonId: '',
+    affectedPersonName: '',
+    imageEvidence: null,
+    consultationSummary: '',
+    investigationTeam: [],
+    investigation: {
+        fiveWhys: [{ id: 1, name: 'Analysis Path 1', whys: ['', '', '', '', ''] }],
+        fishbone: { man: [], machine: [], material: [], method: [], environment: [] },
+        faultTree: { id: 1, label: 'Top Event', type: 'AND', children: [] },
+        rootCause: ''
+    },
+    capa: [],
+    linkedHazards: [],
+    riskUpdated: false,
+    horizontalDeployment: false,
+    manualOverrides: { type: false, severity: false, smartType: false }
+});
 
 const fileToBase64 = (file) => new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -47,6 +84,53 @@ const safeArr = (val) => {
     if (Array.isArray(val)) return val.filter(Boolean);
     if (typeof val === 'object') return Object.values(val).filter(Boolean);
     return [];
+};
+
+const getTypeCode = (type) => {
+    if (type === 'Near Miss') return 'NM';
+    if (type === 'Property Damage') return 'PD';
+    if (type === 'First Aid injury') return 'FIR';
+    if (type === 'Lost Time injury') return 'LTIR';
+    if (type === 'Reportable Injury') return 'RIR';
+    return 'XX';
+};
+
+const buildIncidentPermissions = (session) => {
+    const role = session?.role || '';
+    const canDelete = INCIDENT_DELETE_ROLES.includes(role);
+    const canEditCreate = INCIDENT_EDIT_ROLES.includes(role);
+
+    return {
+        viewOnly: !canEditCreate,
+        canEditOwnedActions: true,
+        canDelete,
+        canEditCreate
+    };
+};
+
+const resolveInitialSiteFilter = ({ session, search, isGlobalUser }) => {
+    const params = new URLSearchParams(search);
+    const urlSite = params.get('site');
+
+    let storedSite = sessionStorage.getItem('isoCurrentSite');
+    if (storedSite === 'GLOBAL') storedSite = 'All';
+
+    let nextSite = urlSite || storedSite || 'All';
+    if (!isGlobalUser && nextSite === 'All') {
+        nextSite = (session?.assignedSite && session.assignedSite !== 'GLOBAL')
+            ? session.assignedSite
+            : (session?.accessibleSites?.[0] || '');
+    }
+
+    return nextSite;
+};
+
+const buildSuggestedIncidentId = ({ siteId, type, incidentsList }) => {
+    const nextSiteId = siteId || 'GEN';
+    const typeCode = getTypeCode(type);
+    const matchingRecords = incidentsList.filter((incident) => incident.siteId === nextSiteId && getTypeCode(incident.type) === typeCode);
+    const serialNumber = String(matchingRecords.length + 1).padStart(3, '0');
+    return `${nextSiteId}-${typeCode}-${serialNumber}`;
 };
 
 const UserSelect = ({ users, value, onChange, disabled, placeholder }) => (
@@ -340,7 +424,7 @@ export default function Incidents() {
     const [fbReady, setFbReady] = useState(false);
     const [view, setView] = useState('repo');
     const [step, setStep] = useState(1);
-    const [session, setSession] = useState(null);
+    const [session] = useState(() => readStoredSession());
     const [isAnalyzing, setIsAnalyzing] = useState(false);
 
     const [incidentsList, setIncidentsList] = useState([]);
@@ -349,11 +433,10 @@ export default function Incidents() {
     const [users, setUsers] = useState([]);
     const [contractors, setContractors] = useState([]);
 
-    const [permissions, setPermissions] = useState({ viewOnly: false, canEditOwnedActions: false, canDelete: false, canEditCreate: false });
     const [printData, setPrintData] = useState(null);
     const [saving, setSaving] = useState(false);
 
-    const [siteFilter, setSiteFilter] = useState('All');
+    const [siteFilterOverride, setSiteFilterOverride] = useState('');
 
     const [searchModalOpen, setSearchModalOpen] = useState(false);
     const [matchedHazards, setMatchedHazards] = useState([]);
@@ -367,50 +450,21 @@ export default function Incidents() {
     const [newCapaDue, setNewCapaDue] = useState('');
     const [newCapaSite, setNewCapaSite] = useState('');
 
-    const initialDataState = {
-        id: '',
-        title: '',
-        siteId: '',
-        date: new Date().toISOString().split('T')[0],
-        time: '',
-        type: 'Near Miss',
-        severity: 'Level A',
-        smartType: 'Fire & Explosion',
-        equipmentInvolved: '',
-        description: '',
-        immediateAction: '',
-        affectedPersonType: 'None',
-        contractorId: '',
-        affectedPersonId: '',
-        affectedPersonName: '',
-        imageEvidence: null,
-        consultationSummary: '',
-        investigationTeam: [],
-        investigation: {
-            fiveWhys: [{ id: 1, name: 'Analysis Path 1', whys: ['', '', '', '', ''] }],
-            fishbone: { man: [], machine: [], material: [], method: [], environment: [] },
-            faultTree: { id: 1, label: 'Top Event', type: 'AND', children: [] },
-            rootCause: ''
-        },
-        capa: [],
-        linkedHazards: [],
-        riskUpdated: false,
-        horizontalDeployment: false,
-        manualOverrides: { type: false, severity: false, smartType: false }
-    };
-
-    const [data, setData] = useState(initialDataState);
+    const initialDataState = useMemo(() => createInitialDataState(), []);
+    const [data, setData] = useState(() => createInitialDataState());
+    const sessionIsValid = Boolean(session && canAuthenticateStatus(session.status));
+    const isGlobalUser = GLOBAL_INCIDENT_ROLES.includes(session?.role);
+    const permissions = buildIncidentPermissions(session);
+    const hasModuleAccess = sessionIsValid && (isGlobalUser || hasAccessibleModule(session.accessibleModules, 'Incidents'));
+    const requestedSite = new URLSearchParams(location.search).get('site') || sessionStorage.getItem('isoCurrentSite') || session?.assignedSite || 'All';
+    const defaultSiteFilter = resolveInitialSiteFilter({ session, search: location.search, isGlobalUser });
+    const siteFilter = siteFilterOverride || defaultSiteFilter;
 
     useEffect(() => {
-        const sess = readStoredSession();
-        if (!sess || !canAuthenticateStatus(sess.status)) {
+        if (!sessionIsValid) {
             navigate('/');
             return;
         }
-
-        const isGlobalAdmin = ['Global Owner', 'Global Manager', 'Owner', 'Admin'].includes(sess.role);
-        const requestedSite = new URLSearchParams(location.search).get('site') || sessionStorage.getItem('isoCurrentSite') || sess.assignedSite || 'All';
-        const hasModuleAccess = isGlobalAdmin || hasAccessibleModule(sess.accessibleModules, 'Incidents');
 
         if (!hasModuleAccess) {
             alert('Security Alert: You do not have permission to access the Incidents module.');
@@ -418,36 +472,13 @@ export default function Incidents() {
             return;
         }
 
-        setSession(sess);
-
-        const canDel = ['Global Owner', 'Owner', 'Admin', 'Site Owner'].includes(sess.role);
-        const canEditCr = ['Global Owner', 'Global Manager', 'Owner', 'Admin', 'Site Owner', 'Site Manager', 'User'].includes(sess.role);
-
-        setPermissions({
-            viewOnly: !canEditCr,
-            canEditOwnedActions: true,
-            canDelete: canDel,
-            canEditCreate: canEditCr
-        });
-
         const params = new URLSearchParams(location.search);
-        const urlSite = params.get('site');
         const autoOpenId = params.get('id');
-
-        let storedSite = sessionStorage.getItem('isoCurrentSite');
-        if (storedSite === 'GLOBAL') storedSite = 'All';
-
-        let ctxSite = urlSite || storedSite || 'All';
-        if (!isGlobalAdmin && ctxSite === 'All') {
-            ctxSite = (sess.assignedSite && sess.assignedSite !== 'GLOBAL') ? sess.assignedSite : (sess.accessibleSites?.[0] || '');
-        }
-
-        setSiteFilter(ctxSite);
-        sessionStorage.setItem('isoCurrentSite', ctxSite === 'All' ? 'GLOBAL' : ctxSite);
+        sessionStorage.setItem('isoCurrentSite', defaultSiteFilter === 'All' ? 'GLOBAL' : defaultSiteFilter);
 
         const loadDatabases = async () => {
             try {
-                const dbRef = ref(rtdb, `organizations/${sess.orgId}`);
+                const dbRef = ref(rtdb, `organizations/${session.orgId}`);
                 const snap = await get(dbRef);
 
                 let fetchedUsers = [];
@@ -491,12 +522,12 @@ export default function Incidents() {
                     }
                 }
 
-                if (!fetchedUsers.find((u) => u.email === sess.email || u.name === sess.user)) {
+                if (!fetchedUsers.find((u) => u.email === session.email || u.name === session.user)) {
                     fetchedUsers.push({
-                        id: sess.uid || 'current-user',
-                        name: sess.name || sess.email?.split('@')[0] || 'Me',
-                        email: sess.email,
-                        role: sess.role || 'Owner',
+                        id: session.uid || 'current-user',
+                        name: session.name || session.email?.split('@')[0] || 'Me',
+                        email: session.email,
+                        role: session.role || 'Owner',
                         assignedSite: 'GLOBAL'
                     });
                 }
@@ -506,7 +537,11 @@ export default function Incidents() {
 
                 if (autoOpenId && loadedIncidents.length > 0) {
                     const target = loadedIncidents.find((i) => i.firebaseKey === autoOpenId);
-                    if (target) handleEdit(target);
+                    if (target) {
+                        setData(buildEditableIncidentData(initialDataState, target));
+                        setView('form');
+                        setStep(1);
+                    }
                 }
             } catch (err) {
                 console.error('Error loading databases:', err);
@@ -514,8 +549,7 @@ export default function Incidents() {
         };
 
         loadDatabases();
-    }, [navigate, location.search]);
-    const isGlobalUser = ['Global Owner', 'Global Manager', 'Owner', 'Admin'].includes(session?.role);
+    }, [defaultSiteFilter, hasModuleAccess, initialDataState, location.search, navigate, requestedSite, session, sessionIsValid]);
 
     const allowedSiteCodes = useMemo(() => {
         if (!session) return new Set();
@@ -565,25 +599,18 @@ export default function Incidents() {
         return allowedSiteCodes.has(data.siteId);
     }, [permissions.canEditCreate, isGlobalUser, allowedSiteCodes, data.siteId]);
 
-    const getTypeCode = (type) => {
-        if (type === 'Near Miss') return 'NM';
-        if (type === 'Property Damage') return 'PD';
-        if (type === 'First Aid injury') return 'FIR';
-        if (type === 'Lost Time injury') return 'LTIR';
-        if (type === 'Reportable Injury') return 'RIR';
-        return 'XX';
-    };
+    const suggestedIncidentId = useMemo(() => {
+        if (!session || data.firebaseKey || !canEditForm) return '';
 
-    useEffect(() => {
-        if (session && !data.firebaseKey && canEditForm) {
-            const siteId = data.siteId || 'GEN';
-            const typeCode = getTypeCode(data.type);
-            const matchingRecords = incidentsList.filter((i) => i.siteId === siteId && getTypeCode(i.type) === typeCode);
-            const serialNumber = String(matchingRecords.length + 1).padStart(3, '0');
-            const newId = `${siteId}-${typeCode}-${serialNumber}`;
-            setData((prev) => ({ ...prev, id: newId }));
-        }
-    }, [data.siteId, data.type, session, canEditForm, incidentsList, data.firebaseKey]);
+        return buildSuggestedIncidentId({
+            siteId: data.siteId,
+            type: data.type,
+            incidentsList
+        });
+    }, [canEditForm, data.firebaseKey, data.siteId, data.type, incidentsList, session]);
+
+    const currentIncidentId = data.id || suggestedIncidentId || '';
+
     const handleDescriptionBlur = () => {
         if (!data.description || data.description.trim() === '') return;
         const lower = data.description.toLowerCase();
@@ -783,6 +810,12 @@ export default function Incidents() {
     };
 
     const saveData = async () => {
+        if (!session) {
+            alert('Session expired. Please sign in again.');
+            navigate('/');
+            return;
+        }
+
         if (!canEditForm) return alert('Security Error: You do not have permission to create or edit incidents for this site.');
         if (!data.siteId || !data.title) {
             alert('Please provide an Incident Title and select a Site.');
@@ -811,8 +844,10 @@ export default function Incidents() {
                 explodedCapa = cleanCapa.map((a) => ({ ...a, siteId: a.siteId || data.siteId }));
             }
 
+            const incidentId = currentIncidentId || 'Draft';
             const payload = JSON.parse(JSON.stringify({
                 ...data,
+                id: incidentId,
                 capa: explodedCapa,
                 linkedHazards: data.linkedHazards || [],
                 timestamp: new Date().toISOString(),
@@ -842,6 +877,12 @@ export default function Incidents() {
     };
 
     const handleDeleteRecord = async (incident) => {
+        if (!session) {
+            alert('Session expired. Please sign in again.');
+            navigate('/');
+            return;
+        }
+
         if (!permissions.canDelete) return alert('Security Error: Only Global Owners and Site Owners can permanently delete records.');
         if (window.confirm('Permanently delete incident?')) {
             await remove(ref(rtdb, `organizations/${session.orgId}/incidents/${incident.firebaseKey}`));
@@ -850,29 +891,14 @@ export default function Incidents() {
     };
 
     const handleEdit = (incident) => {
-        let updatedWhys = incident.investigation?.fiveWhys || [{ id: 1, name: 'Analysis Path 1', whys: ['', '', '', '', ''] }];
-        if (Array.isArray(updatedWhys) && typeof updatedWhys[0] === 'string') {
-            updatedWhys = [{ id: Date.now(), name: 'Legacy Analysis', whys: updatedWhys }];
-        }
-
-        setData({
-            ...initialDataState,
-            ...incident,
-            horizontalDeployment: incident.horizontalDeployment || false,
-            investigation: { ...incident.investigation, fiveWhys: updatedWhys },
-            manualOverrides: { type: true, severity: true, smartType: true }
-        });
+        setData(buildEditableIncidentData(initialDataState, incident));
         setView('form');
         setStep(1);
     };
 
     const triggerPrint = (dataObj) => {
-        let updatedWhys = dataObj.investigation?.fiveWhys || [{ id: 1, name: 'Analysis Path 1', whys: ['', '', '', '', ''] }];
-        if (Array.isArray(updatedWhys) && typeof updatedWhys[0] === 'string') {
-            updatedWhys = [{ id: Date.now(), name: 'Legacy Analysis', whys: updatedWhys }];
-        }
-        const formattedData = { ...dataObj, investigation: { ...dataObj.investigation, fiveWhys: updatedWhys } };
-        setPrintData(formattedData);
+        const incidentId = dataObj.id || currentIncidentId;
+        setPrintData(buildPrintableIncidentData({ ...dataObj, id: incidentId }));
         setTimeout(() => window.print(), 800);
     };
 
@@ -929,7 +955,7 @@ export default function Incidents() {
     };
 
     const saveLinkedHazard = async () => {
-        if (!editingHazardData) return;
+        if (!editingHazardData || !session) return;
         setSaving(true);
         try {
             const { raKey, actIdx, hazIdx, modifiedHazard, raDocId, actName } = editingHazardData;
@@ -939,7 +965,7 @@ export default function Incidents() {
                 date: new Date().toISOString(),
                 user: session.name || session.user || 'Admin',
                 source: 'Incident Investigation',
-                reason: `System Auto-Log: Controls modified post-incident review (Incident ID: ${data.id || 'Draft'})`
+                reason: `System Auto-Log: Controls modified post-incident review (Incident ID: ${currentIncidentId || 'Draft'})`
             };
 
             const updates = {};
@@ -1096,9 +1122,9 @@ export default function Incidents() {
                     {view === 'repo' ? (
                         <div className="max-w-7xl mx-auto">
                             {useModularView ? (
-                                <IncidentRegistry incidents={visibleIncidents} onEdit={handleEdit} onPrint={triggerPrint} onDelete={handleDeleteRecord} permissions={permissions} siteFilter={siteFilter} setSiteFilter={setSiteFilter} uniqueSites={allowedSites} isGlobalUser={isGlobalUser} />
+                                <IncidentRegistry incidents={visibleIncidents} onEdit={handleEdit} onPrint={triggerPrint} onDelete={handleDeleteRecord} permissions={permissions} siteFilter={siteFilter} setSiteFilter={setSiteFilterOverride} uniqueSites={allowedSites} isGlobalUser={isGlobalUser} />
                             ) : (
-                                <IncidentRepository incidents={visibleIncidents} onEdit={handleEdit} onPrint={triggerPrint} onDelete={handleDeleteRecord} permissions={permissions} siteFilter={siteFilter} setSiteFilter={setSiteFilter} uniqueSites={allowedSites} isGlobalUser={isGlobalUser} />
+                                <IncidentRepository incidents={visibleIncidents} onEdit={handleEdit} onPrint={triggerPrint} onDelete={handleDeleteRecord} permissions={permissions} siteFilter={siteFilter} setSiteFilter={setSiteFilterOverride} uniqueSites={allowedSites} isGlobalUser={isGlobalUser} />
                             )}
                         </div>
                     ) : (
@@ -1176,7 +1202,7 @@ export default function Incidents() {
                                         </div>
                                         <div><label className="text-[10px] uppercase font-bold text-slate-500 ml-1 mb-2 block">Date *</label><input type="date" value={data.date} onChange={(e) => setData({ ...data, date: e.target.value })} disabled={!canEditForm} className="w-full bg-slate-950 border border-slate-700 p-3 rounded-lg text-white text-xs outline-none focus:border-red-500 font-mono" /></div>
                                         <div><label className="text-[10px] uppercase font-bold text-slate-500 ml-1 mb-2 block">Time</label><input type="time" value={data.time} onChange={(e) => setData({ ...data, time: e.target.value })} disabled={!canEditForm} className="w-full bg-slate-950 border border-slate-700 p-3 rounded-lg text-white text-xs outline-none focus:border-red-500 font-mono" /></div>
-                                        <div><label className="text-[10px] uppercase font-bold text-slate-500 ml-1 mb-2 block">Record ID</label><input value={data.id} className="w-full bg-slate-950/50 border border-slate-800 p-3 rounded-lg text-slate-500 text-xs font-mono" disabled placeholder="Auto-generated" /></div>
+                                        <div><label className="text-[10px] uppercase font-bold text-slate-500 ml-1 mb-2 block">Record ID</label><input value={currentIncidentId} className="w-full bg-slate-950/50 border border-slate-800 p-3 rounded-lg text-slate-500 text-xs font-mono" disabled placeholder="Auto-generated" /></div>
 
                                         <div><label className="text-[10px] uppercase font-bold text-purple-400 ml-1 mb-2 block">Smart Category (AI)</label><select value={data.smartType} onChange={(e) => setData({ ...data, smartType: e.target.value, manualOverrides: { ...data.manualOverrides, smartType: true } })} disabled={!canEditForm} className="w-full bg-purple-900/10 border border-purple-500/30 p-3 rounded-lg text-purple-300 font-bold text-xs outline-none focus:border-purple-500">{SMART_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}</select></div>
 
