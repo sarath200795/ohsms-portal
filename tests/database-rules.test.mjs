@@ -99,6 +99,25 @@ test('new-user join requests require an admin-issued join code', () => {
     assert.match(orgRules.users.$uid['.write'], /joinRegistry/, 'pending user creation must validate the join code registry mapping');
 });
 
+test('legacy organization owners can recover user-management join code access', () => {
+    const protectedRules = [
+        rules.joinRegistry.$joinCode['.write'],
+        rules.userDirectory.$uid['.write'],
+        orgRules.details['.read'],
+        orgRules.details['.write'],
+        orgRules.sites['.read'],
+        orgRules.users['.read'],
+        orgRules.users.$uid['.write'],
+        orgRules.permissionRequests['.read'],
+        orgRules.permissionRequests.$requestId['.write']
+    ];
+
+    for (const rule of protectedRules) {
+        assert.match(rule, /ownerEmail/, 'legacy owner fallback must be present');
+        assert.match(rule, /auth\.token\.email != null/, 'legacy owner fallback must require an authenticated email token');
+    }
+});
+
 test('site-owned collections require site-scoped queries for non-global users', () => {
     for (const collection of siteScopedCollections) {
         const readRule = orgRules[collection]?.['.read'];

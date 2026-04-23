@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ref, get, set, update, remove, push } from 'firebase/database';
-import { rtdb } from '../config/firebase';
+import { auth, rtdb } from '../config/firebase';
 import { readOrgChildren } from '../utils/orgData';
 import { toCanonicalModuleIds, USER_ASSIGNABLE_MODULES } from '../utils/permissions';
-import { ACCOUNT_STATUS, readStoredSession } from '../utils/session';
+import { ACCOUNT_STATUS, readStoredSession, writeStoredSession } from '../utils/session';
 import {
     buildPermissionRequestUpdates,
     buildUserAccessAuditEntry,
@@ -24,6 +24,8 @@ const ROLES = [
     "User"
 ];
 
+const GLOBAL_ADMIN_ROLES = ['Global Owner', 'Global Manager', 'Owner', 'Admin'];
+
 const normalizeJoinCode = (value) => value.toUpperCase().trim().replace(/[^A-Z0-9-]/g, '');
 const generateJoinCode = () => `JOIN-${Math.random().toString(36).slice(2, 8).toUpperCase()}-${Date.now().toString(36).slice(-4).toUpperCase()}`;
 
@@ -32,6 +34,49 @@ const safeArr = (val) => {
     if (Array.isArray(val)) return val;
     if (typeof val === 'object') return Object.values(val);
     return [];
+};
+
+const ensureCurrentAdminDirectory = async (sess) => {
+    const currentUser = auth.currentUser;
+    if (!currentUser || !sess?.orgId || !GLOBAL_ADMIN_ROLES.includes(sess.role)) return sess;
+
+    const repairedSession = {
+        ...sess,
+        uid: currentUser.uid,
+        email: currentUser.email || sess.email
+    };
+
+    try {
+        const userRef = ref(rtdb, `organizations/${sess.orgId}/users/${currentUser.uid}`);
+        const userSnap = await get(userRef);
+
+        if (!userSnap.exists()) {
+            await set(userRef, {
+                name: sess.name || sess.user || currentUser.email?.split('@')[0] || 'Organization Admin',
+                email: (currentUser.email || sess.email || '').toLowerCase().trim(),
+                role: sess.role,
+                assignedSite: sess.assignedSite || 'GLOBAL',
+                accessibleSites: safeArr(sess.accessibleSites),
+                accessibleModules: toCanonicalModuleIds(sess.accessibleModules),
+                status: ACCOUNT_STATUS.ACTIVE,
+                repairedAt: new Date().toISOString()
+            });
+        }
+
+        const directoryRef = ref(rtdb, `userDirectory/${currentUser.uid}`);
+        const directorySnap = await get(directoryRef);
+        if (!directorySnap.exists()) {
+            await set(directoryRef, { orgId: sess.orgId });
+        }
+
+        if (repairedSession.uid !== sess.uid || repairedSession.email !== sess.email) {
+            return writeStoredSession(repairedSession);
+        }
+    } catch (error) {
+        console.warn('Admin directory repair skipped:', error);
+    }
+
+    return repairedSession;
 };
 
 export default function Users() {
@@ -69,7 +114,7 @@ export default function Users() {
         if (!sess) { navigate('/'); return; }
 
         // Security Check: Only Global Admins or Owners should manage users
-        const isGlobalAdmin = ['Global Owner', 'Global Manager', 'Owner', 'Admin'].includes(sess.role);
+        const isGlobalAdmin = GLOBAL_ADMIN_ROLES.includes(sess.role);
         if (!isGlobalAdmin) {
             alert("Security Alert: Only Administrators can access User Management.");
             navigate('/dashboard');
@@ -80,7 +125,9 @@ export default function Users() {
 
         const fetchData = async () => {
             try {
-                const data = await readOrgChildren(rtdb, sess.orgId, ['details', 'sites', 'users', 'permissionRequests']);
+                const activeSession = await ensureCurrentAdminDirectory(sess);
+                setSession(activeSession);
+                const data = await readOrgChildren(rtdb, activeSession.orgId, ['details', 'sites', 'users', 'permissionRequests'], { session: activeSession });
 
                 if (data.sites) {
                     setSites(Object.keys(data.sites).map(key => ({
