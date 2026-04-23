@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { auth, rtdb } from '../config/firebase';
-import { signOut } from 'firebase/auth';
+import { EmailAuthProvider, reauthenticateWithCredential, signOut, updatePassword } from 'firebase/auth';
 import { ref, get } from 'firebase/database';
 import useStore from '../store/useStore';
 import { clearFieldModuleHomeContext } from './FieldApp/portalAuth';
@@ -119,6 +119,9 @@ export default function Dashboard() {
     const [selectedSite, setSelectedSite] = useState('');
     const [isNotificationOpen, setIsNotificationOpen] = useState(false);
     const [isFabOpen, setIsFabOpen] = useState(false);
+    const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
+    const [passwordForm, setPasswordForm] = useState({ current: '', next: '', confirm: '' });
+    const [isPasswordSaving, setIsPasswordSaving] = useState(false);
 
     // --- PHASE 2 TARGETED FETCHING STATE ---
     const [localOrgData, setLocalOrgData] = useState(null);
@@ -250,6 +253,60 @@ export default function Dashboard() {
         sessionStorage.clear();
         clearSession();
         navigate('/');
+    };
+
+    const closePasswordModal = () => {
+        if (isPasswordSaving) return;
+        setIsPasswordModalOpen(false);
+        setPasswordForm({ current: '', next: '', confirm: '' });
+    };
+
+    const handleChangePassword = async (e) => {
+        e.preventDefault();
+
+        const currentUser = auth.currentUser;
+        const userEmail = currentUser?.email || session?.email;
+
+        if (!currentUser || !userEmail) {
+            alert('Your secure login session is not ready. Please sign out and sign in again before changing the password.');
+            return;
+        }
+
+        if (passwordForm.next.length < 6) {
+            alert('New password must be at least 6 characters.');
+            return;
+        }
+
+        if (passwordForm.next !== passwordForm.confirm) {
+            alert('New password and confirmation do not match.');
+            return;
+        }
+
+        if (passwordForm.current === passwordForm.next) {
+            alert('New password must be different from the current password.');
+            return;
+        }
+
+        setIsPasswordSaving(true);
+        try {
+            const credential = EmailAuthProvider.credential(userEmail, passwordForm.current);
+            await reauthenticateWithCredential(currentUser, credential);
+            await updatePassword(currentUser, passwordForm.next);
+            alert('Password changed successfully. Please use the new password from your next login.');
+            closePasswordModal();
+        } catch (error) {
+            if (error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
+                alert('Current password is incorrect. Please try again.');
+            } else if (error.code === 'auth/weak-password') {
+                alert('New password is too weak. Use at least 6 characters.');
+            } else if (error.code === 'auth/requires-recent-login') {
+                alert('Please sign out and sign in again before changing your password.');
+            } else {
+                alert(`Password change failed: ${error.message}`);
+            }
+        } finally {
+            setIsPasswordSaving(false);
+        }
     };
 
     const handleSiteChange = (e) => {
@@ -385,6 +442,15 @@ export default function Dashboard() {
                             <p className="text-sm font-bold text-white">{session?.name || session?.email}</p>
                             <p className="text-[10px] uppercase tracking-[0.22em] text-[var(--myth-cyan)]">{session?.role}</p>
                         </div>
+                        <button
+                            type="button"
+                            onClick={() => setIsPasswordModalOpen(true)}
+                            className="myth-outline-button flex h-11 w-11 items-center justify-center rounded-2xl"
+                            title="Change Password"
+                            aria-label="Change Password"
+                        >
+                            <i className="fas fa-key text-[var(--myth-cyan)]"></i>
+                        </button>
                         <button onClick={handleLogout} className="myth-button myth-button-danger flex h-11 w-11 items-center justify-center rounded-2xl text-sm"><i className="fas fa-power-off"></i></button>
                     </div>
                 </div>
@@ -443,6 +509,15 @@ export default function Dashboard() {
                                             Open Field Portal
                                         </button>
                                     )}
+
+                                    <button
+                                        type="button"
+                                        onClick={() => setIsPasswordModalOpen(true)}
+                                        className="myth-outline-button px-5 py-3 text-xs"
+                                    >
+                                        <i className="fas fa-key mr-2 text-[var(--myth-cyan)]"></i>
+                                        Change Password
+                                    </button>
                                 </div>
                             </div>
 
@@ -548,6 +623,104 @@ export default function Dashboard() {
                             )}
                         </div>
                     </div>
+                </div>
+            )}
+
+            {isPasswordModalOpen && (
+                <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
+                    <div className="absolute inset-0 bg-black/65 backdrop-blur-sm" onClick={closePasswordModal}></div>
+                    <form onSubmit={handleChangePassword} className="command-panel relative w-full max-w-md rounded-[2rem] p-6">
+                        <div className="mb-6 flex items-start justify-between gap-4 border-b border-[rgba(242,201,120,0.1)] pb-5">
+                            <div>
+                                <p className="myth-kicker">Account Security</p>
+                                <h2 className="mt-1 text-3xl text-white">Change Password</h2>
+                                <p className="mt-2 text-sm leading-relaxed text-[var(--myth-muted)]">
+                                    Confirm your current password, then set a new secure password for this account.
+                                </p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={closePasswordModal}
+                                disabled={isPasswordSaving}
+                                className="myth-outline-button flex h-10 w-10 shrink-0 items-center justify-center rounded-full disabled:opacity-50"
+                                aria-label="Close change password"
+                            >
+                                <i className="fas fa-times"></i>
+                            </button>
+                        </div>
+
+                        <div className="space-y-4">
+                            <div>
+                                <label className="myth-kicker mb-2 block text-[10px]" htmlFor="current-password">Current Password</label>
+                                <input
+                                    id="current-password"
+                                    type="password"
+                                    value={passwordForm.current}
+                                    onChange={e => setPasswordForm(prev => ({ ...prev, current: e.target.value }))}
+                                    className="w-full rounded-2xl border border-[rgba(242,201,120,0.16)] bg-[rgba(10,8,6,0.78)] px-4 py-3 text-sm text-white outline-none transition focus:border-[var(--myth-cyan)]"
+                                    autoComplete="current-password"
+                                    required
+                                />
+                            </div>
+
+                            <div>
+                                <label className="myth-kicker mb-2 block text-[10px]" htmlFor="new-password">New Password</label>
+                                <input
+                                    id="new-password"
+                                    type="password"
+                                    value={passwordForm.next}
+                                    onChange={e => setPasswordForm(prev => ({ ...prev, next: e.target.value }))}
+                                    className="w-full rounded-2xl border border-[rgba(242,201,120,0.16)] bg-[rgba(10,8,6,0.78)] px-4 py-3 text-sm text-white outline-none transition focus:border-[var(--myth-cyan)]"
+                                    autoComplete="new-password"
+                                    minLength={6}
+                                    required
+                                />
+                                <p className="mt-2 text-[11px] text-[var(--myth-muted)]">Use at least 6 characters. Longer passwords are recommended.</p>
+                            </div>
+
+                            <div>
+                                <label className="myth-kicker mb-2 block text-[10px]" htmlFor="confirm-password">Confirm New Password</label>
+                                <input
+                                    id="confirm-password"
+                                    type="password"
+                                    value={passwordForm.confirm}
+                                    onChange={e => setPasswordForm(prev => ({ ...prev, confirm: e.target.value }))}
+                                    className="w-full rounded-2xl border border-[rgba(242,201,120,0.16)] bg-[rgba(10,8,6,0.78)] px-4 py-3 text-sm text-white outline-none transition focus:border-[var(--myth-cyan)]"
+                                    autoComplete="new-password"
+                                    minLength={6}
+                                    required
+                                />
+                            </div>
+                        </div>
+
+                        <div className="mt-6 flex justify-end gap-3 border-t border-[rgba(242,201,120,0.1)] pt-5">
+                            <button
+                                type="button"
+                                onClick={closePasswordModal}
+                                disabled={isPasswordSaving}
+                                className="myth-outline-button px-5 py-3 text-xs disabled:opacity-50"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="submit"
+                                disabled={isPasswordSaving}
+                                className="myth-button myth-button-primary px-6 py-3 text-xs disabled:opacity-50"
+                            >
+                                {isPasswordSaving ? (
+                                    <>
+                                        <i className="fas fa-spinner fa-spin mr-2"></i>
+                                        Updating
+                                    </>
+                                ) : (
+                                    <>
+                                        <i className="fas fa-shield-halved mr-2"></i>
+                                        Update Password
+                                    </>
+                                )}
+                            </button>
+                        </div>
+                    </form>
                 </div>
             )}
         </div>
