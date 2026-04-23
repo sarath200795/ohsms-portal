@@ -18,6 +18,7 @@ import {
   readSessionStorage,
   renderDelayedAudio,
   renderPdfPagesToImages,
+  requireFirebaseApiKey,
   resetDirectory,
   restDeletePath,
   restPostJson,
@@ -35,7 +36,7 @@ const email = process.env.VIDEO_EMAIL || '';
 const password = process.env.VIDEO_PASSWORD || '';
 const voice = process.env.VIDEO_NEURAL_VOICE || 'en-US-GuyNeural';
 const voiceRate = process.env.VIDEO_NEURAL_RATE || '-7%';
-const apiKey = 'AIzaSyBHqeQN4s9PA5UUDfLtAajVkoRK2BrRjwk';
+const apiKey = requireFirebaseApiKey();
 const databaseUrl = 'https://ohsms-3894f-default-rtdb.firebaseio.com';
 
 if (!email || !password) {

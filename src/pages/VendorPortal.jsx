@@ -8,7 +8,7 @@ import {
     signInWithEmailAndPassword,
     signOut
 } from 'firebase/auth';
-import { get, getDatabase, ref, update } from 'firebase/database';
+import { equalTo, get, getDatabase, orderByChild, query, ref, update } from 'firebase/database';
 import { auth } from '../config/firebase';
 
 const VENDOR_APP_NAME = 'vendor-portal-app';
@@ -97,6 +97,22 @@ const buildVendorState = (firebaseKey, vendorData) => ({
     workers: safeArr(vendorData.workers).map(w => ({ ...w, additionalDocs: safeArr(w.additionalDocs) }))
 });
 
+const readVendorSiteCollection = async ({ orgId, childName, orgUser }) => {
+    if (orgUser?.assignedSite === 'GLOBAL') {
+        const snap = await get(ref(vendorDb, `organizations/${orgId}/${childName}`));
+        return snap.exists() ? snap.val() : {};
+    }
+
+    const siteIds = [orgUser?.assignedSite].filter(Boolean);
+    if (siteIds.length === 0) return {};
+    const entries = await Promise.all(siteIds.map(async (siteId) => {
+        const snap = await get(query(ref(vendorDb, `organizations/${orgId}/${childName}`), orderByChild('siteId'), equalTo(siteId)));
+        return snap.exists() ? snap.val() : {};
+    }));
+
+    return entries.reduce((acc, entry) => ({ ...acc, ...entry }), {});
+};
+
 export default function VendorPortal() {
     const [loading, setLoading] = useState(true);
     const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -183,24 +199,20 @@ export default function VendorPortal() {
 
             let matchedIncidents = [];
             try {
-                const incSnap = await get(ref(vendorDb, `organizations/${orgId}/incidents`));
-                if (incSnap.exists()) {
-                    matchedIncidents = safeArrWithKeys(incSnap.val())
-                        .filter(i => i.contractorId === firebaseKey || (i.contractorName && i.contractorName.toLowerCase() === (vendorData.companyName || '').toLowerCase()))
-                        .sort((a, b) => new Date(b.incidentDate || b.date || 0) - new Date(a.incidentDate || a.date || 0));
-                }
+                const incidentData = await readVendorSiteCollection({ orgId, childName: 'incidents', orgUser });
+                matchedIncidents = safeArrWithKeys(incidentData)
+                    .filter(i => i.contractorId === firebaseKey || (i.contractorName && i.contractorName.toLowerCase() === (vendorData.companyName || '').toLowerCase()))
+                    .sort((a, b) => new Date(b.incidentDate || b.date || 0) - new Date(a.incidentDate || a.date || 0));
             } catch (error) {
                 console.warn('Incident fetch blocked or unavailable.', error);
             }
 
             let matchedPermits = [];
             try {
-                const ptwSnap = await get(ref(vendorDb, `organizations/${orgId}/ptwRecords`));
-                if (ptwSnap.exists()) {
-                    matchedPermits = safeArrWithKeys(ptwSnap.val())
-                        .filter(p => p.contractorId === firebaseKey || (p.contractorName && p.contractorName.toLowerCase() === (vendorData.companyName || '').toLowerCase()))
-                        .sort((a, b) => new Date(b.createdAt || b.validFromDate || 0) - new Date(a.createdAt || a.validFromDate || 0));
-                }
+                const permitData = await readVendorSiteCollection({ orgId, childName: 'ptwRecords', orgUser });
+                matchedPermits = safeArrWithKeys(permitData)
+                    .filter(p => p.contractorId === firebaseKey || (p.contractorName && p.contractorName.toLowerCase() === (vendorData.companyName || '').toLowerCase()))
+                    .sort((a, b) => new Date(b.createdAt || b.validFromDate || 0) - new Date(a.createdAt || a.validFromDate || 0));
             } catch (error) {
                 console.warn('PTW fetch blocked or unavailable.', error);
             }

@@ -23,6 +23,9 @@ const ROLES = [
     "User"
 ];
 
+const normalizeJoinCode = (value) => value.toUpperCase().trim().replace(/[^A-Z0-9-]/g, '');
+const generateJoinCode = () => `JOIN-${Math.random().toString(36).slice(2, 8).toUpperCase()}-${Date.now().toString(36).slice(-4).toUpperCase()}`;
+
 const safeArr = (val) => {
     if (!val) return [];
     if (Array.isArray(val)) return val;
@@ -39,6 +42,7 @@ export default function Users() {
     const [users, setUsers] = useState([]);
     const [sites, setSites] = useState([]);
     const [permissionRequests, setPermissionRequests] = useState({});
+    const [orgDetails, setOrgDetails] = useState({});
 
     // Modal State
     const [isModalOpen, setIsModalOpen] = useState(false);
@@ -75,7 +79,7 @@ export default function Users() {
 
         const fetchData = async () => {
             try {
-                const data = await readOrgChildren(rtdb, sess.orgId, ['sites', 'users', 'permissionRequests']);
+                const data = await readOrgChildren(rtdb, sess.orgId, ['details', 'sites', 'users', 'permissionRequests']);
 
                 if (data.sites) {
                     setSites(Object.keys(data.sites).map(key => ({
@@ -94,6 +98,7 @@ export default function Users() {
                     setUsers(loadedUsers);
                 }
 
+                setOrgDetails(data.details || {});
                 setPermissionRequests(data.permissionRequests || {});
             } catch (err) {
                 console.error("Error fetching users:", err);
@@ -133,6 +138,39 @@ export default function Users() {
         setIsModalOpen(true);
     };
 
+    const handleGenerateJoinCode = async () => {
+        if (!session?.orgId) return;
+
+        setSaving(true);
+        try {
+            const nextCode = generateJoinCode();
+            const previousCode = normalizeJoinCode(orgDetails.joinCode || '');
+
+            await set(ref(rtdb, `joinRegistry/${nextCode}`), session.orgId);
+            await update(ref(rtdb, `organizations/${session.orgId}/details`), {
+                joinCode: nextCode,
+                joinCodeUpdatedAt: new Date().toISOString(),
+                joinCodeUpdatedBy: session.name || session.email || 'Admin'
+            });
+
+            if (previousCode && previousCode !== nextCode) {
+                await remove(ref(rtdb, `joinRegistry/${previousCode}`));
+            }
+
+            setOrgDetails(prev => ({
+                ...prev,
+                joinCode: nextCode,
+                joinCodeUpdatedAt: new Date().toISOString(),
+                joinCodeUpdatedBy: session.name || session.email || 'Admin'
+            }));
+            alert('A new workspace join code has been generated. Share it only with users who should request access.');
+        } catch (error) {
+            alert(`Failed to generate join code: ${error.message}`);
+        } finally {
+            setSaving(false);
+        }
+    };
+
     const toggleArrayItem = (field, item) => {
         setFormData(prev => {
             const currentArr = prev[field];
@@ -166,7 +204,10 @@ export default function Users() {
 
             // If editing existing user
             if (editingUserId) {
-                await update(ref(rtdb, `organizations/${session.orgId}/users/${editingUserId}`), payload);
+                const isApprovingPending = editingUser?.status === ACCOUNT_STATUS.PENDING && payload.status === ACCOUNT_STATUS.ACTIVE;
+                const savePayload = isApprovingPending ? { ...payload, joinCode: null } : payload;
+
+                await update(ref(rtdb, `organizations/${session.orgId}/users/${editingUserId}`), savePayload);
 
                 const requestUpdates = buildPermissionRequestUpdates({
                     permissionRequests,
@@ -281,6 +322,44 @@ export default function Users() {
 
             <main className="flex-1 overflow-y-auto p-8 custom-scroll relative z-10 w-full">
                 <div className="max-w-7xl mx-auto animate-in fade-in duration-500">
+
+                    <div className="mb-8 rounded-3xl border border-cyan-500/30 bg-cyan-950/20 p-6 shadow-2xl">
+                        <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+                            <div>
+                                <p className="text-[10px] font-bold uppercase tracking-[0.28em] text-cyan-300">Secure New User Onboarding</p>
+                                <h2 className="mt-2 text-2xl font-black text-white">Workspace Join Code</h2>
+                                <p className="mt-2 max-w-3xl text-xs leading-relaxed text-slate-400">
+                                    New users now request access with this code instead of searching by organization name. Rotate it anytime if the code was shared too widely.
+                                </p>
+                            </div>
+                            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                                <div className="rounded-2xl border border-cyan-400/30 bg-slate-950 px-5 py-4 text-center shadow-inner">
+                                    <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Current Code</div>
+                                    <div className="mt-1 font-mono text-lg font-black tracking-[0.22em] text-cyan-300">
+                                        {orgDetails.joinCode || 'NOT GENERATED'}
+                                    </div>
+                                </div>
+                                {orgDetails.joinCode && (
+                                    <button
+                                        type="button"
+                                        onClick={() => navigator.clipboard?.writeText(orgDetails.joinCode)}
+                                        className="rounded-xl border border-slate-700 bg-slate-900 px-4 py-3 text-xs font-bold uppercase tracking-widest text-slate-300 transition hover:border-cyan-400 hover:text-white"
+                                    >
+                                        <i className="fas fa-copy mr-2"></i> Copy
+                                    </button>
+                                )}
+                                <button
+                                    type="button"
+                                    onClick={handleGenerateJoinCode}
+                                    disabled={saving}
+                                    className="rounded-xl bg-cyan-600 px-5 py-3 text-xs font-bold uppercase tracking-widest text-white shadow-lg shadow-cyan-600/20 transition hover:bg-cyan-500 disabled:opacity-50"
+                                >
+                                    <i className={`fas ${saving ? 'fa-spinner fa-spin' : 'fa-key'} mr-2`}></i>
+                                    {orgDetails.joinCode ? 'Rotate Code' : 'Generate Code'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
 
                     {/* OVERVIEW STATS */}
                     <div className="grid grid-cols-1 md:grid-cols-5 gap-6 mb-8">

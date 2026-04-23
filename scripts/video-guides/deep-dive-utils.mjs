@@ -449,6 +449,14 @@ export const clearPdfPreviewOverlay = async (page) => {
   });
 };
 
+export const requireFirebaseApiKey = () => {
+  const apiKey = process.env.VIDEO_FIREBASE_API_KEY || process.env.VITE_FIREBASE_API_KEY || process.env.FIREBASE_API_KEY;
+  if (!apiKey) {
+    throw new Error('VIDEO_FIREBASE_API_KEY, VITE_FIREBASE_API_KEY, or FIREBASE_API_KEY is required for database-token video scripts.');
+  }
+  return apiKey;
+};
+
 export const signInForDatabaseToken = async ({ apiKey, email, password }) => {
   const response = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${apiKey}`, {
     method: 'POST',

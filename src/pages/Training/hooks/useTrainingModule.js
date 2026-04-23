@@ -3,7 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { get, push, ref, remove, update } from 'firebase/database';
 import * as XLSX from 'xlsx';
 import { rtdb } from '../../../config/firebase';
-import { readOrgChildren } from '../../../utils/orgData';
+import { readOrgChild, readOrgChildren } from '../../../utils/orgData';
 import {
     BASE_TOPICS,
     ROLE_REQUIREMENTS,
@@ -486,10 +486,8 @@ export function useTrainingModule() {
     const removeAttendee = (index) => setData((prev) => ({ ...prev, attendees: safeArr(prev.attendees).filter((_, idx) => idx !== index) }));
 
     const refreshTrainings = async (orgId) => {
-        const dbRef = ref(rtdb, `organizations/${orgId}/trainings`);
-        const snap = await get(dbRef);
-        if (snap.exists()) setTrainings(normalizeTrainings(snap.val()));
-        else setTrainings([]);
+        const trainingCollection = await readOrgChild(rtdb, orgId, 'trainings');
+        setTrainings(trainingCollection ? normalizeTrainings(trainingCollection) : []);
     };
 
     const saveData = async () => {

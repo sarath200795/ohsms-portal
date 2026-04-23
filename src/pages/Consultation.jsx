@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { ref, get, update, push, remove } from 'firebase/database';
+import { ref, update, push, remove } from 'firebase/database';
 import { rtdb } from '../config/firebase';
 import * as XLSX from 'xlsx';
-import { readOrgChildren } from '../utils/orgData';
+import { readOrgChild, readOrgChildren } from '../utils/orgData';
 import { hasAccessibleModule } from '../utils/permissions';
 import { canAuthenticateStatus, readStoredSession } from '../utils/session';
 
@@ -389,11 +389,8 @@ export default function Consultation() {
             }
             alert("Record saved successfully!");
 
-            const dbRef = ref(rtdb, `organizations/${session.orgId}/consultations`);
-            const snap = await get(dbRef);
-            if (snap.exists()) {
-                setMeetings(Object.entries(snap.val()).map(([k, v]) => ({ firebaseKey: k, ...v })).sort((a, b) => new Date(b.date) - new Date(a.date)));
-            }
+            const refreshedMeetings = await readOrgChild(rtdb, session.orgId, 'consultations');
+            setMeetings(refreshedMeetings ? Object.entries(refreshedMeetings).map(([k, v]) => ({ firebaseKey: k, ...v })).sort((a, b) => new Date(b.date) - new Date(a.date)) : []);
             setView('list');
         } catch (e) { alert("Save failed: " + e.message); }
         finally { setSaving(false); }

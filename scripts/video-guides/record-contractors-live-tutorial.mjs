@@ -14,6 +14,7 @@ import {
   readSessionObject,
   readSessionStorage,
   renderDelayedAudio,
+  requireFirebaseApiKey,
   resetDirectory,
   restDeletePath,
   restGetJson,
@@ -31,6 +32,7 @@ const email = process.env.VIDEO_EMAIL || '';
 const password = process.env.VIDEO_PASSWORD || '';
 const voice = process.env.VIDEO_NEURAL_VOICE || 'en-US-GuyNeural';
 const voiceRate = process.env.VIDEO_NEURAL_RATE || '-7%';
+const apiKey = requireFirebaseApiKey();
 
 if (!email || !password) {
   throw new Error('VIDEO_EMAIL and VIDEO_PASSWORD are required.');
@@ -257,7 +259,7 @@ if (!session?.orgId) {
 
 const state = {
   authToken: await signInForDatabaseToken({
-    apiKey: 'AIzaSyBHqeQN4s9PA5UUDfLtAajVkoRK2BrRjwk',
+    apiKey,
     email,
     password
   }),

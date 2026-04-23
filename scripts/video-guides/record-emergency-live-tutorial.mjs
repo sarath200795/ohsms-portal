@@ -16,13 +16,17 @@ import {
 const baseUrl = process.env.VIDEO_BASE_URL || 'http://127.0.0.1:4173';
 const email = process.env.VIDEO_EMAIL || '';
 const password = process.env.VIDEO_PASSWORD || '';
-const apiKey = 'AIzaSyBHqeQN4s9PA5UUDfLtAajVkoRK2BrRjwk';
+const apiKey = process.env.VIDEO_FIREBASE_API_KEY || process.env.VITE_FIREBASE_API_KEY || process.env.FIREBASE_API_KEY || '';
 const voice = process.env.VIDEO_NEURAL_VOICE || 'en-US-GuyNeural';
 const voiceRate = process.env.VIDEO_NEURAL_RATE || '-8%';
 const forcedTotalMs = Number(process.env.VIDEO_FINAL_DURATION_MS || 0);
 
 if (!email || !password) {
   throw new Error('VIDEO_EMAIL and VIDEO_PASSWORD are required.');
+}
+
+if (!apiKey) {
+  throw new Error('VIDEO_FIREBASE_API_KEY, VITE_FIREBASE_API_KEY, or FIREBASE_API_KEY is required.');
 }
 
 if (!ffmpegPath) {

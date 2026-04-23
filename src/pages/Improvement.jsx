@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { ref, get, update, push, remove } from 'firebase/database';
+import { ref, update, push, remove } from 'firebase/database';
 import { rtdb } from '../config/firebase';
-import { readOrgChildren } from '../utils/orgData';
+import { readOrgChild, readOrgChildren } from '../utils/orgData';
 import { hasAccessibleModule } from '../utils/permissions';
 import { canAuthenticateStatus, readStoredSession } from '../utils/session';
 
@@ -432,11 +432,8 @@ export default function Improvement() {
                 alert(form.horizontalDeployment ? "Horizontal Proposal Created. CAPAs deployed globally!" : "Proposal Saved! Actions pushed to CAPA Manager.");
             }
 
-            const dbRef = ref(rtdb, `organizations/${session.orgId}/improvements`);
-            const snap = await get(dbRef);
-            if (snap.exists()) {
-                setImprovements(Object.entries(snap.val()).map(([k, v]) => ({ firebaseKey: k, ...v })).sort((a, b) => new Date(b.timestamp || 0) - new Date(a.timestamp || 0)));
-            }
+            const refreshedImprovements = await readOrgChild(rtdb, session.orgId, 'improvements');
+            setImprovements(refreshedImprovements ? Object.entries(refreshedImprovements).map(([k, v]) => ({ firebaseKey: k, ...v })).sort((a, b) => new Date(b.timestamp || 0) - new Date(a.timestamp || 0)) : []);
             setView('list');
         } catch (e) { alert("Save Failed: " + e.message); }
         finally { setSaving(false); }

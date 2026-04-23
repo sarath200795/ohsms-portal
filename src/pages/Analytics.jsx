@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { ref, push, onValue } from 'firebase/database';
+import { equalTo, onValue, orderByChild, push, query, ref } from 'firebase/database';
 import { rtdb } from '../config/firebase';
 import { hasAccessibleModule } from '../utils/permissions';
 import { readStoredSession } from '../utils/session';
@@ -90,12 +90,19 @@ export default function Analytics() {
             markLoaded('sites');
         });
 
-        const unsubscribeIncidents = onValue(ref(rtdb, `organizations/${session.orgId}/incidents`), (snap) => {
+        const scopedCollectionRef = (childName) => {
+            if (isGlobalUser || session.assignedSite === 'GLOBAL') {
+                return ref(rtdb, `organizations/${session.orgId}/${childName}`);
+            }
+            return query(ref(rtdb, `organizations/${session.orgId}/${childName}`), orderByChild('siteId'), equalTo(session.assignedSite || ''));
+        };
+
+        const unsubscribeIncidents = onValue(scopedCollectionRef('incidents'), (snap) => {
             setIncidents(snap.exists() ? Object.values(snap.val()) : []);
             markLoaded('incidents');
         });
 
-        const unsubscribeManHours = onValue(ref(rtdb, `organizations/${session.orgId}/manHours`), (snap) => {
+        const unsubscribeManHours = onValue(scopedCollectionRef('manHours'), (snap) => {
             setManHours(snap.exists() ? Object.values(snap.val()) : []);
             markLoaded('manHours');
         });
@@ -105,7 +112,7 @@ export default function Analytics() {
             unsubscribeIncidents();
             unsubscribeManHours();
         };
-    }, [cleanRole, navigate, session]);
+    }, [cleanRole, isGlobalUser, navigate, session]);
 
     useEffect(() => {
         sessionStorage.setItem('isoCurrentSite', siteFilter === 'All' ? 'GLOBAL' : siteFilter);

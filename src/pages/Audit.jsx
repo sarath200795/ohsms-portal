@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ref, get, push, update, onValue } from 'firebase/database';
+import { equalTo, onValue, orderByChild, push, query, ref, update } from 'firebase/database';
 import { rtdb } from '../config/firebase';
 import { readOrgChildren } from '../utils/orgData';
 import { hasAccessibleModule } from '../utils/permissions';
@@ -31,6 +31,15 @@ const safeArrayParse = (data) => {
             return typeof item === 'object' ? { firebaseKey: key, ...item } : item;
         });
     } catch { return []; }
+};
+
+const GLOBAL_AUDIT_ROLES = ['Global Owner', 'Global Manager', 'Owner', 'Admin'];
+
+const scopedCollectionRef = (session, childName) => {
+    if (GLOBAL_AUDIT_ROLES.includes(session?.role) || session?.assignedSite === 'GLOBAL') {
+        return ref(rtdb, `organizations/${session.orgId}/${childName}`);
+    }
+    return query(ref(rtdb, `organizations/${session.orgId}/${childName}`), orderByChild('siteId'), equalTo(session?.assignedSite || ''));
 };
 
 // ============================================================================
@@ -329,10 +338,10 @@ const AuditorWorkplace = ({ setView, session }) => {
     useEffect(() => {
         const fetchAll = async () => {
             try {
-                const fSnap = await get(ref(rtdb, `organizations/${session.orgId}/auditFindings`));
+                const val = await readOrgChildren(rtdb, session.orgId, ['auditFindings', 'auditPlans']);
                 let findingsList = [];
-                if (fSnap.exists()) {
-                    const rawFindings = safeArrayParse(fSnap.val());
+                if (val.auditFindings) {
+                    const rawFindings = safeArrayParse(val.auditFindings);
                     rawFindings.forEach(v => {
                         if (v.auditor === session.user || session.role === 'Owner') {
                             findingsList.push({ ...(v.taskDetails || {}), status: v.status, findingRecord: v, _key: `${v.taskDetails?.planId}_${v.taskDetails?.area}_${v.taskDetails?.auditee}` });
@@ -340,10 +349,9 @@ const AuditorWorkplace = ({ setView, session }) => {
                     });
                 }
 
-                const pSnap = await get(ref(rtdb, `organizations/${session.orgId}/auditPlans`));
                 let plannedList = [];
-                if (pSnap.exists()) {
-                    const rawPlans = safeArrayParse(pSnap.val());
+                if (val.auditPlans) {
+                    const rawPlans = safeArrayParse(val.auditPlans);
                     rawPlans.forEach(plan => {
                         const matrix = Array.isArray(plan.matrix) ? plan.matrix : [];
                         matrix.forEach(row => {
@@ -1087,21 +1095,15 @@ const AuditReports = ({ setView, session }) => {
     useEffect(() => {
         const load = async () => {
             try {
-                const dbRefFindings = ref(rtdb, `organizations/${session.orgId}/auditFindings`);
-                const dbRefPlans = ref(rtdb, `organizations/${session.orgId}/auditPlans`);
+                const val = await readOrgChildren(rtdb, session.orgId, ['auditFindings', 'auditPlans']);
 
-                const [snapFindings, snapPlans] = await Promise.all([
-                    get(dbRefFindings),
-                    get(dbRefPlans)
-                ]);
-
-                if (snapFindings.exists()) {
-                    const rawData = safeArrayParse(snapFindings.val());
+                if (val.auditFindings) {
+                    const rawData = safeArrayParse(val.auditFindings);
                     rawData.sort((a, b) => new Date(b.auditDate || 0) - new Date(a.auditDate || 0));
                     setReports(rawData);
                 }
-                if (snapPlans.exists()) {
-                    const rawPlans = safeArrayParse(snapPlans.val());
+                if (val.auditPlans) {
+                    const rawPlans = safeArrayParse(val.auditPlans);
                     rawPlans.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
                     setPlans(rawPlans);
                 }
@@ -1408,7 +1410,7 @@ const AuditDashboard = ({ setView, session }) => {
     const [selectedAudit, setSelectedAudit] = useState(null);
 
     useEffect(() => {
-        const dbRef = ref(rtdb, `organizations/${session.orgId}/auditFindings`);
+        const dbRef = scopedCollectionRef(session, 'auditFindings');
 
         const handleData = (snapshot) => {
             if (snapshot.exists()) {
@@ -1429,7 +1431,7 @@ const AuditDashboard = ({ setView, session }) => {
         return () => {
             if (typeof unsubscribe === 'function') unsubscribe();
         };
-    }, [session.orgId]);
+    }, [session]);
 
     const stats = useMemo(() => {
         return {

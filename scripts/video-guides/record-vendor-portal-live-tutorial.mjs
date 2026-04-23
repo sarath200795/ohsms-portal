@@ -14,6 +14,7 @@ import {
   quickFill,
   readSessionObject,
   renderDelayedAudio,
+  requireFirebaseApiKey,
   resetDirectory,
   restGetJson,
   restPatchJson,
@@ -34,6 +35,7 @@ const adminEmail = process.env.VIDEO_EMAIL || '';
 const adminPassword = process.env.VIDEO_PASSWORD || '';
 const voice = process.env.VIDEO_NEURAL_VOICE || 'en-US-GuyNeural';
 const voiceRate = process.env.VIDEO_NEURAL_RATE || '-7%';
+const apiKey = requireFirebaseApiKey();
 
 if (!adminEmail || !adminPassword) {
   throw new Error('VIDEO_EMAIL and VIDEO_PASSWORD are required for cleanup access.');
@@ -211,7 +213,7 @@ if (!session?.orgId) {
 const state = {
   orgId: session.orgId,
   authToken: await signInForDatabaseToken({
-    apiKey: 'AIzaSyBHqeQN4s9PA5UUDfLtAajVkoRK2BrRjwk',
+    apiKey,
     email: adminEmail,
     password: adminPassword
   })

@@ -1,23 +1,49 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { auth, rtdb } from '../config/firebase';
-import { signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut } from 'firebase/auth';
+import { signInWithEmailAndPassword, createUserWithEmailAndPassword, deleteUser, sendPasswordResetEmail, signOut } from 'firebase/auth';
 import { ref, get, set, push } from 'firebase/database';
 import { normalizeSessionPermissions } from '../utils/permissions';
 import { ACCOUNT_STATUS, canAuthenticateStatus, isDeletedStatus, isPendingStatus, writeStoredSession } from '../utils/session';
 
+const FEATURE_HIGHLIGHTS = [
+    { title: 'Incidents + RCA', icon: 'fa-triangle-exclamation', text: 'Smart investigations, 5-Why, fishbone, CAPA, HIRA links, and printable reports.' },
+    { title: 'PTW + LOTO', icon: 'fa-file-shield', text: 'Permit approvals, isolation procedures, tag generation, QR access, and field execution.' },
+    { title: 'Risk + Training', icon: 'fa-shield-halved', text: 'Risk assessments, training matrix, CAPA-driven training needs, and competency records.' },
+    { title: 'Field + Vendor Portals', icon: 'fa-qrcode', text: 'Separate QR-first field workflows and controlled contractor/vendor access.' },
+    { title: 'Inspections + Equipment', icon: 'fa-clipboard-check', text: 'Scheduled inspections, emergency equipment checks, missed inspection tracking, and PDFs.' },
+    { title: 'Analytics + Calendar', icon: 'fa-chart-line', text: 'Activity calendar, site filters, dashboards, CAPA visibility, and management reporting.' }
+];
+
+const normalizeJoinCode = (value) => value.toUpperCase().trim().replace(/[^A-Z0-9-]/g, '');
+const generateJoinCode = () => `JOIN-${Math.random().toString(36).slice(2, 8).toUpperCase()}-${Date.now().toString(36).slice(-4).toUpperCase()}`;
+
 export default function Login() {
     const navigate = useNavigate();
-    const [isRegistering, setIsRegistering] = useState(false);
+    const [authMode, setAuthMode] = useState('login');
     const [loading, setLoading] = useState(false);
 
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
+    const [resetEmail, setResetEmail] = useState('');
 
     const [orgName, setOrgName] = useState('');
+    const [joinCode, setJoinCode] = useState('');
     const [userName, setUserName] = useState('');
     const [regEmail, setRegEmail] = useState('');
     const [regPassword, setRegPassword] = useState('');
+
+    const isRegistering = authMode !== 'login';
+    const isJoinMode = authMode === 'join';
+    const isCreateMode = authMode === 'create';
+
+    const resetRegistrationFields = () => {
+        setRegEmail('');
+        setRegPassword('');
+        setUserName('');
+        setOrgName('');
+        setJoinCode('');
+    };
 
     const handleLogin = async (e) => {
         e.preventDefault();
@@ -78,86 +104,137 @@ export default function Login() {
         }
     };
 
-    const handleRegister = async (e) => {
+    const handleForgotPassword = async () => {
+        const targetEmail = (resetEmail || email).trim().toLowerCase();
+        if (!targetEmail) return alert('Please enter your email address first.');
+
+        setLoading(true);
+        try {
+            await sendPasswordResetEmail(auth, targetEmail);
+            alert('If an account exists for this email, a password reset link has been sent.');
+            setResetEmail('');
+        } catch (error) {
+            if (error.code === 'auth/invalid-email') {
+                alert('Please enter a valid email address.');
+            } else {
+                alert('If an account exists for this email, a password reset link has been sent.');
+            }
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleJoinExistingOrg = async (e) => {
+        e.preventDefault();
+        if (regPassword.length < 6) return alert('Password must be at least 6 characters.');
+        const normalizedJoinCode = normalizeJoinCode(joinCode);
+        if (!normalizedJoinCode) return alert('Please enter the workspace join code provided by your admin.');
+        setLoading(true);
+        let createdUser = null;
+
+        try {
+            const userCredential = await createUserWithEmailAndPassword(auth, regEmail.trim().toLowerCase(), regPassword);
+            const user = userCredential.user;
+            createdUser = user;
+
+            const joinSnap = await get(ref(rtdb, `joinRegistry/${normalizedJoinCode}`));
+            const existingOrgId = joinSnap.val();
+
+            if (!existingOrgId) {
+                await deleteUser(user);
+                return alert('This join code is invalid or has expired. Please ask your Organization Admin to generate a fresh code from User Management.');
+            }
+
+            await set(ref(rtdb, `organizations/${existingOrgId}/users/${user.uid}`), {
+                name: userName.trim(),
+                email: user.email.toLowerCase().trim(),
+                role: 'User',
+                assignedSite: '',
+                accessibleSites: [],
+                accessibleModules: [],
+                status: ACCOUNT_STATUS.PENDING,
+                joinCode: normalizedJoinCode,
+                createdAt: new Date().toISOString()
+            });
+
+            await set(ref(rtdb, `userDirectory/${user.uid}`), { orgId: existingOrgId });
+
+            await signOut(auth);
+            alert('Access request submitted.\n\nYour account is now pending approval. Please ask your Organization Admin to approve your access from User Management.');
+
+            setAuthMode('login');
+            resetRegistrationFields();
+        } catch (error) {
+            if (createdUser) {
+                await deleteUser(createdUser).catch(() => {});
+            }
+            alert(`Join request failed: ${error.message}`);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleCreateWorkspace = async (e) => {
         e.preventDefault();
         if (regPassword.length < 6) return alert('Password must be at least 6 characters.');
         setLoading(true);
 
         try {
-            const userCredential = await createUserWithEmailAndPassword(auth, regEmail, regPassword);
+            const userCredential = await createUserWithEmailAndPassword(auth, regEmail.trim().toLowerCase(), regPassword);
             const user = userCredential.user;
 
-            const safeOrgName = orgName.toLowerCase().trim().replace(/[.#$[\]]/g, '');
-            const orgRegRef = ref(rtdb, `orgRegistry/${safeOrgName}`);
-            const orgRegSnap = await get(orgRegRef);
-            const existingOrgId = orgRegSnap.val();
+            const newOrgRef = push(ref(rtdb, 'organizations'));
+            const orgId = newOrgRef.key;
+            const initialJoinCode = generateJoinCode();
 
-            if (existingOrgId) {
-                await set(ref(rtdb, `organizations/${existingOrgId}/users/${user.uid}`), {
-                    name: userName,
-                    email: user.email.toLowerCase().trim(),
-                    role: 'User',
-                    assignedSite: '',
-                    status: 'Pending',
-                    createdAt: new Date().toISOString()
-                });
-
-                await set(ref(rtdb, `userDirectory/${user.uid}`), { orgId: existingOrgId });
-
-                await signOut(auth);
-                alert(`Registration successful!\n\nThe workspace "${orgName}" already exists. Your account is in the 'Pending' queue.\nPlease ask your Organization Admin to approve you.`);
-
-                setIsRegistering(false);
-                setRegEmail('');
-                setRegPassword('');
-                setUserName('');
-                setOrgName('');
-            } else {
-                const newOrgRef = push(ref(rtdb, 'organizations'));
-                const orgId = newOrgRef.key;
-
-                await set(newOrgRef, {
-                    details: { name: orgName, createdAt: new Date().toISOString(), ownerEmail: user.email },
-                    sites: { 'HQ-01': { code: 'HQ-01', name: 'Headquarters' } },
-                    users: {
-                        [user.uid]: {
-                            name: userName,
-                            email: user.email.toLowerCase().trim(),
-                            role: 'Global Owner',
-                            assignedSite: 'GLOBAL',
-                            accessibleSites: ['GLOBAL'],
-                            status: 'Active',
-                            createdAt: new Date().toISOString()
-                        }
+            await set(newOrgRef, {
+                details: {
+                    name: orgName.trim(),
+                    createdAt: new Date().toISOString(),
+                    ownerEmail: user.email,
+                    joinCode: initialJoinCode,
+                    joinCodeUpdatedAt: new Date().toISOString(),
+                    joinCodeUpdatedBy: user.email
+                },
+                sites: { 'HQ-01': { code: 'HQ-01', name: 'Headquarters' } },
+                users: {
+                    [user.uid]: {
+                        name: userName.trim(),
+                        email: user.email.toLowerCase().trim(),
+                        role: 'Global Owner',
+                        assignedSite: 'GLOBAL',
+                        accessibleSites: ['GLOBAL'],
+                        status: ACCOUNT_STATUS.ACTIVE,
+                        createdAt: new Date().toISOString()
                     }
-                });
+                }
+            });
 
-                await set(ref(rtdb, `orgRegistry/${safeOrgName}`), orgId);
-                await set(ref(rtdb, `userDirectory/${user.uid}`), { orgId });
+            await set(ref(rtdb, `userDirectory/${user.uid}`), { orgId });
+            await set(ref(rtdb, `joinRegistry/${initialJoinCode}`), orgId);
 
-                const sessionData = normalizeSessionPermissions({
-                    uid: user.uid,
-                    email: user.email,
-                    orgId,
-                    name: userName,
-                    role: 'Global Owner',
-                    status: ACCOUNT_STATUS.ACTIVE,
-                    assignedSite: 'GLOBAL',
-                    accessibleSites: ['GLOBAL'],
-                    accessibleModules: [
-                        'Analytics', 'Incidents', 'Risk Assessment', 'Participation',
-                        'Internal Audit', 'CAPA Manager', 'Training', 'Improvement',
-                        'Record Emergency', 'OHS Tools', 'Contractors', 'MOC',
-                        'Inspections', 'Sites', 'Users'
-                    ]
-                });
+            const sessionData = normalizeSessionPermissions({
+                uid: user.uid,
+                email: user.email,
+                orgId,
+                name: userName.trim(),
+                role: 'Global Owner',
+                status: ACCOUNT_STATUS.ACTIVE,
+                assignedSite: 'GLOBAL',
+                accessibleSites: ['GLOBAL'],
+                accessibleModules: [
+                    'Analytics', 'Incidents', 'Risk Assessment', 'Participation',
+                    'Internal Audit', 'CAPA Manager', 'Training', 'Improvement',
+                    'Record Emergency', 'OHS Tools', 'Contractors', 'MOC',
+                    'Inspections', 'Sites', 'Users'
+                ]
+            });
 
-                writeStoredSession(sessionData);
-                alert('Workspace created successfully! You are the Global Owner.');
-                navigate('/dashboard');
-            }
+            writeStoredSession(sessionData);
+            alert('Workspace created successfully! You are the Global Owner.');
+            navigate('/dashboard');
         } catch (error) {
-            alert(`Registration Failed: ${error.message}`);
+            alert(`Workspace creation failed: ${error.message}`);
         } finally {
             setLoading(false);
         }
@@ -186,21 +263,18 @@ export default function Login() {
                         </p>
                     </div>
 
-                    <div className="grid gap-4 md:grid-cols-3">
-                        <div className="command-panel rounded-[1.6rem] p-5">
-                            <p className="legendary-title text-[11px] text-[var(--myth-cyan)]">Incident Control</p>
-                            <h3 className="mt-2 text-3xl text-white">Incidents</h3>
-                            <p className="mt-2 text-sm text-[var(--myth-muted)]">Investigations, CAPA, evidence, and reporting workflows.</p>
-                        </div>
-                        <div className="command-panel rounded-[1.6rem] p-5">
-                            <p className="legendary-title text-[11px] text-[var(--myth-cyan)]">Work Controls</p>
-                            <h3 className="mt-2 text-3xl text-white">PTW + LOTO</h3>
-                            <p className="mt-2 text-sm text-[var(--myth-muted)]">Live work controls, isolations, and field execution.</p>
-                        </div>
-                        <div className="command-panel rounded-[1.6rem] p-5">
-                            <p className="legendary-title text-[11px] text-[var(--myth-cyan)]">Field Access</p>
-                            <h3 className="mt-2 text-3xl text-white">Portal Ops</h3>
-                            <p className="mt-2 text-sm text-[var(--myth-muted)]">Separate field access with QR-driven operational tasks.</p>
+                    <div>
+                        <p className="legendary-title mb-4 text-[11px] text-[var(--myth-cyan)]">Key Platform Features</p>
+                        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                            {FEATURE_HIGHLIGHTS.map((feature) => (
+                                <div key={feature.title} className="command-panel rounded-[1.4rem] p-4">
+                                    <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-xl border border-[var(--myth-border)] bg-black/30 text-[var(--myth-cyan)]">
+                                        <i className={`fas ${feature.icon}`}></i>
+                                    </div>
+                                    <h3 className="text-xl font-black text-white">{feature.title}</h3>
+                                    <p className="mt-2 text-xs leading-relaxed text-[var(--myth-muted)]">{feature.text}</p>
+                                </div>
+                            ))}
                         </div>
                     </div>
                 </section>
@@ -208,18 +282,23 @@ export default function Login() {
                 <section className="command-panel flex flex-col justify-between rounded-[2rem] p-8 lg:p-10">
                     <div>
                         <p className="legendary-title text-[11px] text-[var(--myth-cyan)]">
-                            {isRegistering ? 'Initialize Enterprise Workspace' : 'Enterprise Access'}
+                            {isCreateMode ? 'Initialize Enterprise Workspace' : isJoinMode ? 'Request Existing Org Access' : 'Enterprise Access'}
                         </p>
-                        <h2 className="mt-3 text-5xl text-white">{isRegistering ? 'Deploy a New Workspace' : 'Access the Control Room'}</h2>
+                        <h2 className="mt-3 text-5xl text-white">
+                            {isCreateMode ? 'Deploy a New Workspace' : isJoinMode ? 'Join Your Organization' : 'Access the Control Room'}
+                        </h2>
                         <p className="mt-3 text-sm leading-relaxed text-[var(--myth-muted)]">
-                            {isRegistering
-                                ? 'Create a new workspace or join an existing one as a pending team member.'
+                            {isCreateMode
+                                ? 'Create a brand new enterprise workspace. You will become the Global Owner.'
+                                : isJoinMode
+                                    ? 'Already have a company workspace? Request access and wait for your admin to approve your account.'
                                 : 'Use your enterprise credentials to access the unified safety command environment.'}
                         </p>
 
-                        <div className="mt-8 grid grid-cols-2 gap-3 rounded-[1.25rem] border border-[var(--myth-border)] bg-[rgba(10,8,6,0.82)] p-2">
-                            <button type="button" onClick={() => setIsRegistering(false)} className={`myth-button px-4 py-3 text-sm ${!isRegistering ? 'myth-button-primary' : 'myth-button-secondary'}`}>Sign In</button>
-                            <button type="button" onClick={() => setIsRegistering(true)} className={`myth-button px-4 py-3 text-sm ${isRegistering ? 'myth-button-primary' : 'myth-button-secondary'}`}>Register Org</button>
+                        <div className="mt-8 grid grid-cols-3 gap-3 rounded-[1.25rem] border border-[var(--myth-border)] bg-[rgba(10,8,6,0.82)] p-2">
+                            <button type="button" onClick={() => setAuthMode('login')} className={`myth-button px-3 py-3 text-xs ${authMode === 'login' ? 'myth-button-primary' : 'myth-button-secondary'}`}>Sign In</button>
+                            <button type="button" onClick={() => setAuthMode('join')} className={`myth-button px-3 py-3 text-xs ${isJoinMode ? 'myth-button-primary' : 'myth-button-secondary'}`}>New User</button>
+                            <button type="button" onClick={() => setAuthMode('create')} className={`myth-button px-3 py-3 text-xs ${isCreateMode ? 'myth-button-primary' : 'myth-button-secondary'}`}>New Org</button>
                         </div>
                     </div>
 
@@ -233,16 +312,45 @@ export default function Login() {
                                 <label className="legendary-title mb-2 block text-[11px] text-[var(--myth-cyan)]">Password</label>
                                 <input type="password" required value={password} onChange={(e) => setPassword(e.target.value)} className="w-full rounded-2xl border px-4 py-3.5 text-base outline-none transition" placeholder="Enter your secure password" />
                             </div>
+                            <div className="rounded-2xl border border-[var(--myth-border)] bg-black/20 p-4">
+                                <div className="flex flex-col gap-3 sm:flex-row">
+                                    <input
+                                        type="email"
+                                        value={resetEmail}
+                                        onChange={(e) => setResetEmail(e.target.value)}
+                                        className="w-full rounded-xl border px-4 py-3 text-sm outline-none transition"
+                                        placeholder="Forgot password? Enter email"
+                                    />
+                                    <button type="button" onClick={handleForgotPassword} disabled={loading} className="myth-button myth-button-secondary whitespace-nowrap px-4 py-3 text-xs">
+                                        Send Reset
+                                    </button>
+                                </div>
+                                <p className="mt-2 text-[10px] leading-relaxed text-[var(--myth-muted)]">For security, reset requests show the same confirmation whether or not an account exists.</p>
+                            </div>
                             <button type="submit" disabled={loading} className="myth-button myth-button-primary w-full px-4 py-4 text-sm">
                                 {loading ? 'Authenticating...' : 'Secure Sign In'}
                             </button>
                         </form>
                     ) : (
-                        <form onSubmit={handleRegister} className="mt-8 space-y-4">
+                        <form onSubmit={isJoinMode ? handleJoinExistingOrg : handleCreateWorkspace} className="mt-8 space-y-4">
+                            <div className={`rounded-2xl border p-4 ${isJoinMode ? 'border-cyan-400/30 bg-cyan-950/20' : 'border-orange-400/30 bg-orange-950/20'}`}>
+                                <p className="legendary-title text-[10px] text-[var(--myth-cyan)]">{isJoinMode ? 'Admin Approval Required' : 'Global Owner Setup'}</p>
+                                <p className="mt-2 text-xs leading-relaxed text-[var(--myth-muted)]">
+                                    {isJoinMode
+                                        ? 'This creates a pending user in an existing organization. Access starts only after admin approval.'
+                                        : 'This creates a new organization and assigns you as the first Global Owner.'}
+                                </p>
+                            </div>
                             <div>
-                                <label className="legendary-title mb-2 block text-[11px] text-[var(--myth-cyan)]">Organization Name</label>
-                                <input type="text" required value={orgName} onChange={(e) => setOrgName(e.target.value)} className="w-full rounded-2xl border px-4 py-3 text-sm outline-none transition" placeholder="e.g. Acme Corp" />
-                                <p className="mt-2 text-[11px] text-[var(--myth-muted)]">If the workspace already exists, your account will enter the approval queue.</p>
+                                <label className="legendary-title mb-2 block text-[11px] text-[var(--myth-cyan)]">{isJoinMode ? 'Workspace Join Code' : 'Organization Name'}</label>
+                                {isJoinMode ? (
+                                    <input type="text" required value={joinCode} onChange={(e) => setJoinCode(normalizeJoinCode(e.target.value))} className="w-full rounded-2xl border px-4 py-3 text-sm uppercase tracking-[0.18em] outline-none transition" placeholder="JOIN-ABC123-XYZ9" />
+                                ) : (
+                                    <input type="text" required value={orgName} onChange={(e) => setOrgName(e.target.value)} className="w-full rounded-2xl border px-4 py-3 text-sm outline-none transition" placeholder="e.g. Acme Corp" />
+                                )}
+                                <p className="mt-2 text-[11px] text-[var(--myth-muted)]">
+                                    {isJoinMode ? 'Ask your admin to generate this from User Management. Organization names are no longer searchable from the login page.' : 'Choose a workspace name for your company. The secure join code is generated after setup.'}
+                                </p>
                             </div>
                             <div>
                                 <label className="legendary-title mb-2 block text-[11px] text-[var(--myth-cyan)]">Your Full Name</label>
@@ -257,7 +365,7 @@ export default function Login() {
                                 <input type="password" required value={regPassword} onChange={(e) => setRegPassword(e.target.value)} className="w-full rounded-2xl border px-4 py-3 text-sm outline-none transition" placeholder="Minimum 6 characters" />
                             </div>
                             <button type="submit" disabled={loading} className="myth-button myth-button-cyan mt-3 w-full px-4 py-4 text-sm">
-                                {loading ? 'Processing...' : 'Register & Initialize'}
+                                {loading ? 'Processing...' : isJoinMode ? 'Submit Access Request' : 'Create Workspace'}
                             </button>
                         </form>
                     )}

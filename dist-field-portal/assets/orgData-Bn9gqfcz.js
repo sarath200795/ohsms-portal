@@ -1,1 +1,0 @@
-import{i as e,t}from"./vendor-firebase-x27JmDPk.js";const n=async(n,r,i)=>{let a=await t(e(n,`organizations/${r}/${i}`));return a.exists()?a.val():null},r=async(e,t,r=[])=>{let i=[...new Set(r.filter(Boolean))],a=await Promise.all(i.map(async r=>[r,await n(e,t,r)]));return Object.fromEntries(a)};export{r as t};

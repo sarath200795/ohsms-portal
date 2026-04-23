@@ -30,6 +30,26 @@ const sensitiveCollections = [
     'illnessRecords'
 ];
 
+const siteScopedCollections = [
+    'riskAssessments',
+    'incidents',
+    'consultations',
+    'auditPlans',
+    'auditFindings',
+    'improvements',
+    'ptwRecords',
+    'mockDrills',
+    'emergencyEquipment',
+    'inspectionTemplates',
+    'inspectionRecords',
+    'trainings',
+    'manHours',
+    'healthCases',
+    'healthSurveillance',
+    'vaccinationRecords',
+    'illnessRecords'
+];
+
 const activeOnlyWrite =
     "auth != null && root.child('userDirectory/' + auth.uid + '/orgId').val() === $orgId && root.child('organizations/' + $orgId + '/users/' + auth.uid + '/status').val() === 'Active'";
 
@@ -67,6 +87,27 @@ test('sensitive organization collections have explicit scoped collection reads',
     }
 });
 
+test('self-service org-name registry is not enumerable from the client', () => {
+    assert.equal(rules.orgRegistry.$orgName['.read'], false, 'orgRegistry must not expose workspace names');
+    assert.equal(rules.orgRegistry.$orgName['.write'], false, 'orgRegistry should no longer be client-writable');
+});
+
+test('new-user join requests require an admin-issued join code', () => {
+    assert.ok(rules.joinRegistry.$joinCode, 'joinRegistry rules must exist');
+    assert.match(rules.joinRegistry.$joinCode['.read'], /!root\.child\('userDirectory\/' \+ auth\.uid\)\.exists\(\)/, 'join code reads should only be available before an account is mapped to an org');
+    assert.match(orgRules.users.$uid['.write'], /joinCode/, 'pending user creation must include a join code');
+    assert.match(orgRules.users.$uid['.write'], /joinRegistry/, 'pending user creation must validate the join code registry mapping');
+});
+
+test('site-owned collections require site-scoped queries for non-global users', () => {
+    for (const collection of siteScopedCollections) {
+        const readRule = orgRules[collection]?.['.read'];
+        assert.match(readRule, /query\.orderByChild === 'siteId'/, `${collection} must require a siteId query for non-global reads`);
+        assert.match(readRule, /query\.equalTo/, `${collection} must bind non-global reads to a site value`);
+        assert.deepEqual(orgRules[collection]?.['.indexOn'], ['siteId'], `${collection} must index siteId for scoped reads`);
+    }
+});
+
 test('public QR flows read only explicit single-record QR resources', () => {
     assert.match(orgRules.ptwRecords.$id['.read'], /publicQrEnabled/, 'PTW QR reads must be limited to public QR records');
     assert.match(orgRules.lotoProcedures.$id['.read'], /publicQrEnabled/, 'LOTO QR reads must be limited to public QR records');
@@ -82,4 +123,13 @@ test('application code no longer opens organization-root realtime database reads
         .map(([filePath]) => filePath);
 
     assert.deepEqual(offenders, [], `organization-root ref reads/listeners found in: ${offenders.join(', ')}`);
+});
+
+test('video automation scripts do not embed Firebase API keys', () => {
+    const offenders = listSourceFiles('scripts')
+        .map((filePath) => [filePath, readFileSync(filePath, 'utf8')])
+        .filter(([, source]) => /AIzaSy[A-Za-z0-9_-]+/.test(source))
+        .map(([filePath]) => filePath);
+
+    assert.deepEqual(offenders, [], `hardcoded Firebase API keys found in: ${offenders.join(', ')}`);
 });

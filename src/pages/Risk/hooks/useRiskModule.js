@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { get, push, ref, remove, update } from 'firebase/database';
+import { push, ref, remove, update } from 'firebase/database';
 import * as XLSX from 'xlsx';
 import { rtdb } from '../../../config/firebase';
-import { readOrgChildren } from '../../../utils/orgData';
+import { readOrgChild, readOrgChildren } from '../../../utils/orgData';
 import {
     CHANGE_SOURCES,
     HAZARD_CATS,
@@ -214,10 +214,8 @@ export function useRiskModule() {
     }, [filteredRepo]);
 
     const refreshRiskAssessments = async (orgId) => {
-        const dbRef = ref(rtdb, `organizations/${orgId}/riskAssessments`);
-        const snap = await get(dbRef);
-        if (snap.exists()) setRepo(normalizeRiskAssessments(snap.val()));
-        else setRepo([]);
+        const riskAssessments = await readOrgChild(rtdb, orgId, 'riskAssessments');
+        setRepo(riskAssessments ? normalizeRiskAssessments(riskAssessments) : []);
     };
 
     const openNewForm = () => {

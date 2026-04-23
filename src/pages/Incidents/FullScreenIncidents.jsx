@@ -1,11 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { get, push, ref, remove, update } from 'firebase/database';
+import { push, ref, remove, update } from 'firebase/database';
 import * as XLSX from 'xlsx';
 import { rtdb } from '../../config/firebase';
 import { getPortalAwareHomePath } from '../FieldApp/portalAuth';
 import { buildEditableIncidentData, buildPrintableIncidentData } from '../../utils/incidents';
-import { readOrgChildren } from '../../utils/orgData';
+import { readOrgChild, readOrgChildren } from '../../utils/orgData';
 import { hasAccessibleModule } from '../../utils/permissions';
 import { canAuthenticateStatus, readStoredSession } from '../../utils/session';
 import IncidentBuilder from './components/IncidentBuilder';
@@ -858,13 +858,8 @@ export default function Incidents() {
                 alert(data.horizontalDeployment ? 'Horizontal Deployment Active. CAPAs deployed globally!' : 'Incident Saved Successfully!');
             }
 
-            const dbRef = ref(rtdb, `organizations/${session.orgId}/incidents`);
-            const snap = await get(dbRef);
-            if (snap.exists()) {
-                setIncidentsList(Object.entries(snap.val()).map(([k, v]) => ({ firebaseKey: k, ...v })));
-            } else {
-                setIncidentsList([]);
-            }
+            const refreshedIncidents = await readOrgChild(rtdb, session.orgId, 'incidents');
+            setIncidentsList(refreshedIncidents ? Object.entries(refreshedIncidents).map(([k, v]) => ({ firebaseKey: k, ...v })) : []);
             setView('repo');
         } catch (e) {
             alert(`Save failed: ${e.message}`);
