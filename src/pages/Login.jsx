@@ -346,7 +346,7 @@ export default function Login() {
                         </p>
                     </div>
 
-                    <div className="mt-5 grid grid-cols-2 gap-2 lg:grid-cols-4">
+                    <div className="mt-4 grid grid-cols-2 gap-2 lg:grid-cols-4">
                         {UNIQUE_FEATURES.map((feature) => (
                             <div key={feature.label} className="rounded-xl border border-[var(--myth-border)] bg-black/25 p-3 shadow-inner">
                                 <p className="legendary-title text-[9px] text-[var(--myth-cyan)]">{feature.label}</p>
@@ -355,45 +355,38 @@ export default function Login() {
                         ))}
                     </div>
 
-                    <div className="mt-5">
-                        <p className="legendary-title mb-3 text-[10px] text-[var(--myth-cyan)]">Unique Platform Features</p>
-                        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                            {FEATURE_HIGHLIGHTS.slice(0, 4).map((feature) => (
-                                <div key={feature.title} className="command-panel rounded-2xl p-3">
-                                    <div className="mb-2 flex h-8 w-8 items-center justify-center rounded-lg border border-[var(--myth-border)] bg-black/30 text-[var(--myth-cyan)]">
-                                        <i className={`fas ${feature.icon}`}></i>
-                                    </div>
-                                    <h3 className="text-lg font-black text-white">{feature.title}</h3>
-                                    <p className="mt-1 text-[11px] leading-snug text-[var(--myth-muted)]">{feature.text}</p>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-
-                    <div className="mt-5">
-                        <div className="mb-3 flex flex-col justify-between gap-2 sm:flex-row sm:items-end">
-                            <div>
-                                <p className="legendary-title text-[10px] text-[var(--myth-cyan)]">Module Capability Map</p>
-                                <h2 className="mt-1 text-2xl text-white">Connected EHS operations</h2>
+                    <div className="mt-4 grid gap-3 xl:grid-cols-[0.82fr_1.18fr]">
+                        <div className="rounded-2xl border border-[var(--myth-border)] bg-black/20 p-3">
+                            <p className="legendary-title mb-2 text-[10px] text-[var(--myth-cyan)]">Core Strengths</p>
+                            <div className="flex flex-wrap gap-2">
+                                {FEATURE_HIGHLIGHTS.map((feature) => (
+                                    <span key={feature.title} className="inline-flex items-center gap-2 rounded-full border border-[var(--myth-border)] bg-black/25 px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--myth-muted)]">
+                                        <i className={`fas ${feature.icon} text-[var(--myth-cyan)]`}></i>
+                                        {feature.title}
+                                    </span>
+                                ))}
                             </div>
-                            <p className="max-w-sm text-[11px] leading-snug text-[var(--myth-muted)]">
-                                Each module is connected so records, CAPA, training, QR access, and reports work as one system.
-                            </p>
                         </div>
-                        <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
-                            {MODULE_DETAILS.slice(0, 8).map((module) => (
-                                <div key={module.title} className="rounded-xl border border-[var(--myth-border)] bg-[rgba(8,10,12,0.72)] p-3 transition hover:-translate-y-0.5 hover:border-[var(--myth-cyan)]/60 hover:bg-black/35">
-                                    <div className="flex items-start gap-2">
-                                        <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg border border-[var(--myth-border)] bg-black/30 text-[var(--myth-cyan)]">
-                                            <i className={`fas ${module.icon}`}></i>
-                                        </div>
-                                        <div>
-                                            <h3 className="text-sm font-black text-white">{module.title}</h3>
-                                            <p className="mt-0.5 text-[9px] font-black uppercase tracking-[0.16em] text-[var(--myth-cyan)]">{module.tag}</p>
+                        <div className="rounded-2xl border border-[var(--myth-border)] bg-black/20 p-3">
+                            <div className="mb-2 flex items-center justify-between gap-3">
+                                <p className="legendary-title text-[10px] text-[var(--myth-cyan)]">Key Modules</p>
+                                <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-[var(--myth-muted)]">Connected EHS</span>
+                            </div>
+                            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                                {MODULE_DETAILS.slice(0, 6).map((module) => (
+                                    <div key={module.title} className="rounded-xl border border-[var(--myth-border)] bg-[rgba(8,10,12,0.72)] p-2.5">
+                                        <div className="flex items-center gap-2">
+                                            <span className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg border border-[var(--myth-border)] bg-black/30 text-[var(--myth-cyan)]">
+                                                <i className={`fas ${module.icon}`}></i>
+                                            </span>
+                                            <div className="min-w-0">
+                                                <h3 className="truncate text-xs font-black text-white">{module.title}</h3>
+                                                <p className="truncate text-[8px] font-black uppercase tracking-[0.14em] text-[var(--myth-cyan)]">{module.tag}</p>
+                                            </div>
                                         </div>
                                     </div>
-                                </div>
-                            ))}
+                                ))}
+                            </div>
                         </div>
                     </div>
                 </section>

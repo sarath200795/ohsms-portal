@@ -2,7 +2,7 @@ import { initializeApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
 import { getDatabase } from "firebase/database";
 
-const firebaseConfig = {
+export const firebaseConfig = {
   apiKey: "AIzaSyBHqeQN4s9PA5UUDfLtAajVkoRK2BrRjwk",
   authDomain: "ohsms-3894f.firebaseapp.com",
   databaseURL: "https://ohsms-3894f-default-rtdb.firebaseio.com/", 
@@ -13,7 +13,7 @@ const firebaseConfig = {
 };
 
 // Initialize Firebase
-const app = initializeApp(firebaseConfig);
+export const app = initializeApp(firebaseConfig);
 
 // Initialize Authentication 
 export const auth = getAuth(app);

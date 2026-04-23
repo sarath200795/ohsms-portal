@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { deleteApp, getApps, initializeApp } from 'firebase/app';
+import { createUserWithEmailAndPassword, deleteUser, getAuth, signOut } from 'firebase/auth';
 import { ref, get, set, update, remove, push } from 'firebase/database';
-import { auth, rtdb } from '../config/firebase';
+import { auth, firebaseConfig, rtdb } from '../config/firebase';
 import { readOrgChildren } from '../utils/orgData';
 import { toCanonicalModuleIds, USER_ASSIGNABLE_MODULES } from '../utils/permissions';
 import { ACCOUNT_STATUS, readStoredSession, writeStoredSession } from '../utils/session';
@@ -9,7 +11,6 @@ import {
     buildPermissionRequestUpdates,
     buildUserAccessAuditEntry,
     normalizeUserAccessPayload,
-    toUserRecordKey,
     validateUserAccessPayload
 } from '../utils/userAccess';
 
@@ -25,6 +26,7 @@ const ROLES = [
 ];
 
 const GLOBAL_ADMIN_ROLES = ['Global Owner', 'Global Manager', 'Owner', 'Admin'];
+const PROVISIONING_APP_NAME = 'ohsms-user-provisioning';
 
 const normalizeJoinCode = (value) => value.toUpperCase().trim().replace(/[^A-Z0-9-]/g, '');
 const generateJoinCode = () => `JOIN-${Math.random().toString(36).slice(2, 8).toUpperCase()}-${Date.now().toString(36).slice(-4).toUpperCase()}`;
@@ -34,6 +36,27 @@ const safeArr = (val) => {
     if (Array.isArray(val)) return val;
     if (typeof val === 'object') return Object.values(val);
     return [];
+};
+
+const generateTemporaryPassword = () => {
+    const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
+    const bytes = new Uint8Array(10);
+    if (globalThis.crypto?.getRandomValues) {
+        globalThis.crypto.getRandomValues(bytes);
+    } else {
+        bytes.forEach((_, index) => {
+            bytes[index] = Math.floor(Math.random() * 256);
+        });
+    }
+
+    const body = Array.from(bytes, (byte) => alphabet[byte % alphabet.length]).join('');
+    return `WE-${body}!7a`;
+};
+
+const getProvisioningAuth = () => {
+    const existingApp = getApps().find((firebaseApp) => firebaseApp.name === PROVISIONING_APP_NAME);
+    const provisioningApp = existingApp || initializeApp(firebaseConfig, PROVISIONING_APP_NAME);
+    return getAuth(provisioningApp);
 };
 
 const ensureCurrentAdminDirectory = async (sess) => {
@@ -89,6 +112,7 @@ export default function Users() {
     const [sites, setSites] = useState([]);
     const [permissionRequests, setPermissionRequests] = useState({});
     const [orgDetails, setOrgDetails] = useState({});
+    const [provisionedCredential, setProvisionedCredential] = useState(null);
 
     // Modal State
     const [isModalOpen, setIsModalOpen] = useState(false);
@@ -193,23 +217,25 @@ export default function Users() {
         try {
             const nextCode = generateJoinCode();
             const previousCode = normalizeJoinCode(orgDetails.joinCode || '');
+            const updatedAt = new Date().toISOString();
+            const updatedBy = session.name || session.email || 'Admin';
 
-            await set(ref(rtdb, `joinRegistry/${nextCode}`), session.orgId);
-            await update(ref(rtdb, `organizations/${session.orgId}/details`), {
-                joinCode: nextCode,
-                joinCodeUpdatedAt: new Date().toISOString(),
-                joinCodeUpdatedBy: session.name || session.email || 'Admin'
-            });
-
+            const updates = {
+                [`joinRegistry/${nextCode}`]: session.orgId,
+                [`organizations/${session.orgId}/details/joinCode`]: nextCode,
+                [`organizations/${session.orgId}/details/joinCodeUpdatedAt`]: updatedAt,
+                [`organizations/${session.orgId}/details/joinCodeUpdatedBy`]: updatedBy
+            };
             if (previousCode && previousCode !== nextCode) {
-                await remove(ref(rtdb, `joinRegistry/${previousCode}`));
+                updates[`joinRegistry/${previousCode}`] = null;
             }
+            await update(ref(rtdb), updates);
 
             setOrgDetails(prev => ({
                 ...prev,
                 joinCode: nextCode,
-                joinCodeUpdatedAt: new Date().toISOString(),
-                joinCodeUpdatedBy: session.name || session.email || 'Admin'
+                joinCodeUpdatedAt: updatedAt,
+                joinCodeUpdatedBy: updatedBy
             }));
             alert('A new workspace join code has been generated. Share it only with users who should request access.');
         } catch (error) {
@@ -307,30 +333,63 @@ export default function Users() {
                 setUsers(prev => prev.map(u => u.id === editingUserId ? { ...payload, id: editingUserId } : u));
                 alert("User permissions updated successfully!");
             } else {
-                // For new users, use a Realtime Database-safe key derived from the email.
-                const safeEmailKey = toUserRecordKey(payload.email);
-
-                // Check if exists
-                const userRef = ref(rtdb, `organizations/${session.orgId}/users/${safeEmailKey}`);
-                const existing = await get(userRef);
-
-                if (existing.exists()) {
+                const existingOrgUser = users.find((user) => String(user.email || '').toLowerCase() === payload.email);
+                if (existingOrgUser) {
                     setSaving(false);
                     return alert("A user with this email already exists in this organization.");
                 }
 
-                await set(userRef, { ...payload, createdAt: new Date().toISOString() });
+                const temporaryPassword = generateTemporaryPassword();
+                const provisioningAuth = getProvisioningAuth();
+                let createdAuthUser = null;
+
+                try {
+                    const newUserCredential = await createUserWithEmailAndPassword(provisioningAuth, payload.email, temporaryPassword);
+                    createdAuthUser = newUserCredential.user;
+
+                    const newUserPayload = {
+                        ...payload,
+                        mustChangePassword: true,
+                        temporaryPasswordIssued: true,
+                        temporaryPasswordIssuedAt: new Date().toISOString(),
+                        provisionedBy: session.name || session.email || 'Admin',
+                        createdAt: new Date().toISOString()
+                    };
+
+                    await set(ref(rtdb, `organizations/${session.orgId}/users/${createdAuthUser.uid}`), newUserPayload);
+                    await set(ref(rtdb, `userDirectory/${createdAuthUser.uid}`), { orgId: session.orgId });
+
+                    setUsers(prev => [...prev, { ...newUserPayload, id: createdAuthUser.uid }]);
+                    setProvisionedCredential({
+                        name: payload.name,
+                        email: payload.email,
+                        password: temporaryPassword
+                    });
+                } catch (provisionError) {
+                    if (createdAuthUser) {
+                        await remove(ref(rtdb, `organizations/${session.orgId}/users/${createdAuthUser.uid}`)).catch(() => {});
+                        await remove(ref(rtdb, `userDirectory/${createdAuthUser.uid}`)).catch(() => {});
+                        await deleteUser(createdAuthUser).catch(() => {});
+                    }
+                    if (provisionError.code === 'auth/email-already-in-use') {
+                        throw new Error('This email already has a Firebase login. Ask the user to use the existing organization registration flow or reset their password.');
+                    }
+                    throw provisionError;
+                } finally {
+                    await signOut(provisioningAuth).catch(() => {});
+                    await deleteApp(provisioningAuth.app).catch(() => {});
+                }
+
                 await writeAccessAuditLog(
                     buildUserAccessAuditEntry({
                         actorSession: session,
                         beforeUser: null,
                         afterUser: payload,
-                        targetUserId: safeEmailKey,
-                        action: 'user-created'
+                        targetUserId: createdAuthUser.uid,
+                        action: 'user-provisioned'
                     })
                 );
-                setUsers(prev => [...prev, { ...payload, id: safeEmailKey }]);
-                alert("New user added successfully! Note: They must sign up with this exact email to authenticate via Firebase.");
+                alert(`New user login created successfully.\n\nTemporary password for ${payload.email}:\n${temporaryPassword}\n\nAsk the user to sign in and change it immediately.`);
             }
             setIsModalOpen(false);
         } catch (error) {
@@ -422,6 +481,43 @@ export default function Users() {
                             </div>
                         </div>
                     </div>
+
+                    {provisionedCredential && (
+                        <div className="mb-8 rounded-3xl border border-emerald-500/30 bg-emerald-950/20 p-6 shadow-2xl">
+                            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                                <div>
+                                    <p className="text-[10px] font-bold uppercase tracking-[0.28em] text-emerald-300">Temporary Login Created</p>
+                                    <h2 className="mt-2 text-2xl font-black text-white">{provisionedCredential.name}</h2>
+                                    <p className="mt-1 text-xs text-slate-400">{provisionedCredential.email}</p>
+                                    <p className="mt-2 max-w-2xl text-xs leading-relaxed text-slate-400">
+                                        Share this password securely. It is shown only now, and the user should change it immediately after first sign-in.
+                                    </p>
+                                </div>
+                                <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                                    <div className="rounded-2xl border border-emerald-400/30 bg-slate-950 px-5 py-4 text-center shadow-inner">
+                                        <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Temporary Password</div>
+                                        <div className="mt-1 font-mono text-lg font-black tracking-[0.12em] text-emerald-300">
+                                            {provisionedCredential.password}
+                                        </div>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => navigator.clipboard?.writeText(provisionedCredential.password)}
+                                        className="rounded-xl border border-slate-700 bg-slate-900 px-4 py-3 text-xs font-bold uppercase tracking-widest text-slate-300 transition hover:border-emerald-400 hover:text-white"
+                                    >
+                                        <i className="fas fa-copy mr-2"></i> Copy
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setProvisionedCredential(null)}
+                                        className="rounded-xl border border-slate-700 bg-slate-900 px-4 py-3 text-xs font-bold uppercase tracking-widest text-slate-400 transition hover:border-slate-500 hover:text-white"
+                                    >
+                                        Dismiss
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
 
                     {/* OVERVIEW STATS */}
                     <div className="grid grid-cols-1 md:grid-cols-5 gap-6 mb-8">
