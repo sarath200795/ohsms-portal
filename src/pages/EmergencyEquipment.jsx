@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { ref, get, push, update, remove } from 'firebase/database';
 import { rtdb } from '../config/firebase';
@@ -253,10 +253,10 @@ export default function EmergencyEquipment() {
     const [inspectData, setInspectData] = useState(null);
     const [printTagData, setPrintTagData] = useState(null);
     const isFieldQrMode = useMemo(() => new URLSearchParams(location.search).get('fieldQr') === '1', [location.search]);
-    const buildModulePath = (siteCode) => {
+    const buildModulePath = useCallback((siteCode) => {
         const targetSite = siteCode || siteFilter || 'All';
         return `/emergency-equipment?site=${encodeURIComponent(targetSite)}`;
-    };
+    }, [siteFilter]);
 
     useEffect(() => {
         const params = new URLSearchParams(location.search);
@@ -331,7 +331,7 @@ export default function EmergencyEquipment() {
             } catch (err) { console.error(err); } finally { setLoading(false); }
         };
         fetchData();
-    }, [navigate, location.search]);
+    }, [buildModulePath, navigate, location.search]);
 
     useEffect(() => {
         if (formData.type === 'Fire Extinguisher' && formData.extinguisherType) {
@@ -481,6 +481,7 @@ export default function EmergencyEquipment() {
             const payload = {
                 ...formData,
                 assetId: finalAssetId,
+                publicQrEnabled: true,
                 nextInspection: addDaysToDate(formData.lastInspection, INSPECTION_INTERVAL_DAYS),
                 updatedBy: session.name || session.email,
                 lastUpdated: new Date().toISOString()
@@ -657,6 +658,7 @@ export default function EmergencyEquipment() {
                         extinguisherType: extType, lastRefillDate: lastRefill, nextRefillDate: nextRefill,
                         lastHptDate: lastHpt, nextHptDate: nextHpt,
                         notes: row[notesCol] || 'Imported via Bulk Upload',
+                        publicQrEnabled: true,
                         updatedBy: session.name || session.email,
                         lastUpdated: new Date().toISOString()
                     };

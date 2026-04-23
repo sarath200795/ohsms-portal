@@ -1,4 +1,4 @@
-import { hasAccessibleModule } from '../../utils/permissions';
+import { hasAccessibleModule } from '../../utils/permissions.js';
 
 export const FIELD_MODULES = [
     {

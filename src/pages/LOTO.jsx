@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { ref, get, update, push } from 'firebase/database';
 import { rtdb } from '../config/firebase';
@@ -178,7 +178,9 @@ export default function Loto() {
         sessionStorage.setItem('isoCurrentSite', val === 'All' ? 'GLOBAL' : val);
     };
 
-    const canViewRecord = (siteId) => isPublic || isGlobalUser || siteId === 'Global' || siteId === 'GLOBAL' || allowedSiteCodes.has(siteId);
+    const canViewRecord = useCallback((siteId) => (
+        isPublic || isGlobalUser || siteId === 'Global' || siteId === 'GLOBAL' || allowedSiteCodes.has(siteId)
+    ), [allowedSiteCodes, isGlobalUser, isPublic]);
 
     const canEditForm = useMemo(() => {
         if (!permissions.canEditCreate || isPublic) return false;
@@ -263,7 +265,7 @@ export default function Loto() {
     const saveProcedure = async () => {
         if (!canEditForm || !procForm.facility || !procForm.description || procForm.steps.length === 0) return alert("Validation failed.");
         try {
-            const payload = { ...procForm, lastUpdated: new Date().toISOString() };
+            const payload = { ...procForm, publicQrEnabled: procForm.status === 'Approved', lastUpdated: new Date().toISOString() };
             if (procForm.firebaseKey) { await update(ref(rtdb, `organizations/${session.orgId}/lotoProcedures/${procForm.firebaseKey}`), payload); setProcedures(procedures.map(p => p.firebaseKey === procForm.firebaseKey ? payload : p)); }
             else { const newRef = push(ref(rtdb, `organizations/${session.orgId}/lotoProcedures`)); await update(newRef, payload); payload.firebaseKey = newRef.key; setProcedures([payload, ...procedures]); }
             alert("Saved successfully!"); setCurrentView('inventory');
@@ -273,7 +275,7 @@ export default function Loto() {
     const approveProcedure = async (proc) => {
         if (!window.confirm(`Approve ${proc.id} for field use?`)) return;
         try {
-            const payload = { ...proc, status: 'Approved', approvedBy: session.name || session.user, date: new Date().toISOString().split('T')[0] };
+            const payload = { ...proc, status: 'Approved', publicQrEnabled: true, approvedBy: session.name || session.user, date: new Date().toISOString().split('T')[0] };
             await update(ref(rtdb, `organizations/${session.orgId}/lotoProcedures/${proc.firebaseKey}`), payload);
             setProcedures(procedures.map(p => p.firebaseKey === proc.firebaseKey ? payload : p));
         } catch { alert("Approval failed."); }
@@ -343,7 +345,7 @@ export default function Loto() {
         });
 
         const currentlyLocked = globalLiveMap[proc.firebaseKey] && globalLiveMap[proc.firebaseKey].has(step.tag);
-        const logEntry = { timestamp: new Date().toISOString(), procId: proc.firebaseKey, procRef: proc.id, equipment: proc.description, stepTag: step.tag, energy: step.type, action: currentlyLocked ? 'LOCK REMOVED' : 'LOCK APPLIED', user: session.name || session.user || session.email };
+        const logEntry = { timestamp: new Date().toISOString(), procId: proc.firebaseKey, procRef: proc.id, facility: proc.facility, equipment: proc.description, stepTag: step.tag, energy: step.type, action: currentlyLocked ? 'LOCK REMOVED' : 'LOCK APPLIED', user: session.name || session.user || session.email };
         try { const newRef = push(ref(rtdb, `organizations/${session.orgId}/lotoLogs`)); await update(newRef, logEntry); logEntry.firebaseKey = newRef.key; setLogs([logEntry, ...logs]); }
         catch { alert("Network error logging lock."); }
     };

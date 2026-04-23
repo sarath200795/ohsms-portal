@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { initializeApp, getApps } from 'firebase/app';
 import {
     browserSessionPersistence,
@@ -89,6 +89,14 @@ const createWorkerForm = (worker = {}) => ({
     phone: worker.phone || ''
 });
 
+const buildVendorState = (firebaseKey, vendorData) => ({
+    ...vendorData,
+    firebaseKey,
+    allocatedSites: safeArr(vendorData.allocatedSites),
+    documents: safeArr(vendorData.documents),
+    workers: safeArr(vendorData.workers).map(w => ({ ...w, additionalDocs: safeArr(w.additionalDocs) }))
+});
+
 export default function VendorPortal() {
     const [loading, setLoading] = useState(true);
     const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -103,7 +111,7 @@ export default function VendorPortal() {
     const [savingWorker, setSavingWorker] = useState(false);
     const manualLoginRef = useRef(false);
 
-    const resetPortalState = (clearForm = false) => {
+    const resetPortalState = useCallback((clearForm = false) => {
         setIsAuthenticated(false);
         setVendor(null);
         setVendorIncidents([]);
@@ -114,17 +122,9 @@ export default function VendorPortal() {
         if (clearForm) {
             setLoginData({ email: '', vendorCode: '' });
         }
-    };
+    }, []);
 
-    const buildVendorState = (firebaseKey, vendorData) => ({
-        ...vendorData,
-        firebaseKey,
-        allocatedSites: safeArr(vendorData.allocatedSites),
-        documents: safeArr(vendorData.documents),
-        workers: safeArr(vendorData.workers).map(w => ({ ...w, additionalDocs: safeArr(w.additionalDocs) }))
-    });
-
-    const fetchVendorData = async ({ user, vendorCode = '', expectedOrgId = '', showAlerts = true }) => {
+    const fetchVendorData = useCallback(async ({ user, vendorCode = '', expectedOrgId = '', showAlerts = true }) => {
         setLoading(true);
 
         try {
@@ -237,7 +237,7 @@ export default function VendorPortal() {
         } finally {
             setLoading(false);
         }
-    };
+    }, [resetPortalState]);
 
     useEffect(() => {
         let cancelled = false;
@@ -291,7 +291,7 @@ export default function VendorPortal() {
             cancelled = true;
             unsubscribe();
         };
-    }, []);
+    }, [fetchVendorData, resetPortalState]);
 
     const handleLogin = async (e) => {
         e.preventDefault();

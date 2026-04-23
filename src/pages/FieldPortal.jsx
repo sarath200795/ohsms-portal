@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
     browserSessionPersistence,
     onAuthStateChanged,
@@ -70,7 +70,7 @@ export default function FieldPortal() {
         }
     };
 
-    const finalizePortalContext = ({ sessionData, orgSites, showAlert = false }) => {
+    const finalizePortalContext = useCallback(({ sessionData, orgSites, showAlert = false }) => {
         const allowedSites = getVisibleSites(orgSites, sessionData);
         const resolvedSite = resolveInitialSite({ search: location.search, session: sessionData, visibleSites: allowedSites });
         const redirectPath = new URLSearchParams(location.search).get('redirect');
@@ -97,7 +97,7 @@ export default function FieldPortal() {
                 action: () => navigate(redirectPath, { replace: true })
             });
         }
-    };
+    }, [location.search, navigate, playTransition]);
 
     useEffect(() => {
         let cancelled = false;
@@ -154,7 +154,7 @@ export default function FieldPortal() {
             cancelled = true;
             unsubscribe();
         };
-    }, [location.search]);
+    }, [finalizePortalContext, location.search]);
 
     const handleLogin = async (event) => {
         event.preventDefault();

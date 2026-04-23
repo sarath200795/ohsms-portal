@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { ref, onValue, update, push, remove } from 'firebase/database';
 import * as firebaseSetup from '../config/firebase';
@@ -182,7 +182,9 @@ export default function Standards() {
         sessionStorage.setItem('isoCurrentSite', newSite === 'All' ? 'GLOBAL' : newSite);
     };
 
-    const canViewRecord = (siteId) => isGlobalUser || siteId === 'GLOBAL' || allowedSiteCodes.has(siteId);
+    const canViewRecord = useCallback((siteId) => (
+        isGlobalUser || siteId === 'GLOBAL' || allowedSiteCodes.has(siteId)
+    ), [allowedSiteCodes, isGlobalUser]);
 
     const canEditRecord = (siteId) => {
         if (!permissions.canEditCreate) return false;

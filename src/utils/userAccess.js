@@ -7,6 +7,7 @@ export const USER_ROLES = [
     'Admin',
     'Site Owner',
     'Site Manager',
+    'HSE Rep',
     'Lead Auditor',
     'User'
 ];

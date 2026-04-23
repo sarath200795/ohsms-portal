@@ -547,14 +547,21 @@ export default function ActivityCalendar() {
         });
     }, [activities, allowedSiteCodes, isGlobalUser, siteFilter, sourceFilter]);
 
-    const selectedDateValue = parseDateOnly(selectedDate) || new Date();
-    const weekStart = getStartOfWeek(selectedDateValue);
-    const weekEnd = getEndOfWeek(selectedDateValue);
-    const monthStart = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 1);
-    const monthLastDay = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 0);
+    const selectedDateValue = useMemo(() => parseDateOnly(selectedDate) || new Date(), [selectedDate]);
+    const { weekStart, weekEnd } = useMemo(() => ({
+        weekStart: getStartOfWeek(selectedDateValue),
+        weekEnd: getEndOfWeek(selectedDateValue)
+    }), [selectedDateValue]);
+    const { monthStart, monthLastDay } = useMemo(() => ({
+        monthStart: new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 1),
+        monthLastDay: new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 0)
+    }), [currentMonth]);
 
-    const activeRangeStart = viewMode === 'day' ? selectedDateValue : viewMode === 'week' ? weekStart : monthStart;
-    const activeRangeEnd = viewMode === 'day' ? selectedDateValue : viewMode === 'week' ? weekEnd : monthLastDay;
+    const { activeRangeStart, activeRangeEnd } = useMemo(() => {
+        if (viewMode === 'day') return { activeRangeStart: selectedDateValue, activeRangeEnd: selectedDateValue };
+        if (viewMode === 'week') return { activeRangeStart: weekStart, activeRangeEnd: weekEnd };
+        return { activeRangeStart: monthStart, activeRangeEnd: monthLastDay };
+    }, [monthLastDay, monthStart, selectedDateValue, viewMode, weekEnd, weekStart]);
 
     const activeRangeActivities = useMemo(() => {
         return filteredActivities.filter((activity) => isDateWithinRange(activity.date, activeRangeStart, activeRangeEnd));

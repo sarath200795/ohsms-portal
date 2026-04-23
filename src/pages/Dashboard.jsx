@@ -17,6 +17,26 @@ const getDayGreeting = () => {
 
 const DASHBOARD_ACTIVITY_MODULES = ['Incidents', 'OHS Tools', 'Health Dashboard', 'Inspections', 'Record Emergency', 'Participation', 'CAPA Manager'];
 
+const ALL_MODULES = [
+    { id: 'Analytics', label: 'Analytics', icon: 'fa-chart-pie', color: 'text-purple-400', path: '/analytics' },
+    { id: 'Tutorials', label: 'Tutorials', icon: 'fa-circle-play', color: 'text-amber-300', path: '/tutorials' },
+    { id: 'Activity Calendar', label: 'Activity Calendar', icon: 'fa-calendar-days', color: 'text-cyan-300', path: '/activity-calendar' },
+    { id: 'Incidents', label: 'Incidents', icon: 'fa-triangle-exclamation', color: 'text-orange-400', path: '/incidents' },
+    { id: 'Risk Assessment', label: 'Risk Assessment', icon: 'fa-shield-virus', color: 'text-red-400', path: '/risk' },
+    { id: 'Participation', label: 'Participation', icon: 'fa-comments', color: 'text-teal-400', path: '/consultation' },
+    { id: 'Internal Audit', label: 'Internal Audit', icon: 'fa-clipboard-check', color: 'text-emerald-400', path: '/audit' },
+    { id: 'CAPA Manager', label: 'CAPA Manager', icon: 'fa-list-check', color: 'text-cyan-400', path: '/capa' },
+    { id: 'Training', label: 'Training', icon: 'fa-graduation-cap', color: 'text-yellow-400', path: '/training' },
+    { id: 'Improvement', label: 'Improvement', icon: 'fa-chart-line', color: 'text-blue-400', path: '/improvement' },
+    { id: 'Record Emergency', label: 'Record Emergency', icon: 'fa-person-running', color: 'text-pink-400', path: '/mock-drill' },
+    { id: 'OHS Tools', label: 'OHS Tools', icon: 'fa-toolbox', color: 'text-fuchsia-400', path: '/ohs-tools' },
+    { id: 'Contractors', label: 'Contractor Safety', icon: 'fa-hard-hat', color: 'text-indigo-400', path: '/contractors' },
+    { id: 'MOC', label: 'Mgmt of Change', icon: 'fa-code-branch', color: 'text-rose-400', path: '/moc' },
+    { id: 'Inspections', label: 'Inspections', icon: 'fa-search-location', color: 'text-lime-400', path: '/inspections' },
+    { id: 'Users', label: 'Users', icon: 'fa-users-gear', color: 'text-slate-300', path: '/users' },
+    { id: 'Sites', label: 'Sites', icon: 'fa-building-shield', color: 'text-slate-300', path: '/sites' }
+];
+
 const NavCard = ({ module, actions = [], onClick }) => {
     const topActions = actions.slice(0, 3);
     const extraCount = actions.length - 3;
@@ -103,26 +123,6 @@ export default function Dashboard() {
     // --- PHASE 2 TARGETED FETCHING STATE ---
     const [localOrgData, setLocalOrgData] = useState(null);
     const [localLoading, setLocalLoading] = useState(true);
-
-    const ALL_MODULES = [
-        { id: 'Analytics', label: 'Analytics', icon: 'fa-chart-pie', color: 'text-purple-400', path: '/analytics' },
-        { id: 'Tutorials', label: 'Tutorials', icon: 'fa-circle-play', color: 'text-amber-300', path: '/tutorials' },
-        { id: 'Activity Calendar', label: 'Activity Calendar', icon: 'fa-calendar-days', color: 'text-cyan-300', path: '/activity-calendar' },
-        { id: 'Incidents', label: 'Incidents', icon: 'fa-triangle-exclamation', color: 'text-orange-400', path: '/incidents' },
-        { id: 'Risk Assessment', label: 'Risk Assessment', icon: 'fa-shield-virus', color: 'text-red-400', path: '/risk' },
-        { id: 'Participation', label: 'Participation', icon: 'fa-comments', color: 'text-teal-400', path: '/consultation' },
-        { id: 'Internal Audit', label: 'Internal Audit', icon: 'fa-clipboard-check', color: 'text-emerald-400', path: '/audit' },
-        { id: 'CAPA Manager', label: 'CAPA Manager', icon: 'fa-list-check', color: 'text-cyan-400', path: '/capa' },
-        { id: 'Training', label: 'Training', icon: 'fa-graduation-cap', color: 'text-yellow-400', path: '/training' },
-        { id: 'Improvement', label: 'Improvement', icon: 'fa-chart-line', color: 'text-blue-400', path: '/improvement' },
-        { id: 'Record Emergency', label: 'Record Emergency', icon: 'fa-person-running', color: 'text-pink-400', path: '/mock-drill' },
-        { id: 'OHS Tools', label: 'OHS Tools', icon: 'fa-toolbox', color: 'text-fuchsia-400', path: '/ohs-tools' },
-        { id: 'Contractors', label: 'Contractor Safety', icon: 'fa-hard-hat', color: 'text-indigo-400', path: '/contractors' },
-        { id: 'MOC', label: 'Mgmt of Change', icon: 'fa-code-branch', color: 'text-rose-400', path: '/moc' },
-        { id: 'Inspections', label: 'Inspections', icon: 'fa-search-location', color: 'text-lime-400', path: '/inspections' },
-        { id: 'Users', label: 'Users', icon: 'fa-users-gear', color: 'text-slate-300', path: '/users' },
-        { id: 'Sites', label: 'Sites', icon: 'fa-building-shield', color: 'text-slate-300', path: '/sites' },
-    ];
 
     useEffect(() => {
         const raw = sessionStorage.getItem('isoSession');

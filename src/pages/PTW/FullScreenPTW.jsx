@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { get, push, ref, update } from 'firebase/database';
 import QRious from 'qrious';
@@ -1142,12 +1142,10 @@ export default function FullScreenPTW() {
 
                 const loadPublicPermit = async () => {
                     try {
-                        const publicSnap = await get(ref(rtdb, `organizations/${publicOrgId}/ptwRecords`));
+                        const publicSnap = await get(ref(rtdb, `organizations/${publicOrgId}/ptwRecords/${permitIdFromQuery}`));
                         if (!publicSnap.exists()) return;
 
-                        const permit = safeArrayParse(publicSnap.val())
-                            .map(normalizePermit)
-                            .find((entry) => entry.id === permitIdFromQuery || entry.firebaseKey === permitIdFromQuery);
+                        const permit = normalizePermit({ firebaseKey: permitIdFromQuery, ...publicSnap.val() });
 
                         if (!permit) return;
 
@@ -1314,18 +1312,18 @@ export default function FullScreenPTW() {
         navigate(`${location.pathname}${params.toString() ? `?${params.toString()}` : ''}`, { replace: true });
     };
 
-    const checkMatch = (target) => {
+    const checkMatch = useCallback((target) => {
         if (!target) return false;
         const targetValue = String(target).toLowerCase().trim();
         const email = String(session?.email || '').toLowerCase().trim();
         const user = String(session?.user || '').toLowerCase().trim();
         const name = String(session?.name || '').toLowerCase().trim();
         return (email && targetValue === email) || (user && targetValue === user) || (name && targetValue === name);
-    };
+    }, [session?.email, session?.name, session?.user]);
 
-    const isEngApprover = (permit) => checkMatch(permit.engApproverEmail);
-    const isProdApprover = (permit) => checkMatch(permit.prodApproverEmail);
-    const isCreator = (permit) => checkMatch(permit.creatorEmail) || checkMatch(permit.requestedBy);
+    const isEngApprover = useCallback((permit) => checkMatch(permit.engApproverEmail), [checkMatch]);
+    const isProdApprover = useCallback((permit) => checkMatch(permit.prodApproverEmail), [checkMatch]);
+    const isCreator = useCallback((permit) => checkMatch(permit.creatorEmail) || checkMatch(permit.requestedBy), [checkMatch]);
 
     const canEditForm = useMemo(() => {
         if (!permissions.canEditCreate) return false;
@@ -1360,7 +1358,7 @@ export default function FullScreenPTW() {
             }
             return false;
         });
-    }, [visiblePermits]);
+    }, [isEngApprover, isProdApprover, visiblePermits]);
 
     useEffect(() => {
         if (loading || !session) return;
@@ -1565,6 +1563,7 @@ export default function FullScreenPTW() {
         try {
             const { firebaseKey, ...payload } = formData;
             payload.lastUpdated = new Date().toISOString();
+            payload.publicQrEnabled = Boolean(payload.publicQrEnabled);
             if (payload.workerType === 'Contractor') {
                 const vendor = contractors.find((contractor) => contractor.firebaseKey === payload.contractorId);
                 if (vendor) payload.contractorName = vendor.companyName;
@@ -1762,8 +1761,19 @@ export default function FullScreenPTW() {
         }
     };
 
-    const triggerPrint = (permit) => {
-        const qrUrl = `${window.location.origin}${window.location.pathname}?ptw=${encodeURIComponent(permit.id)}&site=${encodeURIComponent(permit.siteId || siteFilter || 'All')}&org=${encodeURIComponent(session.orgId)}&fieldQr=1`;
+    const triggerPrint = async (permit) => {
+        const publicPermitKey = permit.firebaseKey || permit.id;
+        const qrUrl = `${window.location.origin}${window.location.pathname}?ptw=${encodeURIComponent(publicPermitKey)}&site=${encodeURIComponent(permit.siteId || siteFilter || 'All')}&org=${encodeURIComponent(session.orgId)}&fieldQr=1`;
+        if (permit.firebaseKey && session?.orgId && permit.publicQrEnabled !== true) {
+            try {
+                await update(ref(rtdb, `organizations/${session.orgId}/ptwRecords/${permit.firebaseKey}`), { publicQrEnabled: true });
+                setPermits((prev) => prev.map((entry) => (
+                    entry.firebaseKey === permit.firebaseKey ? { ...entry, publicQrEnabled: true } : entry
+                )));
+            } catch (error) {
+                console.warn('Unable to enable public PTW QR access before printing.', error);
+            }
+        }
         try {
             const qr = new QRious({ value: qrUrl, size: 200 });
             setQrImage(qr.toDataURL());

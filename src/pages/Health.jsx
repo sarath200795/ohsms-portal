@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { ref, get, update, push } from 'firebase/database';
 import { rtdb } from '../config/firebase';
@@ -310,7 +310,9 @@ export default function HealthDashboard() {
         return sites.filter(s => allowedSiteCodes.has(s.code));
     }, [sites, isGlobalUser, allowedSiteCodes]);
 
-    const canViewRecord = (siteId) => isGlobalUser || allowedSiteCodes.has(siteId);
+    const canViewRecord = useCallback((siteId) => (
+        isGlobalUser || allowedSiteCodes.has(siteId)
+    ), [allowedSiteCodes, isGlobalUser]);
 
     const handleSiteFilterChange = (e) => {
         const newSite = e.target.value;
@@ -576,7 +578,7 @@ export default function HealthDashboard() {
                 setIllnessForm(prev => ({ ...prev, id: newId }));
             }
         }
-    }, [illnessForm.siteId, session, illnessSeq, currentTab, selectedIllness]);
+    }, [currentTab, illnessForm.firebaseKey, illnessForm.id, illnessForm.siteId, illnessSeq, selectedIllness, session]);
 
     const openIllnessForm = (record = null) => {
         if (!record && !permissions.canEditCreate) return alert("Security Error: You do not have permission to create records.");

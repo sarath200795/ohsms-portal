@@ -35,6 +35,17 @@ test('user access validation rejects invalid payloads', () => {
     assert.ok(result.errors.length >= 3);
 });
 
+test('user access validation accepts HSE Rep role used by field operations', () => {
+    const result = validateUserAccessPayload({
+        name: 'Safety Representative',
+        email: 'hse.rep@test.com',
+        role: 'HSE Rep',
+        status: 'Active'
+    });
+
+    assert.equal(result.isValid, true);
+});
+
 test('permission request updates resolve pending requests for the approved user', () => {
     const updates = buildPermissionRequestUpdates({
         permissionRequests: {

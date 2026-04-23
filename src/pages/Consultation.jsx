@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { ref, get, update, push, remove } from 'firebase/database';
 import { rtdb } from '../config/firebase';
@@ -302,7 +302,9 @@ export default function Consultation() {
         sessionStorage.setItem('isoCurrentSite', val === 'All' ? 'GLOBAL' : val);
     };
 
-    const canViewRecord = (siteId) => isGlobalUser || siteId === 'Global' || siteId === 'GLOBAL' || allowedSiteCodes.has(siteId);
+    const canViewRecord = useCallback((siteId) => (
+        isGlobalUser || siteId === 'Global' || siteId === 'GLOBAL' || allowedSiteCodes.has(siteId)
+    ), [allowedSiteCodes, isGlobalUser]);
 
     const canEditForm = useMemo(() => {
         if (!permissions.canEditCreate) return false;
