@@ -5,6 +5,7 @@ import { ACCOUNT_STATUS, canAuthenticateStatus, normalizeSessionData, normalizeU
 import {
     buildPermissionRequestUpdates,
     normalizeUserAccessPayload,
+    toUserRecordKey,
     validateUserAccessPayload
 } from '../src/utils/userAccess.js';
 
@@ -44,6 +45,11 @@ test('user access validation accepts HSE Rep role used by field operations', () 
     });
 
     assert.equal(result.isValid, true);
+});
+
+test('manual user records use realtime-database safe email keys', () => {
+    assert.equal(toUserRecordKey(' Safety.Admin+1@Test.Co.UK '), 'safety_admin+1@test_co_uk');
+    assert.equal(toUserRecordKey('ops#lead$team/[north]@test.com'), 'ops_lead_team__north_@test_com');
 });
 
 test('permission request updates resolve pending requests for the approved user', () => {

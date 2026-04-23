@@ -9,6 +9,7 @@ import {
     buildPermissionRequestUpdates,
     buildUserAccessAuditEntry,
     normalizeUserAccessPayload,
+    toUserRecordKey,
     validateUserAccessPayload
 } from '../utils/userAccess';
 
@@ -190,8 +191,34 @@ export default function Users() {
         setFormData(prev => ({ ...prev, accessibleModules: [] }));
     };
 
+    const writeAccessAuditLog = async (entry) => {
+        try {
+            await set(push(ref(rtdb, `organizations/${session.orgId}/accessAuditLogs`)), entry);
+        } catch (error) {
+            console.warn('Access audit log write failed after user save:', error);
+        }
+    };
+
+    const syncPermissionRequests = async (requestUpdates) => {
+        if (Object.keys(requestUpdates).length === 0) return;
+
+        try {
+            await update(ref(rtdb, `organizations/${session.orgId}/permissionRequests`), requestUpdates);
+            setPermissionRequests((prev) => {
+                const next = { ...prev };
+                Object.entries(requestUpdates).forEach(([path, value]) => {
+                    const [requestId, field] = path.split('/');
+                    next[requestId] = { ...(next[requestId] || {}), [field]: value };
+                });
+                return next;
+            });
+        } catch (error) {
+            console.warn('Permission request status sync failed after user save:', error);
+        }
+    };
+
     const handleSaveUser = async (e) => {
-        e.preventDefault();
+        e?.preventDefault?.();
         setSaving(true);
         try {
             const payload = normalizeUserAccessPayload(formData, { editingExistingUser: Boolean(editingUserId) });
@@ -216,20 +243,9 @@ export default function Users() {
                     actorSession: session
                 });
 
-                if (Object.keys(requestUpdates).length > 0) {
-                    await update(ref(rtdb, `organizations/${session.orgId}/permissionRequests`), requestUpdates);
-                    setPermissionRequests((prev) => {
-                        const next = { ...prev };
-                        Object.entries(requestUpdates).forEach(([path, value]) => {
-                            const [requestId, field] = path.split('/');
-                            next[requestId] = { ...(next[requestId] || {}), [field]: value };
-                        });
-                        return next;
-                    });
-                }
+                await syncPermissionRequests(requestUpdates);
 
-                await set(
-                    push(ref(rtdb, `organizations/${session.orgId}/accessAuditLogs`)),
+                await writeAccessAuditLog(
                     buildUserAccessAuditEntry({
                         actorSession: session,
                         beforeUser: editingUser,
@@ -244,8 +260,8 @@ export default function Users() {
                 setUsers(prev => prev.map(u => u.id === editingUserId ? { ...payload, id: editingUserId } : u));
                 alert("User permissions updated successfully!");
             } else {
-                // For new users (Using email as safe key by replacing dots)
-                const safeEmailKey = payload.email.replace(/\./g, '_');
+                // For new users, use a Realtime Database-safe key derived from the email.
+                const safeEmailKey = toUserRecordKey(payload.email);
 
                 // Check if exists
                 const userRef = ref(rtdb, `organizations/${session.orgId}/users/${safeEmailKey}`);
@@ -257,8 +273,7 @@ export default function Users() {
                 }
 
                 await set(userRef, { ...payload, createdAt: new Date().toISOString() });
-                await set(
-                    push(ref(rtdb, `organizations/${session.orgId}/accessAuditLogs`)),
+                await writeAccessAuditLog(
                     buildUserAccessAuditEntry({
                         actorSession: session,
                         beforeUser: null,

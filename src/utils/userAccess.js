@@ -14,6 +14,8 @@ export const USER_ROLES = [
 
 export const normalizeUserEmail = (email) => String(email || '').trim().toLowerCase();
 
+export const toUserRecordKey = (email) => normalizeUserEmail(email).replace(/[.#$[\]/]/g, '_');
+
 export const normalizeUserAccessPayload = (payload = {}, { editingExistingUser = false } = {}) => {
     const normalizedStatus = normalizeUserStatus(payload.status || ACCOUNT_STATUS.ACTIVE);
 
