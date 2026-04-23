@@ -77,20 +77,34 @@ export default function Analytics() {
             return;
         }
 
-        // 4. FETCH DATA
-        const dbRef = ref(rtdb, `organizations/${session.orgId}`);
-        const unsubscribe = onValue(dbRef, (snap) => {
-            if (snap.exists()) {
-                const val = snap.val();
-                if (val.sites) {
-                    setSites(Object.keys(val.sites).map(k => ({ code: val.sites[k].code || k, name: val.sites[k].name || k })));
-                }
-                setIncidents(val.incidents ? Object.values(val.incidents) : []);
-                setManHours(val.manHours ? Object.values(val.manHours) : []);
-            }
-            setLoading(false);
+        // 4. FETCH DATA FROM SCOPED COLLECTIONS ONLY
+        const loadedChildren = new Set();
+        const markLoaded = (childName) => {
+            loadedChildren.add(childName);
+            if (loadedChildren.size === 3) setLoading(false);
+        };
+
+        const unsubscribeSites = onValue(ref(rtdb, `organizations/${session.orgId}/sites`), (snap) => {
+            const val = snap.exists() ? snap.val() : {};
+            setSites(Object.keys(val).map(k => ({ code: val[k].code || k, name: val[k].name || k })));
+            markLoaded('sites');
         });
-        return () => unsubscribe();
+
+        const unsubscribeIncidents = onValue(ref(rtdb, `organizations/${session.orgId}/incidents`), (snap) => {
+            setIncidents(snap.exists() ? Object.values(snap.val()) : []);
+            markLoaded('incidents');
+        });
+
+        const unsubscribeManHours = onValue(ref(rtdb, `organizations/${session.orgId}/manHours`), (snap) => {
+            setManHours(snap.exists() ? Object.values(snap.val()) : []);
+            markLoaded('manHours');
+        });
+
+        return () => {
+            unsubscribeSites();
+            unsubscribeIncidents();
+            unsubscribeManHours();
+        };
     }, [cleanRole, navigate, session]);
 
     useEffect(() => {

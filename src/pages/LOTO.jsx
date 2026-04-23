@@ -5,6 +5,7 @@ import { rtdb } from '../config/firebase';
 import { getFieldPortalLoginPath, getPortalAwareHomePath } from './FieldApp/portalAuth';
 import FieldQrScannerModal from './FieldApp/components/FieldQrScannerModal';
 import { resolveFieldQrNavigation } from './FieldApp/utils';
+import { readOrgChildren } from '../utils/orgData';
 import * as XLSX from 'xlsx';
 import QRious from 'qrious';
 import jsPDF from 'jspdf';
@@ -132,21 +133,17 @@ export default function Loto() {
                 setSiteFilter(ctxSite);
                 sessionStorage.setItem('isoCurrentSite', ctxSite === 'All' ? 'GLOBAL' : ctxSite);
 
-                // Fetch full internal data for the LOTO module
-                const dbRef = ref(rtdb, `organizations/${sess.orgId}`);
-                const snap = await get(dbRef);
+                // Fetch only the LOTO collections required by this module.
+                const data = await readOrgChildren(rtdb, sess.orgId, ['sites', 'lotoProcedures', 'lotoLogs']);
 
-                if (snap.exists()) {
-                    const data = snap.val();
-                    if (data.sites) {
-                        setSites(Object.keys(data.sites).map(key => {
-                            const sVal = data.sites[key];
-                            return typeof sVal === 'object' ? { code: sVal.code || key, name: sVal.name || sVal.code || key } : { code: sVal, name: sVal };
-                        }));
-                    }
-                    if (data.lotoProcedures) setProcedures(safeArrayParse(data.lotoProcedures));
-                    if (data.lotoLogs) setLogs(safeArrayParse(data.lotoLogs));
+                if (data.sites) {
+                    setSites(Object.keys(data.sites).map(key => {
+                        const sVal = data.sites[key];
+                        return typeof sVal === 'object' ? { code: sVal.code || key, name: sVal.name || sVal.code || key } : { code: sVal, name: sVal };
+                    }));
                 }
+                if (data.lotoProcedures) setProcedures(safeArrayParse(data.lotoProcedures));
+                if (data.lotoLogs) setLogs(safeArrayParse(data.lotoLogs));
 
                 if (execId) setCurrentView('execute');
 
@@ -284,8 +281,13 @@ export default function Loto() {
     // ==========================================
     // PDF EXPORT WITH NEW QR LOGIC
     // ==========================================
-    const generatePDF = (proc, tagsOnly = false) => {
+    const generatePDF = async (proc, tagsOnly = false) => {
         try {
+            if (session?.orgId && proc.firebaseKey && proc.status === 'Approved' && proc.publicQrEnabled !== true) {
+                await update(ref(rtdb, `organizations/${session.orgId}/lotoProcedures/${proc.firebaseKey}`), { publicQrEnabled: true });
+                setProcedures(prev => prev.map(item => item.firebaseKey === proc.firebaseKey ? { ...item, publicQrEnabled: true } : item));
+            }
+
             const doc = new jsPDF('p', 'mm', 'a4');
             let qrData = null;
             try {

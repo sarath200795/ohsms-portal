@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { ref, get, push, remove } from 'firebase/database';
+import { ref, push, remove } from 'firebase/database';
 import { rtdb } from '../config/firebase';
 import { getPortalAwareHomePath } from './FieldApp/portalAuth';
+import { readOrgChildren } from '../utils/orgData';
 import { hasAccessibleModule, normalizeSessionPermissions } from '../utils/permissions';
 
 const SCENARIOS = [
@@ -131,25 +132,21 @@ export default function MockDrill() {
         const fetchAll = async () => {
             setLoading(true);
             try {
-                const dbRef = ref(rtdb, `organizations/${session.orgId}`);
-                const snap = await get(dbRef);
-                if (snap.exists()) {
-                    const val = snap.val();
-                    if (val.sites) {
-                        const parsedSites = Object.keys(val.sites).map(key => {
-                            const sVal = val.sites[key];
-                            return typeof sVal === 'object' ? { code: sVal.code || key, name: sVal.name || sVal.code || key } : { code: sVal, name: sVal };
-                        });
-                        setSites(parsedSites);
-                    }
-                    if (val.users) {
-                        setUsers(Object.entries(val.users).map(([k, v]) => ({ id: k, ...v })).filter(u => u.status !== 'Inactive'));
-                    }
-                    if (val.mockDrills) {
-                        setHistory(Object.entries(val.mockDrills)
-                            .map(([k, v]) => ({ ...v, firebaseKey: k }))
-                            .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp)));
-                    }
+                const val = await readOrgChildren(rtdb, session.orgId, ['sites', 'users', 'mockDrills']);
+                if (val.sites) {
+                    const parsedSites = Object.keys(val.sites).map(key => {
+                        const sVal = val.sites[key];
+                        return typeof sVal === 'object' ? { code: sVal.code || key, name: sVal.name || sVal.code || key } : { code: sVal, name: sVal };
+                    });
+                    setSites(parsedSites);
+                }
+                if (val.users) {
+                    setUsers(Object.entries(val.users).map(([k, v]) => ({ id: k, ...v })).filter(u => u.status !== 'Inactive'));
+                }
+                if (val.mockDrills) {
+                    setHistory(Object.entries(val.mockDrills)
+                        .map(([k, v]) => ({ ...v, firebaseKey: k }))
+                        .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp)));
                 }
             } catch (err) {
                 console.error("Error loading data:", err);

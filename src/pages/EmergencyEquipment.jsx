@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { ref, get, push, update, remove } from 'firebase/database';
 import { rtdb } from '../config/firebase';
 import { getFieldPortalLoginPath, getPortalAwareHomePath } from './FieldApp/portalAuth';
+import { readOrgChildren } from '../utils/orgData';
 import { QRCodeSVG } from 'qrcode.react';
 import * as XLSX from 'xlsx';
 
@@ -303,29 +304,26 @@ export default function EmergencyEquipment() {
 
         const fetchData = async () => {
             try {
-                const snap = await get(ref(rtdb, `organizations/${sess.orgId}`));
-                if (snap.exists()) {
-                    const data = snap.val();
-                    let loadedEq = [];
-                    if (data.emergencyEquipment) {
-                        loadedEq = Object.entries(data.emergencyEquipment).map(([k, v]) => ({ firebaseKey: k, ...v }));
-                        setEquipment(loadedEq);
-                    } else { setEquipment([]); }
+                const data = await readOrgChildren(rtdb, sess.orgId, ['emergencyEquipment', 'sites']);
+                let loadedEq = [];
+                if (data.emergencyEquipment) {
+                    loadedEq = Object.entries(data.emergencyEquipment).map(([k, v]) => ({ firebaseKey: k, ...v }));
+                    setEquipment(loadedEq);
+                } else { setEquipment([]); }
 
-                    if (data.sites) {
-                        setSites(Object.keys(data.sites).map(key => ({ code: data.sites[key].code || key, name: data.sites[key].name || key })));
-                    }
+                if (data.sites) {
+                    setSites(Object.keys(data.sites).map(key => ({ code: data.sites[key].code || key, name: data.sites[key].name || key })));
+                }
 
-                    if (scanId) {
-                        const targetEq = loadedEq.find(e => e.firebaseKey === scanId);
-                        if (targetEq) {
-                            const targetSite = targetEq.siteId || ctxSite || 'All';
-                            setSiteFilter(targetSite);
-                            sessionStorage.setItem('isoCurrentSite', targetSite === 'All' ? 'GLOBAL' : targetSite);
-                            setInspectData(createInspectionDraft(targetEq, { qrScanMode: true }));
-                            setView('inspect');
-                            navigate(buildModulePath(targetSite), { replace: true });
-                        }
+                if (scanId) {
+                    const targetEq = loadedEq.find(e => e.firebaseKey === scanId);
+                    if (targetEq) {
+                        const targetSite = targetEq.siteId || ctxSite || 'All';
+                        setSiteFilter(targetSite);
+                        sessionStorage.setItem('isoCurrentSite', targetSite === 'All' ? 'GLOBAL' : targetSite);
+                        setInspectData(createInspectionDraft(targetEq, { qrScanMode: true }));
+                        setView('inspect');
+                        navigate(buildModulePath(targetSite), { replace: true });
                     }
                 }
             } catch (err) { console.error(err); } finally { setLoading(false); }
@@ -494,6 +492,25 @@ export default function EmergencyEquipment() {
             }
             setView('list');
         } catch (e) { alert("Save failed: " + e.message); }
+    };
+
+    const preparePrintTag = async (equipmentItem) => {
+        let printableItem = equipmentItem;
+
+        try {
+            if (session?.orgId && equipmentItem.firebaseKey && equipmentItem.publicQrEnabled !== true) {
+                await update(ref(rtdb, `organizations/${session.orgId}/emergencyEquipment/${equipmentItem.firebaseKey}`), { publicQrEnabled: true });
+                printableItem = { ...equipmentItem, publicQrEnabled: true };
+                setEquipment(prev => prev.map(item => item.firebaseKey === equipmentItem.firebaseKey ? printableItem : item));
+            }
+        } catch (error) {
+            console.error('Failed to enable QR public access before printing tag:', error);
+            alert('Unable to prepare this QR tag for field scanning. Please try again.');
+            return;
+        }
+
+        setPrintTagData(printableItem);
+        setTimeout(() => window.print(), 500);
     };
 
     const handleLogInspection = async () => {
@@ -917,7 +934,7 @@ export default function EmergencyEquipment() {
                                                     {canEdit && (
                                                         <div className="flex justify-end gap-2">
                                                             {/* QR TAG BUTTON */}
-                                                            <button onClick={() => { setPrintTagData(e); setTimeout(() => window.print(), 500); }} className="bg-slate-800 hover:bg-slate-700 border border-slate-600 text-white px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-colors shadow" title="Print QR Tag"><i className="fas fa-qrcode"></i> Tag</button>
+                                                            <button onClick={() => preparePrintTag(e)} className="bg-slate-800 hover:bg-slate-700 border border-slate-600 text-white px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-colors shadow" title="Print QR Tag"><i className="fas fa-qrcode"></i> Tag</button>
 
                                                             <button onClick={() => { setInspectData(createInspectionDraft(e)); setView('inspect'); }} className={`${equipmentMeta.inspectButtonClass} px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-colors border`}><i className="fas fa-clipboard-check mr-1"></i> Inspect</button>
                                                             <button onClick={() => { setFormData(e); setView('form'); }} className="bg-slate-800 hover:bg-slate-700 text-slate-300 w-8 h-8 rounded-lg flex items-center justify-center transition-colors"><i className="fas fa-edit"></i></button>

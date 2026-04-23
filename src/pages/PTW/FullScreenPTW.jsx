@@ -5,6 +5,7 @@ import QRious from 'qrious';
 
 import { rtdb } from '../../config/firebase';
 import { getFieldPortalLoginPath, getPortalAwareHomePath } from '../FieldApp/portalAuth';
+import { readOrgChildren } from '../../utils/orgData';
 import {
     CHECKLIST_ITEMS,
     COMMON_PPE,
@@ -1193,12 +1194,7 @@ export default function FullScreenPTW() {
 
             const loadData = async () => {
                 try {
-                    const snapshot = await get(ref(rtdb, `organizations/${sess.orgId}`));
-                    if (!snapshot.exists()) {
-                        setLoading(false);
-                        return;
-                    }
-                    const data = snapshot.val();
+                    const data = await readOrgChildren(rtdb, sess.orgId, ['sites', 'users', 'contractors', 'ptwRecords', 'lotoProcedures']);
 
                     if (data.sites) {
                         setSites(Object.keys(data.sites).map((key) => {

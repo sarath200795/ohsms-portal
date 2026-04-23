@@ -6,6 +6,7 @@ import { get, push, ref, set, update } from 'firebase/database';
 import { auth, rtdb } from '../../config/firebase';
 import { fileToBase64, safeArr } from '../../utils/helpers';
 import { getMandatoryDocs, GOODS_TYPES, SERVICE_TYPES } from '../../utils/constants';
+import { readOrgChildren } from '../../utils/orgData';
 import ContractorBuilder from './components/ContractorBuilder';
 import ContractorRegistry from './components/ContractorRegistry';
 import WorkersView from './components/WorkersView';
@@ -86,41 +87,38 @@ export default function Contractors() {
 
         const fetchData = async () => {
             try {
-                const snap = await get(ref(rtdb, `organizations/${sess.orgId}`));
-                if (snap.exists()) {
-                    const data = snap.val();
+                const data = await readOrgChildren(rtdb, sess.orgId, ['contractors', 'users', 'sites', 'trainings', 'ptwRecords', 'incidents']);
 
-                    if (data.contractors) setContractors(parseContractors(data.contractors));
-                    if (data.users) {
-                        setOrgUsers(
-                            Object.entries(data.users).map(([key, value]) => ({
-                                firebaseKey: key,
-                                ...value,
-                                email: normalizeEmail(value.email)
-                            }))
-                        );
-                    }
-                    if (data.sites) {
-                        setSites(
-                            Object.keys(data.sites).map((key) => ({
-                                code: data.sites[key].code || key,
-                                name: data.sites[key].name || key
-                            }))
-                        );
-                    }
-                    if (data.trainings) setGlobalTrainings(safeArr(data.trainings));
-                    if (data.ptwRecords) {
-                        const permitArr = Array.isArray(data.ptwRecords)
-                            ? data.ptwRecords.filter(Boolean).map((value, index) => ({ ...value, firebaseKey: String(index) }))
-                            : Object.entries(data.ptwRecords).map(([key, value]) => ({ ...value, firebaseKey: key }));
-                        setGlobalPermits(permitArr);
-                    }
-                    if (data.incidents) {
-                        const incidentArr = Array.isArray(data.incidents)
-                            ? data.incidents.filter(Boolean).map((value, index) => ({ ...value, firebaseKey: String(index) }))
-                            : Object.entries(data.incidents).map(([key, value]) => ({ ...value, firebaseKey: key }));
-                        setGlobalIncidents(incidentArr);
-                    }
+                if (data.contractors) setContractors(parseContractors(data.contractors));
+                if (data.users) {
+                    setOrgUsers(
+                        Object.entries(data.users).map(([key, value]) => ({
+                            firebaseKey: key,
+                            ...value,
+                            email: normalizeEmail(value.email)
+                        }))
+                    );
+                }
+                if (data.sites) {
+                    setSites(
+                        Object.keys(data.sites).map((key) => ({
+                            code: data.sites[key].code || key,
+                            name: data.sites[key].name || key
+                        }))
+                    );
+                }
+                if (data.trainings) setGlobalTrainings(safeArr(data.trainings));
+                if (data.ptwRecords) {
+                    const permitArr = Array.isArray(data.ptwRecords)
+                        ? data.ptwRecords.filter(Boolean).map((value, index) => ({ ...value, firebaseKey: String(index) }))
+                        : Object.entries(data.ptwRecords).map(([key, value]) => ({ ...value, firebaseKey: key }));
+                    setGlobalPermits(permitArr);
+                }
+                if (data.incidents) {
+                    const incidentArr = Array.isArray(data.incidents)
+                        ? data.incidents.filter(Boolean).map((value, index) => ({ ...value, firebaseKey: String(index) }))
+                        : Object.entries(data.incidents).map(([key, value]) => ({ ...value, firebaseKey: key }));
+                    setGlobalIncidents(incidentArr);
                 }
             } catch (error) {
                 console.error(error);

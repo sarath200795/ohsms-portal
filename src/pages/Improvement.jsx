@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { ref, get, update, push, remove } from 'firebase/database';
 import { rtdb } from '../config/firebase';
+import { readOrgChildren } from '../utils/orgData';
 import { hasAccessibleModule } from '../utils/permissions';
 import { canAuthenticateStatus, readStoredSession } from '../utils/session';
 
@@ -245,34 +246,29 @@ export default function Improvement() {
         const loadDatabases = async () => {
             setLoading(true);
             try {
-                const dbRef = ref(rtdb, `organizations/${sess.orgId}`);
-                const snap = await get(dbRef);
+                const val = await readOrgChildren(rtdb, sess.orgId, ['sites', 'users', 'improvements']);
 
-                if (snap.exists()) {
-                    const val = snap.val();
+                if (val.sites) {
+                    const parsedSites = Object.keys(val.sites).map(key => {
+                        const sVal = val.sites[key];
+                        return typeof sVal === 'object' ? { code: sVal.code || key, name: sVal.name || sVal.code || key } : { code: sVal, name: sVal };
+                    });
+                    setSites(parsedSites);
+                }
 
-                    if (val.sites) {
-                        const parsedSites = Object.keys(val.sites).map(key => {
-                            const sVal = val.sites[key];
-                            return typeof sVal === 'object' ? { code: sVal.code || key, name: sVal.name || sVal.code || key } : { code: sVal, name: sVal };
-                        });
-                        setSites(parsedSites);
-                    }
+                if (val.users) {
+                    const allUsers = Object.keys(val.users).map(key => {
+                        const uVal = val.users[key];
+                        return typeof uVal === 'object' ? { id: key, name: uVal.name || uVal.email || "System Owner", role: uVal.role || "User", ...uVal } : { id: key, name: uVal || "System Owner", role: "User" };
+                    }).filter(u => canAuthenticateStatus(u.status));
+                    setUsers(allUsers);
+                }
 
-                    if (val.users) {
-                        const allUsers = Object.keys(val.users).map(key => {
-                            const uVal = val.users[key];
-                            return typeof uVal === 'object' ? { id: key, name: uVal.name || uVal.email || "System Owner", role: uVal.role || "User", ...uVal } : { id: key, name: uVal || "System Owner", role: "User" };
-                        }).filter(u => canAuthenticateStatus(u.status));
-                        setUsers(allUsers);
-                    }
-
-                    if (val.improvements) {
-                        setImprovements(Object.entries(val.improvements).map(([k, v]) => ({
-                            firebaseKey: k,
-                            ...v
-                        })).sort((a, b) => new Date(b.timestamp || 0) - new Date(a.timestamp || 0)));
-                    }
+                if (val.improvements) {
+                    setImprovements(Object.entries(val.improvements).map(([k, v]) => ({
+                        firebaseKey: k,
+                        ...v
+                    })).sort((a, b) => new Date(b.timestamp || 0) - new Date(a.timestamp || 0)));
                 }
             } catch (err) { console.error("Database Load Error:", err); }
             finally { setLoading(false); }

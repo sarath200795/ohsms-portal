@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ref, get, push, update, onValue } from 'firebase/database';
 import { rtdb } from '../config/firebase';
+import { readOrgChildren } from '../utils/orgData';
 import { hasAccessibleModule } from '../utils/permissions';
 import { canAuthenticateStatus, readStoredSession } from '../utils/session';
 
@@ -51,24 +52,20 @@ const AuditScheduler = ({ setView, session }) => {
     useEffect(() => {
         const load = async () => {
             try {
-                const orgRef = ref(rtdb, `organizations/${session.orgId}`);
-                const snap = await get(orgRef);
-                if (snap.exists()) {
-                    const val = snap.val();
-                    if (val.sites) {
-                        const parsedSites = Object.keys(val.sites).map(key => {
-                            const sVal = val.sites[key];
-                            return typeof sVal === 'object' ? { code: sVal.code || key, name: sVal.name || sVal.code || key, ...sVal } : { code: sVal, name: sVal };
-                        });
-                        setSites(parsedSites);
-                    }
-                    if (val.users) {
-                        const parsedUsers = Object.keys(val.users).map(key => {
-                            const uVal = val.users[key];
-                            return typeof uVal === 'object' ? { id: key, name: uVal.name || uVal.email || "System Owner", role: uVal.role || 'User', email: uVal.email || '', ...uVal } : { id: key, name: uVal || "System Owner", role: 'User', email: '' };
-                        }).filter(u => canAuthenticateStatus(u.status));
-                        setAllUsers(parsedUsers);
-                    }
+                const val = await readOrgChildren(rtdb, session.orgId, ['sites', 'users']);
+                if (val.sites) {
+                    const parsedSites = Object.keys(val.sites).map(key => {
+                        const sVal = val.sites[key];
+                        return typeof sVal === 'object' ? { code: sVal.code || key, name: sVal.name || sVal.code || key, ...sVal } : { code: sVal, name: sVal };
+                    });
+                    setSites(parsedSites);
+                }
+                if (val.users) {
+                    const parsedUsers = Object.keys(val.users).map(key => {
+                        const uVal = val.users[key];
+                        return typeof uVal === 'object' ? { id: key, name: uVal.name || uVal.email || "System Owner", role: uVal.role || 'User', email: uVal.email || '', ...uVal } : { id: key, name: uVal || "System Owner", role: 'User', email: '' };
+                    }).filter(u => canAuthenticateStatus(u.status));
+                    setAllUsers(parsedUsers);
                 }
             } catch (e) {
                 console.error("Load error:", e);
@@ -784,19 +781,15 @@ const AuditeeWorkplace = ({ setView, session }) => {
     useEffect(() => {
         const load = async () => {
             try {
-                const dbRef = ref(rtdb, `organizations/${session.orgId}`);
-                const snap = await get(dbRef);
-                if (snap.exists()) {
-                    const val = snap.val();
-                    if (val.auditFindings) {
-                        const rawData = safeArrayParse(val.auditFindings);
-                        const mine = rawData.filter(f => f.taskDetails && f.taskDetails.auditee === session.user);
-                        setMyAudits(mine);
-                    }
-                    if (val.users) {
-                        const parsedUsers = safeArrayParse(val.users).filter(u => canAuthenticateStatus(u.status));
-                        setUsers(parsedUsers);
-                    }
+                const val = await readOrgChildren(rtdb, session.orgId, ['auditFindings', 'users']);
+                if (val.auditFindings) {
+                    const rawData = safeArrayParse(val.auditFindings);
+                    const mine = rawData.filter(f => f.taskDetails && f.taskDetails.auditee === session.user);
+                    setMyAudits(mine);
+                }
+                if (val.users) {
+                    const parsedUsers = safeArrayParse(val.users).filter(u => canAuthenticateStatus(u.status));
+                    setUsers(parsedUsers);
                 }
             } catch (e) {
                 console.error("Load Error:", e);
@@ -1624,23 +1617,19 @@ const AuditCalendar = ({ setView, session }) => {
     useEffect(() => {
         const load = async () => {
             try {
-                const dbRef = ref(rtdb, `organizations/${session.orgId}`);
-                const snap = await get(dbRef);
-                if (snap.exists()) {
-                    const val = snap.val();
-                    if (val.sites) {
-                        const parsedSites = Object.keys(val.sites).map(key => {
-                            const sVal = val.sites[key];
-                            return typeof sVal === 'object' ? { code: sVal.code || key, name: sVal.name || sVal.code || key, ...sVal } : { code: sVal, name: sVal };
-                        });
-                        setSites(parsedSites);
-                    }
-                    if (val.auditPlans) {
-                        setPlans(safeArrayParse(val.auditPlans));
-                    }
-                    if (val.auditFindings) {
-                        setFindings(safeArrayParse(val.auditFindings));
-                    }
+                const val = await readOrgChildren(rtdb, session.orgId, ['sites', 'auditPlans', 'auditFindings']);
+                if (val.sites) {
+                    const parsedSites = Object.keys(val.sites).map(key => {
+                        const sVal = val.sites[key];
+                        return typeof sVal === 'object' ? { code: sVal.code || key, name: sVal.name || sVal.code || key, ...sVal } : { code: sVal, name: sVal };
+                    });
+                    setSites(parsedSites);
+                }
+                if (val.auditPlans) {
+                    setPlans(safeArrayParse(val.auditPlans));
+                }
+                if (val.auditFindings) {
+                    setFindings(safeArrayParse(val.auditFindings));
                 }
             } catch (e) {
                 console.error("Load error:", e);

@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { ref, get, push, update, remove } from 'firebase/database';
+import { ref, push, update, remove } from 'firebase/database';
 import { rtdb } from '../config/firebase';
 import { getPortalAwareHomePath } from './FieldApp/portalAuth';
+import { readOrgChildren } from '../utils/orgData';
 import * as XLSX from 'xlsx';
 
 const FREQUENCIES = ['Daily', 'Weekly', 'Monthly', 'Quarterly', 'Bi-Annually', 'Annually'];
@@ -169,14 +170,11 @@ export default function Inspections() {
 
         const fetchData = async () => {
             try {
-                const snap = await get(ref(rtdb, `organizations/${sess.orgId}`));
-                if (snap.exists()) {
-                    const data = snap.val();
-                    if (data.inspectionTemplates) setTemplates(Object.entries(data.inspectionTemplates).map(([k, v]) => ({ firebaseKey: k, ...v })));
-                    if (data.inspectionRecords) setRecords(Object.entries(data.inspectionRecords).map(([k, v]) => ({ firebaseKey: k, ...v })));
-                    if (data.sites) setSites(Object.keys(data.sites).map(key => ({ code: data.sites[key].code || key, name: data.sites[key].name || key })));
-                    if (data.users) setUsers(Object.entries(data.users).map(([k, v]) => ({ id: k, ...v })).filter(u => u.status !== 'Inactive'));
-                }
+                const data = await readOrgChildren(rtdb, sess.orgId, ['inspectionTemplates', 'inspectionRecords', 'sites', 'users']);
+                if (data.inspectionTemplates) setTemplates(Object.entries(data.inspectionTemplates).map(([k, v]) => ({ firebaseKey: k, ...v })));
+                if (data.inspectionRecords) setRecords(Object.entries(data.inspectionRecords).map(([k, v]) => ({ firebaseKey: k, ...v })));
+                if (data.sites) setSites(Object.keys(data.sites).map(key => ({ code: data.sites[key].code || key, name: data.sites[key].name || key })));
+                if (data.users) setUsers(Object.entries(data.users).map(([k, v]) => ({ id: k, ...v })).filter(u => u.status !== 'Inactive'));
             } catch (err) { console.error(err); } finally { setLoading(false); }
         };
         fetchData();

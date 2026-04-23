@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { get, push, ref, remove, update } from 'firebase/database';
 import * as XLSX from 'xlsx';
 import { rtdb } from '../../../config/firebase';
+import { readOrgChildren } from '../../../utils/orgData';
 import {
     CHANGE_SOURCES,
     HAZARD_CATS,
@@ -110,24 +111,20 @@ export function useRiskModule() {
 
         const fetchAll = async () => {
             try {
-                const dbRef = ref(rtdb, `organizations/${parsedSession.orgId}`);
-                const snap = await get(dbRef);
-                if (snap.exists()) {
-                    const value = snap.val();
-                    if (value.riskAssessments) setRepo(normalizeRiskAssessments(value.riskAssessments));
+                const value = await readOrgChildren(rtdb, parsedSession.orgId, ['riskAssessments', 'sites', 'users']);
+                if (value.riskAssessments) setRepo(normalizeRiskAssessments(value.riskAssessments));
 
-                    if (value.sites) {
-                        setSites(Object.keys(value.sites).map((key) => {
-                            const siteValue = value.sites[key];
-                            return typeof siteValue === 'object'
-                                ? { code: siteValue.code || key, name: siteValue.name || siteValue.code || key }
-                                : { code: siteValue, name: siteValue };
-                        }));
-                    }
+                if (value.sites) {
+                    setSites(Object.keys(value.sites).map((key) => {
+                        const siteValue = value.sites[key];
+                        return typeof siteValue === 'object'
+                            ? { code: siteValue.code || key, name: siteValue.name || siteValue.code || key }
+                            : { code: siteValue, name: siteValue };
+                    }));
+                }
 
-                    if (value.users) {
-                        setUsers(Object.entries(value.users).map(([key, user]) => ({ id: key, ...user })).filter((user) => user.status !== 'Inactive'));
-                    }
+                if (value.users) {
+                    setUsers(Object.entries(value.users).map(([key, user]) => ({ id: key, ...user })).filter((user) => user.status !== 'Inactive'));
                 }
             } catch (error) {
                 console.error('Load error:', error);

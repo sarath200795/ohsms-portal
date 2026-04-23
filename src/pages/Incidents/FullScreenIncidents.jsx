@@ -5,6 +5,7 @@ import * as XLSX from 'xlsx';
 import { rtdb } from '../../config/firebase';
 import { getPortalAwareHomePath } from '../FieldApp/portalAuth';
 import { buildEditableIncidentData, buildPrintableIncidentData } from '../../utils/incidents';
+import { readOrgChildren } from '../../utils/orgData';
 import { hasAccessibleModule } from '../../utils/permissions';
 import { canAuthenticateStatus, readStoredSession } from '../../utils/session';
 import IncidentBuilder from './components/IncidentBuilder';
@@ -478,48 +479,43 @@ export default function Incidents() {
 
         const loadDatabases = async () => {
             try {
-                const dbRef = ref(rtdb, `organizations/${session.orgId}`);
-                const snap = await get(dbRef);
+                const orgData = await readOrgChildren(rtdb, session.orgId, ['sites', 'incidents', 'contractors', 'riskAssessments', 'users']);
 
                 let fetchedUsers = [];
                 let loadedIncidents = [];
 
-                if (snap.exists()) {
-                    const orgData = snap.val();
+                if (orgData.sites) {
+                    setSites(Object.keys(orgData.sites).map((key) => ({
+                        code: orgData.sites[key].code || key,
+                        name: orgData.sites[key].name || key
+                    })));
+                }
 
-                    if (orgData.sites) {
-                        setSites(Object.keys(orgData.sites).map((key) => ({
-                            code: orgData.sites[key].code || key,
-                            name: orgData.sites[key].name || key
-                        })));
-                    }
+                if (orgData.incidents) {
+                    const parsed = safeArrayParse(orgData.incidents);
+                    loadedIncidents = parsed.map((inc) => ({
+                        ...inc,
+                        investigation: inc.investigation || { fiveWhys: [], fishbone: {}, faultTree: null, rootCause: '' }
+                    }));
+                    setIncidentsList(loadedIncidents);
+                }
 
-                    if (orgData.incidents) {
-                        const parsed = safeArrayParse(orgData.incidents);
-                        loadedIncidents = parsed.map((inc) => ({
-                            ...inc,
-                            investigation: inc.investigation || { fiveWhys: [], fishbone: {}, faultTree: null, rootCause: '' }
-                        }));
-                        setIncidentsList(loadedIncidents);
-                    }
+                if (orgData.contractors) {
+                    setContractors(Object.entries(orgData.contractors).map(([k, v]) => ({
+                        ...v,
+                        firebaseKey: k,
+                        workers: safeArr(v.workers)
+                    })));
+                }
 
-                    if (orgData.contractors) {
-                        setContractors(Object.entries(orgData.contractors).map(([k, v]) => ({
-                            ...v,
-                            firebaseKey: k,
-                            workers: safeArr(v.workers)
-                        })));
-                    }
+                if (orgData.riskAssessments) {
+                    setRiskAssessments(Object.entries(orgData.riskAssessments).map(([k, v]) => ({ firebaseKey: k, ...v })));
+                }
 
-                    if (orgData.riskAssessments) {
-                        setRiskAssessments(Object.entries(orgData.riskAssessments).map(([k, v]) => ({ firebaseKey: k, ...v })));
-                    }
-
-                    if (orgData.users) {
-                        fetchedUsers = Object.entries(orgData.users)
-                            .map(([k, v]) => ({ id: k, ...v }))
-                            .filter((u) => canAuthenticateStatus(u.status));
-                    }
+                if (orgData.users) {
+                    fetchedUsers = Object.entries(orgData.users)
+                        .map(([k, v]) => ({ id: k, ...v }))
+                        .filter((u) => canAuthenticateStatus(u.status));
                 }
 
                 if (!fetchedUsers.find((u) => u.email === session.email || u.name === session.user)) {

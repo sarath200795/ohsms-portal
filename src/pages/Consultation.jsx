@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { ref, get, update, push, remove } from 'firebase/database';
 import { rtdb } from '../config/firebase';
 import * as XLSX from 'xlsx';
+import { readOrgChildren } from '../utils/orgData';
 import { hasAccessibleModule } from '../utils/permissions';
 import { canAuthenticateStatus, readStoredSession } from '../utils/session';
 
@@ -230,33 +231,29 @@ export default function Consultation() {
 
             const loadDatabases = async () => {
                 try {
-                    const dbRef = ref(rtdb, `organizations/${sess.orgId}`);
-                    const snap = await get(dbRef);
-                    if (snap.exists()) {
-                        const orgData = snap.val();
+                    const orgData = await readOrgChildren(rtdb, sess.orgId, ['sites', 'users', 'consultations']);
 
-                        if (orgData.sites) {
-                            const parsedSites = Object.keys(orgData.sites).map(key => {
-                                const sVal = orgData.sites[key];
-                                return typeof sVal === 'object' ? { id: key, code: sVal.code || key, name: sVal.name || sVal.code || key } : { id: key, code: sVal, name: sVal };
-                            });
-                            setSites(parsedSites);
-                        }
+                    if (orgData.sites) {
+                        const parsedSites = Object.keys(orgData.sites).map(key => {
+                            const sVal = orgData.sites[key];
+                            return typeof sVal === 'object' ? { id: key, code: sVal.code || key, name: sVal.name || sVal.code || key } : { id: key, code: sVal, name: sVal };
+                        });
+                        setSites(parsedSites);
+                    }
 
-                        if (orgData.users) {
-                            const allUsers = Object.keys(orgData.users).map(key => {
-                                const uVal = orgData.users[key];
-                                return typeof uVal === 'object' ? { id: key, name: uVal.name || uVal.email || "System Owner", role: uVal.role || "User", ...uVal } : { id: key, name: uVal || "System Owner", role: "User" };
-                            }).filter(u => canAuthenticateStatus(u.status));
-                            setUsers(allUsers);
-                        }
+                    if (orgData.users) {
+                        const allUsers = Object.keys(orgData.users).map(key => {
+                            const uVal = orgData.users[key];
+                            return typeof uVal === 'object' ? { id: key, name: uVal.name || uVal.email || "System Owner", role: uVal.role || "User", ...uVal } : { id: key, name: uVal || "System Owner", role: "User" };
+                        }).filter(u => canAuthenticateStatus(u.status));
+                        setUsers(allUsers);
+                    }
 
-                        if (orgData.consultations) {
-                            setMeetings(Object.entries(orgData.consultations)
-                                .map(([k, v]) => ({ firebaseKey: k, ...v }))
-                                .sort((a, b) => new Date(b.date) - new Date(a.date))
-                            );
-                        }
+                    if (orgData.consultations) {
+                        setMeetings(Object.entries(orgData.consultations)
+                            .map(([k, v]) => ({ firebaseKey: k, ...v }))
+                            .sort((a, b) => new Date(b.date) - new Date(a.date))
+                        );
                     }
                 } catch (err) { console.error("Database Error:", err); }
                 finally { setIsLoading(false); }

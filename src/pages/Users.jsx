@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ref, get, set, update, remove, push } from 'firebase/database';
 import { rtdb } from '../config/firebase';
+import { readOrgChildren } from '../utils/orgData';
 import { toCanonicalModuleIds, USER_ASSIGNABLE_MODULES } from '../utils/permissions';
 import { ACCOUNT_STATUS, readStoredSession } from '../utils/session';
 import {
@@ -74,29 +75,26 @@ export default function Users() {
 
         const fetchData = async () => {
             try {
-                const snap = await get(ref(rtdb, `organizations/${sess.orgId}`));
-                if (snap.exists()) {
-                    const data = snap.val();
+                const data = await readOrgChildren(rtdb, sess.orgId, ['sites', 'users', 'permissionRequests']);
 
-                    if (data.sites) {
-                        setSites(Object.keys(data.sites).map(key => ({
-                            code: data.sites[key].code || key,
-                            name: data.sites[key].name || key
-                        })));
-                    }
-
-                    if (data.users) {
-                        const loadedUsers = Object.entries(data.users).map(([key, val]) => ({
-                            id: key,
-                            ...val,
-                            accessibleSites: safeArr(val.accessibleSites),
-                            accessibleModules: toCanonicalModuleIds(val.accessibleModules)
-                        }));
-                        setUsers(loadedUsers);
-                    }
-
-                    setPermissionRequests(data.permissionRequests || {});
+                if (data.sites) {
+                    setSites(Object.keys(data.sites).map(key => ({
+                        code: data.sites[key].code || key,
+                        name: data.sites[key].name || key
+                    })));
                 }
+
+                if (data.users) {
+                    const loadedUsers = Object.entries(data.users).map(([key, val]) => ({
+                        id: key,
+                        ...val,
+                        accessibleSites: safeArr(val.accessibleSites),
+                        accessibleModules: toCanonicalModuleIds(val.accessibleModules)
+                    }));
+                    setUsers(loadedUsers);
+                }
+
+                setPermissionRequests(data.permissionRequests || {});
             } catch (err) {
                 console.error("Error fetching users:", err);
             } finally {

@@ -146,12 +146,15 @@ export default function Dashboard() {
         const fetchDashboardData = async () => {
             try {
                 const orgRef = `organizations/${sess.orgId}`;
+                const permissionRequestsPromise = isGlobalAdmin
+                    ? get(ref(rtdb, `${orgRef}/permissionRequests`))
+                    : Promise.resolve(null);
                 const [detailsSnap, sitesSnap, ptwSnap, incidentsSnap, requestsSnap] = await Promise.all([
                     get(ref(rtdb, `${orgRef}/details`)),
                     get(ref(rtdb, `${orgRef}/sites`)),
                     get(ref(rtdb, `${orgRef}/ptwRecords`)),
                     get(ref(rtdb, `${orgRef}/incidents`)),
-                    get(ref(rtdb, `${orgRef}/permissionRequests`))
+                    permissionRequestsPromise
                 ]);
 
                 setLocalOrgData({
@@ -159,7 +162,7 @@ export default function Dashboard() {
                     sites: sitesSnap.exists() ? sitesSnap.val() : null,
                     ptwRecords: ptwSnap.exists() ? ptwSnap.val() : null,
                     incidents: incidentsSnap.exists() ? incidentsSnap.val() : null,
-                    permissionRequests: requestsSnap.exists() ? requestsSnap.val() : null,
+                    permissionRequests: requestsSnap?.exists() ? requestsSnap.val() : null,
                 });
             } catch (error) {
                 console.error("Dashboard Fetch Error:", error);

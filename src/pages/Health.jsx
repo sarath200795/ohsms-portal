@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { ref, get, update, push } from 'firebase/database';
+import { ref, update, push } from 'firebase/database';
 import { rtdb } from '../config/firebase';
+import { readOrgChildren } from '../utils/orgData';
 import { hasAccessibleModule } from '../utils/permissions';
 import { canAuthenticateStatus, readStoredSession } from '../utils/session';
 
@@ -236,52 +237,55 @@ export default function HealthDashboard() {
 
         const loadData = async () => {
             try {
-                const dbRef = ref(rtdb, `organizations/${sess.orgId}`);
-                const snap = await get(dbRef);
+                const data = await readOrgChildren(rtdb, sess.orgId, [
+                    'sites',
+                    'users',
+                    'healthCases',
+                    'incidents',
+                    'healthSurveillance',
+                    'vaccinationRecords',
+                    'illnessRecords'
+                ]);
 
-                if (snap.exists()) {
-                    const data = snap.val();
+                if (data.sites) {
+                    const parsedSites = Object.keys(data.sites).map(key => {
+                        const sVal = data.sites[key];
+                        return typeof sVal === 'object' ? { code: sVal.code || key, name: sVal.name || sVal.code || key } : { code: sVal, name: sVal };
+                    });
+                    setSites(parsedSites);
+                }
 
-                    if (data.sites) {
-                        const parsedSites = Object.keys(data.sites).map(key => {
-                            const sVal = data.sites[key];
-                            return typeof sVal === 'object' ? { code: sVal.code || key, name: sVal.name || sVal.code || key } : { code: sVal, name: sVal };
-                        });
-                        setSites(parsedSites);
-                    }
+                if (data.users) {
+                    setUsers(Object.entries(data.users)
+                        .map(([k, v]) => ({ id: k, name: v.name || v.email || 'System Owner', ...v }))
+                        .filter(u => canAuthenticateStatus(u.status)));
+                }
 
-                    if (data.users) {
-                        setUsers(Object.entries(data.users)
-                            .map(([k, v]) => ({ id: k, name: v.name || v.email || 'System Owner', ...v }))
-                            .filter(u => canAuthenticateStatus(u.status)));
-                    }
+                const existingCases = data.healthCases || {};
+                setHealthCases(existingCases);
 
-                    const existingCases = data.healthCases || {};
-                    setHealthCases(existingCases);
+                if (data.incidents) {
+                    const injuryKeywords = ['first aid', 'medical treatment', 'lti', 'lost time', 'recordable', 'reportable', 'fatality', 'injury'];
+                    const allIncs = Object.keys(data.incidents).map(k => ({ firebaseKey: k, ...data.incidents[k] }));
 
-                    if (data.incidents) {
-                        const injuryKeywords = ['first aid', 'medical treatment', 'lti', 'lost time', 'recordable', 'reportable', 'fatality', 'injury'];
-                        const allIncs = Object.keys(data.incidents).map(k => ({ firebaseKey: k, ...data.incidents[k] }));
+                    const filteredIncs = allIncs.filter(inc => {
+                        const str = `${inc.severity || ''} ${inc.type || ''} ${inc.smartType || ''}`.toLowerCase();
+                        return injuryKeywords.some(kw => str.includes(kw));
+                    }).sort((a, b) => new Date(b.date) - new Date(a.date));
 
-                        const filteredIncs = allIncs.filter(inc => {
-                            const str = `${inc.severity || ''} ${inc.type || ''} ${inc.smartType || ''}`.toLowerCase();
-                            return injuryKeywords.some(kw => str.includes(kw));
-                        }).sort((a, b) => new Date(b.date) - new Date(a.date));
+                    setIncidents(filteredIncs);
+                }
 
-                        setIncidents(filteredIncs);
-                    }
+                if (data.healthSurveillance) {
+                    setSurveillanceList(safeArrayParse(data.healthSurveillance).sort((a, b) => new Date(b.date) - new Date(a.date)));
+                }
 
-                    if (data.healthSurveillance) {
-                        setSurveillanceList(safeArrayParse(data.healthSurveillance).sort((a, b) => new Date(b.date) - new Date(a.date)));
-                    }
+                if (data.vaccinationRecords) {
+                    setVaccinationList(safeArrayParse(data.vaccinationRecords).sort((a, b) => new Date(b.date) - new Date(a.date)));
+                }
 
-                    if (data.vaccinationRecords) {
-                        setVaccinationList(safeArrayParse(data.vaccinationRecords).sort((a, b) => new Date(b.date) - new Date(a.date)));
-                    }
-
-                    if (data.illnessRecords) {
-                        setIllnessList(safeArrayParse(data.illnessRecords).sort((a, b) => new Date(b.date) - new Date(a.date)));
-                    }
+                if (data.illnessRecords) {
+                    setIllnessList(safeArrayParse(data.illnessRecords).sort((a, b) => new Date(b.date) - new Date(a.date)));
                 }
             } catch (e) { console.error("Data Load Error:", e); }
             finally { setLoading(false); }

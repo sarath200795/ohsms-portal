@@ -6,7 +6,7 @@ import { normalizeSessionData, normalizeUserStatus, writeStoredSession } from '.
 
 const useStore = create((set, get) => ({
     session: null,
-    orgData: null,          // This will hold the ENTIRE organization's data in memory
+    orgData: null,
     isDataLoading: true,    // Only true on the very first app load
     listenerActive: false,  // Prevents duplicate Firebase connections
 
@@ -24,14 +24,18 @@ const useStore = create((set, get) => ({
 
         set({ listenerActive: true, isDataLoading: true });
 
-        const orgRef = ref(rtdb, `organizations/${normalizedSession.orgId}`);
+        if (!normalizedSession.uid) {
+            set({ listenerActive: false, isDataLoading: false });
+            return;
+        }
+
+        const userRef = ref(rtdb, `organizations/${normalizedSession.orgId}/users/${normalizedSession.uid}`);
         
-        // Establish a SINGLE real-time connection that updates the memory quietly in the background
-        onValue(orgRef, (snap) => {
+        // Keep the signed-in user's permission snapshot fresh without reading the full organization tree.
+        onValue(userRef, (snap) => {
             if (snap.exists()) {
-                const orgData = snap.val();
                 const currentSession = get().session;
-                const liveUser = currentSession?.uid ? orgData?.users?.[currentSession.uid] : null;
+                const liveUser = snap.val();
 
                 if (currentSession && liveUser) {
                     const refreshedSession = normalizeSessionData({
@@ -57,7 +61,7 @@ const useStore = create((set, get) => ({
                     }
                 }
 
-                set({ orgData, isDataLoading: false });
+                set({ orgData: { currentUser: liveUser }, isDataLoading: false });
             } else {
                 set({ orgData: null, isDataLoading: false });
             }
@@ -70,8 +74,8 @@ const useStore = create((set, get) => ({
     // 2. Call this on Logout
     clearSession: () => {
         const sess = get().session;
-        if (sess?.orgId) {
-            off(ref(rtdb, `organizations/${sess.orgId}`)); // Sever the DB connection securely
+        if (sess?.orgId && sess?.uid) {
+            off(ref(rtdb, `organizations/${sess.orgId}/users/${sess.uid}`)); // Sever the DB connection securely
         }
         set({ session: null, orgData: null, isDataLoading: true, listenerActive: false });
     }

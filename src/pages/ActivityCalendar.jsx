@@ -1,9 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { get, ref } from 'firebase/database';
 
 import { rtdb } from '../config/firebase';
 import { useAppTransition } from '../hooks/useAppTransition';
+import { readOrgChildren } from '../utils/orgData';
 import { hasAccessibleModule, normalizeSessionPermissions } from '../utils/permissions';
 
 const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
@@ -264,8 +264,18 @@ export default function ActivityCalendar() {
 
         const loadData = async () => {
             try {
-                const snapshot = await get(ref(rtdb, `organizations/${parsedSession.orgId}`));
-                const value = snapshot.exists() ? snapshot.val() : {};
+                const value = await readOrgChildren(rtdb, parsedSession.orgId, [
+                    'sites',
+                    'incidents',
+                    'ptwRecords',
+                    'healthSurveillance',
+                    'vaccinationRecords',
+                    'illnessRecords',
+                    'inspectionRecords',
+                    'inspectionTemplates',
+                    'mockDrills',
+                    'consultations'
+                ]);
 
                 setOrgData(value);
                 setSites(

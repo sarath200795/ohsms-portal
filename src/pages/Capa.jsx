@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { ref, get, update } from 'firebase/database';
+import { ref, update } from 'firebase/database';
 import { rtdb } from '../config/firebase';
 import * as XLSX from 'xlsx';
+import { readOrgChildren } from '../utils/orgData';
 import { hasAccessibleModule, normalizeSessionPermissions } from '../utils/permissions';
 
 // --- UTILITIES ---
@@ -79,11 +80,17 @@ export default function Capa() {
     const fetchActions = async (orgId) => {
         setLoading(true);
         try {
-            const dbRef = ref(rtdb, `organizations/${orgId}`);
-            const snap = await get(dbRef);
-
-            if (snap.exists()) {
-                const data = snap.val();
+            const data = await readOrgChildren(rtdb, orgId, [
+                'sites',
+                'users',
+                'incidents',
+                'auditFindings',
+                'mockDrills',
+                'consultations',
+                'improvements',
+                'inspectionRecords'
+            ]);
+            if (Object.keys(data).length > 0) {
                 const allActions = [];
 
                 if (data.sites) {

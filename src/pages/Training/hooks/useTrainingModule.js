@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { get, push, ref, remove, update } from 'firebase/database';
 import * as XLSX from 'xlsx';
 import { rtdb } from '../../../config/firebase';
+import { readOrgChildren } from '../../../utils/orgData';
 import {
     BASE_TOPICS,
     ROLE_REQUIREMENTS,
@@ -210,18 +211,22 @@ export function useTrainingModule() {
 
         const loadDatabase = async () => {
             try {
-                const dbRef = ref(rtdb, `organizations/${parsedSession.orgId}`);
-                const snap = await get(dbRef);
-                if (snap.exists()) {
-                    const orgData = snap.val();
-                    const orgDataWithId = { ...orgData, _orgId: parsedSession.orgId };
+                const orgData = await readOrgChildren(rtdb, parsedSession.orgId, [
+                    'trainings',
+                    'contractors',
+                    'sites',
+                    'users',
+                    'incidents',
+                    'mockDrills',
+                    'inspectionRecords'
+                ]);
+                const orgDataWithId = { ...orgData, _orgId: parsedSession.orgId };
 
-                    if (orgData.trainings) setTrainings(normalizeTrainings(orgData.trainings));
-                    if (orgData.contractors) setContractors(normalizeContractors(orgData.contractors));
-                    if (orgData.sites) setSites(Object.keys(orgData.sites).map((key) => ({ code: orgData.sites[key].code || key, name: orgData.sites[key].name || key })));
-                    if (orgData.users) setUsers(normalizeUsers(orgData.users));
-                    setTrainingCapas(buildTrainingCapas(orgDataWithId));
-                }
+                if (orgData.trainings) setTrainings(normalizeTrainings(orgData.trainings));
+                if (orgData.contractors) setContractors(normalizeContractors(orgData.contractors));
+                if (orgData.sites) setSites(Object.keys(orgData.sites).map((key) => ({ code: orgData.sites[key].code || key, name: orgData.sites[key].name || key })));
+                if (orgData.users) setUsers(normalizeUsers(orgData.users));
+                setTrainingCapas(buildTrainingCapas(orgDataWithId));
             } catch (error) {
                 console.error('Error loading data:', error);
             } finally {

@@ -126,29 +126,38 @@ export default function Standards() {
             sessionStorage.setItem('isoCurrentSite', ctxSite === 'All' ? 'GLOBAL' : ctxSite);
 
 
-            const dbRef = ref(rtdb, `organizations/${sess.orgId}`);
-            const unsubscribe = onValue(dbRef, (snap) => {
-                if (snap.exists()) {
-                    const data = snap.val();
-                    if (data.sites) {
-                        setSites(Object.keys(data.sites).map(key => ({
-                            code: data.sites[key].code || key,
-                            name: data.sites[key].name || key
-                        })));
-                    }
-                    if (data.documents) {
-                        setDocuments(safeArrayParse(data.documents).sort((a, b) => new Date(b.uploadDate || 0) - new Date(a.uploadDate || 0)));
-                    } else {
-                        setDocuments([]);
-                    }
-                }
-                setLoading(false);
+            const loadedChildren = new Set();
+            const markLoaded = (childName) => {
+                loadedChildren.add(childName);
+                if (loadedChildren.size === 2) setLoading(false);
+            };
+
+            const unsubscribeSites = onValue(ref(rtdb, `organizations/${sess.orgId}/sites`), (snap) => {
+                const data = snap.exists() ? snap.val() : {};
+                setSites(Object.keys(data).map(key => ({
+                    code: data[key].code || key,
+                    name: data[key].name || key
+                })));
+                markLoaded('sites');
             }, (error) => {
                 setFatalError(error.message);
                 setLoading(false);
             });
 
-            return () => unsubscribe();
+            const unsubscribeDocuments = onValue(ref(rtdb, `organizations/${sess.orgId}/documents`), (snap) => {
+                setDocuments(snap.exists()
+                    ? safeArrayParse(snap.val()).sort((a, b) => new Date(b.uploadDate || 0) - new Date(a.uploadDate || 0))
+                    : []);
+                markLoaded('documents');
+            }, (error) => {
+                setFatalError(error.message);
+                setLoading(false);
+            });
+
+            return () => {
+                unsubscribeSites();
+                unsubscribeDocuments();
+            };
         } catch (error) {
             setFatalError(error.message);
             setLoading(false);
