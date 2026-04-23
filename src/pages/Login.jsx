@@ -7,12 +7,94 @@ import { normalizeSessionPermissions } from '../utils/permissions';
 import { ACCOUNT_STATUS, canAuthenticateStatus, isDeletedStatus, isPendingStatus, writeStoredSession } from '../utils/session';
 
 const FEATURE_HIGHLIGHTS = [
-    { title: 'Incidents + RCA', icon: 'fa-triangle-exclamation', text: 'Smart investigations, 5-Why, fishbone, CAPA, HIRA links, and printable reports.' },
-    { title: 'PTW + LOTO', icon: 'fa-file-shield', text: 'Permit approvals, isolation procedures, tag generation, QR access, and field execution.' },
-    { title: 'Risk + Training', icon: 'fa-shield-halved', text: 'Risk assessments, training matrix, CAPA-driven training needs, and competency records.' },
-    { title: 'Field + Vendor Portals', icon: 'fa-qrcode', text: 'Separate QR-first field workflows and controlled contractor/vendor access.' },
-    { title: 'Inspections + Equipment', icon: 'fa-clipboard-check', text: 'Scheduled inspections, emergency equipment checks, missed inspection tracking, and PDFs.' },
-    { title: 'Analytics + Calendar', icon: 'fa-chart-line', text: 'Activity calendar, site filters, dashboards, CAPA visibility, and management reporting.' }
+    { title: 'Smart RCA', icon: 'fa-brain', text: 'Incident narratives can auto-build 5-Why, fishbone, fault tree, CAPA suggestions, and HIRA review links.' },
+    { title: 'QR Field Action', icon: 'fa-qrcode', text: 'Field teams scan PTW, LOTO, emergency equipment, and inspection tags to open the correct workflow instantly.' },
+    { title: 'Audit-Ready PDFs', icon: 'fa-file-pdf', text: 'Generate formal records for incidents, HIRA, inspections, permits, emergency equipment, audits, and training.' },
+    { title: 'Connected CAPA', icon: 'fa-list-check', text: 'Findings from incidents, audits, drills, inspections, and improvements feed one centralized action tracker.' },
+    { title: 'Training Matrix', icon: 'fa-user-graduate', text: 'Track competence, expiry, retraining needs, contractor inductions, and CAPA-linked training sessions.' },
+    { title: 'Site-Based Control', icon: 'fa-shield-halved', text: 'Role, module, site, vendor, and field-portal access controls keep users focused on approved work.' }
+];
+
+const UNIQUE_FEATURES = [
+    { label: 'Live Command Hub', value: 'One dashboard for site activity, open CAPA, approvals, and module navigation.' },
+    { label: 'Field Portal', value: 'Separate mobile-friendly portal for QR scanning, inspections, PTW, LOTO, incidents, and emergency equipment.' },
+    { label: 'Vendor Portal', value: 'Controlled contractor area for worker records, documents, incidents, and permit visibility.' },
+    { label: 'Activity Calendar', value: 'Daily, weekly, and monthly view of PTW, incidents, health, inspections, drills, meetings, and CAPA.' }
+];
+
+const MODULE_DETAILS = [
+    {
+        title: 'Incident Management',
+        icon: 'fa-triangle-exclamation',
+        tag: 'RCA + HIRA',
+        detail: 'Report incidents, capture evidence, build investigation teams, generate smart RCA, assign CAPA, and link the event back to risk assessments.'
+    },
+    {
+        title: 'Risk Assessment',
+        icon: 'fa-shield-virus',
+        tag: 'HIRA Register',
+        detail: 'Create task-based HIRA records with hazards, controls, risk scoring, ALARP review, revision history, and controlled PDF output.'
+    },
+    {
+        title: 'PTW',
+        icon: 'fa-file-signature',
+        tag: 'Permit Control',
+        detail: 'Manage permit requests, approvals, live inspections, unsafe/safe observations, QR access, printouts, and field verification.'
+    },
+    {
+        title: 'LOTO',
+        icon: 'fa-lock',
+        tag: 'Isolation Safety',
+        detail: 'Generate isolation procedures, equipment tags, QR execution pages, verification steps, and procedure reports for field work.'
+    },
+    {
+        title: 'Inspections',
+        icon: 'fa-clipboard-check',
+        tag: 'Scheduled Checks',
+        detail: 'Assign inspections by start date, due date, frequency, site, owner, calendar visibility, completion status, CAPA, and PDFs.'
+    },
+    {
+        title: 'Emergency Equipment',
+        icon: 'fa-fire-extinguisher',
+        tag: 'Asset Readiness',
+        detail: 'Create equipment tags, inspect monthly checklists, track missed inspections, calculate next due dates, and print tag/report outputs.'
+    },
+    {
+        title: 'Emergency Module',
+        icon: 'fa-tower-broadcast',
+        tag: 'Drills + Response',
+        detail: 'Record mock drills, emergency events, lessons learned, response performance, action plans, and training links.'
+    },
+    {
+        title: 'Training',
+        icon: 'fa-person-chalkboard',
+        tag: 'Competence Matrix',
+        detail: 'Maintain training records, attendees, certificates, expiry alerts, retraining triggers, contractor induction, and CAPA-based courses.'
+    },
+    {
+        title: 'Contractors',
+        icon: 'fa-helmet-safety',
+        tag: 'Vendor Control',
+        detail: 'Register vendors, workers, documents, safety passports, induction status, permit history, and contractor incident records.'
+    },
+    {
+        title: 'Audit + CAPA',
+        icon: 'fa-magnifying-glass-chart',
+        tag: 'Assurance Loop',
+        detail: 'Plan audits, assign findings, capture responses, verify closure, and consolidate actions across all major EHS modules.'
+    },
+    {
+        title: 'Health + Surveillance',
+        icon: 'fa-heart-pulse',
+        tag: 'Worker Health',
+        detail: 'Track occupational health cases, surveillance, vaccination, illness records, restricted access, and follow-up evidence.'
+    },
+    {
+        title: 'Analytics + Calendar',
+        icon: 'fa-chart-line',
+        tag: 'Leadership View',
+        detail: 'Review trends, exposure hours, incident rates, site filters, activity calendar, management visibility, and performance reports.'
+    }
 ];
 
 const normalizeJoinCode = (value) => value.toUpperCase().trim().replace(/[^A-Z0-9-]/g, '');
@@ -263,8 +345,17 @@ export default function Login() {
                         </p>
                     </div>
 
-                    <div>
-                        <p className="legendary-title mb-4 text-[11px] text-[var(--myth-cyan)]">Key Platform Features</p>
+                    <div className="mt-8 grid grid-cols-2 gap-3 lg:grid-cols-4">
+                        {UNIQUE_FEATURES.map((feature) => (
+                            <div key={feature.label} className="rounded-2xl border border-[var(--myth-border)] bg-black/25 p-4 shadow-inner">
+                                <p className="legendary-title text-[9px] text-[var(--myth-cyan)]">{feature.label}</p>
+                                <p className="mt-2 text-[11px] leading-relaxed text-[var(--myth-muted)]">{feature.value}</p>
+                            </div>
+                        ))}
+                    </div>
+
+                    <div className="mt-8">
+                        <p className="legendary-title mb-4 text-[11px] text-[var(--myth-cyan)]">Unique Platform Features</p>
                         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                             {FEATURE_HIGHLIGHTS.map((feature) => (
                                 <div key={feature.title} className="command-panel rounded-[1.4rem] p-4">
@@ -273,6 +364,36 @@ export default function Login() {
                                     </div>
                                     <h3 className="text-xl font-black text-white">{feature.title}</h3>
                                     <p className="mt-2 text-xs leading-relaxed text-[var(--myth-muted)]">{feature.text}</p>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+
+                    <div className="mt-8">
+                        <div className="mb-4 flex flex-col justify-between gap-2 sm:flex-row sm:items-end">
+                            <div>
+                                <p className="legendary-title text-[11px] text-[var(--myth-cyan)]">Module Capability Map</p>
+                                <h2 className="mt-2 text-3xl text-white">Built for complete EHS operations</h2>
+                            </div>
+                            <p className="max-w-sm text-xs leading-relaxed text-[var(--myth-muted)]">
+                                Each module is connected so records, CAPA, training, QR access, and reports work as one system.
+                            </p>
+                        </div>
+                        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                            {MODULE_DETAILS.map((module) => (
+                                <div key={module.title} className="rounded-[1.25rem] border border-[var(--myth-border)] bg-[rgba(8,10,12,0.72)] p-4 transition hover:-translate-y-1 hover:border-[var(--myth-cyan)]/60 hover:bg-black/35">
+                                    <div className="mb-3 flex items-center justify-between gap-3">
+                                        <div className="flex items-center gap-3">
+                                            <div className="flex h-9 w-9 items-center justify-center rounded-xl border border-[var(--myth-border)] bg-black/30 text-[var(--myth-cyan)]">
+                                                <i className={`fas ${module.icon}`}></i>
+                                            </div>
+                                            <h3 className="text-base font-black text-white">{module.title}</h3>
+                                        </div>
+                                        <span className="rounded-full border border-[var(--myth-border)] bg-black/30 px-2.5 py-1 text-[8px] font-black uppercase tracking-[0.18em] text-[var(--myth-cyan)]">
+                                            {module.tag}
+                                        </span>
+                                    </div>
+                                    <p className="text-[11px] leading-relaxed text-[var(--myth-muted)]">{module.detail}</p>
                                 </div>
                             ))}
                         </div>
@@ -297,7 +418,7 @@ export default function Login() {
 
                         <div className="mt-8 grid grid-cols-3 gap-3 rounded-[1.25rem] border border-[var(--myth-border)] bg-[rgba(10,8,6,0.82)] p-2">
                             <button type="button" onClick={() => setAuthMode('login')} className={`myth-button px-3 py-3 text-xs ${authMode === 'login' ? 'myth-button-primary' : 'myth-button-secondary'}`}>Sign In</button>
-                            <button type="button" onClick={() => setAuthMode('join')} className={`myth-button px-3 py-3 text-xs ${isJoinMode ? 'myth-button-primary' : 'myth-button-secondary'}`}>New User</button>
+                            <button type="button" onClick={() => setAuthMode('join')} className={`myth-button px-3 py-3 text-xs ${isJoinMode ? 'myth-button-primary' : 'myth-button-secondary'}`}>Existing Org</button>
                             <button type="button" onClick={() => setAuthMode('create')} className={`myth-button px-3 py-3 text-xs ${isCreateMode ? 'myth-button-primary' : 'myth-button-secondary'}`}>New Org</button>
                         </div>
                     </div>
@@ -315,6 +436,7 @@ export default function Login() {
                             <div className="rounded-2xl border border-[var(--myth-border)] bg-black/20 p-4">
                                 <div className="flex flex-col gap-3 sm:flex-row">
                                     <input
+                                        id="forgot-password-email"
                                         type="email"
                                         value={resetEmail}
                                         onChange={(e) => setResetEmail(e.target.value)}
@@ -330,6 +452,27 @@ export default function Login() {
                             <button type="submit" disabled={loading} className="myth-button myth-button-primary w-full px-4 py-4 text-sm">
                                 {loading ? 'Authenticating...' : 'Secure Sign In'}
                             </button>
+                            <div className="grid gap-3 sm:grid-cols-2">
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setResetEmail((prev) => prev || email);
+                                        document.getElementById('forgot-password-email')?.focus();
+                                    }}
+                                    className="rounded-2xl border border-[var(--myth-border)] bg-black/20 px-4 py-3 text-left transition hover:border-[var(--myth-cyan)]/60 hover:bg-black/35"
+                                >
+                                    <span className="legendary-title block text-[10px] text-[var(--myth-cyan)]">Forgot Password?</span>
+                                    <span className="mt-1 block text-xs leading-relaxed text-[var(--myth-muted)]">Send a secure reset link to your registered email.</span>
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setAuthMode('join')}
+                                    className="rounded-2xl border border-[var(--myth-border)] bg-black/20 px-4 py-3 text-left transition hover:border-[var(--myth-cyan)]/60 hover:bg-black/35"
+                                >
+                                    <span className="legendary-title block text-[10px] text-[var(--myth-cyan)]">Register in Existing Organization</span>
+                                    <span className="mt-1 block text-xs leading-relaxed text-[var(--myth-muted)]">Use your admin-issued join code and wait for approval.</span>
+                                </button>
+                            </div>
                         </form>
                     ) : (
                         <form onSubmit={isJoinMode ? handleJoinExistingOrg : handleCreateWorkspace} className="mt-8 space-y-4">
