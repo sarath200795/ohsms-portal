@@ -118,6 +118,25 @@ test('legacy organization owners can recover user-management join code access', 
     }
 });
 
+test('active organization users can rotate only join-code metadata', () => {
+    const joinWrite = rules.joinRegistry.$joinCode['.write'];
+    const joinMetadataRules = [
+        orgRules.details.joinCode['.write'],
+        orgRules.details.joinCodeUpdatedAt['.write'],
+        orgRules.details.joinCodeUpdatedBy['.write']
+    ];
+
+    assert.doesNotMatch(joinWrite, /\/role/, 'join registry rotation should not require an admin role');
+    assert.match(joinWrite, /status'\)\.val\(\) === 'Active'/, 'join registry rotation must require active org membership');
+
+    for (const rule of joinMetadataRules) {
+        assert.match(rule, /status'\)\.val\(\) === 'Active'/, 'join metadata updates must require active org membership');
+        assert.doesNotMatch(rule, /\/role/, 'join metadata updates should not require broad details-admin role');
+    }
+
+    assert.match(orgRules.details['.write'], /\/role/, 'full organization details writes must remain role-restricted');
+});
+
 test('site-owned collections require site-scoped queries for non-global users', () => {
     for (const collection of siteScopedCollections) {
         const readRule = orgRules[collection]?.['.read'];
