@@ -3,7 +3,15 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { ref, update, push } from 'firebase/database';
 import { rtdb } from '../config/firebase';
 import { readOrgChildren } from '../utils/orgData';
-import { hasAccessibleModule } from '../utils/permissions';
+import {
+    canDeleteForRole,
+    canEditCreateForRole,
+    getAllowedSiteCodes,
+    hasAccessibleModule,
+    isGlobalOwnerRole,
+    isGlobalScopeUserRecord,
+    isSiteOwnerRole
+} from '../utils/permissions';
 import { canAuthenticateStatus, readStoredSession } from '../utils/session';
 
 const fileToBase64 = (file) => new Promise((resolve, reject) => {
@@ -200,8 +208,8 @@ export default function HealthDashboard() {
         if (!sess || !canAuthenticateStatus(sess.status)) { navigate('/'); return; }
 
         // 1. STRICT MODULE GUARD (UPDATED to allow Site Owners/Managers)
-        const isGlobalAdmin = ['Global Owner', 'Global Manager', 'Owner', 'Admin'].includes(sess.role);
-        const isSiteAdmin = ['Site Owner', 'Site Manager'].includes(sess.role);
+        const isGlobalAdmin = isGlobalOwnerRole(sess.role);
+        const isSiteAdmin = isSiteOwnerRole(sess.role);
 
         const hasModuleAccess = isGlobalAdmin || isSiteAdmin || hasAccessibleModule(sess.accessibleModules, 'OHS Tools');
 
@@ -214,8 +222,8 @@ export default function HealthDashboard() {
         setSession(sess);
 
         // 2. STRICT RBAC MATRIX
-        const canDel = ['Global Owner', 'Owner', 'Admin', 'Site Owner'].includes(sess.role);
-        const canEditCr = ['Global Owner', 'Global Manager', 'Owner', 'Admin', 'Site Owner', 'Site Manager', 'User'].includes(sess.role);
+        const canDel = canDeleteForRole(sess.role);
+        const canEditCr = canEditCreateForRole(sess.role);
 
         setPermissions({
             viewOnly: !canEditCr,
@@ -297,17 +305,12 @@ export default function HealthDashboard() {
     // ==========================================
     // 4. ROW LEVEL SECURITY (RLS) & FILTERS
     // ==========================================
-    const isGlobalUser = ['Global Owner', 'Global Manager', 'Owner', 'Admin'].includes(session?.role);
+    const isGlobalUser = isGlobalOwnerRole(session?.role);
 
     const allowedSiteCodes = useMemo(() => {
         if (!session) return new Set();
-        const codes = new Set([session.assignedSite, ...(session.accessibleSites || [])].filter(Boolean));
-        if (!isGlobalUser) {
-            codes.delete('GLOBAL');
-            codes.delete('All');
-        }
-        return codes;
-    }, [session, isGlobalUser]);
+        return getAllowedSiteCodes(session);
+    }, [session]);
 
     const visibleSites = useMemo(() => {
         if (isGlobalUser) return sites;
@@ -326,7 +329,7 @@ export default function HealthDashboard() {
 
     const siteUsers = useMemo(() => {
         return users.filter(u => {
-            const isGlobalUsr = u.role === 'Owner' || u.role === 'Lead Auditor' || u.assignedSite === 'GLOBAL' || (u.accessibleSites && u.accessibleSites.includes('GLOBAL'));
+            const isGlobalUsr = isGlobalScopeUserRecord(u);
             const activeSiteId = survForm.siteId || vaccForm.siteId || illnessForm.siteId || siteFilter;
             const siteMatch = isGlobalUsr || !activeSiteId || activeSiteId === 'All' || u.assignedSite === activeSiteId || (u.accessibleSites && u.accessibleSites.includes(activeSiteId));
             return siteMatch;

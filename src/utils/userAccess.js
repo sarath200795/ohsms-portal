@@ -1,34 +1,78 @@
-import { toCanonicalModuleIds } from './permissions.js';
+import {
+    GLOBAL_OWNER_ROLE,
+    SITE_OWNER_ROLE,
+    SUPPORTED_USER_ROLES,
+    USER_ROLE,
+    normalizeRole,
+    toCanonicalModuleIds
+} from './permissions.js';
 import { ACCOUNT_STATUS, normalizeUserStatus } from './session.js';
 
-export const USER_ROLES = [
-    'Global Owner',
-    'Global Manager',
-    'Admin',
-    'Site Owner',
-    'Site Manager',
-    'HSE Rep',
-    'Lead Auditor',
-    'User'
-];
+export const USER_ROLES = SUPPORTED_USER_ROLES;
 
 export const normalizeUserEmail = (email) => String(email || '').trim().toLowerCase();
 
 export const toUserRecordKey = (email) => normalizeUserEmail(email).replace(/[.#$[\]/]/g, '_');
 
-export const normalizeUserAccessPayload = (payload = {}, { editingExistingUser = false } = {}) => {
-    const normalizedStatus = normalizeUserStatus(payload.status || ACCOUNT_STATUS.ACTIVE);
+export const normalizeStoredUserRecord = (payload = {}) => {
+    const role = normalizeRole(payload.role || USER_ROLE);
+    const baseAssignedSite = String(payload.assignedSite || '').trim();
+    const fallbackSite = Array.isArray(payload.accessibleSites)
+        ? payload.accessibleSites.find(Boolean)
+        : '';
+    const assignedSite = role === GLOBAL_OWNER_ROLE
+        ? 'GLOBAL'
+        : baseAssignedSite || String(fallbackSite || '').trim();
+    const accessibleSites = role === GLOBAL_OWNER_ROLE
+        ? []
+        : role === SITE_OWNER_ROLE
+            ? (assignedSite ? [assignedSite] : [])
+            : Array.isArray(payload.accessibleSites)
+                ? payload.accessibleSites.filter(Boolean).map((site) => String(site).trim())
+                : [];
+    const accessibleModules = role === USER_ROLE
+        ? toCanonicalModuleIds(payload.accessibleModules)
+        : [];
 
     return {
         ...payload,
         name: String(payload.name || '').trim(),
         email: normalizeUserEmail(payload.email),
-        role: String(payload.role || 'User').trim() || 'User',
-        assignedSite: String(payload.assignedSite || '').trim(),
-        accessibleSites: Array.isArray(payload.accessibleSites)
-            ? payload.accessibleSites.filter(Boolean).map((site) => String(site).trim())
-            : [],
-        accessibleModules: toCanonicalModuleIds(payload.accessibleModules),
+        role,
+        assignedSite,
+        accessibleSites,
+        accessibleModules,
+        status: normalizeUserStatus(payload.status || ACCOUNT_STATUS.ACTIVE)
+    };
+};
+
+export const normalizeUserAccessPayload = (payload = {}, { editingExistingUser = false } = {}) => {
+    const normalizedStatus = normalizeUserStatus(payload.status || ACCOUNT_STATUS.ACTIVE);
+    const role = normalizeRole(payload.role || USER_ROLE);
+    const baseAssignedSite = String(payload.assignedSite || '').trim();
+    const fallbackSite = Array.isArray(payload.accessibleSites)
+        ? payload.accessibleSites.find(Boolean)
+        : '';
+    const assignedSite = role === GLOBAL_OWNER_ROLE
+        ? 'GLOBAL'
+        : baseAssignedSite || String(fallbackSite || '').trim();
+    const accessibleSites = role === GLOBAL_OWNER_ROLE
+        ? []
+        : role === SITE_OWNER_ROLE
+            ? (assignedSite ? [assignedSite] : [])
+            : Array.isArray(payload.accessibleSites)
+                ? payload.accessibleSites.filter(Boolean).map((site) => String(site).trim())
+                : [];
+    const accessibleModules = role === USER_ROLE ? toCanonicalModuleIds(payload.accessibleModules) : [];
+
+    return {
+        ...payload,
+        name: String(payload.name || '').trim(),
+        email: normalizeUserEmail(payload.email),
+        role,
+        assignedSite,
+        accessibleSites,
+        accessibleModules,
         status: editingExistingUser && normalizedStatus === ACCOUNT_STATUS.PENDING
             ? ACCOUNT_STATUS.ACTIVE
             : normalizedStatus
@@ -49,6 +93,10 @@ export const validateUserAccessPayload = (payload = {}) => {
 
     if (payload.role && !USER_ROLES.includes(payload.role)) {
         errors.push('Role is invalid.');
+    }
+
+    if (payload.role === SITE_OWNER_ROLE && !payload.assignedSite) {
+        errors.push('Site Owner must have a primary site assigned.');
     }
 
     const status = normalizeUserStatus(payload.status);

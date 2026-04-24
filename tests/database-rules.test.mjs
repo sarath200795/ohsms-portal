@@ -65,8 +65,7 @@ test('organization root reads are restricted to privileged administrators only',
     assert.ok(orgRootRead, 'organization root must define an explicit read rule');
     assert.notEqual(orgRootRead, activeOnlyWrite, 'organization root must not be readable by every active org user');
     assert.match(orgRootRead, /Global Owner/, 'organization root read must be role scoped');
-    assert.match(orgRootRead, /Global Manager/, 'organization root read must include privileged global management');
-    assert.match(orgRootRead, /Admin/, 'organization root read must include admin role scoping');
+    assert.doesNotMatch(orgRootRead, /Global Manager|Admin|Site Manager|HSE Rep|Lead Auditor/, 'legacy roles must not remain in organization root access');
 });
 
 test('sensitive organization collections are not writable by any active user', () => {
@@ -118,7 +117,7 @@ test('legacy organization owners can recover user-management join code access', 
     }
 });
 
-test('active organization users can rotate only join-code metadata', () => {
+test('only global owners can rotate join-code metadata', () => {
     const joinWrite = rules.joinRegistry.$joinCode['.write'];
     const joinMetadataRules = [
         orgRules.details.joinCode['.write'],
@@ -126,15 +125,34 @@ test('active organization users can rotate only join-code metadata', () => {
         orgRules.details.joinCodeUpdatedBy['.write']
     ];
 
-    assert.doesNotMatch(joinWrite, /\/role/, 'join registry rotation should not require an admin role');
+    assert.match(joinWrite, /Global Owner/, 'join registry rotation must require the Global Owner role');
     assert.match(joinWrite, /status'\)\.val\(\) === 'Active'/, 'join registry rotation must require active org membership');
+    assert.doesNotMatch(joinWrite, /Site Owner/, 'site owners must not rotate workspace join codes');
 
     for (const rule of joinMetadataRules) {
         assert.match(rule, /status'\)\.val\(\) === 'Active'/, 'join metadata updates must require active org membership');
-        assert.doesNotMatch(rule, /\/role/, 'join metadata updates should not require broad details-admin role');
+        assert.match(rule, /Global Owner/, 'join metadata updates must require the Global Owner role');
+        assert.doesNotMatch(rule, /Site Owner/, 'site owners must not rotate join metadata');
     }
 
     assert.match(orgRules.details['.write'], /\/role/, 'full organization details writes must remain role-restricted');
+});
+
+test('site owners can manage only same-site non-global users', () => {
+    const userWriteRule = orgRules.users.$uid['.write'];
+
+    assert.match(userWriteRule, /Site Owner/, 'site owners must be able to manage users for their site');
+    assert.match(userWriteRule, /assignedSite/, 'site owner user writes must stay site scoped');
+    assert.match(userWriteRule, /role'\)\.val\(\) !== 'Global Owner'/, 'site owners must not grant or edit global owner access');
+});
+
+test('user record validation allows only the supported three roles', () => {
+    const validateRule = orgRules.users.$uid['.validate'];
+
+    assert.match(validateRule, /Global Owner/, 'Global Owner must remain a valid stored role');
+    assert.match(validateRule, /Site Owner/, 'Site Owner must remain a valid stored role');
+    assert.match(validateRule, /'User'/, 'User must remain a valid stored role');
+    assert.doesNotMatch(validateRule, /Global Manager|Site Manager|HSE Rep|Lead Auditor|Admin/, 'legacy roles must not remain valid in stored user records');
 });
 
 test('site-owned collections require site-scoped queries for non-global users', () => {

@@ -10,7 +10,14 @@ import * as XLSX from 'xlsx';
 import QRious from 'qrious';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { hasAccessibleModule } from '../utils/permissions';
+import {
+    canDeleteForRole,
+    canEditCreateForRole,
+    getAllowedSiteCodes,
+    hasAccessibleModule,
+    isGlobalOwnerRole,
+    isSiteOwnerRole
+} from '../utils/permissions';
 import { canAuthenticateStatus, readStoredSession } from '../utils/session';
 
 // ==========================================
@@ -106,8 +113,8 @@ export default function Loto() {
                 // If logged in, proceed normally as an internal employee
                 const cleanRole = String(sess.role || '').trim();
 
-                const isGlobalAdmin = ['Global Owner', 'Global Manager', 'Owner', 'Admin'].includes(cleanRole);
-                const isSiteAdmin = ['Site Owner', 'Site Manager'].includes(cleanRole);
+                const isGlobalAdmin = isGlobalOwnerRole(cleanRole);
+                const isSiteAdmin = isSiteOwnerRole(cleanRole);
 
                 const hasModuleAccess = isGlobalAdmin || isSiteAdmin || hasAccessibleModule(sess.accessibleModules, 'OHS Tools');
 
@@ -121,9 +128,9 @@ export default function Loto() {
 
                 setSession(sess);
                 setPermissions({
-                    viewOnly: !['Global Owner', 'Global Manager', 'Owner', 'Admin', 'Site Owner', 'Site Manager', 'User'].includes(cleanRole),
-                    canDelete: ['Global Owner', 'Owner', 'Admin', 'Site Owner'].includes(cleanRole),
-                    canEditCreate: ['Global Owner', 'Global Manager', 'Owner', 'Admin', 'Site Owner', 'Site Manager', 'User'].includes(cleanRole)
+                    viewOnly: !canEditCreateForRole(cleanRole),
+                    canDelete: canDeleteForRole(cleanRole),
+                    canEditCreate: canEditCreateForRole(cleanRole)
                 });
 
                 let ctxSite = params.get('site') || sessionStorage.getItem('isoCurrentSite') || 'All';
@@ -158,14 +165,12 @@ export default function Loto() {
     }, [navigate, location]);
 
     const role = session?.role?.trim() || 'User';
-    const isGlobalUser = ['Global Owner', 'Global Manager', 'Owner', 'Admin'].includes(role);
+    const isGlobalUser = isGlobalOwnerRole(role);
 
     const allowedSiteCodes = useMemo(() => {
         if (!session) return new Set();
-        const codes = new Set([session.assignedSite, ...(session.accessibleSites || [])].filter(Boolean));
-        if (!isGlobalUser) { codes.delete('GLOBAL'); codes.delete('All'); }
-        return codes;
-    }, [session, isGlobalUser]);
+        return getAllowedSiteCodes(session);
+    }, [session]);
 
     const allowedSites = useMemo(() => isGlobalUser ? sites : sites.filter(s => allowedSiteCodes.has(s.code)), [sites, isGlobalUser, allowedSiteCodes]);
 

@@ -4,6 +4,8 @@ import { ref, push, update, remove } from 'firebase/database';
 import { rtdb } from '../config/firebase';
 import { getPortalAwareHomePath } from './FieldApp/portalAuth';
 import { readOrgChildren } from '../utils/orgData';
+import { canEditCreateForRole, isGlobalOwnerRole } from '../utils/permissions';
+import { readStoredSession } from '../utils/session';
 import * as XLSX from 'xlsx';
 
 const FREQUENCIES = ['Daily', 'Weekly', 'Monthly', 'Quarterly', 'Bi-Annually', 'Annually'];
@@ -156,14 +158,13 @@ export default function Inspections() {
     const [viewingRecord, setViewingRecord] = useState(null);
 
     useEffect(() => {
-        const s = sessionStorage.getItem('isoSession');
-        if (!s) { navigate('/'); return; }
-        const sess = JSON.parse(s);
+        const sess = readStoredSession();
+        if (!sess) { navigate('/'); return; }
         setSession(sess);
 
         const params = new URLSearchParams(location.search);
         let ctxSite = params.get('site') || sessionStorage.getItem('isoCurrentSite') || 'All';
-        const isGlobal = ['Global Owner', 'Global Manager', 'Owner', 'Admin'].includes(sess.role);
+        const isGlobal = isGlobalOwnerRole(sess.role);
         if (!isGlobal && ctxSite === 'All') ctxSite = sess.assignedSite;
 
         setSiteFilter(ctxSite);
@@ -180,8 +181,8 @@ export default function Inspections() {
         fetchData();
     }, [navigate, location, view]);
 
-    const isGlobalUser = ['Global Owner', 'Global Manager', 'Owner', 'Admin'].includes(session?.role);
-    const canEdit = ['Global Owner', 'Global Manager', 'Owner', 'Admin', 'Site Owner', 'Site Manager'].includes(session?.role);
+    const isGlobalUser = isGlobalOwnerRole(session?.role);
+    const canEdit = canEditCreateForRole(session?.role);
 
     // --- SCHEDULING ENGINE (WITH GLOBAL EXPLOSION) ---
     const scheduledTasks = useMemo(() => {

@@ -4,7 +4,15 @@ import { ref, update, push, remove } from 'firebase/database';
 import { rtdb } from '../config/firebase';
 import * as XLSX from 'xlsx';
 import { readOrgChild, readOrgChildren } from '../utils/orgData';
-import { hasAccessibleModule } from '../utils/permissions';
+import {
+    canDeleteForRole,
+    canEditCreateForRole,
+    getAllowedSiteCodes,
+    hasAccessibleModule,
+    isGlobalOwnerRole,
+    isGlobalScopeUserRecord,
+    isSiteOwnerRole
+} from '../utils/permissions';
 import { canAuthenticateStatus, readStoredSession } from '../utils/session';
 
 const MEETING_TYPES = [
@@ -185,8 +193,8 @@ export default function Consultation() {
             const cleanRole = String(sess.role || '').trim();
 
             // 1. BULLETPROOF MODULE GUARD
-            const isGlobalAdmin = ['Global Owner', 'Global Manager', 'Owner', 'Admin'].includes(cleanRole);
-            const isSiteAdmin = ['Site Owner', 'Site Manager'].includes(cleanRole);
+            const isGlobalAdmin = isGlobalOwnerRole(cleanRole);
+            const isSiteAdmin = isSiteOwnerRole(cleanRole);
 
             const hasModuleAccess = isGlobalAdmin || isSiteAdmin || hasAccessibleModule(sess.accessibleModules, 'Participation');
 
@@ -199,8 +207,8 @@ export default function Consultation() {
             setSession(sess);
 
             // 2. STRICT RBAC MATRIX
-            const canDel = ['Global Owner', 'Owner', 'Admin', 'Site Owner'].includes(cleanRole);
-            const canEditCr = ['Global Owner', 'Global Manager', 'Owner', 'Admin', 'Site Owner', 'Site Manager', 'User'].includes(cleanRole);
+            const canDel = canDeleteForRole(cleanRole);
+            const canEditCr = canEditCreateForRole(cleanRole);
 
             setPermissions({
                 viewOnly: !canEditCr,
@@ -270,17 +278,12 @@ export default function Consultation() {
     // 4. STRICT ROW-LEVEL SECURITY (RLS)
     // ==========================================
     const role = session?.role?.trim() || 'User';
-    const isGlobalUser = ['Global Owner', 'Global Manager', 'Owner', 'Admin'].includes(role);
+    const isGlobalUser = isGlobalOwnerRole(role);
 
     const allowedSiteCodes = useMemo(() => {
         if (!session) return new Set();
-        const codes = new Set([session.assignedSite, ...(session.accessibleSites || [])].filter(Boolean));
-        if (!isGlobalUser) {
-            codes.delete('GLOBAL');
-            codes.delete('All');
-        }
-        return codes;
-    }, [session, isGlobalUser]);
+        return getAllowedSiteCodes(session);
+    }, [session]);
 
     const visibleSites = useMemo(() => {
         if (isGlobalUser) return sites;
@@ -313,7 +316,7 @@ export default function Consultation() {
     // --- Derived Filtering ---
     const siteUsers = useMemo(() => {
         return users.filter(u => {
-            const isGlobalUsr = u.role === 'Owner' || u.role === 'Lead Auditor' || u.assignedSite === 'GLOBAL' || (u.accessibleSites && u.accessibleSites.includes('GLOBAL'));
+            const isGlobalUsr = isGlobalScopeUserRecord(u);
             const activeSiteId = formData.siteId || filterSite;
             const siteMatch = isGlobalUsr || !activeSiteId || activeSiteId === 'All' || u.assignedSite === activeSiteId || (u.accessibleSites && u.accessibleSites.includes(activeSiteId));
             return siteMatch;

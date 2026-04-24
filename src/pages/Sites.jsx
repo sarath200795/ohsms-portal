@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ref, get, update, push, remove } from 'firebase/database';
 import { rtdb } from '../config/firebase';
+import { isGlobalOwnerRole } from '../utils/permissions';
+import { readStoredSession } from '../utils/session';
 
 export default function Sites() {
     const navigate = useNavigate();
@@ -14,15 +16,12 @@ export default function Sites() {
     const [formData, setFormData] = useState({ firebaseKey: '', code: '', name: '', address: '', manager: '' });
 
     useEffect(() => {
-        const s = sessionStorage.getItem('isoSession');
-        if (!s) { navigate('/'); return; }
-        const sess = JSON.parse(s);
+        const sess = readStoredSession();
+        if (!sess) { navigate('/'); return; }
 
-        // --- GLOBAL ADMIN GUARD ---
-        // Only Global Owners and Managers should be adding/deleting physical company sites
-        const isGlobalAdmin = ['Global Owner', 'Global Manager', 'Owner', 'Admin'].includes(sess.role);
+        const isGlobalAdmin = isGlobalOwnerRole(sess.role);
         if (!isGlobalAdmin) {
-            alert("Security Error: Only Global Administrators can access the Site Management module.");
+            alert("Security Error: Only the Global Owner can access the Site Management module.");
             navigate('/dashboard');
             return;
         }

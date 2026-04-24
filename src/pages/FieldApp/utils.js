@@ -1,4 +1,4 @@
-import { hasAccessibleModule } from '../../utils/permissions.js';
+import { hasAccessibleModule, isGlobalOwnerRole } from '../../utils/permissions.js';
 
 export const FIELD_MODULES = [
     {
@@ -75,9 +75,7 @@ export const FIELD_MODULES = [
     }
 ];
 
-export const GLOBAL_ROLES = ['Global Owner', 'Global Manager', 'Owner', 'Admin'];
-
-export const isGlobalRole = (role) => GLOBAL_ROLES.includes(role);
+export const isGlobalRole = (role) => isGlobalOwnerRole(role);
 
 export const getVisibleSites = (sites, session) => {
     if (!session) return [];

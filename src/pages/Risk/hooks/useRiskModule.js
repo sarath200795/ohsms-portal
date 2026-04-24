@@ -10,7 +10,16 @@ import {
     HAZARD_DICTIONARY,
     getRiskStyle
 } from '../utils';
-import { hasAccessibleModule, normalizeSessionPermissions } from '../../../utils/permissions';
+import {
+    canDeleteForRole,
+    canEditCreateForRole,
+    getAllowedSiteCodes,
+    hasAccessibleModule,
+    isGlobalOwnerRole,
+    isGlobalScopeUserRecord,
+    isSiteOwnerRole
+} from '../../../utils/permissions';
+import { readStoredSession } from '../../../utils/session';
 
 const normalizeRiskAssessments = (collection = {}) => (
     Object.keys(collection).map((key) => {
@@ -65,15 +74,13 @@ export function useRiskModule() {
     const [changeDetails, setChangeDetails] = useState({ source: 'Annual Review', reason: '' });
 
     useEffect(() => {
-        const storedSession = sessionStorage.getItem('isoSession');
-        if (!storedSession) {
+        const parsedSession = readStoredSession();
+        if (!parsedSession) {
             navigate('/');
             return;
         }
 
-        const parsedSession = normalizeSessionPermissions(JSON.parse(storedSession));
-        sessionStorage.setItem('isoSession', JSON.stringify(parsedSession));
-        const isGlobalAdmin = ['Global Owner', 'Global Manager', 'Owner', 'Admin'].includes(parsedSession.role);
+        const isGlobalAdmin = isGlobalOwnerRole(parsedSession.role);
         const hasModuleAccess = isGlobalAdmin || hasAccessibleModule(parsedSession.accessibleModules, 'Risk Assessment');
 
         if (!hasModuleAccess) {
@@ -84,8 +91,8 @@ export function useRiskModule() {
 
         setSession(parsedSession);
 
-        const canDelete = ['Global Owner', 'Owner', 'Admin', 'Site Owner'].includes(parsedSession.role);
-        const canEditCreate = ['Global Owner', 'Global Manager', 'Owner', 'Admin', 'Site Owner', 'Site Manager', 'User'].includes(parsedSession.role);
+        const canDelete = canDeleteForRole(parsedSession.role);
+        const canEditCreate = canEditCreateForRole(parsedSession.role);
         setPermissions({
             viewOnly: !canEditCreate,
             canDelete,
@@ -137,18 +144,11 @@ export function useRiskModule() {
     }, [navigate, location]);
 
     const role = session?.role || 'User';
-    const isGlobalUser = ['Global Owner', 'Global Manager', 'Owner', 'Admin'].includes(role);
+    const isGlobalUser = isGlobalOwnerRole(role);
 
     const allowedSiteCodes = useMemo(() => {
         if (!session) return new Set();
-        const codes = new Set();
-        if (session.assignedSite && session.assignedSite !== 'GLOBAL') codes.add(session.assignedSite);
-        if (Array.isArray(session.accessibleSites)) {
-            session.accessibleSites.forEach((site) => {
-                if (site && site !== 'GLOBAL') codes.add(site);
-            });
-        }
-        return codes;
+        return getAllowedSiteCodes(session);
     }, [session]);
 
     const visibleSites = useMemo(() => {
@@ -158,7 +158,7 @@ export function useRiskModule() {
 
     const activeUsers = useMemo(() => {
         if (!formData.siteId) return users;
-        return users.filter((user) => ['Owner', 'Global Owner', 'Global Manager', 'Admin'].includes(user.role) || user.assignedSite === formData.siteId || (user.accessibleSites && user.accessibleSites.includes(formData.siteId)));
+        return users.filter((user) => isGlobalScopeUserRecord(user) || user.assignedSite === formData.siteId || (user.accessibleSites && user.accessibleSites.includes(formData.siteId)));
     }, [users, formData.siteId]);
 
     const canEditRecord = (siteId) => {
@@ -168,8 +168,8 @@ export function useRiskModule() {
     };
 
     const canDeleteRecord = (siteId) => {
-        if (['Global Owner', 'Owner', 'Admin'].includes(role)) return true;
-        if (role === 'Site Owner' && allowedSiteCodes.has(siteId)) return true;
+        if (isGlobalOwnerRole(role)) return true;
+        if (isSiteOwnerRole(role) && allowedSiteCodes.has(siteId)) return true;
         return false;
     };
 
@@ -219,7 +219,7 @@ export function useRiskModule() {
     };
 
     const openNewForm = () => {
-        if (!permissions.canEditCreate) return alert('Security Error: Lead Auditors do not have permission to create Risk Assessments.');
+        if (!permissions.canEditCreate) return alert('Security Error: You do not have permission to create Risk Assessments.');
         setFormData({
             firebaseKey: null,
             docId: `HIRA-${Math.floor(100000 + Math.random() * 900000)}`,

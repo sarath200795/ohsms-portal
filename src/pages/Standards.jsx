@@ -3,7 +3,14 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { ref, onValue, update, push, remove } from 'firebase/database';
 import * as firebaseSetup from '../config/firebase';
 import * as XLSX from 'xlsx';
-import { hasAccessibleModule } from '../utils/permissions';
+import {
+    canDeleteForRole,
+    canEditCreateForRole,
+    getAllowedSiteCodes,
+    hasAccessibleModule,
+    isGlobalOwnerRole,
+    isSiteOwnerRole
+} from '../utils/permissions';
 import { canAuthenticateStatus, readStoredSession } from '../utils/session';
 
 // Auto-detect Firebase export name to prevent import crashes
@@ -90,8 +97,8 @@ export default function Standards() {
             const cleanRole = String(sess.role || '').trim();
 
             // 1. BULLETPROOF MODULE GUARD
-            const isGlobalAdmin = ['Global Owner', 'Global Manager', 'Owner', 'Admin'].includes(cleanRole);
-            const isSiteAdmin = ['Site Owner', 'Site Manager'].includes(cleanRole);
+            const isGlobalAdmin = isGlobalOwnerRole(cleanRole);
+            const isSiteAdmin = isSiteOwnerRole(cleanRole);
 
             // Fuzzy match to catch "Standards", "Standard", "Document Control", etc.
             const hasModuleAccess = isGlobalAdmin || isSiteAdmin || hasAccessibleModule(sess.accessibleModules, 'Standards');
@@ -105,8 +112,8 @@ export default function Standards() {
             setSession(sess);
 
             // 2. STRICT RBAC MATRIX
-            const canDel = ['Global Owner', 'Owner', 'Admin', 'Site Owner'].includes(cleanRole);
-            const canEditCr = ['Global Owner', 'Global Manager', 'Owner', 'Admin', 'Site Owner', 'Site Manager', 'User'].includes(cleanRole);
+            const canDel = canDeleteForRole(cleanRole);
+            const canEditCr = canEditCreateForRole(cleanRole);
 
             setPermissions({
                 viewOnly: !canEditCr,
@@ -168,17 +175,12 @@ export default function Standards() {
     // 4. STRICT ROW-LEVEL SECURITY (RLS)
     // ==========================================
     const role = session?.role?.trim() || 'User';
-    const isGlobalUser = ['Global Owner', 'Global Manager', 'Owner', 'Admin'].includes(role);
+    const isGlobalUser = isGlobalOwnerRole(role);
 
     const allowedSiteCodes = useMemo(() => {
         if (!session) return new Set();
-        const codes = new Set([session.assignedSite, ...(session.accessibleSites || [])].filter(Boolean));
-        if (!isGlobalUser) {
-            codes.delete('GLOBAL');
-            codes.delete('All');
-        }
-        return codes;
-    }, [session, isGlobalUser]);
+        return getAllowedSiteCodes(session);
+    }, [session]);
 
     const visibleSites = useMemo(() => {
         if (isGlobalUser) return sites;

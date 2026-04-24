@@ -4,7 +4,14 @@ import { ref, update } from 'firebase/database';
 import { rtdb } from '../config/firebase';
 import * as XLSX from 'xlsx';
 import { readOrgChildren } from '../utils/orgData';
-import { hasAccessibleModule, normalizeSessionPermissions } from '../utils/permissions';
+import {
+    canEditCreateForRole,
+    getAllowedSiteCodes,
+    hasAccessibleModule,
+    isGlobalOwnerRole,
+    isGlobalScopeUserRecord
+} from '../utils/permissions';
+import { readStoredSession } from '../utils/session';
 
 // --- UTILITIES ---
 const fileToBase64 = (file) => new Promise((resolve, reject) => {
@@ -37,13 +44,11 @@ export default function Capa() {
     const [permissions, setPermissions] = useState({ viewOnly: false, canEditCreate: false });
 
     useEffect(() => {
-        const s = sessionStorage.getItem('isoSession');
-        if (!s) { navigate('/'); return; }
-        const sess = normalizeSessionPermissions(JSON.parse(s));
-        sessionStorage.setItem('isoSession', JSON.stringify(sess));
+        const sess = readStoredSession();
+        if (!sess) { navigate('/'); return; }
 
         // 1. STRICT MODULE GUARD
-        const isGlobalAdmin = ['Global Owner', 'Global Manager', 'Owner', 'Admin'].includes(sess.role);
+        const isGlobalAdmin = isGlobalOwnerRole(sess.role);
         const hasModuleAccess = isGlobalAdmin || hasAccessibleModule(sess.accessibleModules, 'CAPA Manager');
 
         if (!hasModuleAccess) {
@@ -55,7 +60,7 @@ export default function Capa() {
         setSession(sess);
 
         // 2. STRICT RBAC MATRIX
-        const canEditCr = ['Global Owner', 'Global Manager', 'Owner', 'Admin', 'Site Owner', 'Site Manager', 'User'].includes(sess.role);
+        const canEditCr = canEditCreateForRole(sess.role);
         setPermissions({ viewOnly: !canEditCr, canEditCreate: canEditCr });
 
         // 3. SYNCHRONIZED SITE PERSISTENCE
@@ -296,17 +301,12 @@ export default function Capa() {
     // ==========================================
     // 4. ROW LEVEL SECURITY (RLS)
     // ==========================================
-    const isGlobalUser = ['Global Owner', 'Global Manager', 'Owner', 'Admin'].includes(session?.role);
+    const isGlobalUser = isGlobalOwnerRole(session?.role);
 
     const allowedSiteCodes = useMemo(() => {
         if (!session) return new Set();
-        const codes = new Set([session.assignedSite, ...(session.accessibleSites || [])].filter(Boolean));
-        if (!isGlobalUser) {
-            codes.delete('GLOBAL');
-            codes.delete('All');
-        }
-        return codes;
-    }, [session, isGlobalUser]);
+        return getAllowedSiteCodes(session);
+    }, [session]);
 
     const visibleSites = useMemo(() => {
         if (isGlobalUser) return sites;
@@ -648,8 +648,7 @@ export default function Capa() {
                                                     >
                                                         <option value="" className="bg-slate-900 text-slate-500">Unassigned</option>
                                                         {users.filter(u => {
-                                                            const isGlobal = u.role === 'Owner' || u.role === 'Lead Auditor' || u.assignedSite === 'GLOBAL' || (u.accessibleSites || []).includes('GLOBAL');
-                                                            if (isGlobal) return true;
+                                                            if (isGlobalScopeUserRecord(u)) return true;
                                                             if (!act.siteId || act.siteId === 'Global' || act.siteId === 'GLOBAL') return true;
                                                             return u.assignedSite === act.siteId || (u.accessibleSites || []).includes(act.siteId);
                                                         }).map(u => (

@@ -2,17 +2,14 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { equalTo, onValue, orderByChild, push, query, ref } from 'firebase/database';
 import { rtdb } from '../config/firebase';
-import { hasAccessibleModule } from '../utils/permissions';
+import { canEditCreateForRole, getAllowedSiteCodes, hasAccessibleModule, isGlobalOwnerRole, isSiteOwnerRole } from '../utils/permissions';
 import { readStoredSession } from '../utils/session';
-
-const GLOBAL_ANALYTICS_ROLES = ['Global Owner', 'Global Manager', 'Owner', 'Admin'];
-const EDIT_ANALYTICS_ROLES = ['Global Owner', 'Global Manager', 'Owner', 'Admin', 'Site Owner', 'Site Manager', 'User'];
 
 const resolveInitialAnalyticsSite = (session, search) => {
     const params = new URLSearchParams(search);
     let ctxSite = params.get('site') || sessionStorage.getItem('isoCurrentSite') || 'All';
 
-    if (!GLOBAL_ANALYTICS_ROLES.includes(session?.role) && ctxSite === 'All') {
+    if (!isGlobalOwnerRole(session?.role) && ctxSite === 'All') {
         ctxSite = (session?.assignedSite && session.assignedSite !== 'GLOBAL') ? session.assignedSite : (session?.accessibleSites?.[0] || '');
     }
 
@@ -39,9 +36,9 @@ export default function Analytics() {
     const [session] = useState(() => readStoredSession());
     const [loading, setLoading] = useState(true);
     const cleanRole = String(session?.role || '').trim();
-    const isGlobalUser = GLOBAL_ANALYTICS_ROLES.includes(cleanRole);
+    const isGlobalUser = isGlobalOwnerRole(cleanRole);
     const permissions = useMemo(() => {
-        const canEditCreate = EDIT_ANALYTICS_ROLES.includes(cleanRole);
+        const canEditCreate = canEditCreateForRole(cleanRole);
         return { viewOnly: !canEditCreate, canEditCreate };
     }, [cleanRole]);
     const initialSiteFilter = resolveInitialAnalyticsSite(session, location.search);
@@ -66,8 +63,8 @@ export default function Analytics() {
         if (!session) { navigate('/'); return; }
 
         // 1. STRICT MODULE GUARD
-        const isGlobalAdmin = GLOBAL_ANALYTICS_ROLES.includes(cleanRole);
-        const isSiteAdmin = ['Site Owner', 'Site Manager'].includes(cleanRole);
+        const isGlobalAdmin = isGlobalOwnerRole(cleanRole);
+        const isSiteAdmin = isSiteOwnerRole(cleanRole);
 
         const hasModuleAccess = isGlobalAdmin || isSiteAdmin || hasAccessibleModule(session.accessibleModules, 'Analytics');
 
@@ -123,13 +120,8 @@ export default function Analytics() {
     // ==========================================
     const allowedSiteCodes = useMemo(() => {
         if (!session) return new Set();
-        const codes = new Set([session.assignedSite, ...(session.accessibleSites || [])].filter(Boolean));
-        if (!isGlobalUser) {
-            codes.delete('GLOBAL');
-            codes.delete('All');
-        }
-        return codes;
-    }, [session, isGlobalUser]);
+        return getAllowedSiteCodes(session);
+    }, [session]);
 
     const visibleSites = useMemo(() => {
         if (isGlobalUser) return sites;

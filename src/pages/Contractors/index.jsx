@@ -23,7 +23,8 @@ import {
     normalizeVendorCode,
     parseContractors
 } from './utils';
-import { hasAccessibleModule, normalizeSessionPermissions } from '../../utils/permissions';
+import { canEditCreateForRole, getAllowedSiteCodes, hasAccessibleModule, isGlobalOwnerRole } from '../../utils/permissions';
+import { readStoredSession } from '../../utils/session';
 
 export default function Contractors() {
     const navigate = useNavigate();
@@ -58,15 +59,13 @@ export default function Contractors() {
     const [portalSuccess, setPortalSuccess] = useState(null);
 
     useEffect(() => {
-        const rawSession = sessionStorage.getItem('isoSession');
-        if (!rawSession) {
+        const sess = readStoredSession();
+        if (!sess) {
             navigate('/');
             return;
         }
 
-        const sess = normalizeSessionPermissions(JSON.parse(rawSession));
-        sessionStorage.setItem('isoSession', JSON.stringify(sess));
-        const isGlobalAdmin = ['Global Owner', 'Global Manager', 'Owner', 'Admin'].includes(sess.role);
+        const isGlobalAdmin = isGlobalOwnerRole(sess.role);
         const hasModuleAccess = isGlobalAdmin || hasAccessibleModule(sess.accessibleModules, 'Contractors');
 
         if (!hasModuleAccess) {
@@ -130,8 +129,8 @@ export default function Contractors() {
         fetchData();
     }, [location.search, navigate]);
 
-    const isGlobalUser = ['Global Owner', 'Global Manager', 'Owner', 'Admin'].includes(session?.role);
-    const canEdit = ['Global Owner', 'Global Manager', 'Owner', 'Admin', 'Site Owner', 'Site Manager'].includes(session?.role);
+    const isGlobalUser = isGlobalOwnerRole(session?.role);
+    const canEdit = canEditCreateForRole(session?.role);
 
     useEffect(() => {
         if (session && !canEdit && view === 'register') {
@@ -141,13 +140,8 @@ export default function Contractors() {
 
     const allowedSiteCodes = useMemo(() => {
         if (!session) return new Set();
-        const codes = new Set([session.assignedSite, ...safeArr(session.accessibleSites)].filter(Boolean));
-        if (!isGlobalUser) {
-            codes.delete('GLOBAL');
-            codes.delete('All');
-        }
-        return codes;
-    }, [isGlobalUser, session]);
+        return getAllowedSiteCodes(session);
+    }, [session]);
 
     const visibleSites = useMemo(() => {
         if (isGlobalUser) return sites;

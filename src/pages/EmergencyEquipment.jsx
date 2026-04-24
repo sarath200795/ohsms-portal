@@ -4,6 +4,8 @@ import { ref, get, push, update, remove } from 'firebase/database';
 import { rtdb } from '../config/firebase';
 import { getFieldPortalLoginPath, getPortalAwareHomePath } from './FieldApp/portalAuth';
 import { readOrgChildren } from '../utils/orgData';
+import { canEditCreateForRole, isGlobalOwnerRole } from '../utils/permissions';
+import { readStoredSession } from '../utils/session';
 import { QRCodeSVG } from 'qrcode.react';
 import * as XLSX from 'xlsx';
 
@@ -263,8 +265,8 @@ export default function EmergencyEquipment() {
         const params = new URLSearchParams(location.search);
         const publicScanId = params.get('scan');
         const publicOrgId = params.get('org');
-        const s = sessionStorage.getItem('isoSession');
-        if (!s) {
+        const sess = readStoredSession();
+        if (!sess) {
             if (!publicScanId || !publicOrgId) { navigate('/'); return; }
             setIsPublic(true);
 
@@ -288,13 +290,12 @@ export default function EmergencyEquipment() {
             fetchPublicData();
             return;
         }
-        const sess = JSON.parse(s);
         setSession(sess);
 
         let ctxSite = params.get('site') || sessionStorage.getItem('isoCurrentSite') || 'All';
         const scanId = params.get('scan');
 
-        const isGlobal = ['Global Owner', 'Global Manager', 'Owner', 'Admin'].includes(sess.role);
+        const isGlobal = isGlobalOwnerRole(sess.role);
         if (!isGlobal && ctxSite === 'All') {
             ctxSite = (sess.assignedSite && sess.assignedSite !== 'GLOBAL') ? sess.assignedSite : (sess.accessibleSites?.[0] || '');
         }
@@ -365,8 +366,8 @@ export default function EmergencyEquipment() {
         }
     }, [formData.lastInspection, formData.nextInspection]);
 
-    const isGlobalUser = ['Global Owner', 'Global Manager', 'Owner', 'Admin'].includes(session?.role);
-    const canEdit = ['Global Owner', 'Global Manager', 'Owner', 'Admin', 'Site Owner', 'Site Manager', 'HSE Rep'].includes(session?.role);
+    const isGlobalUser = isGlobalOwnerRole(session?.role);
+    const canEdit = canEditCreateForRole(session?.role);
     const hasInspectionSiteAccess = useMemo(() => {
         if (!inspectData || !session) return false;
         if (isGlobalUser) return true;

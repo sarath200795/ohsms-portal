@@ -3,7 +3,14 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { ref, update, push, remove } from 'firebase/database';
 import { rtdb } from '../config/firebase';
 import { readOrgChild, readOrgChildren } from '../utils/orgData';
-import { hasAccessibleModule } from '../utils/permissions';
+import {
+    canDeleteForRole,
+    canEditCreateForRole,
+    getAllowedSiteCodes,
+    hasAccessibleModule,
+    isGlobalOwnerRole,
+    isGlobalScopeUserRecord
+} from '../utils/permissions';
 import { canAuthenticateStatus, readStoredSession } from '../utils/session';
 
 // --- COMPONENTS ---
@@ -205,7 +212,7 @@ export default function Improvement() {
         if (!sess || !canAuthenticateStatus(sess.status)) { navigate('/'); return; }
 
         // 1. STRICT MODULE GUARD
-        const isGlobalAdmin = ['Global Owner', 'Global Manager', 'Owner', 'Admin'].includes(sess.role);
+        const isGlobalAdmin = isGlobalOwnerRole(sess.role);
         const hasModuleAccess = isGlobalAdmin || hasAccessibleModule(sess.accessibleModules, 'Improvement');
 
         if (!hasModuleAccess) {
@@ -217,8 +224,8 @@ export default function Improvement() {
         setSession(sess);
 
         // 2. STRICT RBAC MATRIX
-        const canDel = ['Global Owner', 'Owner', 'Admin', 'Site Owner'].includes(sess.role);
-        const canEditCr = ['Global Owner', 'Global Manager', 'Owner', 'Admin', 'Site Owner', 'Site Manager', 'User'].includes(sess.role);
+        const canDel = canDeleteForRole(sess.role);
+        const canEditCr = canEditCreateForRole(sess.role);
 
         setPermissions({
             viewOnly: !canEditCr,
@@ -281,17 +288,12 @@ export default function Improvement() {
     // 4. STRICT ROW-LEVEL SECURITY (RLS)
     // ==========================================
     const role = session?.role || 'User';
-    const isGlobalUser = ['Global Owner', 'Global Manager', 'Owner', 'Admin'].includes(role);
+    const isGlobalUser = isGlobalOwnerRole(role);
 
     const allowedSiteCodes = useMemo(() => {
         if (!session) return new Set();
-        const codes = new Set([session.assignedSite, ...(session.accessibleSites || [])].filter(Boolean));
-        if (!isGlobalUser) {
-            codes.delete('GLOBAL');
-            codes.delete('All');
-        }
-        return codes;
-    }, [session, isGlobalUser]);
+        return getAllowedSiteCodes(session);
+    }, [session]);
 
     const visibleSites = useMemo(() => {
         if (isGlobalUser) return sites;
@@ -330,7 +332,7 @@ export default function Improvement() {
     // --- FILTERS & USERS ---
     const siteUsers = useMemo(() => {
         return users.filter(u => {
-            const isGlobal = u.role === 'Owner' || u.role === 'Lead Auditor' || u.assignedSite === 'GLOBAL' || (u.accessibleSites && u.accessibleSites.includes('GLOBAL'));
+            const isGlobal = isGlobalScopeUserRecord(u);
             if (form.horizontalDeployment) return true;
             const siteMatch = isGlobal || !form.siteId || u.assignedSite === form.siteId || (u.accessibleSites && u.accessibleSites.includes(form.siteId));
             return siteMatch;

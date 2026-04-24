@@ -11,7 +11,14 @@ import {
     formatDate,
     safeArr
 } from '../utils';
-import { hasAccessibleModule } from '../../../utils/permissions';
+import {
+    canDeleteForRole,
+    canEditCreateForRole,
+    getAllowedSiteCodes,
+    hasAccessibleModule,
+    isGlobalOwnerRole,
+    isGlobalScopeUserRecord
+} from '../../../utils/permissions';
 import { canAuthenticateStatus, readStoredSession } from '../../../utils/session';
 
 const normalizeTrainings = (collection = {}) => (
@@ -181,7 +188,7 @@ export function useTrainingModule() {
             return;
         }
 
-        const isGlobalAdmin = ['Global Owner', 'Global Manager', 'Owner', 'Admin'].includes(parsedSession.role);
+        const isGlobalAdmin = isGlobalOwnerRole(parsedSession.role);
         const hasModuleAccess = isGlobalAdmin || hasAccessibleModule(parsedSession.accessibleModules, 'Training');
 
         if (!hasModuleAccess) {
@@ -192,8 +199,8 @@ export function useTrainingModule() {
 
         setSession(parsedSession);
 
-        const canDelete = ['Global Owner', 'Owner', 'Admin', 'Site Owner'].includes(parsedSession.role);
-        const canEditCreate = ['Global Owner', 'Global Manager', 'Owner', 'Admin', 'Site Owner', 'Site Manager', 'User'].includes(parsedSession.role);
+        const canDelete = canDeleteForRole(parsedSession.role);
+        const canEditCreate = canEditCreateForRole(parsedSession.role);
         setPermissions({
             viewOnly: !canEditCreate,
             canDelete,
@@ -244,17 +251,12 @@ export function useTrainingModule() {
     }, [navigate, location]);
 
     const role = session?.role || 'User';
-    const isGlobalUser = ['Global Owner', 'Global Manager', 'Owner', 'Admin'].includes(role);
+    const isGlobalUser = isGlobalOwnerRole(role);
 
     const allowedSiteCodes = useMemo(() => {
         if (!session) return new Set();
-        const codes = new Set([session.assignedSite, ...(session.accessibleSites || [])].filter(Boolean));
-        if (!isGlobalUser) {
-            codes.delete('GLOBAL');
-            codes.delete('All');
-        }
-        return codes;
-    }, [session, isGlobalUser]);
+        return getAllowedSiteCodes(session);
+    }, [session]);
 
     const visibleSites = useMemo(() => {
         if (isGlobalUser) return sites;
@@ -283,8 +285,7 @@ export function useTrainingModule() {
     const availableWorkersForForm = useMemo(() => {
         if (data.targetAudience === 'Internal') {
             return users.filter((user) => {
-                const isGlobalUserRecord = user.role === 'Owner' || user.role === 'Lead Auditor' || user.assignedSite === 'GLOBAL' || safeArr(user.accessibleSites).includes('GLOBAL');
-                return isGlobalUserRecord || !data.siteId || user.assignedSite === data.siteId || safeArr(user.accessibleSites).includes(data.siteId);
+                return isGlobalScopeUserRecord(user) || !data.siteId || user.assignedSite === data.siteId || safeArr(user.accessibleSites).includes(data.siteId);
             });
         }
         if (!data.contractorId) return [];

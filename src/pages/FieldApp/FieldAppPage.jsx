@@ -5,6 +5,7 @@ import { rtdb } from '../../config/firebase';
 import FieldHeader from './components/FieldHeader';
 import FieldModuleCard from './components/FieldModuleCard';
 import { clearFieldModuleHomeContext, setFieldModuleHomeContext } from './portalAuth';
+import { readStoredSession } from '../../utils/session';
 import {
     getVisibleFieldModules,
     getVisibleSites,
@@ -31,13 +32,11 @@ export default function FieldAppPage() {
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        const rawSession = sessionStorage.getItem('isoSession');
-        if (!rawSession) {
+        const sess = readStoredSession();
+        if (!sess) {
             navigate('/');
             return;
         }
-
-        const sess = JSON.parse(rawSession);
         setSession(sess);
 
         const fetchFieldContext = async () => {

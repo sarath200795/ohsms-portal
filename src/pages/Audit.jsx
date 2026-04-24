@@ -3,7 +3,12 @@ import { useNavigate } from 'react-router-dom';
 import { equalTo, onValue, orderByChild, push, query, ref, update } from 'firebase/database';
 import { rtdb } from '../config/firebase';
 import { readOrgChildren } from '../utils/orgData';
-import { hasAccessibleModule } from '../utils/permissions';
+import {
+    hasAccessibleModule,
+    isGlobalOwnerRole,
+    isGlobalScopeUserRecord,
+    isSiteOwnerRole
+} from '../utils/permissions';
 import { canAuthenticateStatus, readStoredSession } from '../utils/session';
 
 const fileToBase64 = (file) => new Promise((resolve, reject) => {
@@ -33,10 +38,8 @@ const safeArrayParse = (data) => {
     } catch { return []; }
 };
 
-const GLOBAL_AUDIT_ROLES = ['Global Owner', 'Global Manager', 'Owner', 'Admin'];
-
 const scopedCollectionRef = (session, childName) => {
-    if (GLOBAL_AUDIT_ROLES.includes(session?.role) || session?.assignedSite === 'GLOBAL') {
+    if (isGlobalOwnerRole(session?.role) || session?.assignedSite === 'GLOBAL') {
         return ref(rtdb, `organizations/${session.orgId}/${childName}`);
     }
     return query(ref(rtdb, `organizations/${session.orgId}/${childName}`), orderByChild('siteId'), equalTo(session?.assignedSite || ''));
@@ -114,7 +117,7 @@ const AuditScheduler = ({ setView, session }) => {
 
     const siteUsers = useMemo(() => {
         if (!plan.siteId) return [];
-        return allUsers.filter(u => u.assignedSite === plan.siteId || (u.accessibleSites && u.accessibleSites.includes(plan.siteId)) || u.role === 'Owner');
+        return allUsers.filter(u => u.assignedSite === plan.siteId || (u.accessibleSites && u.accessibleSites.includes(plan.siteId)) || isGlobalScopeUserRecord(u));
     }, [allUsers, plan.siteId]);
 
     const filteredAuditors = useMemo(() => {
@@ -343,7 +346,7 @@ const AuditorWorkplace = ({ setView, session }) => {
                 if (val.auditFindings) {
                     const rawFindings = safeArrayParse(val.auditFindings);
                     rawFindings.forEach(v => {
-                        if (v.auditor === session.user || session.role === 'Owner') {
+                        if (v.auditor === session.user || isGlobalOwnerRole(session.role)) {
                             findingsList.push({ ...(v.taskDetails || {}), status: v.status, findingRecord: v, _key: `${v.taskDetails?.planId}_${v.taskDetails?.area}_${v.taskDetails?.auditee}` });
                         }
                     });
@@ -355,7 +358,7 @@ const AuditorWorkplace = ({ setView, session }) => {
                     rawPlans.forEach(plan => {
                         const matrix = Array.isArray(plan.matrix) ? plan.matrix : [];
                         matrix.forEach(row => {
-                            if (row.auditor === session.user || session.role === 'Owner') {
+                            if (row.auditor === session.user || isGlobalOwnerRole(session.role)) {
                                 const uniqueKey = `${plan.docId}_${row.area}_${row.auditee}`;
                                 if (!findingsList.some(f => f._key === uniqueKey)) {
                                     plannedList.push({ auditor: row.auditor || '', auditee: row.auditee || '', dept: row.dept || '', area: row.area || '', date: row.date || '', time: row.time || '', aspect: row.aspect || row.aspects || '', planId: plan.docId || '', siteId: plan.siteId || '', leadAuditor: plan.leadAuditor || '', standard: plan.standard || '', scope: plan.scope || 'OH&S Management System', status: 'Planned', findingRecord: null, _key: uniqueKey });
@@ -1766,8 +1769,8 @@ export default function Audit() {
             return { session: null, redirectTo: '/', alertMessage: '' };
         }
 
-        const isGlobalAdmin = ['Global Owner', 'Global Manager', 'Owner', 'Admin'].includes(sess.role);
-        const isSiteAdmin = ['Site Owner', 'Site Manager'].includes(sess.role);
+        const isGlobalAdmin = isGlobalOwnerRole(sess.role);
+        const isSiteAdmin = isSiteOwnerRole(sess.role);
         const hasModuleAccess = isGlobalAdmin || isSiteAdmin || hasAccessibleModule(sess.accessibleModules, 'Internal Audit');
 
         if (!hasModuleAccess) {

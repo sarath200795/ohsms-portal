@@ -4,7 +4,15 @@ import { ref, push, remove } from 'firebase/database';
 import { rtdb } from '../config/firebase';
 import { getPortalAwareHomePath } from './FieldApp/portalAuth';
 import { readOrgChildren } from '../utils/orgData';
-import { hasAccessibleModule, normalizeSessionPermissions } from '../utils/permissions';
+import {
+    canDeleteForRole,
+    canEditCreateForRole,
+    getAllowedSiteCodes,
+    hasAccessibleModule,
+    isGlobalOwnerRole,
+    isGlobalScopeUserRecord
+} from '../utils/permissions';
+import { readStoredSession } from '../utils/session';
 
 const SCENARIOS = [
     {
@@ -46,10 +54,6 @@ const EMERGENCY_TEAMS = [
     "Medical Emergency Team", "Security", "Public Relation"
 ];
 
-const GLOBAL_MOCK_DRILL_ROLES = ['Global Owner', 'Global Manager', 'Owner', 'Admin'];
-const DELETE_MOCK_DRILL_ROLES = ['Global Owner', 'Owner', 'Admin', 'Site Owner'];
-const EDIT_MOCK_DRILL_ROLES = ['Global Owner', 'Global Manager', 'Owner', 'Admin', 'Site Owner', 'Site Manager', 'User'];
-
 const resolveInitialMockDrillSite = (session, search) => {
     const urlSite = new URLSearchParams(search).get('site');
 
@@ -57,7 +61,7 @@ const resolveInitialMockDrillSite = (session, search) => {
     if (storedSite === 'GLOBAL') storedSite = 'All';
 
     let nextSite = urlSite || storedSite || 'All';
-    if (!GLOBAL_MOCK_DRILL_ROLES.includes(session?.role) && nextSite === 'All') {
+    if (!isGlobalOwnerRole(session?.role) && nextSite === 'All') {
         nextSite = (session?.assignedSite && session.assignedSite !== 'GLOBAL') ? session.assignedSite : (session?.accessibleSites?.[0] || '');
     }
 
@@ -66,8 +70,8 @@ const resolveInitialMockDrillSite = (session, search) => {
 
 const buildMockDrillPermissions = (session) => {
     const role = session?.role || '';
-    const canDelete = DELETE_MOCK_DRILL_ROLES.includes(role);
-    const canEditCreate = EDIT_MOCK_DRILL_ROLES.includes(role);
+    const canDelete = canDeleteForRole(role);
+    const canEditCreate = canEditCreateForRole(role);
 
     return {
         viewOnly: !canEditCreate,
@@ -80,23 +84,14 @@ export default function MockDrill() {
     const navigate = useNavigate();
     const location = useLocation();
 
-    const [session] = useState(() => {
-        const rawSession = sessionStorage.getItem('isoSession');
-        if (!rawSession) return null;
-
-        try {
-            return normalizeSessionPermissions(JSON.parse(rawSession));
-        } catch {
-            return null;
-        }
-    });
+    const [session] = useState(() => readStoredSession());
     const [selectedDrill, setSelectedDrill] = useState(null);
     const [history, setHistory] = useState([]);
     const [sites, setSites] = useState([]);
     const [users, setUsers] = useState([]);
     const [loading, setLoading] = useState(true);
     const [printData, setPrintData] = useState(null);
-    const isGlobalUser = GLOBAL_MOCK_DRILL_ROLES.includes(session?.role);
+    const isGlobalUser = isGlobalOwnerRole(session?.role);
     const permissions = buildMockDrillPermissions(session);
     const initialSiteFilter = resolveInitialMockDrillSite(session, location.search);
 
@@ -119,7 +114,7 @@ export default function MockDrill() {
         sessionStorage.setItem('isoSession', JSON.stringify(session));
 
         // 1. STRICT MODULE GUARD
-        const isGlobalAdmin = GLOBAL_MOCK_DRILL_ROLES.includes(session.role);
+        const isGlobalAdmin = isGlobalOwnerRole(session.role);
         const requestedSite = new URLSearchParams(location.search).get('site') || sessionStorage.getItem('isoCurrentSite') || session.assignedSite || 'All';
         const hasModuleAccess = isGlobalAdmin || hasAccessibleModule(session.accessibleModules, 'Record Emergency');
 
@@ -166,13 +161,8 @@ export default function MockDrill() {
     // ==========================================
     const allowedSiteCodes = useMemo(() => {
         if (!session) return new Set();
-        const codes = new Set([session.assignedSite, ...(session.accessibleSites || [])].filter(Boolean));
-        if (!isGlobalUser) {
-            codes.delete('GLOBAL');
-            codes.delete('All');
-        }
-        return codes;
-    }, [session, isGlobalUser]);
+        return getAllowedSiteCodes(session);
+    }, [session]);
 
     const visibleSites = useMemo(() => {
         if (isGlobalUser) return sites;
@@ -181,7 +171,7 @@ export default function MockDrill() {
 
     const availableCommanders = useMemo(() => {
         if (!form.siteId) return [];
-        return users.filter(u => ['Owner', 'Global Owner', 'Global Manager', 'Admin'].includes(u.role) || u.assignedSite === form.siteId || (u.accessibleSites && u.accessibleSites.includes(form.siteId)));
+        return users.filter(u => isGlobalScopeUserRecord(u) || u.assignedSite === form.siteId || (u.accessibleSites && u.accessibleSites.includes(form.siteId)));
     }, [users, form.siteId]);
 
     const visibleHistory = useMemo(() => {

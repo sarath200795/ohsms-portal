@@ -6,7 +6,8 @@ import { ref, get } from 'firebase/database';
 import useStore from '../store/useStore';
 import { clearFieldModuleHomeContext } from './FieldApp/portalAuth';
 import { useAppTransition } from '../hooks/useAppTransition';
-import { hasAccessibleModule, normalizeSessionPermissions } from '../utils/permissions';
+import { hasAccessibleModule, isGlobalOwnerRole } from '../utils/permissions';
+import { readStoredSession } from '../utils/session';
 
 const getDayGreeting = () => {
     const hour = new Date().getHours();
@@ -128,14 +129,12 @@ export default function Dashboard() {
     const [localLoading, setLocalLoading] = useState(true);
 
     useEffect(() => {
-        const raw = sessionStorage.getItem('isoSession');
-        if (!raw) return navigate('/');
-        const sess = normalizeSessionPermissions(JSON.parse(raw));
-        sessionStorage.setItem('isoSession', JSON.stringify(sess));
+        const sess = readStoredSession();
+        if (!sess) return navigate('/');
 
         initializeSession(sess);
 
-        const isGlobalAdmin = ['Global Owner', 'Global Manager', 'Owner', 'Admin'].includes(sess.role);
+        const isGlobalAdmin = isGlobalOwnerRole(sess.role);
 
         let initialSite = sessionStorage.getItem('isoCurrentSite');
         if (!initialSite) initialSite = isGlobalAdmin ? 'GLOBAL' : sess.assignedSite;
@@ -184,7 +183,7 @@ export default function Dashboard() {
         let vModules = [];
 
         if (session && localOrgData) {
-            const isGlobalAdmin = ['Global Owner', 'Global Manager', 'Owner', 'Admin'].includes(session.role);
+            const isGlobalAdmin = isGlobalOwnerRole(session.role);
             const myEmail = session.email?.toLowerCase().trim();
             const myName = session.name?.toLowerCase().trim();
             const checkUserMatch = (val) => val?.toLowerCase().trim() === myEmail || val?.toLowerCase().trim() === myName;
@@ -339,7 +338,7 @@ export default function Dashboard() {
     }
 
     const firstName = session?.name?.split(' ')[0] || 'Team Member';
-    const isGlobalAdmin = ['Global Owner', 'Global Manager', 'Owner', 'Admin'].includes(session?.role);
+    const isGlobalAdmin = isGlobalOwnerRole(session?.role);
     const activeSiteName = selectedSite === 'GLOBAL' ? 'Global View (All Sites)' : (sites.find(s => s.code === selectedSite)?.name || selectedSite);
     const hasFieldAppAccess = isGlobalAdmin || visibleModules.some((module) => ['Incidents', 'Inspections', 'OHS Tools', 'Record Emergency'].includes(module.id));
     const greeting = getDayGreeting();

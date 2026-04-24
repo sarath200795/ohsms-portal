@@ -4,7 +4,8 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { rtdb } from '../config/firebase';
 import { useAppTransition } from '../hooks/useAppTransition';
 import { readOrgChildren } from '../utils/orgData';
-import { hasAccessibleModule, normalizeSessionPermissions } from '../utils/permissions';
+import { getAllowedSiteCodes, hasAccessibleModule, isGlobalOwnerRole } from '../utils/permissions';
+import { readStoredSession } from '../utils/session';
 
 const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -190,7 +191,7 @@ const resolveSiteName = (sites, siteId) => {
 
 const canAccessSource = (session, sourceId) => {
     if (!session) return false;
-    if (['Global Owner', 'Global Manager', 'Owner', 'Admin'].includes(session.role)) return true;
+    if (isGlobalOwnerRole(session.role)) return true;
     return (SOURCE_ACCESS[sourceId] || []).some((moduleId) => hasAccessibleModule(session.accessibleModules, moduleId));
 };
 
@@ -227,15 +228,13 @@ export default function ActivityCalendar() {
     const [selectedDate, setSelectedDate] = useState(() => formatDateKey(new Date()));
 
     useEffect(() => {
-        const rawSession = sessionStorage.getItem('isoSession');
-        if (!rawSession) {
+        const parsedSession = readStoredSession();
+        if (!parsedSession) {
             navigate('/');
             return;
         }
 
-        const parsedSession = normalizeSessionPermissions(JSON.parse(rawSession));
-        sessionStorage.setItem('isoSession', JSON.stringify(parsedSession));
-        const isGlobalAdmin = ['Global Owner', 'Global Manager', 'Owner', 'Admin'].includes(parsedSession.role);
+        const isGlobalAdmin = isGlobalOwnerRole(parsedSession.role);
         const hasAccess = isGlobalAdmin || RELEVANT_MODULES.some((moduleId) => hasAccessibleModule(parsedSession.accessibleModules, moduleId));
 
         if (!hasAccess) {
@@ -294,17 +293,12 @@ export default function ActivityCalendar() {
         loadData();
     }, [location.search, navigate]);
 
-    const isGlobalUser = ['Global Owner', 'Global Manager', 'Owner', 'Admin'].includes(session?.role);
+    const isGlobalUser = isGlobalOwnerRole(session?.role);
 
     const allowedSiteCodes = useMemo(() => {
         if (!session) return new Set();
-        const codes = new Set([session.assignedSite, ...(session.accessibleSites || [])].filter(Boolean));
-        if (!isGlobalUser) {
-            codes.delete('GLOBAL');
-            codes.delete('All');
-        }
-        return codes;
-    }, [isGlobalUser, session]);
+        return getAllowedSiteCodes(session);
+    }, [session]);
 
     const visibleSites = useMemo(() => {
         if (isGlobalUser) return sites;

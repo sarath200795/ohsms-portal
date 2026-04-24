@@ -6,7 +6,14 @@ import { rtdb } from '../../config/firebase';
 import { getPortalAwareHomePath } from '../FieldApp/portalAuth';
 import { buildEditableIncidentData, buildPrintableIncidentData } from '../../utils/incidents';
 import { readOrgChild, readOrgChildren } from '../../utils/orgData';
-import { hasAccessibleModule } from '../../utils/permissions';
+import {
+    canDeleteForRole,
+    canEditCreateForRole,
+    getAllowedSiteCodes,
+    hasAccessibleModule,
+    isGlobalOwnerRole,
+    isGlobalScopeUserRecord
+} from '../../utils/permissions';
 import { canAuthenticateStatus, readStoredSession } from '../../utils/session';
 import IncidentBuilder from './components/IncidentBuilder';
 import IncidentHazardEditorModal from './components/IncidentHazardEditorModal';
@@ -19,10 +26,6 @@ const SMART_CATEGORIES = [
     'Work at Height', 'Slips, Trips & Falls', 'Manual Handling',
     'Machinery & Equipment', 'Workplace Transport / Vehicles', 'Electrical Safety'
 ];
-
-const GLOBAL_INCIDENT_ROLES = ['Global Owner', 'Global Manager', 'Owner', 'Admin'];
-const INCIDENT_DELETE_ROLES = ['Global Owner', 'Owner', 'Admin', 'Site Owner'];
-const INCIDENT_EDIT_ROLES = ['Global Owner', 'Global Manager', 'Owner', 'Admin', 'Site Owner', 'Site Manager', 'User'];
 
 const createInitialDataState = () => ({
     id: '',
@@ -98,8 +101,8 @@ const getTypeCode = (type) => {
 
 const buildIncidentPermissions = (session) => {
     const role = session?.role || '';
-    const canDelete = INCIDENT_DELETE_ROLES.includes(role);
-    const canEditCreate = INCIDENT_EDIT_ROLES.includes(role);
+    const canDelete = canDeleteForRole(role);
+    const canEditCreate = canEditCreateForRole(role);
 
     return {
         viewOnly: !canEditCreate,
@@ -454,7 +457,7 @@ export default function Incidents() {
     const initialDataState = useMemo(() => createInitialDataState(), []);
     const [data, setData] = useState(() => createInitialDataState());
     const sessionIsValid = Boolean(session && canAuthenticateStatus(session.status));
-    const isGlobalUser = GLOBAL_INCIDENT_ROLES.includes(session?.role);
+    const isGlobalUser = isGlobalOwnerRole(session?.role);
     const permissions = buildIncidentPermissions(session);
     const hasModuleAccess = sessionIsValid && (isGlobalUser || hasAccessibleModule(session.accessibleModules, 'Incidents'));
     const requestedSite = new URLSearchParams(location.search).get('site') || sessionStorage.getItem('isoCurrentSite') || session?.assignedSite || 'All';
@@ -523,7 +526,7 @@ export default function Incidents() {
                         id: session.uid || 'current-user',
                         name: session.name || session.email?.split('@')[0] || 'Me',
                         email: session.email,
-                        role: session.role || 'Owner',
+                        role: session.role || 'Global Owner',
                         assignedSite: 'GLOBAL'
                     });
                 }
@@ -549,13 +552,8 @@ export default function Incidents() {
 
     const allowedSiteCodes = useMemo(() => {
         if (!session) return new Set();
-        const codes = new Set([session.assignedSite, ...(session.accessibleSites || [])].filter(Boolean));
-        if (!isGlobalUser) {
-            codes.delete('GLOBAL');
-            codes.delete('All');
-        }
-        return codes;
-    }, [session, isGlobalUser]);
+        return getAllowedSiteCodes(session);
+    }, [session]);
 
     const allowedSites = useMemo(() => {
         if (isGlobalUser) return sites;
@@ -568,7 +566,7 @@ export default function Incidents() {
 
     const siteUsers = useMemo(() => {
         return users.filter((u) => {
-            const isGlobalUsr = ['Owner', 'Global Owner', 'Global Manager', 'Admin'].includes(u.role) || u.assignedSite === 'GLOBAL' || (u.accessibleSites && u.accessibleSites.includes('GLOBAL'));
+            const isGlobalUsr = isGlobalScopeUserRecord(u);
             if (data.horizontalDeployment) return true;
             const targetSite = newCapaSite || data.siteId;
             const siteMatch = isGlobalUsr || !targetSite || u.assignedSite === targetSite || (u.accessibleSites && u.accessibleSites.includes(targetSite));

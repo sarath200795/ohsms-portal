@@ -1,7 +1,6 @@
 import { equalTo, get, orderByChild, query, ref } from 'firebase/database';
+import { isGlobalOwnerRole } from './permissions.js';
 import { readStoredSession } from './session';
-
-const GLOBAL_ROLES = new Set(['Global Owner', 'Global Manager', 'Owner', 'Admin']);
 
 const SITE_SCOPED_COLLECTIONS = new Set([
     'riskAssessments',
@@ -35,7 +34,7 @@ const mergeSnapshots = (snapshots) => {
 };
 
 const getScopedSiteCodes = (session) => {
-    if (!session || GLOBAL_ROLES.has(session.role) || session.assignedSite === 'GLOBAL') return [];
+    if (!session || isGlobalOwnerRole(session.role) || session.assignedSite === 'GLOBAL') return [];
     return [session.assignedSite].filter(Boolean);
 };
 

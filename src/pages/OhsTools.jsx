@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { clearFieldModuleHomeContext } from './FieldApp/portalAuth';
 import { useAppTransition } from '../hooks/useAppTransition';
+import { readStoredSession } from '../utils/session';
 
 const OHS_MODULES = [
     { id: 'health-dashboard', label: 'Health Dashboard', desc: 'Occupational Health & Wellness', icon: 'fa-heart-pulse', color: 'text-rose-400' },
@@ -50,8 +51,7 @@ export default function OhsTools() {
     const location = useLocation();
     const playTransition = useAppTransition();
     const [session] = useState(() => {
-        const rawSession = sessionStorage.getItem('isoSession');
-        return rawSession ? JSON.parse(rawSession) : null;
+        return readStoredSession();
     });
     const selectedSite = new URLSearchParams(location.search).get('site') || session?.assignedSite || 'GLOBAL';
 

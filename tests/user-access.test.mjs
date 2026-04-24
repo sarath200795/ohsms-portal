@@ -5,6 +5,7 @@ import { ACCOUNT_STATUS, canAuthenticateStatus, normalizeSessionData, normalizeU
 import {
     buildPermissionRequestUpdates,
     normalizeUserAccessPayload,
+    normalizeStoredUserRecord,
     toUserRecordKey,
     validateUserAccessPayload
 } from '../src/utils/userAccess.js';
@@ -36,15 +37,25 @@ test('user access validation rejects invalid payloads', () => {
     assert.ok(result.errors.length >= 3);
 });
 
-test('user access validation accepts HSE Rep role used by field operations', () => {
-    const result = validateUserAccessPayload({
+test('legacy roles normalize into supported stored and editable user records', () => {
+    const editablePayload = normalizeUserAccessPayload({
         name: 'Safety Representative',
         email: 'hse.rep@test.com',
         role: 'HSE Rep',
+        status: 'Active',
+        assignedSite: 'HQ-01'
+    });
+    const storedPayload = normalizeStoredUserRecord({
+        name: 'Admin Owner',
+        email: 'admin@test.com',
+        role: 'Admin',
         status: 'Active'
     });
 
-    assert.equal(result.isValid, true);
+    assert.equal(editablePayload.role, 'User');
+    assert.equal(validateUserAccessPayload(editablePayload).isValid, true);
+    assert.equal(storedPayload.role, 'Global Owner');
+    assert.equal(storedPayload.assignedSite, 'GLOBAL');
 });
 
 test('manual user records use realtime-database safe email keys', () => {

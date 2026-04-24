@@ -4,6 +4,8 @@ import assert from 'node:assert/strict';
 import {
     expandAccessibleModules,
     hasAccessibleModule,
+    normalizeRole,
+    normalizeSessionPermissions,
     toCanonicalModuleIds
 } from '../src/utils/permissions.js';
 
@@ -59,4 +61,37 @@ test('backward-compatible aliases normalize into the shared canonical permission
         'Participation',
         'Standards'
     ]);
+});
+
+test('legacy roles normalize into the supported three-role RBAC model', () => {
+    assert.equal(normalizeRole('Admin'), 'Global Owner');
+    assert.equal(normalizeRole('Global Manager'), 'Global Owner');
+    assert.equal(normalizeRole('Site Manager'), 'User');
+    assert.equal(normalizeRole('HSE Rep'), 'User');
+});
+
+test('global owner sessions auto-grant all modules and global scope', () => {
+    const session = normalizeSessionPermissions({
+        role: 'Global Owner',
+        assignedSite: 'HQ-01',
+        accessibleModules: ['Incidents']
+    });
+
+    assert.equal(session.assignedSite, 'GLOBAL');
+    assert.ok(session.accessibleModules.includes('Users'));
+    assert.ok(session.accessibleModules.includes('Sites'));
+    assert.ok(session.accessibleModules.includes('Incidents'));
+});
+
+test('site owner sessions auto-grant site-wide modules but not sites management', () => {
+    const session = normalizeSessionPermissions({
+        role: 'Site Owner',
+        assignedSite: 'HQ-01',
+        accessibleModules: []
+    });
+
+    assert.equal(session.assignedSite, 'HQ-01');
+    assert.ok(session.accessibleModules.includes('Users'));
+    assert.ok(session.accessibleModules.includes('Incidents'));
+    assert.equal(session.accessibleModules.includes('Sites'), false);
 });

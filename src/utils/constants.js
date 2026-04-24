@@ -67,7 +67,7 @@ export const getMandatoryDocs = (serviceType, goodsType = '') => {
 
 // --- USER & RBAC CONSTANTS ---
 export const ROLES = [
-    "Global Owner", "Global Manager", "Admin", "Site Owner", "Site Manager", "Lead Auditor", "User"
+    "Global Owner", "Site Owner", "User"
 ];
 
 export const ALL_MODULES = [

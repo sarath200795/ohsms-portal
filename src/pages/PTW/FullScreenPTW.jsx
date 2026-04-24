@@ -14,7 +14,15 @@ import {
     WAH_EQUIP_OPTIONS
 } from '../../utils/constants';
 import { safeArr, safeArrayParse } from '../../utils/helpers';
-import { hasAccessibleModule } from '../../utils/permissions';
+import {
+    canDeleteForRole,
+    canEditCreateForRole,
+    getAllowedSiteCodes,
+    hasAccessibleModule,
+    isGlobalOwnerRole,
+    isGlobalScopeUserRecord,
+    isSiteOwnerRole
+} from '../../utils/permissions';
 import { canAuthenticateStatus, readStoredSession } from '../../utils/session';
 import PtwDashboardComponent from './components/PtwDashboard';
 import PtwRegistryComponent from './components/PtwRegistry';
@@ -1165,8 +1173,8 @@ export default function FullScreenPTW() {
             }
 
             const cleanRole = String(sess.role || '').trim();
-            const isGlobalAdmin = ['Global Owner', 'Global Manager', 'Owner', 'Admin'].includes(cleanRole);
-            const isSiteAdmin = ['Site Owner', 'Site Manager'].includes(cleanRole);
+            const isGlobalAdmin = isGlobalOwnerRole(cleanRole);
+            const isSiteAdmin = isSiteOwnerRole(cleanRole);
             const requestedSite = new URLSearchParams(location.search).get('site') || sessionStorage.getItem('isoCurrentSite') || sess.assignedSite || 'All';
             const hasModuleAccess = isGlobalAdmin || isSiteAdmin || hasAccessibleModule(sess.accessibleModules, 'OHS Tools');
 
@@ -1178,9 +1186,9 @@ export default function FullScreenPTW() {
 
             setSession(sess);
             setPermissions({
-                viewOnly: !['Global Owner', 'Global Manager', 'Owner', 'Admin', 'Site Owner', 'Site Manager', 'User'].includes(cleanRole),
-                canDelete: ['Global Owner', 'Owner', 'Admin', 'Site Owner'].includes(cleanRole),
-                canEditCreate: ['Global Owner', 'Global Manager', 'Owner', 'Admin', 'Site Owner', 'Site Manager', 'User'].includes(cleanRole)
+                viewOnly: !canEditCreateForRole(cleanRole),
+                canDelete: canDeleteForRole(cleanRole),
+                canEditCreate: canEditCreateForRole(cleanRole)
             });
 
             let contextSite = params.get('site') || sessionStorage.getItem('isoCurrentSite') || 'All';
@@ -1265,26 +1273,12 @@ export default function FullScreenPTW() {
 
     const isGlobalUser = useMemo(() => {
         if (!session) return false;
-        const role = session.role || '';
-        const site = session.assignedSite || '';
-        const access = safeArr(session.accessibleSites);
-        return role === 'Owner'
-            || role === 'Admin'
-            || role === 'Lead Auditor'
-            || role === 'Global Owner'
-            || role === 'Global Manager'
-            || site === 'GLOBAL'
-            || access.includes('GLOBAL');
+        return isGlobalScopeUserRecord(session);
     }, [session]);
 
     const allowedSiteCodes = useMemo(() => {
         if (!session) return new Set();
-        const codes = new Set();
-        if (session.assignedSite && session.assignedSite !== 'GLOBAL') codes.add(session.assignedSite);
-        safeArr(session.accessibleSites).forEach((siteCode) => {
-            if (siteCode && siteCode !== 'GLOBAL') codes.add(siteCode);
-        });
-        return codes;
+        return getAllowedSiteCodes(session);
     }, [session]);
 
     const allowedSites = useMemo(() => {

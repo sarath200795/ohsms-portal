@@ -5,27 +5,28 @@ import { createUserWithEmailAndPassword, deleteUser, getAuth, signOut } from 'fi
 import { ref, get, set, update, remove, push } from 'firebase/database';
 import { auth, firebaseConfig, rtdb } from '../config/firebase';
 import { readOrgChildren } from '../utils/orgData';
-import { toCanonicalModuleIds, USER_ASSIGNABLE_MODULES } from '../utils/permissions';
+import {
+    GLOBAL_OWNER_ROLE,
+    SITE_OWNER_ROLE,
+    SUPPORTED_USER_ROLES,
+    USER_ASSIGNABLE_MODULES,
+    USER_ROLE,
+    isGlobalOwnerRole,
+    isSiteOwnerRole,
+    normalizeRole,
+    toCanonicalModuleIds
+} from '../utils/permissions';
 import { ACCOUNT_STATUS, readStoredSession, writeStoredSession } from '../utils/session';
 import {
     buildPermissionRequestUpdates,
     buildUserAccessAuditEntry,
     normalizeUserAccessPayload,
+    normalizeStoredUserRecord,
     validateUserAccessPayload
 } from '../utils/userAccess';
 
-const ROLES = [
-    "Global Owner",
-    "Global Manager",
-    "Admin",
-    "Site Owner",
-    "Site Manager",
-    "HSE Rep",
-    "Lead Auditor",
-    "User"
-];
-
-const GLOBAL_ADMIN_ROLES = ['Global Owner', 'Global Manager', 'Owner', 'Admin'];
+const ROLES = SUPPORTED_USER_ROLES;
+const USER_MANAGER_ROLES = [GLOBAL_OWNER_ROLE, SITE_OWNER_ROLE];
 const PROVISIONING_APP_NAME = 'ohsms-user-provisioning';
 
 const normalizeJoinCode = (value) => value.toUpperCase().trim().replace(/[^A-Z0-9-]/g, '');
@@ -61,7 +62,7 @@ const getProvisioningAuth = () => {
 
 const ensureCurrentAdminDirectory = async (sess) => {
     const currentUser = auth.currentUser;
-    if (!currentUser || !sess?.orgId || !GLOBAL_ADMIN_ROLES.includes(sess.role)) return sess;
+    if (!currentUser || !sess?.orgId || !isGlobalOwnerRole(sess.role)) return sess;
 
     const repairedSession = {
         ...sess,
@@ -132,15 +133,30 @@ export default function Users() {
         () => users.find((user) => user.id === editingUserId) || null,
         [users, editingUserId]
     );
+    const isGlobalOwner = isGlobalOwnerRole(session?.role);
+    const isSiteOwner = isSiteOwnerRole(session?.role);
+    const managedSiteCode = session?.assignedSite || '';
+
+    const visibleSites = useMemo(() => {
+        if (isGlobalOwner) return sites;
+        return sites.filter((site) => site.code === managedSiteCode);
+    }, [isGlobalOwner, managedSiteCode, sites]);
+
+    const visibleUsers = useMemo(() => {
+        if (isGlobalOwner) return users;
+        return users.filter((user) => {
+            const normalizedRole = normalizeRole(user.role);
+            if (normalizedRole === GLOBAL_OWNER_ROLE) return false;
+            return user.assignedSite === managedSiteCode || safeArr(user.accessibleSites).includes(managedSiteCode);
+        });
+    }, [isGlobalOwner, managedSiteCode, users]);
 
     useEffect(() => {
         const sess = readStoredSession();
         if (!sess) { navigate('/'); return; }
 
-        // Security Check: Only Global Admins or Owners should manage users
-        const isGlobalAdmin = GLOBAL_ADMIN_ROLES.includes(sess.role);
-        if (!isGlobalAdmin) {
-            alert("Security Alert: Only Administrators can access User Management.");
+        if (!USER_MANAGER_ROLES.includes(sess.role)) {
+            alert("Security Alert: Only Global Owners and Site Owners can access User Management.");
             navigate('/dashboard');
             return;
         }
@@ -151,7 +167,8 @@ export default function Users() {
             try {
                 const activeSession = await ensureCurrentAdminDirectory(sess);
                 setSession(activeSession);
-                const data = await readOrgChildren(rtdb, activeSession.orgId, ['details', 'sites', 'users', 'permissionRequests'], { session: activeSession });
+                const requestedChildren = ['details', 'sites', 'users', ...(isGlobalOwnerRole(activeSession.role) ? ['permissionRequests'] : [])];
+                const data = await readOrgChildren(rtdb, activeSession.orgId, requestedChildren, { session: activeSession });
 
                 if (data.sites) {
                     setSites(Object.keys(data.sites).map(key => ({
@@ -163,11 +180,42 @@ export default function Users() {
                 if (data.users) {
                     const loadedUsers = Object.entries(data.users).map(([key, val]) => ({
                         id: key,
-                        ...val,
-                        accessibleSites: safeArr(val.accessibleSites),
-                        accessibleModules: toCanonicalModuleIds(val.accessibleModules)
+                        ...normalizeStoredUserRecord({
+                            ...val,
+                            accessibleSites: safeArr(val.accessibleSites)
+                        })
                     }));
                     setUsers(loadedUsers);
+
+                    if (isGlobalOwnerRole(activeSession.role)) {
+                        const migrationUpdates = {};
+                        Object.entries(data.users).forEach(([key, val]) => {
+                            const normalized = normalizeStoredUserRecord({
+                                ...val,
+                                accessibleSites: safeArr(val.accessibleSites)
+                            });
+
+                            if (normalizeRole(val.role) !== String(val.role || '').trim()) {
+                                migrationUpdates[`organizations/${activeSession.orgId}/users/${key}/role`] = normalized.role;
+                            }
+
+                            if (String(val.assignedSite || '') !== String(normalized.assignedSite || '')) {
+                                migrationUpdates[`organizations/${activeSession.orgId}/users/${key}/assignedSite`] = normalized.assignedSite;
+                            }
+
+                            if (JSON.stringify(safeArr(val.accessibleSites)) !== JSON.stringify(normalized.accessibleSites)) {
+                                migrationUpdates[`organizations/${activeSession.orgId}/users/${key}/accessibleSites`] = normalized.accessibleSites;
+                            }
+
+                            if (JSON.stringify(toCanonicalModuleIds(val.accessibleModules)) !== JSON.stringify(normalized.accessibleModules)) {
+                                migrationUpdates[`organizations/${activeSession.orgId}/users/${key}/accessibleModules`] = normalized.accessibleModules;
+                            }
+                        });
+
+                        if (Object.keys(migrationUpdates).length > 0) {
+                            await update(ref(rtdb), migrationUpdates);
+                        }
+                    }
                 }
 
                 setOrgDetails(data.details || {});
@@ -188,7 +236,7 @@ export default function Users() {
             setFormData({
                 name: user.name || '',
                 email: user.email || '',
-                role: user.role || 'User',
+                role: normalizeRole(user.role || USER_ROLE),
                 assignedSite: user.assignedSite || '',
                 accessibleSites: safeArr(user.accessibleSites),
                 accessibleModules: toCanonicalModuleIds(user.accessibleModules),
@@ -200,8 +248,8 @@ export default function Users() {
             setFormData({
                 name: '',
                 email: '',
-                role: 'User',
-                assignedSite: '',
+                role: USER_ROLE,
+                assignedSite: isSiteOwner ? managedSiteCode : '',
                 accessibleSites: [],
                 accessibleModules: [],
                 status: ACCOUNT_STATUS.ACTIVE
@@ -211,7 +259,7 @@ export default function Users() {
     };
 
     const handleGenerateJoinCode = async () => {
-        if (!session?.orgId) return;
+        if (!session?.orgId || !isGlobalOwner) return;
 
         setSaving(true);
         try {
@@ -294,7 +342,16 @@ export default function Users() {
         e?.preventDefault?.();
         setSaving(true);
         try {
-            const payload = normalizeUserAccessPayload(formData, { editingExistingUser: Boolean(editingUserId) });
+            const scopedFormData = isSiteOwner
+                ? {
+                    ...formData,
+                    assignedSite: managedSiteCode,
+                    accessibleSites: formData.role === USER_ROLE
+                        ? [managedSiteCode, ...safeArr(formData.accessibleSites).filter((site) => site === managedSiteCode)]
+                        : [managedSiteCode]
+                }
+                : formData;
+            const payload = normalizeUserAccessPayload(scopedFormData, { editingExistingUser: Boolean(editingUserId) });
             const validation = validateUserAccessPayload(payload);
 
             if (!validation.isValid) {
@@ -302,8 +359,23 @@ export default function Users() {
                 return alert(validation.errors.join('\n'));
             }
 
+            if (isSiteOwner && payload.role === GLOBAL_OWNER_ROLE) {
+                setSaving(false);
+                return alert('Site Owners cannot assign the Global Owner role.');
+            }
+
+            if (isSiteOwner && payload.assignedSite !== managedSiteCode) {
+                setSaving(false);
+                return alert('Site Owners can only manage users for their own assigned site.');
+            }
+
             // If editing existing user
             if (editingUserId) {
+                if (isSiteOwner && (normalizeRole(editingUser?.role) === GLOBAL_OWNER_ROLE || editingUser?.assignedSite !== managedSiteCode)) {
+                    setSaving(false);
+                    return alert('You can only edit users assigned to your own site.');
+                }
+
                 const isApprovingPending = editingUser?.status === ACCOUNT_STATUS.PENDING && payload.status === ACCOUNT_STATUS.ACTIVE;
                 const savePayload = isApprovingPending ? { ...payload, joinCode: null } : payload;
 
@@ -316,7 +388,9 @@ export default function Users() {
                     actorSession: session
                 });
 
-                await syncPermissionRequests(requestUpdates);
+                if (isGlobalOwner) {
+                    await syncPermissionRequests(requestUpdates);
+                }
 
                 await writeAccessAuditLog(
                     buildUserAccessAuditEntry({
@@ -399,6 +473,9 @@ export default function Users() {
     };
 
     const handleDeleteUser = async (userId, email) => {
+        if (!isGlobalOwner) {
+            return alert('Only the Global Owner can permanently remove user access.');
+        }
         if (email === session.email) {
             return alert("You cannot delete your own admin account.");
         }
@@ -444,43 +521,45 @@ export default function Users() {
             <main className="flex-1 overflow-y-auto p-8 custom-scroll relative z-10 w-full">
                 <div className="max-w-7xl mx-auto animate-in fade-in duration-500">
 
-                    <div className="mb-8 rounded-3xl border border-cyan-500/30 bg-cyan-950/20 p-6 shadow-2xl">
-                        <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
-                            <div>
-                                <p className="text-[10px] font-bold uppercase tracking-[0.28em] text-cyan-300">Secure New User Onboarding</p>
-                                <h2 className="mt-2 text-2xl font-black text-white">Workspace Join Code</h2>
-                                <p className="mt-2 max-w-3xl text-xs leading-relaxed text-slate-400">
-                                    New users now request access with this code instead of searching by organization name. Rotate it anytime if the code was shared too widely.
-                                </p>
-                            </div>
-                            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-                                <div className="rounded-2xl border border-cyan-400/30 bg-slate-950 px-5 py-4 text-center shadow-inner">
-                                    <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Current Code</div>
-                                    <div className="mt-1 font-mono text-lg font-black tracking-[0.22em] text-cyan-300">
-                                        {orgDetails.joinCode || 'NOT GENERATED'}
-                                    </div>
+                    {isGlobalOwner && (
+                        <div className="mb-8 rounded-3xl border border-cyan-500/30 bg-cyan-950/20 p-6 shadow-2xl">
+                            <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+                                <div>
+                                    <p className="text-[10px] font-bold uppercase tracking-[0.28em] text-cyan-300">Secure New User Onboarding</p>
+                                    <h2 className="mt-2 text-2xl font-black text-white">Workspace Join Code</h2>
+                                    <p className="mt-2 max-w-3xl text-xs leading-relaxed text-slate-400">
+                                        New users can request access with this code. Rotate it anytime if it was shared too widely.
+                                    </p>
                                 </div>
-                                {orgDetails.joinCode && (
+                                <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                                    <div className="rounded-2xl border border-cyan-400/30 bg-slate-950 px-5 py-4 text-center shadow-inner">
+                                        <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Current Code</div>
+                                        <div className="mt-1 font-mono text-lg font-black tracking-[0.22em] text-cyan-300">
+                                            {orgDetails.joinCode || 'NOT GENERATED'}
+                                        </div>
+                                    </div>
+                                    {orgDetails.joinCode && (
+                                        <button
+                                            type="button"
+                                            onClick={() => navigator.clipboard?.writeText(orgDetails.joinCode)}
+                                            className="rounded-xl border border-slate-700 bg-slate-900 px-4 py-3 text-xs font-bold uppercase tracking-widest text-slate-300 transition hover:border-cyan-400 hover:text-white"
+                                        >
+                                            <i className="fas fa-copy mr-2"></i> Copy
+                                        </button>
+                                    )}
                                     <button
                                         type="button"
-                                        onClick={() => navigator.clipboard?.writeText(orgDetails.joinCode)}
-                                        className="rounded-xl border border-slate-700 bg-slate-900 px-4 py-3 text-xs font-bold uppercase tracking-widest text-slate-300 transition hover:border-cyan-400 hover:text-white"
+                                        onClick={handleGenerateJoinCode}
+                                        disabled={saving}
+                                        className="rounded-xl bg-cyan-600 px-5 py-3 text-xs font-bold uppercase tracking-widest text-white shadow-lg shadow-cyan-600/20 transition hover:bg-cyan-500 disabled:opacity-50"
                                     >
-                                        <i className="fas fa-copy mr-2"></i> Copy
+                                        <i className={`fas ${saving ? 'fa-spinner fa-spin' : 'fa-key'} mr-2`}></i>
+                                        {orgDetails.joinCode ? 'Rotate Code' : 'Generate Code'}
                                     </button>
-                                )}
-                                <button
-                                    type="button"
-                                    onClick={handleGenerateJoinCode}
-                                    disabled={saving}
-                                    className="rounded-xl bg-cyan-600 px-5 py-3 text-xs font-bold uppercase tracking-widest text-white shadow-lg shadow-cyan-600/20 transition hover:bg-cyan-500 disabled:opacity-50"
-                                >
-                                    <i className={`fas ${saving ? 'fa-spinner fa-spin' : 'fa-key'} mr-2`}></i>
-                                    {orgDetails.joinCode ? 'Rotate Code' : 'Generate Code'}
-                                </button>
+                                </div>
                             </div>
                         </div>
-                    </div>
+                    )}
 
                     {provisionedCredential && (
                         <div className="mb-8 rounded-3xl border border-emerald-500/30 bg-emerald-950/20 p-6 shadow-2xl">
@@ -522,24 +601,24 @@ export default function Users() {
                     {/* OVERVIEW STATS */}
                     <div className="grid grid-cols-1 md:grid-cols-5 gap-6 mb-8">
                         <div className="bg-slate-900/60 backdrop-blur-md p-6 rounded-2xl border border-slate-700 shadow-xl border-l-4 border-l-blue-500">
-                            <h3 className="text-xs text-slate-400 font-bold uppercase tracking-widest mb-1">Total Users</h3>
-                            <div className="text-3xl font-black text-white">{users.length}</div>
+                            <h3 className="text-xs text-slate-400 font-bold uppercase tracking-widest mb-1">{isGlobalOwner ? 'Total Users' : 'Site Users'}</h3>
+                            <div className="text-3xl font-black text-white">{visibleUsers.length}</div>
                         </div>
                         <div className="bg-slate-900/60 backdrop-blur-md p-6 rounded-2xl border border-slate-700 shadow-xl border-l-4 border-l-emerald-500">
                             <h3 className="text-xs text-slate-400 font-bold uppercase tracking-widest mb-1">Active Accounts</h3>
-                            <div className="text-3xl font-black text-emerald-400">{users.filter(u => u.status === ACCOUNT_STATUS.ACTIVE).length}</div>
+                            <div className="text-3xl font-black text-emerald-400">{visibleUsers.filter(u => u.status === ACCOUNT_STATUS.ACTIVE).length}</div>
                         </div>
                         <div className="bg-slate-900/60 backdrop-blur-md p-6 rounded-2xl border border-slate-700 shadow-xl border-l-4 border-l-amber-500">
                             <h3 className="text-xs text-slate-400 font-bold uppercase tracking-widest mb-1">Pending Approval</h3>
-                            <div className="text-3xl font-black text-amber-400">{users.filter(u => u.status === ACCOUNT_STATUS.PENDING).length}</div>
+                            <div className="text-3xl font-black text-amber-400">{visibleUsers.filter(u => u.status === ACCOUNT_STATUS.PENDING).length}</div>
                         </div>
                         <div className="bg-slate-900/60 backdrop-blur-md p-6 rounded-2xl border border-slate-700 shadow-xl border-l-4 border-l-purple-500">
-                            <h3 className="text-xs text-slate-400 font-bold uppercase tracking-widest mb-1">Global Admins</h3>
-                            <div className="text-3xl font-black text-purple-400">{users.filter(u => ['Global Owner', 'Global Manager', 'Admin'].includes(u.role)).length}</div>
+                            <h3 className="text-xs text-slate-400 font-bold uppercase tracking-widest mb-1">{isGlobalOwner ? 'Global Owners' : 'Site Owners'}</h3>
+                            <div className="text-3xl font-black text-purple-400">{visibleUsers.filter(u => normalizeRole(u.role) === (isGlobalOwner ? GLOBAL_OWNER_ROLE : SITE_OWNER_ROLE)).length}</div>
                         </div>
                         <div className="bg-slate-900/60 backdrop-blur-md p-6 rounded-2xl border border-slate-700 shadow-xl border-l-4 border-l-orange-500">
-                            <h3 className="text-xs text-slate-400 font-bold uppercase tracking-widest mb-1">Registered Sites</h3>
-                            <div className="text-3xl font-black text-orange-400">{sites.length}</div>
+                            <h3 className="text-xs text-slate-400 font-bold uppercase tracking-widest mb-1">{isGlobalOwner ? 'Registered Sites' : 'Managed Site'}</h3>
+                            <div className="text-3xl font-black text-orange-400">{visibleSites.length}</div>
                         </div>
                     </div>
 
@@ -561,15 +640,15 @@ export default function Users() {
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-800/80 bg-slate-950/50">
-                                    {users.map(u => (
+                                    {visibleUsers.map(u => (
                                         <tr key={u.id} className="hover:bg-slate-800/40 transition-colors">
                                             <td className="p-5 pl-8">
                                                 <div className="font-bold text-white text-base">{u.name}</div>
                                                 <div className="text-[10px] text-slate-400 mt-1">{u.email}</div>
                                             </td>
                                             <td className="p-5">
-                                                <span className={`text-[10px] font-bold uppercase tracking-widest px-2 py-1 rounded border shadow-sm ${['Global Owner', 'Global Manager', 'Admin'].includes(u.role) ? 'bg-purple-900/30 text-purple-400 border-purple-500/30' : 'bg-blue-900/30 text-blue-400 border-blue-500/30'}`}>
-                                                    {u.role}
+                                                <span className={`text-[10px] font-bold uppercase tracking-widest px-2 py-1 rounded border shadow-sm ${normalizeRole(u.role) === GLOBAL_OWNER_ROLE ? 'bg-purple-900/30 text-purple-400 border-purple-500/30' : normalizeRole(u.role) === SITE_OWNER_ROLE ? 'bg-blue-900/30 text-blue-400 border-blue-500/30' : 'bg-emerald-900/30 text-emerald-400 border-emerald-500/30'}`}>
+                                                    {normalizeRole(u.role)}
                                                 </span>
                                             </td>
                                             <td className="p-5 font-bold text-slate-300">
@@ -577,7 +656,7 @@ export default function Users() {
                                             </td>
                                             <td className="p-5 text-center">
                                                 <span className="font-mono font-bold bg-slate-900 border border-slate-700 px-3 py-1 rounded-lg text-emerald-400 shadow-inner">
-                                                    {['Global Owner', 'Global Manager', 'Admin'].includes(u.role) ? 'ALL' : u.accessibleModules?.length || 0}
+                                                    {normalizeRole(u.role) === GLOBAL_OWNER_ROLE ? 'ALL' : normalizeRole(u.role) === SITE_OWNER_ROLE ? 'SITE' : u.accessibleModules?.length || 0}
                                                 </span>
                                             </td>
                                             <td className="p-5">
@@ -590,13 +669,15 @@ export default function Users() {
                                                 <button onClick={() => openModal(u)} className="bg-slate-800 hover:bg-blue-600 text-white w-9 h-9 rounded-xl transition-colors shadow flex items-center justify-center border border-slate-700" title="Edit Permissions">
                                                     <i className="fas fa-edit"></i>
                                                 </button>
-                                                <button onClick={() => handleDeleteUser(u.id, u.email)} className="bg-slate-800 hover:bg-red-600 text-slate-400 hover:text-white w-9 h-9 rounded-xl transition-colors shadow flex items-center justify-center border border-slate-700" title="Revoke Access">
-                                                    <i className="fas fa-trash-alt"></i>
-                                                </button>
+                                                {isGlobalOwner && (
+                                                    <button onClick={() => handleDeleteUser(u.id, u.email)} className="bg-slate-800 hover:bg-red-600 text-slate-400 hover:text-white w-9 h-9 rounded-xl transition-colors shadow flex items-center justify-center border border-slate-700" title="Revoke Access">
+                                                        <i className="fas fa-trash-alt"></i>
+                                                    </button>
+                                                )}
                                             </td>
                                         </tr>
                                     ))}
-                                    {users.length === 0 && <tr><td colSpan="6" className="p-12 text-center text-slate-500 italic">No users registered in this organization.</td></tr>}
+                                    {visibleUsers.length === 0 && <tr><td colSpan="6" className="p-12 text-center text-slate-500 italic">No users available in this permission scope.</td></tr>}
                                 </tbody>
                             </table>
                         </div>
@@ -636,9 +717,26 @@ export default function Users() {
                                 </div>
                                 <div>
                                     <label className="text-[10px] uppercase font-bold text-slate-400 block mb-2 tracking-widest">System Role *</label>
-                                    <select value={formData.role} onChange={e => setFormData({ ...formData, role: e.target.value })} className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-blue-400 outline-none focus:border-blue-500 font-bold shadow-inner">
+                                    <select
+                                        value={formData.role}
+                                        onChange={e => setFormData({
+                                            ...formData,
+                                            role: e.target.value,
+                                            assignedSite: e.target.value === GLOBAL_OWNER_ROLE ? 'GLOBAL' : (isSiteOwner ? managedSiteCode : formData.assignedSite),
+                                            accessibleSites: e.target.value === USER_ROLE ? formData.accessibleSites : [],
+                                            accessibleModules: e.target.value === USER_ROLE ? formData.accessibleModules : []
+                                        })}
+                                        className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-blue-400 outline-none focus:border-blue-500 font-bold shadow-inner"
+                                    >
                                         {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
                                     </select>
+                                    <p className="mt-2 text-[11px] text-slate-500">
+                                        {formData.role === GLOBAL_OWNER_ROLE
+                                            ? 'Global Owner gets all sites and all modules automatically.'
+                                            : formData.role === SITE_OWNER_ROLE
+                                                ? 'Site Owner gets all modules for one site, with no access to the Sites module.'
+                                                : 'User gets only the site and modules explicitly assigned below.'}
+                                    </p>
                                 </div>
                                 <div>
                                     <label className="text-[10px] uppercase font-bold text-slate-400 block mb-2 tracking-widest">Account Status</label>
@@ -661,14 +759,22 @@ export default function Users() {
                             <div className="bg-slate-800/50 border border-slate-700 rounded-2xl p-6 mb-10 shadow-inner">
                                 <div className="mb-6">
                                     <label className="text-[10px] uppercase font-bold text-slate-400 block mb-2 tracking-widest">Primary / Default Site</label>
-                                    <select value={formData.assignedSite} onChange={e => setFormData({ ...formData, assignedSite: e.target.value })} className="w-full md:w-1/2 bg-slate-950 border border-slate-700 rounded-xl p-3 text-white outline-none focus:border-blue-500 shadow-inner font-bold">
-                                        <option value="">Select Primary Site...</option>
-                                        <option value="GLOBAL">GLOBAL (All Sites)</option>
-                                        {sites.map(s => <option key={s.code} value={s.code}>{s.name} ({s.code})</option>)}
+                                    <select
+                                        value={formData.role === GLOBAL_OWNER_ROLE ? 'GLOBAL' : formData.assignedSite}
+                                        onChange={e => setFormData({ ...formData, assignedSite: e.target.value })}
+                                        disabled={formData.role === GLOBAL_OWNER_ROLE || isSiteOwner}
+                                        className="w-full md:w-1/2 bg-slate-950 border border-slate-700 rounded-xl p-3 text-white outline-none focus:border-blue-500 shadow-inner font-bold disabled:opacity-60"
+                                    >
+                                        {formData.role !== GLOBAL_OWNER_ROLE && <option value="">Select Primary Site...</option>}
+                                        {formData.role === GLOBAL_OWNER_ROLE && <option value="GLOBAL">GLOBAL (All Sites)</option>}
+                                        {(isSiteOwner ? visibleSites : sites).map(s => <option key={s.code} value={s.code}>{s.name} ({s.code})</option>)}
                                     </select>
+                                    {isSiteOwner && formData.role !== GLOBAL_OWNER_ROLE && (
+                                        <p className="mt-2 text-[11px] text-slate-500">Site Owners can assign access only for their own site.</p>
+                                    )}
                                 </div>
 
-                                {formData.assignedSite !== 'GLOBAL' && (
+                                {formData.role === USER_ROLE && formData.assignedSite !== 'GLOBAL' && !isSiteOwner && (
                                     <div>
                                         <label className="text-[10px] uppercase font-bold text-slate-400 block mb-3 tracking-widest">Additional Accessible Sites</label>
                                         <div className="flex flex-wrap gap-3">
@@ -687,7 +793,7 @@ export default function Users() {
                             {/* SECTION 3: MODULE PERMISSIONS */}
                             <div className="flex justify-between items-end border-b border-slate-800 pb-2 mb-6">
                                 <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest">3. Module Permissions</h4>
-                                {['Global Owner', 'Global Manager', 'Admin'].includes(formData.role) ? (
+                                {formData.role !== USER_ROLE ? (
                                     <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-widest bg-emerald-900/30 px-3 py-1 rounded border border-emerald-500/30">Auto-Granted All Modules</span>
                                 ) : (
                                     <div className="flex gap-3">
@@ -697,10 +803,15 @@ export default function Users() {
                                 )}
                             </div>
 
-                            {['Global Owner', 'Global Manager', 'Admin'].includes(formData.role) ? (
+                            {formData.role === GLOBAL_OWNER_ROLE ? (
                                 <div className="bg-emerald-950/20 border border-emerald-900 rounded-2xl p-8 text-center shadow-inner">
                                     <i className="fas fa-unlock-alt text-4xl text-emerald-500 mb-3 opacity-50"></i>
-                                    <p className="text-sm font-bold text-emerald-400">Administrators automatically have unrestricted read/write access to all enterprise modules.</p>
+                                    <p className="text-sm font-bold text-emerald-400">Global Owner automatically gets all enterprise modules and all sites.</p>
+                                </div>
+                            ) : formData.role === SITE_OWNER_ROLE ? (
+                                <div className="bg-blue-950/20 border border-blue-900 rounded-2xl p-8 text-center shadow-inner">
+                                    <i className="fas fa-shield-halved text-4xl text-blue-400 mb-3 opacity-60"></i>
+                                    <p className="text-sm font-bold text-blue-300">Site Owner automatically gets all modules for the assigned site, with no access to the Sites module.</p>
                                 </div>
                             ) : (
                                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 bg-slate-900/30 p-6 rounded-2xl border border-slate-800 shadow-inner">
