@@ -11,6 +11,46 @@
         "**/.*",
         "**/node_modules/**"
       ],
+      "headers": [
+        {
+          "source": "**",
+          "headers": [
+            {
+              "key": "X-Content-Type-Options",
+              "value": "nosniff"
+            },
+            {
+              "key": "X-Frame-Options",
+              "value": "SAMEORIGIN"
+            },
+            {
+              "key": "Referrer-Policy",
+              "value": "strict-origin-when-cross-origin"
+            },
+            {
+              "key": "Strict-Transport-Security",
+              "value": "max-age=31536000; includeSubDomains"
+            },
+            {
+              "key": "Permissions-Policy",
+              "value": "camera=(self), geolocation=(), microphone=(), payment=(), usb=()"
+            },
+            {
+              "key": "Cross-Origin-Opener-Policy",
+              "value": "same-origin"
+            }
+          ]
+        },
+        {
+          "source": "/index.html",
+          "headers": [
+            {
+              "key": "Cache-Control",
+              "value": "no-cache"
+            }
+          ]
+        }
+      ],
       "rewrites": [
         {
           "source": "**",
@@ -25,6 +65,46 @@
         "firebase.json",
         "**/.*",
         "**/node_modules/**"
+      ],
+      "headers": [
+        {
+          "source": "**",
+          "headers": [
+            {
+              "key": "X-Content-Type-Options",
+              "value": "nosniff"
+            },
+            {
+              "key": "X-Frame-Options",
+              "value": "SAMEORIGIN"
+            },
+            {
+              "key": "Referrer-Policy",
+              "value": "strict-origin-when-cross-origin"
+            },
+            {
+              "key": "Strict-Transport-Security",
+              "value": "max-age=31536000; includeSubDomains"
+            },
+            {
+              "key": "Permissions-Policy",
+              "value": "camera=(self), geolocation=(), microphone=(), payment=(), usb=()"
+            },
+            {
+              "key": "Cross-Origin-Opener-Policy",
+              "value": "same-origin"
+            }
+          ]
+        },
+        {
+          "source": "/index.html",
+          "headers": [
+            {
+              "key": "Cache-Control",
+              "value": "no-cache"
+            }
+          ]
+        }
       ],
       "rewrites": [
         {

@@ -20,12 +20,22 @@ export default function PortalSuccessModal({ onClose, portalSuccess }) {
                         <div className="text-sm font-bold text-white font-mono break-all">{portalSuccess.email}</div>
                     </div>
                     <div>
-                        <div className="text-[10px] uppercase font-bold tracking-widest text-slate-500 mb-1">Vendor Code</div>
+                        <div className="text-[10px] uppercase font-bold tracking-widest text-slate-500 mb-1">Vendor Reference Code</div>
                         <div className="text-sm font-bold text-white font-mono break-all">{portalSuccess.vendorCode || 'Available on the contractor profile header'}</div>
                     </div>
+                    {portalSuccess.temporaryPassword && (
+                        <div>
+                            <div className="text-[10px] uppercase font-bold tracking-widest text-slate-500 mb-1">Temporary Portal Password</div>
+                            <div className="text-sm font-bold text-emerald-300 font-mono break-all">{portalSuccess.temporaryPassword}</div>
+                        </div>
+                    )}
                     <div>
                         <div className="text-[10px] uppercase font-bold tracking-widest text-slate-500 mb-1">Vendor Login Method</div>
-                        <div className="text-xs text-slate-300">Email + Vendor Code. The vendor code is now the login credential, so no separate password or sign-in link is needed.</div>
+                        <div className="text-xs text-slate-300">
+                            {portalSuccess.temporaryPassword
+                                ? 'Email + temporary password. The vendor must change this password after the first successful login.'
+                                : 'Email + the vendor’s current portal password. If they cannot sign in, issue a password reset or reprovision the portal access again.'}
+                        </div>
                     </div>
                 </div>
 

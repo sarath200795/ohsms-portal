@@ -131,8 +131,16 @@ export const fetchFieldPortalContext = async ({ fieldDb, user, expectedOrgId = '
         status: userData.status || ACCOUNT_STATUS.ACTIVE,
         assignedSite: userData.assignedSite || 'GLOBAL',
         accessibleSites: userData.accessibleSites || [],
-        accessibleModules: userData.accessibleModules || []
+        accessibleModules: userData.accessibleModules || [],
+        mustChangePassword: Boolean(userData.mustChangePassword),
+        temporaryPasswordIssued: Boolean(userData.temporaryPasswordIssued),
+        temporaryPasswordIssuedAt: userData.temporaryPasswordIssuedAt || '',
+        passwordUpdatedAt: userData.passwordUpdatedAt || ''
     });
+
+    if (sessionData.mustChangePassword) {
+        throw new Error('Password update required. Sign in to the main portal first and change your temporary password before using the field portal.');
+    }
 
     if (getVisibleFieldModules(sessionData).length === 0) {
         throw new Error('This account does not have access to any field portal modules.');

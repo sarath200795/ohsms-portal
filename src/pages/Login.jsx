@@ -167,11 +167,15 @@ export default function Login() {
                         status: userData.status || ACCOUNT_STATUS.ACTIVE,
                         assignedSite: userData.assignedSite || 'GLOBAL',
                         accessibleSites: userData.accessibleSites || [],
-                        accessibleModules: userData.accessibleModules || []
+                        accessibleModules: userData.accessibleModules || [],
+                        mustChangePassword: Boolean(userData.mustChangePassword),
+                        temporaryPasswordIssued: Boolean(userData.temporaryPasswordIssued),
+                        temporaryPasswordIssuedAt: userData.temporaryPasswordIssuedAt || '',
+                        passwordUpdatedAt: userData.passwordUpdatedAt || ''
                     });
 
                     writeStoredSession(sessionData);
-                    navigate('/dashboard');
+                    navigate(sessionData.mustChangePassword ? '/dashboard?forcePasswordChange=1' : '/dashboard');
                 } else {
                     await signOut(auth);
                     alert('Your account exists but was removed from the organization directory.');

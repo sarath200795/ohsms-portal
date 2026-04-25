@@ -1,4 +1,5 @@
 import { normalizeSessionPermissions } from './permissions.js';
+import { requiresPasswordChange } from './security.js';
 
 export const SESSION_STORAGE_KEY = 'isoSession';
 
@@ -31,7 +32,11 @@ export const normalizeSessionData = (session) => {
 
     return {
         ...normalizeSessionPermissions(session),
-        status: normalizeUserStatus(session.status || ACCOUNT_STATUS.ACTIVE)
+        status: normalizeUserStatus(session.status || ACCOUNT_STATUS.ACTIVE),
+        mustChangePassword: requiresPasswordChange(session),
+        temporaryPasswordIssued: Boolean(session.temporaryPasswordIssued),
+        temporaryPasswordIssuedAt: session.temporaryPasswordIssuedAt || '',
+        passwordUpdatedAt: session.passwordUpdatedAt || ''
     };
 };
 

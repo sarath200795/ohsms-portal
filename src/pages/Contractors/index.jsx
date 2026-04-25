@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { initializeApp } from 'firebase/app';
-import { createUserWithEmailAndPassword, getAuth, signInWithEmailAndPassword, signOut } from 'firebase/auth';
+import { createUserWithEmailAndPassword, getAuth, signInWithEmailAndPassword, signOut, updatePassword } from 'firebase/auth';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { get, push, ref, set, update } from 'firebase/database';
 import { auth, rtdb } from '../../config/firebase';
@@ -25,6 +25,7 @@ import {
 } from './utils';
 import { canEditCreateForRole, getAllowedSiteCodes, hasAccessibleModule, isGlobalOwnerRole } from '../../utils/permissions';
 import { readStoredSession } from '../../utils/session';
+import { generateVendorPortalPassword } from '../../utils/security';
 
 export default function Contractors() {
     const navigate = useNavigate();
@@ -366,6 +367,7 @@ export default function Contractors() {
             let portalUid = activeVendor.portalUid || existingOrgUser?.firebaseKey || '';
             let createdPortalAuthUser = false;
             let provisioningWarning = '';
+            let issuedPortalPassword = '';
             const baseUserPayload = {
                 name: activeVendor.contactPerson || activeVendor.companyName || 'Vendor Portal User',
                 email: vendorEmail,
@@ -385,10 +387,18 @@ export default function Contractors() {
             const tempAuth = getAuth(tempApp);
 
             try {
+                const rotatePortalPassword = async (credentialUser) => {
+                    const nextPortalPassword = generateVendorPortalPassword();
+                    await updatePassword(credentialUser, nextPortalPassword);
+                    issuedPortalPassword = nextPortalPassword;
+                    return nextPortalPassword;
+                };
+
                 if (portalUid) {
                     try {
                         const existingCredential = await signInWithEmailAndPassword(tempAuth, vendorEmail, vendorCode);
                         portalUid = existingCredential.user.uid;
+                        await rotatePortalPassword(existingCredential.user);
                     } catch (authError) {
                         const authCode = authError?.code || '';
                         if (
@@ -397,7 +407,7 @@ export default function Contractors() {
                             authCode === 'auth/user-not-found' ||
                             authCode === 'auth/wrong-password'
                         ) {
-                            provisioningWarning = 'Portal access was linked to an existing organization user, but that Firebase Auth account is still using an older password. The vendor will not be able to log in with the vendor code until that auth user password is reset to the vendor code in Firebase Authentication.';
+                            provisioningWarning = 'Portal access was linked to an existing organization user, but the password could not be rotated automatically from this screen. Ask the vendor to use their latest issued password or send them a reset link before expecting the new temporary password flow.';
                         } else {
                             throw authError;
                         }
@@ -406,6 +416,7 @@ export default function Contractors() {
                     try {
                         const existingCredential = await signInWithEmailAndPassword(tempAuth, vendorEmail, vendorCode);
                         portalUid = existingCredential.user.uid;
+                        await rotatePortalPassword(existingCredential.user);
                     } catch (authError) {
                         const authCode = authError?.code || '';
                         if (
@@ -415,12 +426,14 @@ export default function Contractors() {
                             authCode === 'auth/wrong-password'
                         ) {
                             try {
-                                const userCredential = await createUserWithEmailAndPassword(tempAuth, vendorEmail, vendorCode);
+                                const nextPortalPassword = generateVendorPortalPassword();
+                                const userCredential = await createUserWithEmailAndPassword(tempAuth, vendorEmail, nextPortalPassword);
                                 portalUid = userCredential.user.uid;
                                 createdPortalAuthUser = true;
+                                issuedPortalPassword = nextPortalPassword;
                             } catch (createError) {
                                 if (createError?.code === 'auth/email-already-in-use') {
-                                    throw new Error('This email already exists in Firebase Authentication but is not linked to a contractor org user yet. Create or locate the matching org user first, then reprovision, or reset/delete that Firebase Auth user so the vendor code can be used as the login credential.');
+                                    throw new Error('This email already exists in Firebase Authentication but is not linked to a contractor org user yet. Create or locate the matching org user first, then reprovision, or reset that Firebase Auth user so the portal can issue a fresh temporary password.');
                                 }
                                 throw createError;
                             }
@@ -437,7 +450,16 @@ export default function Contractors() {
                 throw new Error('Unable to provision a vendor portal auth account for this contractor.');
             }
 
-            await update(ref(rtdb, `organizations/${session.orgId}/users/${portalUid}`), baseUserPayload);
+            const portalPasswordManaged = Boolean(issuedPortalPassword);
+            const nextUserPayload = {
+                ...baseUserPayload,
+                mustChangePassword: portalPasswordManaged,
+                temporaryPasswordIssued: portalPasswordManaged,
+                temporaryPasswordIssuedAt: portalPasswordManaged ? nowIso : null,
+                passwordUpdatedAt: portalPasswordManaged ? null : (existingOrgUser?.passwordUpdatedAt || null)
+            };
+
+            await update(ref(rtdb, `organizations/${session.orgId}/users/${portalUid}`), nextUserPayload);
 
             try {
                 await set(ref(rtdb, `userDirectory/${portalUid}`), { orgId: session.orgId });
@@ -458,11 +480,13 @@ export default function Contractors() {
                 email: vendorEmail,
                 portalUid,
                 portalProvisionedAt: nowIso,
-                portalProvisionedBy: session.email
+                portalProvisionedBy: session.email,
+                portalPasswordRotatedAt: portalPasswordManaged ? nowIso : (activeVendor.portalPasswordRotatedAt || null),
+                portalPasswordRotatedBy: portalPasswordManaged ? session.email : (activeVendor.portalPasswordRotatedBy || null)
             });
 
             setOrgUsers((prev) => {
-                const nextUser = { firebaseKey: portalUid, ...baseUserPayload };
+                const nextUser = { firebaseKey: portalUid, ...nextUserPayload };
                 const index = prev.findIndex((user) => user.firebaseKey === portalUid);
                 if (index === -1) return [...prev, nextUser];
                 const updated = [...prev];
@@ -474,6 +498,7 @@ export default function Contractors() {
                 companyName: activeVendor.companyName,
                 email: vendorEmail,
                 vendorCode,
+                temporaryPassword: issuedPortalPassword,
                 linkedExisting: !createdPortalAuthUser,
                 warning: provisioningWarning
             });

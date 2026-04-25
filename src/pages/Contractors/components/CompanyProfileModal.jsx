@@ -66,7 +66,7 @@ export default function CompanyProfileModal({
                         <div>
                             <h3 className="text-2xl font-black text-white flex items-center gap-3">
                                 <i className="fas fa-building text-indigo-500"></i> {activeVendor.companyName}
-                                {activeVendor.vendorCode && <span className="text-xs font-mono bg-emerald-900/30 text-emerald-400 border border-emerald-500/30 px-2 py-1 rounded ml-2" title="Give this code to the vendor for portal login"><i className="fas fa-key mr-1"></i> {activeVendor.vendorCode}</span>}
+                                {activeVendor.vendorCode && <span className="text-xs font-mono bg-emerald-900/30 text-emerald-400 border border-emerald-500/30 px-2 py-1 rounded ml-2" title="Vendor reference code"><i className="fas fa-key mr-1"></i> {activeVendor.vendorCode}</span>}
                             </h3>
                             <div className="text-xs font-bold text-slate-500 uppercase tracking-widest mt-2 flex flex-wrap gap-4 items-center">
                                 <span className="flex gap-1 items-center bg-indigo-900/30 text-indigo-400 border border-indigo-500/30 px-2 py-0.5 rounded"><i className="fas fa-map-marker-alt"></i> {safeArr(activeVendor.allocatedSites).join(', ') || 'No Sites'}</span>

@@ -1,13 +1,13 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { auth, rtdb } from '../config/firebase';
 import { EmailAuthProvider, reauthenticateWithCredential, signOut, updatePassword } from 'firebase/auth';
-import { ref, get } from 'firebase/database';
+import { ref, get, update } from 'firebase/database';
 import useStore from '../store/useStore';
 import { clearFieldModuleHomeContext } from './FieldApp/portalAuth';
 import { useAppTransition } from '../hooks/useAppTransition';
 import { hasAccessibleModule, isGlobalOwnerRole } from '../utils/permissions';
-import { readStoredSession } from '../utils/session';
+import { readStoredSession, writeStoredSession } from '../utils/session';
 
 const getDayGreeting = () => {
     const hour = new Date().getHours();
@@ -110,6 +110,7 @@ const NavCard = ({ module, actions = [], onClick }) => {
 
 export default function Dashboard() {
     const navigate = useNavigate();
+    const location = useLocation();
     const playTransition = useAppTransition();
 
     useEffect(() => {
@@ -127,6 +128,14 @@ export default function Dashboard() {
     // --- PHASE 2 TARGETED FETCHING STATE ---
     const [localOrgData, setLocalOrgData] = useState(null);
     const [localLoading, setLocalLoading] = useState(true);
+    const passwordChangeRequired = Boolean(session?.mustChangePassword);
+
+    useEffect(() => {
+        const forcePasswordChange = new URLSearchParams(location.search).get('forcePasswordChange') === '1';
+        if (passwordChangeRequired || forcePasswordChange) {
+            setIsPasswordModalOpen(true);
+        }
+    }, [location.search, passwordChangeRequired]);
 
     useEffect(() => {
         const sess = readStoredSession();
@@ -255,6 +264,7 @@ export default function Dashboard() {
     };
 
     const closePasswordModal = () => {
+        if (passwordChangeRequired) return;
         if (isPasswordSaving) return;
         setIsPasswordModalOpen(false);
         setPasswordForm({ current: '', next: '', confirm: '' });
@@ -291,8 +301,30 @@ export default function Dashboard() {
             const credential = EmailAuthProvider.credential(userEmail, passwordForm.current);
             await reauthenticateWithCredential(currentUser, credential);
             await updatePassword(currentUser, passwordForm.next);
+            const passwordUpdatedAt = new Date().toISOString();
+            if (session?.orgId && currentUser.uid) {
+                await update(ref(rtdb, `organizations/${session.orgId}/users/${currentUser.uid}`), {
+                    mustChangePassword: false,
+                    temporaryPasswordIssued: false,
+                    temporaryPasswordIssuedAt: null,
+                    passwordUpdatedAt
+                });
+            }
+
+            const nextSession = writeStoredSession({
+                ...session,
+                mustChangePassword: false,
+                temporaryPasswordIssued: false,
+                temporaryPasswordIssuedAt: '',
+                passwordUpdatedAt
+            });
+            initializeSession(nextSession);
             alert('Password changed successfully. Please use the new password from your next login.');
-            closePasswordModal();
+            setIsPasswordModalOpen(false);
+            setPasswordForm({ current: '', next: '', confirm: '' });
+            if (new URLSearchParams(location.search).get('forcePasswordChange') === '1') {
+                navigate('/dashboard', { replace: true });
+            }
         } catch (error) {
             if (error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
                 alert('Current password is incorrect. Please try again.');
@@ -315,6 +347,10 @@ export default function Dashboard() {
     };
 
     const handleNavigation = (mod) => {
+        if (passwordChangeRequired) {
+            setIsPasswordModalOpen(true);
+            return;
+        }
         sessionStorage.setItem('isoCurrentSite', selectedSite);
         const paramSite = selectedSite === 'GLOBAL' ? 'All' : selectedSite;
         playTransition({
@@ -632,20 +668,24 @@ export default function Dashboard() {
                         <div className="mb-6 flex items-start justify-between gap-4 border-b border-[rgba(242,201,120,0.1)] pb-5">
                             <div>
                                 <p className="myth-kicker">Account Security</p>
-                                <h2 className="mt-1 text-3xl text-white">Change Password</h2>
+                                <h2 className="mt-1 text-3xl text-white">{passwordChangeRequired ? 'Password Update Required' : 'Change Password'}</h2>
                                 <p className="mt-2 text-sm leading-relaxed text-[var(--myth-muted)]">
-                                    Confirm your current password, then set a new secure password for this account.
+                                    {passwordChangeRequired
+                                        ? 'This account was provisioned with a temporary password. Update it now before using the enterprise workspace.'
+                                        : 'Confirm your current password, then set a new secure password for this account.'}
                                 </p>
                             </div>
-                            <button
-                                type="button"
-                                onClick={closePasswordModal}
-                                disabled={isPasswordSaving}
-                                className="myth-outline-button flex h-10 w-10 shrink-0 items-center justify-center rounded-full disabled:opacity-50"
-                                aria-label="Close change password"
-                            >
-                                <i className="fas fa-times"></i>
-                            </button>
+                            {!passwordChangeRequired && (
+                                <button
+                                    type="button"
+                                    onClick={closePasswordModal}
+                                    disabled={isPasswordSaving}
+                                    className="myth-outline-button flex h-10 w-10 shrink-0 items-center justify-center rounded-full disabled:opacity-50"
+                                    aria-label="Close change password"
+                                >
+                                    <i className="fas fa-times"></i>
+                                </button>
+                            )}
                         </div>
 
                         <div className="space-y-4">
@@ -693,14 +733,16 @@ export default function Dashboard() {
                         </div>
 
                         <div className="mt-6 flex justify-end gap-3 border-t border-[rgba(242,201,120,0.1)] pt-5">
-                            <button
-                                type="button"
-                                onClick={closePasswordModal}
-                                disabled={isPasswordSaving}
-                                className="myth-outline-button px-5 py-3 text-xs disabled:opacity-50"
-                            >
-                                Cancel
-                            </button>
+                            {!passwordChangeRequired && (
+                                <button
+                                    type="button"
+                                    onClick={closePasswordModal}
+                                    disabled={isPasswordSaving}
+                                    className="myth-outline-button px-5 py-3 text-xs disabled:opacity-50"
+                                >
+                                    Cancel
+                                </button>
+                            )}
                             <button
                                 type="submit"
                                 disabled={isPasswordSaving}

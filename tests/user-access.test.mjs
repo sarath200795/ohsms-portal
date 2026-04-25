@@ -94,3 +94,19 @@ test('session normalization preserves only authenticatable active users', () => 
     assert.equal(canAuthenticateStatus(session.status), true);
     assert.ok(session.accessibleModules.includes('Record Emergency'));
 });
+
+test('session normalization preserves forced password change flags', () => {
+    const session = normalizeSessionData({
+        uid: 'temp-user',
+        email: 'temp@test.com',
+        role: 'User',
+        status: 'Active',
+        mustChangePassword: true,
+        temporaryPasswordIssued: true,
+        temporaryPasswordIssuedAt: '2026-04-25T00:00:00.000Z'
+    });
+
+    assert.equal(session.mustChangePassword, true);
+    assert.equal(session.temporaryPasswordIssued, true);
+    assert.equal(session.temporaryPasswordIssuedAt, '2026-04-25T00:00:00.000Z');
+});

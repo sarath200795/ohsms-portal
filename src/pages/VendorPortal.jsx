@@ -1,12 +1,16 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { initializeApp, getApps } from 'firebase/app';
 import {
+    EmailAuthProvider,
     browserSessionPersistence,
     getAuth,
     onAuthStateChanged,
+    reauthenticateWithCredential,
+    sendPasswordResetEmail,
     setPersistence,
     signInWithEmailAndPassword,
-    signOut
+    signOut,
+    updatePassword
 } from 'firebase/auth';
 import { equalTo, get, getDatabase, orderByChild, query, ref, update } from 'firebase/database';
 import { auth } from '../config/firebase';
@@ -53,7 +57,7 @@ const buildVendorAuthErrorMessage = (error) => {
         code === 'auth/user-not-found' ||
         code === 'auth/wrong-password'
     ) {
-        return 'The portal email or vendor code is incorrect, or this vendor account still uses the older login setup. Ask your client admin to reprovision portal access so the vendor code becomes the login credential.';
+        return 'The portal email or password is incorrect. If this vendor account was newly provisioned, use the issued temporary password first. Otherwise ask your client admin to reset or reprovision the portal access.';
     }
 
     if (code === 'auth/invalid-email') {
@@ -116,7 +120,7 @@ const readVendorSiteCollection = async ({ orgId, childName, orgUser }) => {
 export default function VendorPortal() {
     const [loading, setLoading] = useState(true);
     const [isAuthenticated, setIsAuthenticated] = useState(false);
-    const [loginData, setLoginData] = useState({ email: '', vendorCode: '' });
+    const [loginData, setLoginData] = useState({ email: '', password: '' });
     const [activeTab, setActiveTab] = useState('documentation');
     const [vendorSession, setVendorSession] = useState(null);
     const [vendor, setVendor] = useState(null);
@@ -125,6 +129,9 @@ export default function VendorPortal() {
     const [uploadingId, setUploadingId] = useState(null);
     const [workerForm, setWorkerForm] = useState(createWorkerForm());
     const [savingWorker, setSavingWorker] = useState(false);
+    const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
+    const [passwordForm, setPasswordForm] = useState({ current: '', next: '', confirm: '' });
+    const [isPasswordSaving, setIsPasswordSaving] = useState(false);
     const manualLoginRef = useRef(false);
 
     const resetPortalState = useCallback((clearForm = false) => {
@@ -135,12 +142,14 @@ export default function VendorPortal() {
         setVendorSession(null);
         setActiveTab('documentation');
         setWorkerForm(createWorkerForm());
+        setIsPasswordModalOpen(false);
+        setPasswordForm({ current: '', next: '', confirm: '' });
         if (clearForm) {
-            setLoginData({ email: '', vendorCode: '' });
+            setLoginData({ email: '', password: '' });
         }
     }, []);
 
-    const fetchVendorData = useCallback(async ({ user, vendorCode = '', expectedOrgId = '', showAlerts = true }) => {
+    const fetchVendorData = useCallback(async ({ user, vendorCode = '', expectedOrgId = '', expectedContractorId = '', showAlerts = true }) => {
         setLoading(true);
 
         try {
@@ -179,18 +188,27 @@ export default function VendorPortal() {
                 throw new Error('No contractor records were found for this organization.');
             }
 
-            const matchedEntry = Object.entries(contractorSnap.val()).find(([, contractor]) => {
+            const matchedEntry = Object.entries(contractorSnap.val()).find(([contractorKey, contractor]) => {
                 const contractorEmail = normalizeEmail(contractor?.email);
                 const contractorCode = normalizeVendorCode(contractor?.vendorCode);
                 const contractorPortalUid = contractor?.portalUid || '';
+                if (expectedContractorId && contractorKey === expectedContractorId) {
+                    return true;
+                }
+                if (orgUser?.portalLinkedContractorId && orgUser.portalLinkedContractorId === contractorKey) {
+                    return true;
+                }
                 if (contractorPortalUid === user.uid) {
                     return true;
                 }
-                return contractorCode === cleanVendorCode && contractorEmail === cleanEmail;
+                if (cleanVendorCode && contractorCode === cleanVendorCode && contractorEmail === cleanEmail) {
+                    return true;
+                }
+                return contractorEmail === cleanEmail;
             });
 
             if (!matchedEntry) {
-                throw new Error('The signed-in account is not linked to any contractor profile. Ask your client admin to verify the portal email, vendor code, and portal access link.');
+                throw new Error('The signed-in account is not linked to any contractor profile. Ask your client admin to verify the portal email, contractor link, and portal access setup.');
             }
 
             const [firebaseKey, vendorData] = matchedEntry;
@@ -221,7 +239,8 @@ export default function VendorPortal() {
                 email: cleanEmail,
                 orgId,
                 vendorCode: resolvedVendorCode,
-                contractorId: firebaseKey
+                contractorId: firebaseKey,
+                mustChangePassword: Boolean(orgUser.mustChangePassword)
             };
 
             setVendor(normalizedVendor);
@@ -231,7 +250,7 @@ export default function VendorPortal() {
             setIsAuthenticated(true);
             setLoginData({
                 email: cleanEmail,
-                vendorCode: resolvedVendorCode
+                password: ''
             });
             sessionStorage.setItem(VENDOR_SESSION_KEY, JSON.stringify(nextSession));
 
@@ -274,11 +293,12 @@ export default function VendorPortal() {
                     return;
                 }
 
-                if (storedSession?.vendorCode && normalizeEmail(storedSession.email) === normalizeEmail(user.email)) {
+                if (normalizeEmail(storedSession?.email) === normalizeEmail(user.email)) {
                     await fetchVendorData({
                         user,
-                        vendorCode: storedSession.vendorCode,
+                        vendorCode: storedSession?.vendorCode || '',
                         expectedOrgId: storedSession.orgId,
+                        expectedContractorId: storedSession.contractorId,
                         showAlerts: false
                     });
                     return;
@@ -288,6 +308,7 @@ export default function VendorPortal() {
                     user,
                     vendorCode: storedSession?.vendorCode || '',
                     expectedOrgId: storedSession?.orgId || '',
+                    expectedContractorId: storedSession?.contractorId || '',
                     showAlerts: false
                 });
             });
@@ -309,10 +330,10 @@ export default function VendorPortal() {
         e.preventDefault();
 
         const cleanEmail = normalizeEmail(loginData.email);
-        const cleanVendorCode = normalizeVendorCode(loginData.vendorCode);
+        const cleanPassword = String(loginData.password || '');
 
-        if (!cleanEmail || !cleanVendorCode) {
-            alert('Please enter your email and vendor code.');
+        if (!cleanEmail || !cleanPassword) {
+            alert('Please enter your email and password.');
             return;
         }
 
@@ -320,10 +341,9 @@ export default function VendorPortal() {
 
         try {
             manualLoginRef.current = true;
-            const userCredential = await signInWithEmailAndPassword(vendorAuth, cleanEmail, cleanVendorCode);
+            const userCredential = await signInWithEmailAndPassword(vendorAuth, cleanEmail, cleanPassword);
             await fetchVendorData({
                 user: userCredential.user,
-                vendorCode: cleanVendorCode,
                 showAlerts: true
             });
         } catch (error) {
@@ -334,6 +354,106 @@ export default function VendorPortal() {
             setLoading(false);
         }
     };
+
+    const handleForgotPassword = async () => {
+        const cleanEmail = normalizeEmail(loginData.email);
+        if (!cleanEmail) {
+            alert('Please enter your portal email first.');
+            return;
+        }
+
+        setLoading(true);
+        try {
+            await sendPasswordResetEmail(vendorAuth, cleanEmail);
+            alert('If the vendor portal account exists for this email, a password reset link has been sent.');
+        } catch (error) {
+            if (error?.code === 'auth/invalid-email') {
+                alert('Please enter a valid portal email address.');
+            } else {
+                alert('If the vendor portal account exists for this email, a password reset link has been sent.');
+            }
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const closePasswordModal = () => {
+        if (vendorSession?.mustChangePassword || isPasswordSaving) return;
+        setIsPasswordModalOpen(false);
+        setPasswordForm({ current: '', next: '', confirm: '' });
+    };
+
+    const handleChangePassword = async (e) => {
+        e.preventDefault();
+
+        const currentUser = vendorAuth.currentUser;
+        const userEmail = currentUser?.email || vendorSession?.email;
+
+        if (!currentUser || !userEmail || !vendorSession?.orgId) {
+            alert('Your vendor portal session is not ready. Please sign in again.');
+            return;
+        }
+
+        if (passwordForm.next.length < 8) {
+            alert('New password must be at least 8 characters.');
+            return;
+        }
+
+        if (passwordForm.next !== passwordForm.confirm) {
+            alert('New password and confirmation do not match.');
+            return;
+        }
+
+        if (passwordForm.current === passwordForm.next) {
+            alert('New password must be different from the current password.');
+            return;
+        }
+
+        setIsPasswordSaving(true);
+        try {
+            const credential = EmailAuthProvider.credential(userEmail, passwordForm.current);
+            await reauthenticateWithCredential(currentUser, credential);
+            await updatePassword(currentUser, passwordForm.next);
+            const passwordUpdatedAt = new Date().toISOString();
+            await update(ref(vendorDb, `organizations/${vendorSession.orgId}/users/${currentUser.uid}`), {
+                mustChangePassword: false,
+                temporaryPasswordIssued: false,
+                temporaryPasswordIssuedAt: null,
+                passwordUpdatedAt
+            });
+
+            const nextSession = {
+                ...(vendorSession || {}),
+                mustChangePassword: false,
+                temporaryPasswordIssued: false,
+                temporaryPasswordIssuedAt: '',
+                passwordUpdatedAt
+            };
+            setVendorSession(nextSession);
+            sessionStorage.setItem(VENDOR_SESSION_KEY, JSON.stringify(nextSession));
+            setIsPasswordModalOpen(false);
+            setPasswordForm({ current: '', next: '', confirm: '' });
+            alert('Password changed successfully.');
+        } catch (error) {
+            if (error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
+                alert('Current password is incorrect. Please try again.');
+            } else if (error.code === 'auth/weak-password') {
+                alert('New password is too weak. Use a stronger password.');
+            } else if (error.code === 'auth/requires-recent-login') {
+                alert('Please sign in again before changing your password.');
+            } else {
+                alert(`Password change failed: ${error.message}`);
+            }
+        } finally {
+            setIsPasswordSaving(false);
+        }
+    };
+
+    useEffect(() => {
+        if (vendorSession?.mustChangePassword) {
+            setIsPasswordModalOpen(true);
+        }
+    }, [vendorSession?.mustChangePassword]);
 
     const handleLogout = async () => {
         sessionStorage.removeItem(VENDOR_SESSION_KEY);
@@ -370,8 +490,8 @@ export default function VendorPortal() {
             await update(ref(vendorDb, `organizations/${vendorSession.orgId}/contractors/${vendor.firebaseKey}`), updates);
             await fetchVendorData({
                 user: vendorAuth.currentUser,
-                vendorCode: vendorSession.vendorCode,
                 expectedOrgId: vendorSession.orgId,
+                expectedContractorId: vendorSession.contractorId,
                 showAlerts: false
             });
             return true;
@@ -545,19 +665,28 @@ export default function VendorPortal() {
                             />
                         </div>
                         <div>
-                            <label className="text-[10px] font-bold uppercase text-slate-400 tracking-widest block mb-2">Unique Vendor Code</label>
+                            <label className="text-[10px] font-bold uppercase text-slate-400 tracking-widest block mb-2">Portal Password</label>
                             <input
-                                type="text"
+                                type="password"
                                 required
-                                value={loginData.vendorCode}
-                                onChange={e => setLoginData({ ...loginData, vendorCode: normalizeVendorCode(e.target.value) })}
-                                className="w-full bg-slate-950 border border-slate-700 rounded-xl p-4 text-white outline-none focus:border-indigo-500 font-mono font-bold tracking-widest uppercase transition-colors shadow-inner"
-                                placeholder="VEN-XXXXXX"
+                                value={loginData.password}
+                                onChange={e => setLoginData({ ...loginData, password: e.target.value })}
+                                className="w-full bg-slate-950 border border-slate-700 rounded-xl p-4 text-white outline-none focus:border-indigo-500 transition-colors shadow-inner"
+                                placeholder="Enter your portal password"
+                                autoComplete="current-password"
                             />
                         </div>
                         <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-4 text-[11px] leading-relaxed text-slate-400">
-                            Use the same email your client admin saved on your contractor profile and your vendor code. No separate password or sign-in link is needed.
+                            Use the same email your client admin saved on your contractor profile and the latest portal password that was issued to you. If this is your first login after provisioning, use the temporary password and then change it immediately.
                         </div>
+                        <button
+                            type="button"
+                            onClick={handleForgotPassword}
+                            disabled={loading}
+                            className="w-full text-xs font-bold uppercase tracking-widest text-indigo-300 hover:text-white transition-colors disabled:opacity-50"
+                        >
+                            Forgot Password
+                        </button>
                         <button
                             type="submit"
                             disabled={loading}
@@ -985,6 +1114,95 @@ export default function VendorPortal() {
                     )}
                 </div>
             </main>
+
+            {isPasswordModalOpen && (
+                <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
+                    <div className="absolute inset-0 bg-black/75 backdrop-blur-sm" onClick={closePasswordModal}></div>
+                    <form onSubmit={handleChangePassword} className="relative z-10 w-full max-w-md rounded-3xl border border-indigo-500/30 bg-slate-900 p-6 shadow-2xl">
+                        <div className="mb-6 flex items-start justify-between gap-4 border-b border-slate-800 pb-5">
+                            <div>
+                                <p className="text-[10px] font-bold uppercase tracking-widest text-indigo-300">Portal Security</p>
+                                <h2 className="mt-2 text-2xl font-black text-white">{vendorSession?.mustChangePassword ? 'Password Update Required' : 'Change Password'}</h2>
+                                <p className="mt-2 text-sm leading-relaxed text-slate-400">
+                                    {vendorSession?.mustChangePassword
+                                        ? 'This contractor portal was issued with a temporary password. Change it now before continuing.'
+                                        : 'Confirm your current password, then set a new secure password for the contractor portal.'}
+                                </p>
+                            </div>
+                            {!vendorSession?.mustChangePassword && (
+                                <button
+                                    type="button"
+                                    onClick={closePasswordModal}
+                                    disabled={isPasswordSaving}
+                                    className="flex h-10 w-10 items-center justify-center rounded-full border border-slate-700 text-slate-300 transition-colors hover:border-slate-500 hover:text-white disabled:opacity-50"
+                                    aria-label="Close password modal"
+                                >
+                                    <i className="fas fa-times"></i>
+                                </button>
+                            )}
+                        </div>
+
+                        <div className="space-y-4">
+                            <div>
+                                <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 block mb-2">Current Password</label>
+                                <input
+                                    type="password"
+                                    value={passwordForm.current}
+                                    onChange={e => setPasswordForm(prev => ({ ...prev, current: e.target.value }))}
+                                    className="w-full bg-slate-950 border border-slate-700 rounded-xl p-4 text-white outline-none focus:border-indigo-500"
+                                    autoComplete="current-password"
+                                    required
+                                />
+                            </div>
+                            <div>
+                                <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 block mb-2">New Password</label>
+                                <input
+                                    type="password"
+                                    value={passwordForm.next}
+                                    onChange={e => setPasswordForm(prev => ({ ...prev, next: e.target.value }))}
+                                    className="w-full bg-slate-950 border border-slate-700 rounded-xl p-4 text-white outline-none focus:border-indigo-500"
+                                    autoComplete="new-password"
+                                    minLength={8}
+                                    required
+                                />
+                                <p className="mt-2 text-[11px] text-slate-500">Use at least 8 characters for a stronger contractor portal password.</p>
+                            </div>
+                            <div>
+                                <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 block mb-2">Confirm New Password</label>
+                                <input
+                                    type="password"
+                                    value={passwordForm.confirm}
+                                    onChange={e => setPasswordForm(prev => ({ ...prev, confirm: e.target.value }))}
+                                    className="w-full bg-slate-950 border border-slate-700 rounded-xl p-4 text-white outline-none focus:border-indigo-500"
+                                    autoComplete="new-password"
+                                    minLength={8}
+                                    required
+                                />
+                            </div>
+                        </div>
+
+                        <div className="mt-6 flex justify-end gap-3 border-t border-slate-800 pt-5">
+                            {!vendorSession?.mustChangePassword && (
+                                <button
+                                    type="button"
+                                    onClick={closePasswordModal}
+                                    disabled={isPasswordSaving}
+                                    className="rounded-xl border border-slate-700 px-5 py-3 text-xs font-bold uppercase tracking-widest text-slate-300 transition-colors hover:border-slate-500 hover:text-white disabled:opacity-50"
+                                >
+                                    Cancel
+                                </button>
+                            )}
+                            <button
+                                type="submit"
+                                disabled={isPasswordSaving}
+                                className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white px-6 py-3 rounded-xl text-xs font-bold uppercase tracking-widest transition-colors"
+                            >
+                                {isPasswordSaving ? <><i className="fas fa-spinner fa-spin mr-2"></i>Updating</> : 'Update Password'}
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            )}
         </div>
     );
 }

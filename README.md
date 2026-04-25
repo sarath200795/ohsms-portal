@@ -1,16 +1,61 @@
-# React + Vite
+# OHSMS Enterprise
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+WE EHS Safety Tool is a multi-module EHS platform built on React, Vite, and Firebase. The repo contains:
 
-Currently, two official plugins are available:
+- Main enterprise app
+- Standalone field portal
+- Vendor portal
+- Module tutorial/video automation scripts
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+## Core Commands
 
-## React Compiler
+```bash
+npm install
+npm run dev
+npm run build
+npm run build:field-portal
+npm run test:platform
+npm run lint:full
+```
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+## Environment
 
-## Expanding the ESLint configuration
+Copy `.env.example` to `.env` and provide the Firebase values for the target environment.
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+Optional production hardening:
+
+- `VITE_FIREBASE_APP_CHECK_SITE_KEY` enables Firebase App Check initialization in the browser
+
+If environment variables are not present, the app falls back to the current Firebase project configuration embedded in the repo.
+
+## Deploy
+
+Main app:
+
+```bash
+npm run build
+npm run firebase:deploy
+```
+
+Field portal:
+
+```bash
+npm run build:field-portal
+npm run firebase:deploy:field-portal
+```
+
+More detail is available in `FIELD_PORTAL_DEPLOYMENT.md`.
+
+## Current Security Posture
+
+- Three-role RBAC model: `Global Owner`, `Site Owner`, `User`
+- Realtime Database rules enforced and covered by platform tests
+- Forced password change supported for newly provisioned internal users and vendor portal users
+- Firebase Hosting security headers configured in `firebase.json`
+- Optional App Check bootstrap available through env configuration
+
+## Known Follow-Up Work
+
+- Migrate attachment storage from Realtime Database base64 payloads to Firebase Storage with scoped rules
+- Replace or isolate remaining `xlsx` import/export flows because the upstream package still has unresolved advisories
+- Move privileged user provisioning from client-side flows to a backend/Admin SDK path for stricter enterprise control

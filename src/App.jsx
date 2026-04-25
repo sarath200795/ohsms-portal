@@ -60,6 +60,10 @@ const ProtectedRoute = ({ children }) => {
         return <Navigate to="/" replace />;
     }
 
+    if (session.mustChangePassword && window.location.pathname.toLowerCase() !== '/dashboard') {
+        return <Navigate to="/dashboard?forcePasswordChange=1" replace />;
+    }
+
     return children;
 };
 

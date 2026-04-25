@@ -24,6 +24,7 @@ import {
     normalizeStoredUserRecord,
     validateUserAccessPayload
 } from '../utils/userAccess';
+import { generateTemporaryPassword } from '../utils/security';
 
 const ROLES = SUPPORTED_USER_ROLES;
 const USER_MANAGER_ROLES = [GLOBAL_OWNER_ROLE, SITE_OWNER_ROLE];
@@ -37,21 +38,6 @@ const safeArr = (val) => {
     if (Array.isArray(val)) return val;
     if (typeof val === 'object') return Object.values(val);
     return [];
-};
-
-const generateTemporaryPassword = () => {
-    const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
-    const bytes = new Uint8Array(10);
-    if (globalThis.crypto?.getRandomValues) {
-        globalThis.crypto.getRandomValues(bytes);
-    } else {
-        bytes.forEach((_, index) => {
-            bytes[index] = Math.floor(Math.random() * 256);
-        });
-    }
-
-    const body = Array.from(bytes, (byte) => alphabet[byte % alphabet.length]).join('');
-    return `WE-${body}!7a`;
 };
 
 const getProvisioningAuth = () => {

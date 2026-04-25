@@ -45,7 +45,11 @@ const useStore = create((set, get) => ({
                         status: liveUser.status || currentSession.status || 'Active',
                         assignedSite: liveUser.assignedSite || 'GLOBAL',
                         accessibleSites: liveUser.accessibleSites || [],
-                        accessibleModules: liveUser.accessibleModules || []
+                        accessibleModules: liveUser.accessibleModules || [],
+                        mustChangePassword: Boolean(liveUser.mustChangePassword),
+                        temporaryPasswordIssued: Boolean(liveUser.temporaryPasswordIssued),
+                        temporaryPasswordIssuedAt: liveUser.temporaryPasswordIssuedAt || '',
+                        passwordUpdatedAt: liveUser.passwordUpdatedAt || currentSession.passwordUpdatedAt || ''
                     });
 
                     const statusChanged = normalizeUserStatus(liveUser.status || '') !== normalizeUserStatus(currentSession.status || '');
@@ -53,8 +57,11 @@ const useStore = create((set, get) => ({
                     const sitesChanged = JSON.stringify(currentSession.accessibleSites || []) !== JSON.stringify(refreshedSession.accessibleSites || []);
                     const roleChanged = String(currentSession.role || '') !== String(refreshedSession.role || '');
                     const assignedSiteChanged = String(currentSession.assignedSite || '') !== String(refreshedSession.assignedSite || '');
+                    const passwordPolicyChanged = Boolean(currentSession.mustChangePassword) !== Boolean(refreshedSession.mustChangePassword)
+                        || Boolean(currentSession.temporaryPasswordIssued) !== Boolean(refreshedSession.temporaryPasswordIssued)
+                        || String(currentSession.passwordUpdatedAt || '') !== String(refreshedSession.passwordUpdatedAt || '');
 
-                    if (statusChanged || modulesChanged || sitesChanged || roleChanged || assignedSiteChanged) {
+                    if (statusChanged || modulesChanged || sitesChanged || roleChanged || assignedSiteChanged || passwordPolicyChanged) {
                         const nextSession = refreshedSession;
                         writeStoredSession(nextSession);
                         set({ session: nextSession });
