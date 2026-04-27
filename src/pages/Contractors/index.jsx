@@ -1,8 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { initializeApp } from 'firebase/app';
-import { createUserWithEmailAndPassword, getAuth, signInWithEmailAndPassword, signOut, updatePassword } from 'firebase/auth';
+import { createUserWithEmailAndPassword, getAuth, sendPasswordResetEmail, signInWithEmailAndPassword, signOut, updatePassword } from 'firebase/auth';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { get, push, ref, set, update } from 'firebase/database';
+import { get, push, ref, remove, set, update } from 'firebase/database';
 import { auth, rtdb } from '../../config/firebase';
 import { fileToBase64, safeArr } from '../../utils/helpers';
 import { getMandatoryDocs, GOODS_TYPES, SERVICE_TYPES } from '../../utils/constants';
@@ -26,6 +26,15 @@ import {
 import { canEditCreateForRole, getAllowedSiteCodes, hasAccessibleModule, isGlobalOwnerRole } from '../../utils/permissions';
 import { readStoredSession } from '../../utils/session';
 import { generateVendorPortalPassword } from '../../utils/security';
+
+const buildVendorPortalUrl = (email = '') => {
+    const url = new URL('/vendor-portal', window.location.origin);
+    if (email) {
+        url.searchParams.set('email', normalizeEmail(email));
+        url.searchParams.set('source', 'contractor-management');
+    }
+    return url.toString();
+};
 
 export default function Contractors() {
     const navigate = useNavigate();
@@ -252,6 +261,7 @@ export default function Contractors() {
 
         setSaving(true);
         try {
+            let createdVendor = null;
             const payload = {
                 ...formData,
                 email: normalizeEmail(formData.email),
@@ -269,12 +279,30 @@ export default function Contractors() {
             delete payload.firebaseKey;
 
             if (keyToUpdate) await update(ref(rtdb, `organizations/${session.orgId}/contractors/${keyToUpdate}`), payload);
-            else await push(ref(rtdb, `organizations/${session.orgId}/contractors`), payload);
+            else {
+                const createdRef = await push(ref(rtdb, `organizations/${session.orgId}/contractors`), payload);
+                createdVendor = {
+                    ...payload,
+                    firebaseKey: createdRef.key,
+                    allocatedSites: safeArr(payload.allocatedSites),
+                    documents: safeArr(payload.documents),
+                    workers: safeArr(payload.workers),
+                    trainings: safeArr(payload.trainings),
+                    incidents: safeArr(payload.incidents),
+                    nonCompliances: safeArr(payload.nonCompliances)
+                };
+            }
 
             alert('Vendor Registered/Updated Successfully!');
             await refreshContractors();
             setView('companies');
             setFormData(createEmptyVendorForm());
+
+            if (createdVendor && isGlobalUser && normalizeEmail(createdVendor.email)) {
+                setActiveVendor(createdVendor);
+                setEditingVendor(null);
+                setModalType('company_profile');
+            }
         } catch (error) {
             alert('Save failed: ' + error.message);
         }
@@ -333,7 +361,7 @@ export default function Contractors() {
 
     const provisionVendorPortalAccess = async () => {
         if (!isGlobalUser) {
-            alert('Only Global Admins can provision contractor portal accounts.');
+            alert('Only the Global Owner can provision contractor portal accounts.');
             return;
         }
         if (!activeVendor?.firebaseKey) {
@@ -368,6 +396,7 @@ export default function Contractors() {
             let createdPortalAuthUser = false;
             let provisioningWarning = '';
             let issuedPortalPassword = '';
+            let setupEmail = null;
             const baseUserPayload = {
                 name: activeVendor.contactPerson || activeVendor.companyName || 'Vendor Portal User',
                 email: vendorEmail,
@@ -407,7 +436,22 @@ export default function Contractors() {
                             authCode === 'auth/user-not-found' ||
                             authCode === 'auth/wrong-password'
                         ) {
-                            provisioningWarning = 'Portal access was linked to an existing organization user, but the password could not be rotated automatically from this screen. Ask the vendor to use their latest issued password or send them a reset link before expecting the new temporary password flow.';
+                            try {
+                                const nextPortalPassword = generateVendorPortalPassword();
+                                const userCredential = await createUserWithEmailAndPassword(tempAuth, vendorEmail, nextPortalPassword);
+                                portalUid = userCredential.user.uid;
+                                createdPortalAuthUser = true;
+                                issuedPortalPassword = nextPortalPassword;
+                                provisioningWarning = existingOrgUser?.firebaseKey && existingOrgUser.firebaseKey !== portalUid
+                                    ? 'The saved portal mapping was stale, so a fresh vendor auth account was recreated and linked automatically.'
+                                    : provisioningWarning;
+                            } catch (createError) {
+                                if (createError?.code === 'auth/email-already-in-use') {
+                                    provisioningWarning = 'Portal access is already linked to an authentication account for this email. The password could not be rotated automatically from this screen, so use the setup email or the vendor portal forgot-password flow.';
+                                } else {
+                                    throw createError;
+                                }
+                            }
                         } else {
                             throw authError;
                         }
@@ -451,15 +495,37 @@ export default function Contractors() {
             }
 
             const portalPasswordManaged = Boolean(issuedPortalPassword);
+            try {
+                setupEmail = await sendVendorPortalSetupLink(vendorEmail);
+            } catch (setupError) {
+                provisioningWarning = provisioningWarning
+                    ? `${provisioningWarning} Setup email could not be sent automatically: ${setupError.message}`
+                    : `Setup email could not be sent automatically: ${setupError.message}`;
+            }
+
+            const setupEmailSent = Boolean(setupEmail?.sentAt);
             const nextUserPayload = {
                 ...baseUserPayload,
-                mustChangePassword: portalPasswordManaged,
-                temporaryPasswordIssued: portalPasswordManaged,
-                temporaryPasswordIssuedAt: portalPasswordManaged ? nowIso : null,
-                passwordUpdatedAt: portalPasswordManaged ? null : (existingOrgUser?.passwordUpdatedAt || null)
+                mustChangePassword: setupEmailSent ? false : portalPasswordManaged,
+                temporaryPasswordIssued: setupEmailSent ? false : portalPasswordManaged,
+                temporaryPasswordIssuedAt: setupEmailSent ? null : (portalPasswordManaged ? nowIso : null),
+                passwordUpdatedAt: portalPasswordManaged && !setupEmailSent ? null : (existingOrgUser?.passwordUpdatedAt || null),
+                portalSetupLinkSentAt: setupEmail?.sentAt || existingOrgUser?.portalSetupLinkSentAt || null,
+                portalSetupLinkSentBy: setupEmail?.sentAt ? (session.email || session.name || 'Global Owner') : (existingOrgUser?.portalSetupLinkSentBy || null)
             };
 
             await update(ref(rtdb, `organizations/${session.orgId}/users/${portalUid}`), nextUserPayload);
+
+            if (existingOrgUser?.firebaseKey && existingOrgUser.firebaseKey !== portalUid) {
+                await update(ref(rtdb, `organizations/${session.orgId}/users/${existingOrgUser.firebaseKey}`), {
+                    status: 'Deleted',
+                    vendorPortal: false,
+                    portalLinkedContractorId: '',
+                    supersededByUid: portalUid,
+                    deletedAt: nowIso,
+                    deletedBy: session.email || session.name || 'Global Owner'
+                });
+            }
 
             try {
                 await set(ref(rtdb, `userDirectory/${portalUid}`), { orgId: session.orgId });
@@ -481,15 +547,29 @@ export default function Contractors() {
                 portalUid,
                 portalProvisionedAt: nowIso,
                 portalProvisionedBy: session.email,
+                portalSetupLinkSentAt: setupEmail?.sentAt || activeVendor.portalSetupLinkSentAt || null,
+                portalSetupLinkSentBy: setupEmail?.sentAt ? (session.email || session.name || 'Global Owner') : (activeVendor.portalSetupLinkSentBy || null),
                 portalPasswordRotatedAt: portalPasswordManaged ? nowIso : (activeVendor.portalPasswordRotatedAt || null),
                 portalPasswordRotatedBy: portalPasswordManaged ? session.email : (activeVendor.portalPasswordRotatedBy || null)
             });
 
             setOrgUsers((prev) => {
                 const nextUser = { firebaseKey: portalUid, ...nextUserPayload };
-                const index = prev.findIndex((user) => user.firebaseKey === portalUid);
-                if (index === -1) return [...prev, nextUser];
-                const updated = [...prev];
+                const updated = prev.map((user) => (
+                    existingOrgUser?.firebaseKey && user.firebaseKey === existingOrgUser.firebaseKey && existingOrgUser.firebaseKey !== portalUid
+                        ? {
+                            ...user,
+                            status: 'Deleted',
+                            vendorPortal: false,
+                            portalLinkedContractorId: '',
+                            supersededByUid: portalUid,
+                            deletedAt: nowIso,
+                            deletedBy: session.email || session.name || 'Global Owner'
+                        }
+                        : user
+                ));
+                const index = updated.findIndex((user) => user.firebaseKey === portalUid);
+                if (index === -1) return [...updated, nextUser];
                 updated[index] = { ...updated[index], ...nextUser };
                 return updated;
             });
@@ -498,8 +578,11 @@ export default function Contractors() {
                 companyName: activeVendor.companyName,
                 email: vendorEmail,
                 vendorCode,
-                temporaryPassword: issuedPortalPassword,
+                temporaryPassword: setupEmailSent ? '' : issuedPortalPassword,
                 linkedExisting: !createdPortalAuthUser,
+                portalUrl: setupEmail?.portalUrl || buildVendorPortalUrl(vendorEmail),
+                setupEmailSent,
+                setupEmailSentAt: setupEmail?.sentAt || '',
                 warning: provisioningWarning
             });
         } catch (error) {
@@ -572,6 +655,82 @@ export default function Contractors() {
             worker.id === workerId ? { ...worker, deployedSite: newSite } : worker
         ));
         updateVendorDB(contractorId, { workers: updatedWorkers });
+    };
+
+    const sendVendorPortalSetupLink = async (vendorEmail) => {
+        const cleanEmail = normalizeEmail(vendorEmail);
+        if (!cleanEmail) {
+            throw new Error('Portal email is missing on this contractor profile.');
+        }
+
+        const actionCodeSettings = {
+            url: buildVendorPortalUrl(cleanEmail),
+            handleCodeInApp: false
+        };
+
+        await sendPasswordResetEmail(auth, cleanEmail, actionCodeSettings);
+        return {
+            portalUrl: buildVendorPortalUrl(cleanEmail),
+            sentAt: new Date().toISOString()
+        };
+    };
+
+    const deleteVendor = async () => {
+        if (!isGlobalUser) {
+            alert('Only the Global Owner can delete vendor records.');
+            return;
+        }
+        if (!activeVendor?.firebaseKey) {
+            alert('Vendor profile is not loaded.');
+            return;
+        }
+
+        const companyName = activeVendor.companyName || 'this vendor';
+        const confirmed = window.confirm(
+            `Delete ${companyName} from the contractor register?\n\nThis removes the vendor master record immediately. Historical PTW, incidents, and training references will stay for traceability, and the linked vendor portal access will be deactivated.`
+        );
+        if (!confirmed) return;
+
+        setSaving(true);
+        try {
+            const deletedAt = new Date().toISOString();
+            const deletedBy = session.email || session.name || 'Global Owner';
+
+            if (activeVendor.portalUid) {
+                await update(ref(rtdb, `organizations/${session.orgId}/users/${activeVendor.portalUid}`), {
+                    status: 'Deleted',
+                    vendorPortal: false,
+                    portalLinkedContractorId: '',
+                    deletedAt,
+                    deletedBy
+                });
+
+                setOrgUsers((prev) => prev.map((user) => (
+                    user.firebaseKey === activeVendor.portalUid
+                        ? {
+                            ...user,
+                            status: 'Deleted',
+                            vendorPortal: false,
+                            portalLinkedContractorId: '',
+                            deletedAt,
+                            deletedBy
+                        }
+                        : user
+                )));
+            }
+
+            await remove(ref(rtdb, `organizations/${session.orgId}/contractors/${activeVendor.firebaseKey}`));
+
+            setContractors((prev) => prev.filter((contractor) => contractor.firebaseKey !== activeVendor.firebaseKey));
+            setActiveVendor(null);
+            setEditingVendor(null);
+            setModalType(null);
+            alert('Vendor deleted and portal access deactivated successfully.');
+        } catch (error) {
+            alert(`Failed to delete vendor: ${error.message}`);
+        } finally {
+            setSaving(false);
+        }
     };
 
     const handleWorkerCoreDocUpload = async (type, file) => {
@@ -809,7 +968,9 @@ export default function Contractors() {
                             setModalType(null);
                             setEditingVendor(null);
                         }}
+                        onDeleteVendor={deleteVendor}
                         onHandleDocUpload={handleDocUpload}
+                        onOpenVendorPortal={() => window.open(buildVendorPortalUrl(activeVendor?.email), '_blank', 'noopener,noreferrer')}
                         onProvisionVendorPortalAccess={provisionVendorPortalAccess}
                         onRemoveWorker={removeWorkerFromProfile}
                         onRequestAdditionalDoc={requestAdditionalDoc}

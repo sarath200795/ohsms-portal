@@ -134,6 +134,17 @@ export default function VendorPortal() {
     const [isPasswordSaving, setIsPasswordSaving] = useState(false);
     const manualLoginRef = useRef(false);
 
+    useEffect(() => {
+        const params = new URLSearchParams(window.location.search);
+        const prefilledEmail = normalizeEmail(params.get('email'));
+        if (!prefilledEmail) return;
+
+        setLoginData((prev) => ({
+            ...prev,
+            email: prefilledEmail
+        }));
+    }, []);
+
     const resetPortalState = useCallback((clearForm = false) => {
         setIsAuthenticated(false);
         setVendor(null);
@@ -664,6 +675,11 @@ export default function VendorPortal() {
                                 placeholder="contractor@company.com"
                             />
                         </div>
+                        {loginData.email && (
+                            <div className="rounded-2xl border border-sky-500/20 bg-sky-950/20 p-3 text-[11px] leading-relaxed text-sky-100">
+                                This portal link already carries the registered vendor email. The vendor only needs their password, or they can use <span className="font-bold">Forgot Password</span> to set one from email.
+                            </div>
+                        )}
                         <div>
                             <label className="text-[10px] font-bold uppercase text-slate-400 tracking-widest block mb-2">Portal Password</label>
                             <input
@@ -677,7 +693,7 @@ export default function VendorPortal() {
                             />
                         </div>
                         <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-4 text-[11px] leading-relaxed text-slate-400">
-                            Use the same email your client admin saved on your contractor profile and the latest portal password that was issued to you. If this is your first login after provisioning, use the temporary password and then change it immediately.
+                            Use the same email your client admin saved on your contractor profile. The easiest first-time path is the password setup email sent from contractor management, but you can also use the latest portal password that was issued to you.
                         </div>
                         <button
                             type="button"
