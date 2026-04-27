@@ -43,7 +43,9 @@ export default function PortalSuccessModal({ onClose, portalSuccess }) {
                         <div className="text-[10px] uppercase font-bold tracking-widest text-slate-500 mb-1">Vendor Login Method</div>
                         <div className="text-xs text-slate-300">
                             {portalSuccess.setupEmailSent
-                                ? 'A secure setup email has been sent. The vendor can set their own password from that email, then sign in with the same portal email.'
+                                ? portalSuccess.temporaryPassword
+                                    ? 'A secure setup email has been sent, and a temporary password is also available below. The vendor can use either path to get in, then continue with the normal portal login.'
+                                    : 'A secure setup email has been sent. The vendor can set their own password from that email, then sign in with the same portal email.'
                                 : portalSuccess.temporaryPassword
                                     ? 'Email plus temporary password. The vendor should change it immediately after the first successful login.'
                                     : 'Email plus the vendor\'s current portal password. If they cannot sign in, resend the setup link from the contractor profile.'}
@@ -52,7 +54,7 @@ export default function PortalSuccessModal({ onClose, portalSuccess }) {
                     {portalSuccess.setupEmailSent && (
                         <div>
                             <div className="text-[10px] uppercase font-bold tracking-widest text-slate-500 mb-1">Setup Email</div>
-                            <div className="text-xs text-emerald-300">Password setup instructions were sent to the vendor mailbox.</div>
+                            <div className="text-xs text-emerald-300">Password setup instructions were sent to the vendor mailbox{portalSuccess.setupEmailSentAt ? ` on ${new Date(portalSuccess.setupEmailSentAt).toLocaleString()}` : ''}.</div>
                         </div>
                     )}
                 </div>

@@ -387,10 +387,15 @@ export default function Contractors() {
             const nowIso = new Date().toISOString();
             const allocatedSites = safeArr(activeVendor.allocatedSites);
             const primarySite = allocatedSites[0] || activeVendor.siteId || 'GLOBAL';
-            const existingOrgUser = orgUsers.find((user) => (
+            const matchingOrgUsers = orgUsers.filter((user) => (
                 (activeVendor.portalUid && user.firebaseKey === activeVendor.portalUid) ||
                 normalizeEmail(user.email) === vendorEmail
-            ) && user.status !== 'Deleted');
+            ));
+            const existingOrgUser =
+                matchingOrgUsers.find((user) => activeVendor.portalUid && user.firebaseKey === activeVendor.portalUid)
+                || matchingOrgUsers.find((user) => user.status === 'Active')
+                || matchingOrgUsers[0]
+                || null;
 
             let portalUid = activeVendor.portalUid || existingOrgUser?.firebaseKey || '';
             let createdPortalAuthUser = false;
@@ -578,7 +583,7 @@ export default function Contractors() {
                 companyName: activeVendor.companyName,
                 email: vendorEmail,
                 vendorCode,
-                temporaryPassword: setupEmailSent ? '' : issuedPortalPassword,
+                temporaryPassword: issuedPortalPassword,
                 linkedExisting: !createdPortalAuthUser,
                 portalUrl: setupEmail?.portalUrl || buildVendorPortalUrl(vendorEmail),
                 setupEmailSent,
