@@ -9,7 +9,7 @@ import { readStoredSession } from '../utils/session';
 import { QRCodeSVG } from 'qrcode.react';
 import * as XLSX from 'xlsx';
 
-const TYPES = ['Fire Extinguisher', 'First Aid Kit', 'AED / Defibrillator', 'Eye Wash Station', 'Spill Kit', 'Evacuation Chair'];
+const TYPES = ['Fire Extinguisher', 'First Aid Kit', 'AED / Defibrillator', 'Eye Wash Station', 'Spill Kit', 'Stretcher', 'Wheel Chair', 'Evacuation Chair'];
 const STATUSES = ['Active', 'Needs Inspection', 'Out of Service', 'Missing'];
 const DUE_SOON_WINDOW_DAYS = 7;
 const INSPECTION_INTERVAL_DAYS = 30;
@@ -36,7 +36,9 @@ const EQUIPMENT_TYPE_META = {
         panelClass: 'border-red-500/30 bg-red-950/20',
         inspectButtonClass: 'bg-red-900/20 hover:bg-red-600 border-red-500/30 text-red-300 hover:text-white',
         checkboxClass: 'accent-red-500',
-        checklistTitle: 'ISO Visual Checklist'
+        checklistTitle: 'ISO Visual Checklist',
+        tagHeaderClass: 'bg-red-600 text-white',
+        tagPillClass: 'bg-red-600 text-white'
     },
     'First Aid Kit': {
         icon: 'fa-medkit',
@@ -48,19 +50,23 @@ const EQUIPMENT_TYPE_META = {
         panelClass: 'border-emerald-500/30 bg-emerald-950/20',
         inspectButtonClass: 'bg-emerald-900/20 hover:bg-emerald-600 border-emerald-500/30 text-emerald-300 hover:text-white',
         checkboxClass: 'accent-emerald-500',
-        checklistTitle: 'OSHA-Aligned First Aid Checklist'
+        checklistTitle: 'OSHA-Aligned First Aid Checklist',
+        tagHeaderClass: 'bg-emerald-600 text-white',
+        tagPillClass: 'bg-emerald-600 text-white'
     },
     'AED / Defibrillator': {
         icon: 'fa-heartbeat',
-        iconClass: 'text-rose-400',
-        accentTextClass: 'text-rose-400',
-        bannerClass: 'border-rose-500/30 bg-rose-500/10',
-        bannerTextClass: 'text-rose-300',
-        badgeClass: 'border-rose-500/30 bg-rose-950/40 text-rose-300',
-        panelClass: 'border-rose-500/30 bg-rose-950/20',
-        inspectButtonClass: 'bg-rose-900/20 hover:bg-rose-600 border-rose-500/30 text-rose-300 hover:text-white',
-        checkboxClass: 'accent-rose-500',
-        checklistTitle: 'OSHA-Aligned AED Readiness Checklist'
+        iconClass: 'text-pink-400',
+        accentTextClass: 'text-pink-400',
+        bannerClass: 'border-pink-500/30 bg-pink-500/10',
+        bannerTextClass: 'text-pink-300',
+        badgeClass: 'border-pink-500/30 bg-pink-950/40 text-pink-300',
+        panelClass: 'border-pink-500/30 bg-pink-950/20',
+        inspectButtonClass: 'bg-pink-900/20 hover:bg-pink-600 border-pink-500/30 text-pink-300 hover:text-white',
+        checkboxClass: 'accent-pink-500',
+        checklistTitle: 'OSHA-Aligned AED Readiness Checklist',
+        tagHeaderClass: 'bg-pink-500 text-white',
+        tagPillClass: 'bg-pink-500 text-white'
     },
     'Eye Wash Station': {
         icon: 'fa-eye',
@@ -72,7 +78,9 @@ const EQUIPMENT_TYPE_META = {
         panelClass: 'border-sky-500/30 bg-sky-950/20',
         inspectButtonClass: 'bg-sky-900/20 hover:bg-sky-600 border-sky-500/30 text-sky-300 hover:text-white',
         checkboxClass: 'accent-sky-500',
-        checklistTitle: 'OSHA-Aligned Eyewash Checklist'
+        checklistTitle: 'OSHA-Aligned Eyewash Checklist',
+        tagHeaderClass: 'bg-sky-600 text-white',
+        tagPillClass: 'bg-sky-600 text-white'
     },
     'Spill Kit': {
         icon: 'fa-fill-drip',
@@ -84,21 +92,82 @@ const EQUIPMENT_TYPE_META = {
         panelClass: 'border-amber-500/30 bg-amber-950/20',
         inspectButtonClass: 'bg-amber-900/20 hover:bg-amber-600 border-amber-500/30 text-amber-300 hover:text-white',
         checkboxClass: 'accent-amber-500',
-        checklistTitle: 'OSHA-Aligned Spill Response Checklist'
+        checklistTitle: 'OSHA-Aligned Spill Response Checklist',
+        tagHeaderClass: 'bg-yellow-400 text-slate-950',
+        tagPillClass: 'bg-yellow-400 text-slate-950'
     },
     'Evacuation Chair': {
         icon: 'fa-wheelchair',
-        iconClass: 'text-violet-400',
-        accentTextClass: 'text-violet-400',
-        bannerClass: 'border-violet-500/30 bg-violet-500/10',
-        bannerTextClass: 'text-violet-300',
-        badgeClass: 'border-violet-500/30 bg-violet-950/40 text-violet-300',
-        panelClass: 'border-violet-500/30 bg-violet-950/20',
-        inspectButtonClass: 'bg-violet-900/20 hover:bg-violet-600 border-violet-500/30 text-violet-300 hover:text-white',
-        checkboxClass: 'accent-violet-500',
-        checklistTitle: 'OSHA-Aligned Egress Chair Checklist'
+        iconClass: 'text-blue-400',
+        accentTextClass: 'text-blue-400',
+        bannerClass: 'border-blue-500/30 bg-blue-500/10',
+        bannerTextClass: 'text-blue-300',
+        badgeClass: 'border-blue-500/30 bg-blue-950/40 text-blue-300',
+        panelClass: 'border-blue-500/30 bg-blue-950/20',
+        inspectButtonClass: 'bg-blue-900/20 hover:bg-blue-600 border-blue-500/30 text-blue-300 hover:text-white',
+        checkboxClass: 'accent-blue-500',
+        checklistTitle: 'OSHA-Aligned Egress Chair Checklist',
+        tagHeaderClass: 'bg-blue-600 text-white',
+        tagPillClass: 'bg-blue-600 text-white'
+    },
+    'Stretcher': {
+        icon: 'fa-bed',
+        iconClass: 'text-blue-400',
+        accentTextClass: 'text-blue-400',
+        bannerClass: 'border-blue-500/30 bg-blue-500/10',
+        bannerTextClass: 'text-blue-300',
+        badgeClass: 'border-blue-500/30 bg-blue-950/40 text-blue-300',
+        panelClass: 'border-blue-500/30 bg-blue-950/20',
+        inspectButtonClass: 'bg-blue-900/20 hover:bg-blue-600 border-blue-500/30 text-blue-300 hover:text-white',
+        checkboxClass: 'accent-blue-500',
+        checklistTitle: 'OSHA-Aligned Stretcher Checklist',
+        tagHeaderClass: 'bg-blue-600 text-white',
+        tagPillClass: 'bg-blue-600 text-white'
+    },
+    'Wheel Chair': {
+        icon: 'fa-wheelchair',
+        iconClass: 'text-blue-400',
+        accentTextClass: 'text-blue-400',
+        bannerClass: 'border-blue-500/30 bg-blue-500/10',
+        bannerTextClass: 'text-blue-300',
+        badgeClass: 'border-blue-500/30 bg-blue-950/40 text-blue-300',
+        panelClass: 'border-blue-500/30 bg-blue-950/20',
+        inspectButtonClass: 'bg-blue-900/20 hover:bg-blue-600 border-blue-500/30 text-blue-300 hover:text-white',
+        checkboxClass: 'accent-blue-500',
+        checklistTitle: 'OSHA-Aligned Wheel Chair Checklist',
+        tagHeaderClass: 'bg-blue-600 text-white',
+        tagPillClass: 'bg-blue-600 text-white'
+    },
+    'Wheelchair': {
+        icon: 'fa-wheelchair',
+        iconClass: 'text-blue-400',
+        accentTextClass: 'text-blue-400',
+        bannerClass: 'border-blue-500/30 bg-blue-500/10',
+        bannerTextClass: 'text-blue-300',
+        badgeClass: 'border-blue-500/30 bg-blue-950/40 text-blue-300',
+        panelClass: 'border-blue-500/30 bg-blue-950/20',
+        inspectButtonClass: 'bg-blue-900/20 hover:bg-blue-600 border-blue-500/30 text-blue-300 hover:text-white',
+        checkboxClass: 'accent-blue-500',
+        checklistTitle: 'OSHA-Aligned Wheelchair Checklist',
+        tagHeaderClass: 'bg-blue-600 text-white',
+        tagPillClass: 'bg-blue-600 text-white'
     }
 };
+
+const MOBILITY_EQUIPMENT_CHECKLIST = [
+    { id: 'availability', summary: 'Availability', label: 'Transport equipment is available and stored in the designated place.' },
+    { id: 'seatCloth', summary: 'Cloth/Seat', label: 'Seat cloth or stretcher fabric is in good condition with no wear or tear.' },
+    { id: 'sideHandles', summary: 'Handles', label: 'Handles are available on both sides and in good condition.' },
+    { id: 'lockMechanism', summary: 'Locking', label: 'Expandable lock or folding/locking mechanism secures correctly.' },
+    { id: 'standCondition', summary: 'Stand/Frame', label: 'Stand, frame, and support parts are in good condition with no cracks or damage.' },
+    { id: 'mainWheel', summary: 'Main Wheel', label: 'Main wheel is in good condition and rotates freely.' },
+    { id: 'guideWheel', summary: 'Guide Wheel', label: 'Guiding/caster wheel moves freely and has no visible damage.' },
+    { id: 'brake', summary: 'Brake', label: 'Hand brake is in good condition and stops the wheel when applied.' },
+    { id: 'footPad', summary: 'Foot Pad', label: 'Foot pad or footrest is in good condition with no damage.' },
+    { id: 'xFrame', summary: 'X-Frame', label: 'X-frame or structural brace is in good condition with no cracks or damage.' },
+    { id: 'housekeeping', summary: '5S Area', label: '5S condition is maintained and the designated area is clearly identified.' },
+    { id: 'inspectionRecord', summary: 'Inspection Record', label: 'Inspection record, remark field, and sign-off are updated.' }
+];
 
 const EQUIPMENT_CHECKLISTS = {
     'Fire Extinguisher': [
@@ -164,20 +233,10 @@ const EQUIPMENT_CHECKLISTS = {
         { id: 'wasteHandling', summary: 'Waste Handling', label: 'Waste collection/disposal items required for spill response are available.' },
         { id: 'restock', summary: 'Restock', label: 'Critical spill kit consumables do not appear depleted from prior use.' }
     ],
-    'Evacuation Chair': [
-        { id: 'availability', summary: 'Availability', label: 'Transport equipment is available and stored in the designated place.' },
-        { id: 'seatCloth', summary: 'Cloth/Seat', label: 'Seat cloth or stretcher fabric is in good condition with no wear or tear.' },
-        { id: 'sideHandles', summary: 'Handles', label: 'Handles are available on both sides and in good condition.' },
-        { id: 'lockMechanism', summary: 'Locking', label: 'Expandable lock or folding/locking mechanism secures correctly.' },
-        { id: 'standCondition', summary: 'Stand/Frame', label: 'Stand, frame, and support parts are in good condition with no cracks or damage.' },
-        { id: 'mainWheel', summary: 'Main Wheel', label: 'Main wheel is in good condition and rotates freely.' },
-        { id: 'guideWheel', summary: 'Guide Wheel', label: 'Guiding/caster wheel moves freely and has no visible damage.' },
-        { id: 'brake', summary: 'Brake', label: 'Hand brake is in good condition and stops the wheel when applied.' },
-        { id: 'footPad', summary: 'Foot Pad', label: 'Foot pad or footrest is in good condition with no damage.' },
-        { id: 'xFrame', summary: 'X-Frame', label: 'X-frame or structural brace is in good condition with no cracks or damage.' },
-        { id: 'housekeeping', summary: '5S Area', label: '5S condition is maintained and the designated area is clearly identified.' },
-        { id: 'inspectionRecord', summary: 'Inspection Record', label: 'Inspection record, remark field, and sign-off are updated.' }
-    ]
+    'Evacuation Chair': MOBILITY_EQUIPMENT_CHECKLIST,
+    'Stretcher': MOBILITY_EQUIPMENT_CHECKLIST,
+    'Wheel Chair': MOBILITY_EQUIPMENT_CHECKLIST,
+    'Wheelchair': MOBILITY_EQUIPMENT_CHECKLIST
 };
 
 const getTodayDate = () => new Date().toISOString().split('T')[0];
@@ -385,6 +444,7 @@ export default function EmergencyEquipment() {
     const activeEquipmentMeta = useMemo(() => getEquipmentMeta(inspectData?.type), [inspectData?.type]);
     const activeChecklistItems = useMemo(() => EQUIPMENT_CHECKLISTS[inspectData?.type] || [], [inspectData?.type]);
     const calculatedNextInspectionDate = useMemo(() => addDaysToDate(inspectData?.date, INSPECTION_INTERVAL_DAYS), [inspectData?.date]);
+    const printTagMeta = useMemo(() => getEquipmentMeta(printTagData?.type), [printTagData?.type]);
     const isInspectionOverdue = useMemo(() => {
         if (!inspectData?.nextInspection) return false;
         return inspectData.nextInspection < todayDate;
@@ -804,6 +864,25 @@ export default function EmergencyEquipment() {
                             </div>
                         </div>
 
+                        {inspectData.type === 'Fire Extinguisher' && (
+                            <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+                                <div className="rounded-2xl border border-red-500/20 bg-red-950/20 p-4">
+                                    <p className="text-[10px] font-bold uppercase tracking-[0.25em] text-red-300">Extinguisher Type</p>
+                                    <p className="mt-2 text-sm font-bold text-white">{inspectData.extinguisherType || 'N/A'}</p>
+                                </div>
+                                <div className="rounded-2xl border border-red-500/20 bg-red-950/20 p-4">
+                                    <p className="text-[10px] font-bold uppercase tracking-[0.25em] text-red-300">Last Refill Date</p>
+                                    <p className="mt-2 text-sm font-bold text-white">{inspectData.lastRefillDate || 'N/A'}</p>
+                                    <p className="mt-2 text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400">Next Refill Due: <span className="text-white">{inspectData.nextRefillDate || 'N/A'}</span></p>
+                                </div>
+                                <div className="rounded-2xl border border-red-500/20 bg-red-950/20 p-4">
+                                    <p className="text-[10px] font-bold uppercase tracking-[0.25em] text-red-300">Last Hydrostatic Test</p>
+                                    <p className="mt-2 text-sm font-bold text-white">{inspectData.lastHptDate || 'N/A'}</p>
+                                    <p className="mt-2 text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400">Next Hydro Test Due: <span className="text-white">{inspectData.nextHptDate || 'N/A'}</span></p>
+                                </div>
+                            </div>
+                        )}
+
                         {inspectData.notes && (
                             <div className="mt-4 rounded-2xl border border-slate-800 bg-slate-950/70 p-4">
                                 <p className="text-[10px] font-bold uppercase tracking-[0.25em] text-slate-500">Notes</p>
@@ -1161,6 +1240,8 @@ export default function EmergencyEquipment() {
                                     <p className="text-slate-400 mb-1">Last Inspected: <strong className="text-white font-mono">{inspectData.lastInspection}</strong></p>
                                     <p className="text-slate-400 mb-1">Current Scheduled Due: <strong className={`font-mono ${isInspectionOverdue ? 'text-red-400' : 'text-emerald-400'}`}>{inspectData.nextInspection || 'Not Set'}</strong></p>
                                     {inspectData.type === 'Fire Extinguisher' && <p className="text-slate-400">Extinguisher Type: <strong className="text-orange-400">{inspectData.extinguisherType || 'Unknown'}</strong></p>}
+                                    {inspectData.type === 'Fire Extinguisher' && <p className="text-slate-400">Last Refill Date: <strong className="text-white font-mono">{inspectData.lastRefillDate || 'N/A'}</strong></p>}
+                                    {inspectData.type === 'Fire Extinguisher' && <p className="text-slate-400">Last Hydrostatic Test: <strong className="text-white font-mono">{inspectData.lastHptDate || 'N/A'}</strong></p>}
                                 </div>
 
                                 {inspectData.nextInspection && (
@@ -1247,7 +1328,7 @@ export default function EmergencyEquipment() {
                 <div className="hidden print:flex p-8 bg-white text-black w-full absolute inset-0 z-[9999] flex-col items-center" style={{ WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
 
                     <div className="border-4 border-black w-[400px] rounded-2xl overflow-hidden flex flex-col mt-10 shadow-2xl">
-                        <div className="bg-red-600 text-white text-center py-4 border-b-4 border-black">
+                        <div className={`${printTagMeta.tagHeaderClass} text-center py-4 border-b-4 border-black`}>
                             <h1 className="text-2xl font-black uppercase tracking-widest m-0 leading-none">Emergency</h1>
                             <h2 className="text-lg font-bold uppercase tracking-wider m-0">Equipment Tag</h2>
                         </div>
@@ -1258,7 +1339,10 @@ export default function EmergencyEquipment() {
                                 <h3 className="text-2xl font-mono font-black border-b-2 border-dashed border-gray-400 pb-1">{printTagData.assetId}</h3>
                             </div>
 
-                            <p className="text-lg font-bold text-center uppercase mb-1">{printTagData.type}</p>
+                            <p className="text-lg font-bold text-center uppercase mb-1 flex items-center gap-2">
+                                <i className={`fas ${printTagMeta.icon}`}></i>
+                                <span>{printTagData.type}</span>
+                            </p>
                             <p className="text-sm text-center text-gray-600 font-bold mb-6 italic">Location: {printTagData.location}</p>
 
                             <div className="p-4 border-4 border-black rounded-xl mb-4 bg-white flex justify-center items-center">
@@ -1269,13 +1353,21 @@ export default function EmergencyEquipment() {
                                 />
                             </div>
 
-                            <p className="text-sm font-black uppercase tracking-widest bg-black text-white px-4 py-1 rounded-full mb-6">Scan To Inspect</p>
+                            <p className={`text-sm font-black uppercase tracking-widest px-4 py-1 rounded-full mb-6 ${printTagMeta.tagPillClass}`}>Scan To Inspect</p>
 
                             {printTagData.type === 'Fire Extinguisher' && (
                                 <div className="w-full border-t-2 border-black pt-4">
                                     <div className="flex justify-between text-xs font-bold uppercase mb-1">
+                                        <span>Last Refill:</span>
+                                        <span className="font-mono">{printTagData.lastRefillDate || 'N/A'}</span>
+                                    </div>
+                                    <div className="flex justify-between text-xs font-bold uppercase mb-1">
                                         <span>Next Refill:</span>
                                         <span className="font-mono">{printTagData.nextRefillDate || 'N/A'}</span>
+                                    </div>
+                                    <div className="flex justify-between text-xs font-bold uppercase mb-1">
+                                        <span>Last Hydro Test:</span>
+                                        <span className="font-mono">{printTagData.lastHptDate || 'N/A'}</span>
                                     </div>
                                     <div className="flex justify-between text-xs font-bold uppercase">
                                         <span>Next Hydro Test:</span>
@@ -1287,7 +1379,7 @@ export default function EmergencyEquipment() {
                     </div>
 
                     <p className="mt-8 text-xs text-gray-500 italic">Please affix this tag securely to the physical equipment using a zip-tie.</p>
-                    <button onClick={() => setPrintTagData(null)} className="no-print mt-10 bg-red-600 text-white px-6 py-2 rounded font-bold">Close Preview</button>
+                    <button onClick={() => setPrintTagData(null)} className={`no-print mt-10 px-6 py-2 rounded font-bold ${printTagMeta.tagHeaderClass}`}>Close Preview</button>
                 </div>
             )}
         </div>
