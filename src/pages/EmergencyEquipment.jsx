@@ -25,6 +25,25 @@ const FIRE_EXT_TYPES = [
     { name: 'Clean Agent / Halotron', refillYears: 3, hptYears: 3 }
 ];
 
+const FIRST_AID_CONTENT_ITEMS = [
+    { id: 'painReliefSpray', label: 'Pain Relief Spray' },
+    { id: 'disinfectant', label: 'Disinfectant / Antiseptic' },
+    { id: 'cottonRoll', label: 'Cotton Roll' },
+    { id: 'gauzeSwab', label: 'Gauze Swab' },
+    { id: 'sterileGauzePads', label: 'Sterile Gauze Pads' },
+    { id: 'salineSolution', label: 'Saline / Eye Wash Solution' },
+    { id: 'burnCare', label: 'Burn Cream / Burn Dressing' },
+    { id: 'adhesiveBandages', label: 'Adhesive Bandages' },
+    { id: 'adhesiveTape', label: 'Adhesive Tape' },
+    { id: 'triangularBandage', label: 'Triangular Bandage' },
+    { id: 'rollerBandage', label: 'Roller Bandage' },
+    { id: 'eyePads', label: 'Eye Pads' },
+    { id: 'nitrileGloves', label: 'Nitrile Gloves' },
+    { id: 'cprMask', label: 'CPR Mask / Face Shield' },
+    { id: 'tourniquet', label: 'Tourniquet' },
+    { id: 'dressings', label: 'Sterile Dressings' }
+];
+
 const EQUIPMENT_TYPE_META = {
     'Fire Extinguisher': {
         icon: 'fa-fire-extinguisher',
@@ -276,11 +295,36 @@ const buildChecklistSummary = (type, checks) => {
     return `[Checklist - ${checklist.map((item) => `${item.summary}: ${checks[item.id] ? 'OK' : 'FAIL'}`).join(', ')}] `;
 };
 
+const createFirstAidContentExpiryState = (source = null, fallbackDate = '') => {
+    const resolvedSource = source && typeof source === 'object' && !Array.isArray(source) ? source : {};
+    return Object.fromEntries(
+        FIRST_AID_CONTENT_ITEMS.map((item) => [item.id, String(resolvedSource[item.id] || fallbackDate || '')])
+    );
+};
+
+const getFirstAidContentExpiryState = (record) => createFirstAidContentExpiryState(
+    record?.firstAidContentExpiries,
+    record?.firstAidContentsExpiryDate || ''
+);
+
+const getEarliestFirstAidExpiryDate = (expiries) => {
+    const values = FIRST_AID_CONTENT_ITEMS
+        .map((item) => String(expiries?.[item.id] || '').trim())
+        .filter(Boolean)
+        .sort();
+    return values[0] || '';
+};
+
+const getMissingFirstAidExpiryLabels = (expiries) => FIRST_AID_CONTENT_ITEMS
+    .filter((item) => !String(expiries?.[item.id] || '').trim())
+    .map((item) => item.label);
+
 const createInspectionDraft = (record, { qrScanMode = false, notes = '' } = {}) => {
     const inspectionDate = getTodayDate();
     return {
         ...record,
-        firstAidContentsExpiryDate: record.firstAidContentsExpiryDate || '',
+        firstAidContentExpiries: getFirstAidContentExpiryState(record),
+        firstAidContentsExpiryDate: getEarliestFirstAidExpiryDate(getFirstAidContentExpiryState(record)),
         aedBatteryExpiryDate: record.aedBatteryExpiryDate || '',
         aedElectrodesExpiryDate: record.aedElectrodesExpiryDate || '',
         date: inspectionDate,
@@ -297,7 +341,7 @@ const createEquipmentFormState = (siteId = '') => {
         firebaseKey: null, assetId: '', siteId, type: 'Fire Extinguisher', location: '',
         lastInspection: today, nextInspection: addDaysToDate(today, INSPECTION_INTERVAL_DAYS), status: 'Active', notes: '',
         extinguisherType: '', lastRefillDate: '', lastHptDate: '', nextRefillDate: '', nextHptDate: '',
-        firstAidContentsExpiryDate: '', aedBatteryExpiryDate: '', aedElectrodesExpiryDate: ''
+        firstAidContentExpiries: createFirstAidContentExpiryState(), firstAidContentsExpiryDate: '', aedBatteryExpiryDate: '', aedElectrodesExpiryDate: ''
     };
 };
 
@@ -510,6 +554,7 @@ export default function EmergencyEquipment() {
 
         equipment.filter(e => siteFilter === 'All' || e.siteId === siteFilter).forEach(e => {
             let isAction = false;
+            const firstAidDueDate = getEarliestFirstAidExpiryDate(getFirstAidContentExpiryState(e));
             if (e.status === 'Out of Service' || e.status === 'Missing' || e.status === 'Needs Inspection') isAction = true;
 
             if (e.nextInspection && new Date(e.nextInspection) < now) isAction = true;
@@ -517,7 +562,7 @@ export default function EmergencyEquipment() {
                 if (e.nextRefillDate && new Date(e.nextRefillDate) < now) isAction = true;
                 if (e.nextHptDate && new Date(e.nextHptDate) < now) isAction = true;
             }
-            if (e.type === 'First Aid Kit' && e.firstAidContentsExpiryDate && new Date(e.firstAidContentsExpiryDate) < now) isAction = true;
+            if (e.type === 'First Aid Kit' && firstAidDueDate && new Date(firstAidDueDate) < now) isAction = true;
             if (e.type === 'AED / Defibrillator') {
                 if (e.aedBatteryExpiryDate && new Date(e.aedBatteryExpiryDate) < now) isAction = true;
                 if (e.aedElectrodesExpiryDate && new Date(e.aedElectrodesExpiryDate) < now) isAction = true;
@@ -532,7 +577,7 @@ export default function EmergencyEquipment() {
                     if (e.nextRefillDate && new Date(e.nextRefillDate) <= dueSoonDate) isExpiring = true;
                     if (e.nextHptDate && new Date(e.nextHptDate) <= dueSoonDate) isExpiring = true;
                 }
-                if (e.type === 'First Aid Kit' && e.firstAidContentsExpiryDate && new Date(e.firstAidContentsExpiryDate) <= dueSoonDate) isExpiring = true;
+                if (e.type === 'First Aid Kit' && firstAidDueDate && new Date(firstAidDueDate) <= dueSoonDate) isExpiring = true;
                 if (e.type === 'AED / Defibrillator') {
                     if (e.aedBatteryExpiryDate && new Date(e.aedBatteryExpiryDate) <= dueSoonDate) isExpiring = true;
                     if (e.aedElectrodesExpiryDate && new Date(e.aedElectrodesExpiryDate) <= dueSoonDate) isExpiring = true;
@@ -547,7 +592,12 @@ export default function EmergencyEquipment() {
 
     const handleSave = async () => {
         if (!formData.type || !formData.location || !formData.siteId) return alert("Type, Location, and Site are required.");
-        if (formData.type === 'First Aid Kit' && !formData.firstAidContentsExpiryDate) return alert("Please provide the expiry date of the first aid box contents.");
+        if (formData.type === 'First Aid Kit') {
+            const missingFirstAidExpiries = getMissingFirstAidExpiryLabels(formData.firstAidContentExpiries);
+            if (missingFirstAidExpiries.length > 0) {
+                return alert(`Please provide expiry dates for all first aid box contents before adding the equipment. Missing: ${missingFirstAidExpiries.join(', ')}`);
+            }
+        }
         if (formData.type === 'AED / Defibrillator' && (!formData.aedBatteryExpiryDate || !formData.aedElectrodesExpiryDate)) {
             return alert("Please provide the expiry dates for both the AED battery and the electrodes.");
         }
@@ -564,6 +614,8 @@ export default function EmergencyEquipment() {
                 ...formData,
                 assetId: finalAssetId,
                 publicQrEnabled: true,
+                firstAidContentExpiries: createFirstAidContentExpiryState(formData.firstAidContentExpiries),
+                firstAidContentsExpiryDate: getEarliestFirstAidExpiryDate(formData.firstAidContentExpiries),
                 nextInspection: addDaysToDate(formData.lastInspection, INSPECTION_INTERVAL_DAYS),
                 updatedBy: session.name || session.email,
                 lastUpdated: new Date().toISOString()
@@ -602,9 +654,12 @@ export default function EmergencyEquipment() {
             alert("This QR inspection is read-only for your role.");
             return;
         }
-        if (inspectData.type === 'First Aid Kit' && !inspectData.firstAidContentsExpiryDate) {
-            alert("Please update the expiry date of the first aid box contents before submitting this inspection.");
-            return;
+        if (inspectData.type === 'First Aid Kit') {
+            const missingFirstAidExpiries = getMissingFirstAidExpiryLabels(inspectData.firstAidContentExpiries);
+            if (missingFirstAidExpiries.length > 0) {
+                alert(`Please update the expiry dates for all first aid box contents before submitting this inspection. Missing: ${missingFirstAidExpiries.join(', ')}`);
+                return;
+            }
         }
         if (inspectData.type === 'AED / Defibrillator' && (!inspectData.aedBatteryExpiryDate || !inspectData.aedElectrodesExpiryDate)) {
             alert("Please update the AED battery and electrode expiry dates before submitting this inspection.");
@@ -623,7 +678,8 @@ export default function EmergencyEquipment() {
                 nextInspection,
                 status: inspectData.status,
                 notes: finalNotes,
-                firstAidContentsExpiryDate: inspectData.firstAidContentsExpiryDate || '',
+                firstAidContentExpiries: createFirstAidContentExpiryState(inspectData.firstAidContentExpiries),
+                firstAidContentsExpiryDate: getEarliestFirstAidExpiryDate(inspectData.firstAidContentExpiries),
                 aedBatteryExpiryDate: inspectData.aedBatteryExpiryDate || '',
                 aedElectrodesExpiryDate: inspectData.aedElectrodesExpiryDate || '',
                 updatedBy: session.name,
@@ -749,6 +805,7 @@ export default function EmergencyEquipment() {
                     const firstAidContentsExpiryDate = formatDate(row[firstAidExpiryCol]);
                     const aedBatteryExpiryDate = formatDate(row[aedBatteryCol]);
                     const aedElectrodesExpiryDate = formatDate(row[aedElectrodesCol]);
+                    const firstAidContentExpiries = createFirstAidContentExpiryState(null, firstAidContentsExpiryDate);
 
                     let nextRefill = '';
                     let nextHpt = '';
@@ -778,6 +835,7 @@ export default function EmergencyEquipment() {
                         lastInspection: lastInsp, nextInspection: nextInsp,
                         extinguisherType: extType, lastRefillDate: lastRefill, nextRefillDate: nextRefill,
                         lastHptDate: lastHpt, nextHptDate: nextHpt,
+                        firstAidContentExpiries,
                         firstAidContentsExpiryDate,
                         aedBatteryExpiryDate,
                         aedElectrodesExpiryDate,
@@ -817,6 +875,7 @@ export default function EmergencyEquipment() {
         const dueSoonDate = new Date();
         dueSoonDate.setDate(dueSoonDate.getDate() + DUE_SOON_WINDOW_DAYS);
         const dueSoonStr = dueSoonDate.toISOString().split('T')[0];
+        const firstAidDueDate = getEarliestFirstAidExpiryDate(getFirstAidContentExpiryState(e));
 
         if (e.nextInspection) {
             if (e.nextInspection < todayStr) badges.push(<span key="insp-exp" className="bg-red-900/30 text-red-400 border border-red-500/30 px-2 py-1 rounded text-[9px] font-bold uppercase tracking-widest animate-pulse">INSP EXPIRED</span>);
@@ -833,9 +892,9 @@ export default function EmergencyEquipment() {
                 else if (e.nextHptDate <= dueSoonStr) badges.push(<span key="hpt-due" className="bg-orange-900/30 text-orange-400 border border-orange-500/30 px-2 py-1 rounded text-[9px] font-bold uppercase tracking-widest">HPT DUE SOON</span>);
             }
         }
-        if (e.type === 'First Aid Kit' && e.firstAidContentsExpiryDate) {
-            if (e.firstAidContentsExpiryDate < todayStr) badges.push(<span key="first-aid-exp" className="bg-red-900/30 text-red-400 border border-red-500/30 px-2 py-1 rounded text-[9px] font-bold uppercase tracking-widest animate-pulse">CONTENTS EXPIRED</span>);
-            else if (e.firstAidContentsExpiryDate <= dueSoonStr) badges.push(<span key="first-aid-due" className="bg-orange-900/30 text-orange-400 border border-orange-500/30 px-2 py-1 rounded text-[9px] font-bold uppercase tracking-widest">CONTENTS EXPIRING</span>);
+        if (e.type === 'First Aid Kit' && firstAidDueDate) {
+            if (firstAidDueDate < todayStr) badges.push(<span key="first-aid-exp" className="bg-red-900/30 text-red-400 border border-red-500/30 px-2 py-1 rounded text-[9px] font-bold uppercase tracking-widest animate-pulse">CONTENTS EXPIRED</span>);
+            else if (firstAidDueDate <= dueSoonStr) badges.push(<span key="first-aid-due" className="bg-orange-900/30 text-orange-400 border border-orange-500/30 px-2 py-1 rounded text-[9px] font-bold uppercase tracking-widest">CONTENTS EXPIRING</span>);
         }
         if (e.type === 'AED / Defibrillator') {
             if (e.aedBatteryExpiryDate) {
@@ -952,8 +1011,15 @@ export default function EmergencyEquipment() {
 
                         {inspectData.type === 'First Aid Kit' && (
                             <div className="mt-4 rounded-2xl border border-emerald-500/20 bg-emerald-950/20 p-4">
-                                <p className="text-[10px] font-bold uppercase tracking-[0.25em] text-emerald-300">Contents Expiry Date</p>
-                                <p className="mt-2 text-sm font-bold text-white">{inspectData.firstAidContentsExpiryDate || 'N/A'}</p>
+                                <p className="text-[10px] font-bold uppercase tracking-[0.25em] text-emerald-300">First Aid Content Expiry Register</p>
+                                <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+                                    {FIRST_AID_CONTENT_ITEMS.map((item) => (
+                                        <div key={item.id} className="rounded-xl border border-slate-800 bg-slate-950/70 p-3">
+                                            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">{item.label}</p>
+                                            <p className="mt-2 text-sm font-bold text-white">{inspectData.firstAidContentExpiries?.[item.id] || 'N/A'}</p>
+                                        </div>
+                                    ))}
+                                </div>
                             </div>
                         )}
 
@@ -1175,15 +1241,31 @@ export default function EmergencyEquipment() {
                                             <div className="w-8 h-8 rounded-full bg-emerald-600 text-white flex items-center justify-center shadow-lg"><i className="fas fa-medkit"></i></div>
                                             <div>
                                                 <h4 className="text-sm font-bold text-emerald-400 uppercase tracking-widest">First Aid Consumable Control</h4>
-                                                <p className="text-[10px] text-emerald-300/70">Record the expiry date of the stocked first aid box contents.</p>
+                                                <p className="text-[10px] text-emerald-300/70">Record the expiry date for each stocked first aid content item. All dates are required before the equipment can be added.</p>
                                             </div>
                                         </div>
 
-                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                            <div>
-                                                <label className="text-[10px] uppercase font-bold text-slate-300 block mb-2">Contents Expiry Date</label>
-                                                <input type="date" value={formData.firstAidContentsExpiryDate || ''} onChange={e => setFormData({ ...formData, firstAidContentsExpiryDate: e.target.value })} className="w-full bg-slate-950 border border-emerald-900/50 rounded-xl p-3 text-white outline-none focus:border-emerald-500 font-mono text-xs" />
-                                            </div>
+                                        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                                            {FIRST_AID_CONTENT_ITEMS.map((item) => (
+                                                <div key={item.id}>
+                                                    <label className="text-[10px] uppercase font-bold text-slate-300 block mb-2">{item.label} *</label>
+                                                    <input
+                                                        type="date"
+                                                        value={formData.firstAidContentExpiries?.[item.id] || ''}
+                                                        onChange={e => setFormData({
+                                                            ...formData,
+                                                            firstAidContentExpiries: {
+                                                                ...createFirstAidContentExpiryState(formData.firstAidContentExpiries),
+                                                                [item.id]: e.target.value
+                                                            }
+                                                        })}
+                                                        className="w-full bg-slate-950 border border-emerald-900/50 rounded-xl p-3 text-white outline-none focus:border-emerald-500 font-mono text-xs"
+                                                    />
+                                                </div>
+                                            ))}
+                                        </div>
+                                        <div className="rounded-xl border border-emerald-500/20 bg-slate-950/40 px-4 py-3">
+                                            <p className="text-[10px] font-bold uppercase tracking-widest text-emerald-300">All first aid contents must have individual expiry dates at registration.</p>
                                         </div>
                                     </div>
                                 )}
@@ -1194,18 +1276,20 @@ export default function EmergencyEquipment() {
                                             <div className="w-8 h-8 rounded-full bg-pink-500 text-white flex items-center justify-center shadow-lg"><i className="fas fa-heartbeat"></i></div>
                                             <div>
                                                 <h4 className="text-sm font-bold text-pink-400 uppercase tracking-widest">AED Consumable Control</h4>
-                                                <p className="text-[10px] text-pink-300/70">Record the expiry dates of the AED battery and electrode pads.</p>
+                                                <p className="text-[10px] text-pink-300/70">Record the expiry dates of the AED battery and electrode pads. Both dates are required before the equipment can be added.</p>
                                             </div>
                                         </div>
 
                                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                             <div>
-                                                <label className="text-[10px] uppercase font-bold text-slate-300 block mb-2">Battery Expiry Date</label>
+                                                <label className="text-[10px] uppercase font-bold text-slate-300 block mb-2">Battery Expiry Date *</label>
                                                 <input type="date" value={formData.aedBatteryExpiryDate || ''} onChange={e => setFormData({ ...formData, aedBatteryExpiryDate: e.target.value })} className="w-full bg-slate-950 border border-pink-900/50 rounded-xl p-3 text-white outline-none focus:border-pink-500 font-mono text-xs" />
+                                                <p className="mt-2 text-[10px] font-bold uppercase tracking-widest text-pink-300">Mandatory at registration</p>
                                             </div>
                                             <div>
-                                                <label className="text-[10px] uppercase font-bold text-slate-300 block mb-2">Electrode Expiry Date</label>
+                                                <label className="text-[10px] uppercase font-bold text-slate-300 block mb-2">Electrode Expiry Date *</label>
                                                 <input type="date" value={formData.aedElectrodesExpiryDate || ''} onChange={e => setFormData({ ...formData, aedElectrodesExpiryDate: e.target.value })} className="w-full bg-slate-950 border border-pink-900/50 rounded-xl p-3 text-white outline-none focus:border-pink-500 font-mono text-xs" />
+                                                <p className="mt-2 text-[10px] font-bold uppercase tracking-widest text-pink-300">Mandatory at registration</p>
                                             </div>
                                         </div>
                                     </div>
@@ -1373,7 +1457,7 @@ export default function EmergencyEquipment() {
                                     {inspectData.type === 'Fire Extinguisher' && <p className="text-slate-400">Extinguisher Type: <strong className="text-orange-400">{inspectData.extinguisherType || 'Unknown'}</strong></p>}
                                     {inspectData.type === 'Fire Extinguisher' && <p className="text-slate-400">Last Refill Date: <strong className="text-white font-mono">{inspectData.lastRefillDate || 'N/A'}</strong></p>}
                                     {inspectData.type === 'Fire Extinguisher' && <p className="text-slate-400">Last Hydrostatic Test: <strong className="text-white font-mono">{inspectData.lastHptDate || 'N/A'}</strong></p>}
-                                    {inspectData.type === 'First Aid Kit' && <p className="text-slate-400">Contents Expiry Date: <strong className="text-white font-mono">{inspectData.firstAidContentsExpiryDate || 'N/A'}</strong></p>}
+                                    {inspectData.type === 'First Aid Kit' && <p className="text-slate-400">Earliest Content Expiry: <strong className="text-white font-mono">{getEarliestFirstAidExpiryDate(inspectData.firstAidContentExpiries) || 'N/A'}</strong></p>}
                                     {inspectData.type === 'AED / Defibrillator' && <p className="text-slate-400">Battery Expiry Date: <strong className="text-white font-mono">{inspectData.aedBatteryExpiryDate || 'N/A'}</strong></p>}
                                     {inspectData.type === 'AED / Defibrillator' && <p className="text-slate-400">Electrode Expiry Date: <strong className="text-white font-mono">{inspectData.aedElectrodesExpiryDate || 'N/A'}</strong></p>}
                                 </div>
@@ -1432,9 +1516,28 @@ export default function EmergencyEquipment() {
                                 </div>
 
                                 {inspectData.type === 'First Aid Kit' && (
-                                    <div>
-                                        <label className="text-[10px] uppercase font-bold text-emerald-400 block mb-2">Contents Expiry Date</label>
-                                        <input type="date" value={inspectData.firstAidContentsExpiryDate || ''} onChange={e => setInspectData({ ...inspectData, firstAidContentsExpiryDate: e.target.value })} disabled={!canOperateInspectionSheet} className="w-full bg-slate-950 border border-emerald-500/30 rounded-xl p-3 text-white outline-none focus:border-emerald-500 font-mono font-bold disabled:opacity-60" />
+                                    <div className="space-y-4">
+                                        <label className="text-[10px] uppercase font-bold text-emerald-400 block">Content-Wise Expiry Dates</label>
+                                        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+                                            {FIRST_AID_CONTENT_ITEMS.map((item) => (
+                                                <div key={item.id}>
+                                                    <label className="text-[10px] uppercase font-bold text-slate-300 block mb-2">{item.label}</label>
+                                                    <input
+                                                        type="date"
+                                                        value={inspectData.firstAidContentExpiries?.[item.id] || ''}
+                                                        onChange={e => setInspectData({
+                                                            ...inspectData,
+                                                            firstAidContentExpiries: {
+                                                                ...createFirstAidContentExpiryState(inspectData.firstAidContentExpiries),
+                                                                [item.id]: e.target.value
+                                                            }
+                                                        })}
+                                                        disabled={!canOperateInspectionSheet}
+                                                        className="w-full bg-slate-950 border border-emerald-500/30 rounded-xl p-3 text-white outline-none focus:border-emerald-500 font-mono font-bold disabled:opacity-60"
+                                                    />
+                                                </div>
+                                            ))}
+                                        </div>
                                     </div>
                                 )}
 
