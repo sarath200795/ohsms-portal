@@ -19,7 +19,9 @@ export default function PortalSuccessModal({ onClose, portalSuccess }) {
                 </div>
                 <h3 className="text-2xl font-black text-white mb-2">Portal Access Ready</h3>
                 <p className="text-sm text-slate-400 leading-relaxed mb-6">
-                    {portalSuccess.linkedExisting
+                    {portalSuccess.sharedIdentity
+                        ? `The contractor portal is now linked to the same shared login already used in your organization for ${portalSuccess.companyName}.`
+                        : portalSuccess.linkedExisting
                         ? `The contractor portal has been linked to an existing org account for ${portalSuccess.companyName}.`
                         : `A new contractor portal account has been created for ${portalSuccess.companyName}.`}
                 </p>

@@ -76,6 +76,7 @@ export default function CompanyProfileModal({
                                 <span><i className="fas fa-user text-indigo-400 mr-1"></i> {activeVendor.contactPerson}</span>
                                 <span><i className="fas fa-envelope text-indigo-400 mr-1"></i> {activeVendor.email || 'No Portal Email'}</span>
                                 <span className={`px-2 py-0.5 rounded text-[9px] border ${activeVendor.portalUid ? 'bg-emerald-900/30 text-emerald-400 border-emerald-500/30' : 'bg-amber-900/20 text-amber-400 border-amber-500/30'}`}><i className={`fas ${activeVendor.portalUid ? 'fa-shield-check' : 'fa-user-lock'} mr-1`}></i>{activeVendor.portalUid ? 'Portal Linked' : 'Portal Pending'}</span>
+                                {activeVendor.portalSharedIdentity && <span className="px-2 py-0.5 rounded text-[9px] border bg-violet-900/30 text-violet-300 border-violet-500/30"><i className="fas fa-link mr-1"></i> Shared Login</span>}
                                 {activeVendor.portalSetupLinkSentAt && <span className="px-2 py-0.5 rounded text-[9px] border bg-sky-900/30 text-sky-300 border-sky-500/30"><i className="fas fa-envelope-open-text mr-1"></i> Setup Sent</span>}
                                 <span className={`px-2 py-0.5 rounded text-[9px] border ${getComplianceStatus(activeVendor.documents).color}`}>{getComplianceStatus(activeVendor.documents).label}</span>
                             </div>

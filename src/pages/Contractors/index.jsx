@@ -396,6 +396,7 @@ export default function Contractors() {
                 || matchingOrgUsers.find((user) => user.status === 'Active')
                 || matchingOrgUsers[0]
                 || null;
+            const reusingExistingOrgIdentity = Boolean(existingOrgUser?.firebaseKey);
 
             let portalUid = activeVendor.portalUid || existingOrgUser?.firebaseKey || '';
             let createdPortalAuthUser = false;
@@ -416,83 +417,84 @@ export default function Contractors() {
                 updatedAt: nowIso
             };
 
-            const tempAppName = `vendorPortal-${Date.now()}`;
-            const tempApp = initializeApp(auth.app.options, tempAppName);
-            const tempAuth = getAuth(tempApp);
+            if (!reusingExistingOrgIdentity) {
+                const tempAppName = `vendorPortal-${Date.now()}`;
+                const tempApp = initializeApp(auth.app.options, tempAppName);
+                const tempAuth = getAuth(tempApp);
 
-            try {
-                const rotatePortalPassword = async (credentialUser) => {
-                    const nextPortalPassword = generateVendorPortalPassword();
-                    await updatePassword(credentialUser, nextPortalPassword);
-                    issuedPortalPassword = nextPortalPassword;
-                    return nextPortalPassword;
-                };
+                try {
+                    const rotatePortalPassword = async (credentialUser) => {
+                        const nextPortalPassword = generateVendorPortalPassword();
+                        await updatePassword(credentialUser, nextPortalPassword);
+                        issuedPortalPassword = nextPortalPassword;
+                        return nextPortalPassword;
+                    };
 
-                if (portalUid) {
-                    try {
-                        const existingCredential = await signInWithEmailAndPassword(tempAuth, vendorEmail, vendorCode);
-                        portalUid = existingCredential.user.uid;
-                        await rotatePortalPassword(existingCredential.user);
-                    } catch (authError) {
-                        const authCode = authError?.code || '';
-                        if (
-                            authCode === 'auth/invalid-credential' ||
-                            authCode === 'auth/invalid-login-credentials' ||
-                            authCode === 'auth/user-not-found' ||
-                            authCode === 'auth/wrong-password'
-                        ) {
-                            try {
-                                const nextPortalPassword = generateVendorPortalPassword();
-                                const userCredential = await createUserWithEmailAndPassword(tempAuth, vendorEmail, nextPortalPassword);
-                                portalUid = userCredential.user.uid;
-                                createdPortalAuthUser = true;
-                                issuedPortalPassword = nextPortalPassword;
-                                provisioningWarning = existingOrgUser?.firebaseKey && existingOrgUser.firebaseKey !== portalUid
-                                    ? 'The saved portal mapping was stale, so a fresh vendor auth account was recreated and linked automatically.'
-                                    : provisioningWarning;
-                            } catch (createError) {
-                                if (createError?.code === 'auth/email-already-in-use') {
-                                    provisioningWarning = 'Portal access is already linked to an authentication account for this email. The password could not be rotated automatically from this screen, so use the setup email or the vendor portal forgot-password flow.';
-                                } else {
+                    if (portalUid) {
+                        try {
+                            const existingCredential = await signInWithEmailAndPassword(tempAuth, vendorEmail, vendorCode);
+                            portalUid = existingCredential.user.uid;
+                            await rotatePortalPassword(existingCredential.user);
+                        } catch (authError) {
+                            const authCode = authError?.code || '';
+                            if (
+                                authCode === 'auth/invalid-credential' ||
+                                authCode === 'auth/invalid-login-credentials' ||
+                                authCode === 'auth/user-not-found' ||
+                                authCode === 'auth/wrong-password'
+                            ) {
+                                try {
+                                    const nextPortalPassword = generateVendorPortalPassword();
+                                    const userCredential = await createUserWithEmailAndPassword(tempAuth, vendorEmail, nextPortalPassword);
+                                    portalUid = userCredential.user.uid;
+                                    createdPortalAuthUser = true;
+                                    issuedPortalPassword = nextPortalPassword;
+                                    provisioningWarning = existingOrgUser?.firebaseKey && existingOrgUser.firebaseKey !== portalUid
+                                        ? 'The saved portal mapping was stale, so a fresh vendor auth account was recreated and linked automatically.'
+                                        : provisioningWarning;
+                                } catch (createError) {
+                                    if (createError?.code === 'auth/email-already-in-use') {
+                                        throw new Error('This email already exists in Firebase Authentication. Link it from the Users module first, then provision the contractor portal on the same shared login.');
+                                    }
                                     throw createError;
                                 }
+                            } else {
+                                throw authError;
                             }
-                        } else {
-                            throw authError;
                         }
-                    }
-                } else {
-                    try {
-                        const existingCredential = await signInWithEmailAndPassword(tempAuth, vendorEmail, vendorCode);
-                        portalUid = existingCredential.user.uid;
-                        await rotatePortalPassword(existingCredential.user);
-                    } catch (authError) {
-                        const authCode = authError?.code || '';
-                        if (
-                            authCode === 'auth/invalid-credential' ||
-                            authCode === 'auth/invalid-login-credentials' ||
-                            authCode === 'auth/user-not-found' ||
-                            authCode === 'auth/wrong-password'
-                        ) {
-                            try {
-                                const nextPortalPassword = generateVendorPortalPassword();
-                                const userCredential = await createUserWithEmailAndPassword(tempAuth, vendorEmail, nextPortalPassword);
-                                portalUid = userCredential.user.uid;
-                                createdPortalAuthUser = true;
-                                issuedPortalPassword = nextPortalPassword;
-                            } catch (createError) {
-                                if (createError?.code === 'auth/email-already-in-use') {
-                                    throw new Error('This email already exists in Firebase Authentication but is not linked to a contractor org user yet. Create or locate the matching org user first, then reprovision, or reset that Firebase Auth user so the portal can issue a fresh temporary password.');
+                    } else {
+                        try {
+                            const existingCredential = await signInWithEmailAndPassword(tempAuth, vendorEmail, vendorCode);
+                            portalUid = existingCredential.user.uid;
+                            await rotatePortalPassword(existingCredential.user);
+                        } catch (authError) {
+                            const authCode = authError?.code || '';
+                            if (
+                                authCode === 'auth/invalid-credential' ||
+                                authCode === 'auth/invalid-login-credentials' ||
+                                authCode === 'auth/user-not-found' ||
+                                authCode === 'auth/wrong-password'
+                            ) {
+                                try {
+                                    const nextPortalPassword = generateVendorPortalPassword();
+                                    const userCredential = await createUserWithEmailAndPassword(tempAuth, vendorEmail, nextPortalPassword);
+                                    portalUid = userCredential.user.uid;
+                                    createdPortalAuthUser = true;
+                                    issuedPortalPassword = nextPortalPassword;
+                                } catch (createError) {
+                                    if (createError?.code === 'auth/email-already-in-use') {
+                                        throw new Error('This email already exists in Firebase Authentication. Add or update the same email in the Users module so the contractor portal can reuse that shared login.');
+                                    }
+                                    throw createError;
                                 }
-                                throw createError;
+                            } else {
+                                throw authError;
                             }
-                        } else {
-                            throw authError;
                         }
                     }
+                } finally {
+                    await signOut(tempAuth).catch(() => {});
                 }
-            } finally {
-                await signOut(tempAuth).catch(() => {});
             }
 
             if (!portalUid) {
@@ -511,12 +513,14 @@ export default function Contractors() {
             const setupEmailSent = Boolean(setupEmail?.sentAt);
             const nextUserPayload = {
                 ...baseUserPayload,
+                status: 'Active',
                 mustChangePassword: setupEmailSent ? false : portalPasswordManaged,
                 temporaryPasswordIssued: setupEmailSent ? false : portalPasswordManaged,
                 temporaryPasswordIssuedAt: setupEmailSent ? null : (portalPasswordManaged ? nowIso : null),
                 passwordUpdatedAt: portalPasswordManaged && !setupEmailSent ? null : (existingOrgUser?.passwordUpdatedAt || null),
                 portalSetupLinkSentAt: setupEmail?.sentAt || existingOrgUser?.portalSetupLinkSentAt || null,
-                portalSetupLinkSentBy: setupEmail?.sentAt ? (session.email || session.name || 'Global Owner') : (existingOrgUser?.portalSetupLinkSentBy || null)
+                portalSetupLinkSentBy: setupEmail?.sentAt ? (session.email || session.name || 'Global Owner') : (existingOrgUser?.portalSetupLinkSentBy || null),
+                portalSharedIdentity: reusingExistingOrgIdentity
             };
 
             await update(ref(rtdb, `organizations/${session.orgId}/users/${portalUid}`), nextUserPayload);
@@ -550,6 +554,7 @@ export default function Contractors() {
             await updateVendorDB(activeVendor.firebaseKey, {
                 email: vendorEmail,
                 portalUid,
+                portalSharedIdentity: reusingExistingOrgIdentity,
                 portalProvisionedAt: nowIso,
                 portalProvisionedBy: session.email,
                 portalSetupLinkSentAt: setupEmail?.sentAt || activeVendor.portalSetupLinkSentAt || null,
@@ -585,6 +590,7 @@ export default function Contractors() {
                 vendorCode,
                 temporaryPassword: issuedPortalPassword,
                 linkedExisting: !createdPortalAuthUser,
+                sharedIdentity: reusingExistingOrgIdentity,
                 portalUrl: setupEmail?.portalUrl || buildVendorPortalUrl(vendorEmail),
                 setupEmailSent,
                 setupEmailSentAt: setupEmail?.sentAt || '',
@@ -702,23 +708,32 @@ export default function Contractors() {
             const deletedBy = session.email || session.name || 'Global Owner';
 
             if (activeVendor.portalUid) {
-                await update(ref(rtdb, `organizations/${session.orgId}/users/${activeVendor.portalUid}`), {
-                    status: 'Deleted',
-                    vendorPortal: false,
-                    portalLinkedContractorId: '',
-                    deletedAt,
-                    deletedBy
-                });
+                const linkedUser = orgUsers.find((user) => user.firebaseKey === activeVendor.portalUid);
+                const sharedPortalIdentity = Boolean(activeVendor.portalSharedIdentity || linkedUser?.portalSharedIdentity);
+                const linkedUserUpdates = sharedPortalIdentity
+                    ? {
+                        vendorPortal: false,
+                        portalLinkedContractorId: '',
+                        portalSharedIdentity: false,
+                        updatedAt: deletedAt,
+                        updatedBy: deletedBy
+                    }
+                    : {
+                        status: 'Deleted',
+                        vendorPortal: false,
+                        portalLinkedContractorId: '',
+                        portalSharedIdentity: false,
+                        deletedAt,
+                        deletedBy
+                    };
+
+                await update(ref(rtdb, `organizations/${session.orgId}/users/${activeVendor.portalUid}`), linkedUserUpdates);
 
                 setOrgUsers((prev) => prev.map((user) => (
                     user.firebaseKey === activeVendor.portalUid
                         ? {
                             ...user,
-                            status: 'Deleted',
-                            vendorPortal: false,
-                            portalLinkedContractorId: '',
-                            deletedAt,
-                            deletedBy
+                            ...linkedUserUpdates
                         }
                         : user
                 )));
