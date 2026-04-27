@@ -280,11 +280,24 @@ const createInspectionDraft = (record, { qrScanMode = false, notes = '' } = {}) 
     const inspectionDate = getTodayDate();
     return {
         ...record,
+        firstAidContentsExpiryDate: record.firstAidContentsExpiryDate || '',
+        aedBatteryExpiryDate: record.aedBatteryExpiryDate || '',
+        aedElectrodesExpiryDate: record.aedElectrodesExpiryDate || '',
         date: inspectionDate,
         nextDate: addDaysToDate(inspectionDate, INSPECTION_INTERVAL_DAYS),
         notes,
         checks: createChecklistState(record.type),
         qrScanMode
+    };
+};
+
+const createEquipmentFormState = (siteId = '') => {
+    const today = getTodayDate();
+    return {
+        firebaseKey: null, assetId: '', siteId, type: 'Fire Extinguisher', location: '',
+        lastInspection: today, nextInspection: addDaysToDate(today, INSPECTION_INTERVAL_DAYS), status: 'Active', notes: '',
+        extinguisherType: '', lastRefillDate: '', lastHptDate: '', nextRefillDate: '', nextHptDate: '',
+        firstAidContentsExpiryDate: '', aedBatteryExpiryDate: '', aedElectrodesExpiryDate: ''
     };
 };
 
@@ -306,11 +319,7 @@ export default function EmergencyEquipment() {
     const [typeFilter, setTypeFilter] = useState('All');
     const [complianceFilter, setComplianceFilter] = useState('All');
 
-    const [formData, setFormData] = useState({
-        firebaseKey: null, assetId: '', siteId: '', type: 'Fire Extinguisher', location: '',
-        lastInspection: getTodayDate(), nextInspection: addDaysToDate(getTodayDate(), INSPECTION_INTERVAL_DAYS), status: 'Active', notes: '',
-        extinguisherType: '', lastRefillDate: '', lastHptDate: '', nextRefillDate: '', nextHptDate: ''
-    });
+    const [formData, setFormData] = useState(createEquipmentFormState());
 
     const [inspectData, setInspectData] = useState(null);
     const [printTagData, setPrintTagData] = useState(null);
@@ -508,6 +517,11 @@ export default function EmergencyEquipment() {
                 if (e.nextRefillDate && new Date(e.nextRefillDate) < now) isAction = true;
                 if (e.nextHptDate && new Date(e.nextHptDate) < now) isAction = true;
             }
+            if (e.type === 'First Aid Kit' && e.firstAidContentsExpiryDate && new Date(e.firstAidContentsExpiryDate) < now) isAction = true;
+            if (e.type === 'AED / Defibrillator') {
+                if (e.aedBatteryExpiryDate && new Date(e.aedBatteryExpiryDate) < now) isAction = true;
+                if (e.aedElectrodesExpiryDate && new Date(e.aedElectrodesExpiryDate) < now) isAction = true;
+            }
 
             if (isAction) {
                 actionNeeded++;
@@ -517,6 +531,11 @@ export default function EmergencyEquipment() {
                 if (e.type === 'Fire Extinguisher') {
                     if (e.nextRefillDate && new Date(e.nextRefillDate) <= dueSoonDate) isExpiring = true;
                     if (e.nextHptDate && new Date(e.nextHptDate) <= dueSoonDate) isExpiring = true;
+                }
+                if (e.type === 'First Aid Kit' && e.firstAidContentsExpiryDate && new Date(e.firstAidContentsExpiryDate) <= dueSoonDate) isExpiring = true;
+                if (e.type === 'AED / Defibrillator') {
+                    if (e.aedBatteryExpiryDate && new Date(e.aedBatteryExpiryDate) <= dueSoonDate) isExpiring = true;
+                    if (e.aedElectrodesExpiryDate && new Date(e.aedElectrodesExpiryDate) <= dueSoonDate) isExpiring = true;
                 }
                 if (isExpiring) expiringSoon++;
             }
@@ -528,6 +547,10 @@ export default function EmergencyEquipment() {
 
     const handleSave = async () => {
         if (!formData.type || !formData.location || !formData.siteId) return alert("Type, Location, and Site are required.");
+        if (formData.type === 'First Aid Kit' && !formData.firstAidContentsExpiryDate) return alert("Please provide the expiry date of the first aid box contents.");
+        if (formData.type === 'AED / Defibrillator' && (!formData.aedBatteryExpiryDate || !formData.aedElectrodesExpiryDate)) {
+            return alert("Please provide the expiry dates for both the AED battery and the electrodes.");
+        }
 
         try {
             let finalAssetId = formData.assetId;
@@ -579,6 +602,14 @@ export default function EmergencyEquipment() {
             alert("This QR inspection is read-only for your role.");
             return;
         }
+        if (inspectData.type === 'First Aid Kit' && !inspectData.firstAidContentsExpiryDate) {
+            alert("Please update the expiry date of the first aid box contents before submitting this inspection.");
+            return;
+        }
+        if (inspectData.type === 'AED / Defibrillator' && (!inspectData.aedBatteryExpiryDate || !inspectData.aedElectrodesExpiryDate)) {
+            alert("Please update the AED battery and electrode expiry dates before submitting this inspection.");
+            return;
+        }
         try {
             const checklistStr = buildChecklistSummary(inspectData.type, inspectData.checks);
 
@@ -592,6 +623,9 @@ export default function EmergencyEquipment() {
                 nextInspection,
                 status: inspectData.status,
                 notes: finalNotes,
+                firstAidContentsExpiryDate: inspectData.firstAidContentsExpiryDate || '',
+                aedBatteryExpiryDate: inspectData.aedBatteryExpiryDate || '',
+                aedElectrodesExpiryDate: inspectData.aedElectrodesExpiryDate || '',
                 updatedBy: session.name,
                 lastUpdated: new Date().toISOString()
             };
@@ -620,8 +654,8 @@ export default function EmergencyEquipment() {
     const downloadTemplate = () => {
         const workbook = XLSX.utils.book_new();
         const templateSheet = XLSX.utils.aoa_to_sheet([
-            ['Site ID (Req)', 'Equipment Type (Req)', 'Location (Req)', 'Asset/Serial ID', 'Status', 'Last Inspection', 'Extinguisher Type (IS 2190)', 'Last Refill Date', 'Last HPT Date', 'Notes'],
-            ['HQ-01', 'Fire Extinguisher', 'Main Lobby Exit', 'HQ-LOB-101', 'Active', '2025-01-15', 'ABC Powder / DCP (Stored Pressure)', '2023-05-10', '2023-05-10', 'Mounted securely.']
+            ['Site ID (Req)', 'Equipment Type (Req)', 'Location (Req)', 'Asset/Serial ID', 'Status', 'Last Inspection', 'Extinguisher Type (IS 2190)', 'Last Refill Date', 'Last HPT Date', 'First Aid Contents Expiry', 'AED Battery Expiry', 'AED Electrodes Expiry', 'Notes'],
+            ['HQ-01', 'Fire Extinguisher', 'Main Lobby Exit', 'HQ-LOB-101', 'Active', '2025-01-15', 'ABC Powder / DCP (Stored Pressure)', '2023-05-10', '2023-05-10', '', '', '', 'Mounted securely.']
         ]);
         templateSheet['!cols'] = [
             { wch: 15 },
@@ -633,6 +667,9 @@ export default function EmergencyEquipment() {
             { wch: 35 },
             { wch: 20 },
             { wch: 20 },
+            { wch: 22 },
+            { wch: 20 },
+            { wch: 22 },
             { wch: 35 }
         ];
 
@@ -683,6 +720,9 @@ export default function EmergencyEquipment() {
                     const extTypeCol = getCol(['extinguisher type', 'is 2190']);
                     const refillCol = getCol(['refill date']);
                     const hptCol = getCol(['hpt date']);
+                    const firstAidExpiryCol = getCol(['first aid contents expiry', 'contents expiry']);
+                    const aedBatteryCol = getCol(['aed battery expiry', 'battery expiry']);
+                    const aedElectrodesCol = getCol(['aed electrodes expiry', 'electrodes expiry']);
                     const notesCol = getCol(['notes']);
 
                     const siteId = row[siteCol];
@@ -706,6 +746,9 @@ export default function EmergencyEquipment() {
                     const extType = row[extTypeCol] || '';
                     const lastRefill = formatDate(row[refillCol]);
                     const lastHpt = formatDate(row[hptCol]);
+                    const firstAidContentsExpiryDate = formatDate(row[firstAidExpiryCol]);
+                    const aedBatteryExpiryDate = formatDate(row[aedBatteryCol]);
+                    const aedElectrodesExpiryDate = formatDate(row[aedElectrodesCol]);
 
                     let nextRefill = '';
                     let nextHpt = '';
@@ -735,6 +778,9 @@ export default function EmergencyEquipment() {
                         lastInspection: lastInsp, nextInspection: nextInsp,
                         extinguisherType: extType, lastRefillDate: lastRefill, nextRefillDate: nextRefill,
                         lastHptDate: lastHpt, nextHptDate: nextHpt,
+                        firstAidContentsExpiryDate,
+                        aedBatteryExpiryDate,
+                        aedElectrodesExpiryDate,
                         notes: row[notesCol] || 'Imported via Bulk Upload',
                         publicQrEnabled: true,
                         updatedBy: session.name || session.email,
@@ -785,6 +831,20 @@ export default function EmergencyEquipment() {
             if (e.nextHptDate) {
                 if (e.nextHptDate < todayStr) badges.push(<span key="hpt-exp" className="bg-red-900/30 text-red-400 border border-red-500/30 px-2 py-1 rounded text-[9px] font-bold uppercase tracking-widest animate-pulse">HPT OVERDUE</span>);
                 else if (e.nextHptDate <= dueSoonStr) badges.push(<span key="hpt-due" className="bg-orange-900/30 text-orange-400 border border-orange-500/30 px-2 py-1 rounded text-[9px] font-bold uppercase tracking-widest">HPT DUE SOON</span>);
+            }
+        }
+        if (e.type === 'First Aid Kit' && e.firstAidContentsExpiryDate) {
+            if (e.firstAidContentsExpiryDate < todayStr) badges.push(<span key="first-aid-exp" className="bg-red-900/30 text-red-400 border border-red-500/30 px-2 py-1 rounded text-[9px] font-bold uppercase tracking-widest animate-pulse">CONTENTS EXPIRED</span>);
+            else if (e.firstAidContentsExpiryDate <= dueSoonStr) badges.push(<span key="first-aid-due" className="bg-orange-900/30 text-orange-400 border border-orange-500/30 px-2 py-1 rounded text-[9px] font-bold uppercase tracking-widest">CONTENTS EXPIRING</span>);
+        }
+        if (e.type === 'AED / Defibrillator') {
+            if (e.aedBatteryExpiryDate) {
+                if (e.aedBatteryExpiryDate < todayStr) badges.push(<span key="aed-battery-exp" className="bg-red-900/30 text-red-400 border border-red-500/30 px-2 py-1 rounded text-[9px] font-bold uppercase tracking-widest animate-pulse">BATTERY EXPIRED</span>);
+                else if (e.aedBatteryExpiryDate <= dueSoonStr) badges.push(<span key="aed-battery-due" className="bg-orange-900/30 text-orange-400 border border-orange-500/30 px-2 py-1 rounded text-[9px] font-bold uppercase tracking-widest">BATTERY EXPIRING</span>);
+            }
+            if (e.aedElectrodesExpiryDate) {
+                if (e.aedElectrodesExpiryDate < todayStr) badges.push(<span key="aed-electrodes-exp" className="bg-red-900/30 text-red-400 border border-red-500/30 px-2 py-1 rounded text-[9px] font-bold uppercase tracking-widest animate-pulse">ELECTRODES EXPIRED</span>);
+                else if (e.aedElectrodesExpiryDate <= dueSoonStr) badges.push(<span key="aed-electrodes-due" className="bg-orange-900/30 text-orange-400 border border-orange-500/30 px-2 py-1 rounded text-[9px] font-bold uppercase tracking-widest">ELECTRODES EXPIRING</span>);
             }
         }
 
@@ -889,6 +949,26 @@ export default function EmergencyEquipment() {
                                 <p className="mt-2 text-sm text-slate-300">{inspectData.notes}</p>
                             </div>
                         )}
+
+                        {inspectData.type === 'First Aid Kit' && (
+                            <div className="mt-4 rounded-2xl border border-emerald-500/20 bg-emerald-950/20 p-4">
+                                <p className="text-[10px] font-bold uppercase tracking-[0.25em] text-emerald-300">Contents Expiry Date</p>
+                                <p className="mt-2 text-sm font-bold text-white">{inspectData.firstAidContentsExpiryDate || 'N/A'}</p>
+                            </div>
+                        )}
+
+                        {inspectData.type === 'AED / Defibrillator' && (
+                            <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
+                                <div className="rounded-2xl border border-pink-500/20 bg-pink-950/20 p-4">
+                                    <p className="text-[10px] font-bold uppercase tracking-[0.25em] text-pink-300">Battery Expiry Date</p>
+                                    <p className="mt-2 text-sm font-bold text-white">{inspectData.aedBatteryExpiryDate || 'N/A'}</p>
+                                </div>
+                                <div className="rounded-2xl border border-pink-500/20 bg-pink-950/20 p-4">
+                                    <p className="text-[10px] font-bold uppercase tracking-[0.25em] text-pink-300">Electrode Expiry Date</p>
+                                    <p className="mt-2 text-sm font-bold text-white">{inspectData.aedElectrodesExpiryDate || 'N/A'}</p>
+                                </div>
+                            </div>
+                        )}
                     </div>
 
                     <div className="mt-6 flex flex-wrap gap-3">
@@ -939,7 +1019,7 @@ export default function EmergencyEquipment() {
                                     <h2 className="text-2xl font-bold text-white flex items-center gap-3">Facility Registry</h2>
                                     <p className="text-sm text-slate-400">QR-Enabled inspection tracking for life-safety apparatus.</p>
                                 </div>
-                                {canEdit && <button onClick={() => { const today = getTodayDate(); setFormData({ id: '', siteId: siteFilter === 'All' ? '' : siteFilter, type: 'Fire Extinguisher', location: '', assetId: '', lastInspection: today, nextInspection: addDaysToDate(today, INSPECTION_INTERVAL_DAYS), status: 'Active', notes: '', extinguisherType: '', lastRefillDate: '', lastHptDate: '', nextRefillDate: '', nextHptDate: '' }); setView('form'); }} className="bg-gradient-to-tr from-orange-600 to-red-500 hover:from-orange-500 hover:to-red-400 text-white px-5 py-2.5 rounded-xl font-bold text-sm shadow-lg flex items-center gap-2 transition-transform active:scale-95 whitespace-nowrap"><i className="fas fa-plus"></i> Add Equipment</button>}
+                                {canEdit && <button onClick={() => { setFormData(createEquipmentFormState(siteFilter === 'All' ? '' : siteFilter)); setView('form'); }} className="bg-gradient-to-tr from-orange-600 to-red-500 hover:from-orange-500 hover:to-red-400 text-white px-5 py-2.5 rounded-xl font-bold text-sm shadow-lg flex items-center gap-2 transition-transform active:scale-95 whitespace-nowrap"><i className="fas fa-plus"></i> Add Equipment</button>}
                             </div>
 
                             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-2">
@@ -1089,6 +1169,48 @@ export default function EmergencyEquipment() {
                                     </div>
                                 )}
 
+                                {formData.type === 'First Aid Kit' && (
+                                    <div className="md:col-span-2 bg-emerald-950/20 p-6 rounded-2xl border border-emerald-500/30 mb-2 space-y-4 shadow-inner">
+                                        <div className="flex items-center gap-3 mb-2">
+                                            <div className="w-8 h-8 rounded-full bg-emerald-600 text-white flex items-center justify-center shadow-lg"><i className="fas fa-medkit"></i></div>
+                                            <div>
+                                                <h4 className="text-sm font-bold text-emerald-400 uppercase tracking-widest">First Aid Consumable Control</h4>
+                                                <p className="text-[10px] text-emerald-300/70">Record the expiry date of the stocked first aid box contents.</p>
+                                            </div>
+                                        </div>
+
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                            <div>
+                                                <label className="text-[10px] uppercase font-bold text-slate-300 block mb-2">Contents Expiry Date</label>
+                                                <input type="date" value={formData.firstAidContentsExpiryDate || ''} onChange={e => setFormData({ ...formData, firstAidContentsExpiryDate: e.target.value })} className="w-full bg-slate-950 border border-emerald-900/50 rounded-xl p-3 text-white outline-none focus:border-emerald-500 font-mono text-xs" />
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {formData.type === 'AED / Defibrillator' && (
+                                    <div className="md:col-span-2 bg-pink-950/20 p-6 rounded-2xl border border-pink-500/30 mb-2 space-y-4 shadow-inner">
+                                        <div className="flex items-center gap-3 mb-2">
+                                            <div className="w-8 h-8 rounded-full bg-pink-500 text-white flex items-center justify-center shadow-lg"><i className="fas fa-heartbeat"></i></div>
+                                            <div>
+                                                <h4 className="text-sm font-bold text-pink-400 uppercase tracking-widest">AED Consumable Control</h4>
+                                                <p className="text-[10px] text-pink-300/70">Record the expiry dates of the AED battery and electrode pads.</p>
+                                            </div>
+                                        </div>
+
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                            <div>
+                                                <label className="text-[10px] uppercase font-bold text-slate-300 block mb-2">Battery Expiry Date</label>
+                                                <input type="date" value={formData.aedBatteryExpiryDate || ''} onChange={e => setFormData({ ...formData, aedBatteryExpiryDate: e.target.value })} className="w-full bg-slate-950 border border-pink-900/50 rounded-xl p-3 text-white outline-none focus:border-pink-500 font-mono text-xs" />
+                                            </div>
+                                            <div>
+                                                <label className="text-[10px] uppercase font-bold text-slate-300 block mb-2">Electrode Expiry Date</label>
+                                                <input type="date" value={formData.aedElectrodesExpiryDate || ''} onChange={e => setFormData({ ...formData, aedElectrodesExpiryDate: e.target.value })} className="w-full bg-slate-950 border border-pink-900/50 rounded-xl p-3 text-white outline-none focus:border-pink-500 font-mono text-xs" />
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+
                                 <div className="md:col-span-2">
                                     <label className="text-[10px] uppercase font-bold text-slate-400 block mb-2">Exact Location on Site</label>
                                     <input value={formData.location} onChange={e => setFormData({ ...formData, location: e.target.value })} placeholder="e.g. Ground Floor Kitchen, Next to Exit A" className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-white outline-none focus:border-orange-500" />
@@ -1177,6 +1299,9 @@ export default function EmergencyEquipment() {
                                                 <th className="p-4 border-r border-slate-800 text-red-400">Extinguisher Type (IS 2190)</th>
                                                 <th className="p-4 border-r border-slate-800 text-red-400">Last Refill Date</th>
                                                 <th className="p-4 border-r border-slate-800 text-red-400">Last HPT Date</th>
+                                                <th className="p-4 border-r border-slate-800 text-emerald-400">First Aid Contents Expiry</th>
+                                                <th className="p-4 border-r border-slate-800 text-pink-400">AED Battery Expiry</th>
+                                                <th className="p-4 border-r border-slate-800 text-pink-400">AED Electrodes Expiry</th>
                                                 <th className="p-4">Notes</th>
                                             </tr>
                                         </thead>
@@ -1191,6 +1316,9 @@ export default function EmergencyEquipment() {
                                                 <td className="p-4 border-r border-slate-800">ABC Powder / DCP (Stored Pressure)</td>
                                                 <td className="p-4 border-r border-slate-800">2023-05-10</td>
                                                 <td className="p-4 border-r border-slate-800">2023-05-10</td>
+                                                <td className="p-4 border-r border-slate-800 bg-slate-900 text-slate-600 italic">Leave blank</td>
+                                                <td className="p-4 border-r border-slate-800 bg-slate-900 text-slate-600 italic">Leave blank</td>
+                                                <td className="p-4 border-r border-slate-800 bg-slate-900 text-slate-600 italic">Leave blank</td>
                                                 <td className="p-4 text-slate-400">Mounted securely.</td>
                                             </tr>
                                             <tr className="hover:bg-slate-900/50 transition-colors">
@@ -1201,6 +1329,9 @@ export default function EmergencyEquipment() {
                                                 <td className="p-4 border-r border-slate-800 text-emerald-400">Active</td>
                                                 <td className="p-4 border-r border-slate-800">2025-02-01</td>
                                                 <td className="p-4 border-r border-slate-800 bg-slate-900 text-slate-600 italic">Leave blank</td>
+                                                <td className="p-4 border-r border-slate-800 bg-slate-900 text-slate-600 italic">Leave blank</td>
+                                                <td className="p-4 border-r border-slate-800 bg-slate-900 text-slate-600 italic">Leave blank</td>
+                                                <td className="p-4 border-r border-slate-800">2026-02-01</td>
                                                 <td className="p-4 border-r border-slate-800 bg-slate-900 text-slate-600 italic">Leave blank</td>
                                                 <td className="p-4 border-r border-slate-800 bg-slate-900 text-slate-600 italic">Leave blank</td>
                                                 <td className="p-4 text-slate-400">Fully stocked.</td>
@@ -1242,6 +1373,9 @@ export default function EmergencyEquipment() {
                                     {inspectData.type === 'Fire Extinguisher' && <p className="text-slate-400">Extinguisher Type: <strong className="text-orange-400">{inspectData.extinguisherType || 'Unknown'}</strong></p>}
                                     {inspectData.type === 'Fire Extinguisher' && <p className="text-slate-400">Last Refill Date: <strong className="text-white font-mono">{inspectData.lastRefillDate || 'N/A'}</strong></p>}
                                     {inspectData.type === 'Fire Extinguisher' && <p className="text-slate-400">Last Hydrostatic Test: <strong className="text-white font-mono">{inspectData.lastHptDate || 'N/A'}</strong></p>}
+                                    {inspectData.type === 'First Aid Kit' && <p className="text-slate-400">Contents Expiry Date: <strong className="text-white font-mono">{inspectData.firstAidContentsExpiryDate || 'N/A'}</strong></p>}
+                                    {inspectData.type === 'AED / Defibrillator' && <p className="text-slate-400">Battery Expiry Date: <strong className="text-white font-mono">{inspectData.aedBatteryExpiryDate || 'N/A'}</strong></p>}
+                                    {inspectData.type === 'AED / Defibrillator' && <p className="text-slate-400">Electrode Expiry Date: <strong className="text-white font-mono">{inspectData.aedElectrodesExpiryDate || 'N/A'}</strong></p>}
                                 </div>
 
                                 {inspectData.nextInspection && (
@@ -1296,6 +1430,26 @@ export default function EmergencyEquipment() {
                                         <input type="date" value={calculatedNextInspectionDate} readOnly className="w-full bg-emerald-950/20 border border-emerald-500/50 rounded-xl p-3 text-emerald-300 outline-none font-mono font-bold cursor-not-allowed" />
                                     </div>
                                 </div>
+
+                                {inspectData.type === 'First Aid Kit' && (
+                                    <div>
+                                        <label className="text-[10px] uppercase font-bold text-emerald-400 block mb-2">Contents Expiry Date</label>
+                                        <input type="date" value={inspectData.firstAidContentsExpiryDate || ''} onChange={e => setInspectData({ ...inspectData, firstAidContentsExpiryDate: e.target.value })} disabled={!canOperateInspectionSheet} className="w-full bg-slate-950 border border-emerald-500/30 rounded-xl p-3 text-white outline-none focus:border-emerald-500 font-mono font-bold disabled:opacity-60" />
+                                    </div>
+                                )}
+
+                                {inspectData.type === 'AED / Defibrillator' && (
+                                    <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                                        <div>
+                                            <label className="text-[10px] uppercase font-bold text-pink-400 block mb-2">Battery Expiry Date</label>
+                                            <input type="date" value={inspectData.aedBatteryExpiryDate || ''} onChange={e => setInspectData({ ...inspectData, aedBatteryExpiryDate: e.target.value })} disabled={!canOperateInspectionSheet} className="w-full bg-slate-950 border border-pink-500/30 rounded-xl p-3 text-white outline-none focus:border-pink-500 font-mono font-bold disabled:opacity-60" />
+                                        </div>
+                                        <div>
+                                            <label className="text-[10px] uppercase font-bold text-pink-400 block mb-2">Electrode Expiry Date</label>
+                                            <input type="date" value={inspectData.aedElectrodesExpiryDate || ''} onChange={e => setInspectData({ ...inspectData, aedElectrodesExpiryDate: e.target.value })} disabled={!canOperateInspectionSheet} className="w-full bg-slate-950 border border-pink-500/30 rounded-xl p-3 text-white outline-none focus:border-pink-500 font-mono font-bold disabled:opacity-60" />
+                                        </div>
+                                    </div>
+                                )}
 
                                 <div>
                                     <label className="text-[10px] uppercase font-bold text-slate-400 block mb-2">Overall Condition Status</label>
