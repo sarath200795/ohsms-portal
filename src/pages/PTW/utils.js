@@ -4,8 +4,10 @@ export const normalizePermit = (permit) => {
     if (!permit) return null;
     return {
         ...permit,
+        typeId: String(permit.typeId || permit.permitType || 'GEN'),
         description: String(permit.description || permit.workDescription || ''),
         location: String(permit.location || ''),
+        siteId: String(permit.siteId || permit.facility || ''),
         equipment: String(permit.equipment || ''),
         issuingDept: String(permit.issuingDept || ''),
         issuedToName: String(permit.issuedToName || ''),
@@ -24,6 +26,10 @@ export const normalizePermit = (permit) => {
         workerType: String(permit.workerType || 'Internal'),
         contractorId: String(permit.contractorId || ''),
         contractorName: String(permit.contractorName || ''),
+        lotoRef: String(permit.lotoRef || ''),
+        lotoProcedureKey: String(permit.lotoProcedureKey || ''),
+        lotoProcedureDescription: String(permit.lotoProcedureDescription || ''),
+        lotoProcedureSite: String(permit.lotoProcedureSite || ''),
         wms: ensureArray(permit.wms),
         entrantNames: ensureArray(permit.entrantNames),
         wahEquipment: ensureArray(permit.wahEquipment),

@@ -32,6 +32,30 @@ import ReassignModalComponent from './components/ReassignModal';
 import PrintViewComponent from './components/PrintView';
 import { getStatusColor, normalizePermit } from './utils';
 
+const isApprovedLotoProcedureForSite = (procedure, siteId) => (
+    Boolean(procedure)
+    && Boolean(siteId)
+    && String(procedure.status || '').trim().toLowerCase() === 'approved'
+    && String(procedure.facility || '').trim() === String(siteId).trim()
+);
+
+const buildLotoLinkFields = (procedure) => ({
+    lotoRef: procedure?.id || '',
+    lotoProcedureKey: procedure?.firebaseKey || '',
+    lotoProcedureDescription: procedure?.description || '',
+    lotoProcedureSite: procedure?.facility || ''
+});
+
+const findLinkedLotoProcedure = (procedures, permit) => {
+    if (!permit) return null;
+    const linkedKey = String(permit.lotoProcedureKey || '').trim();
+    const linkedRef = String(permit.lotoRef || '').trim();
+    return procedures.find((procedure) => (
+        (linkedKey && String(procedure.firebaseKey || '').trim() === linkedKey)
+        || (linkedRef && String(procedure.id || '').trim() === linkedRef)
+    )) || null;
+};
+
 function PtwDashboardView({
     allowedSites,
     handleSiteFilterChange,
@@ -357,9 +381,11 @@ function PermitBuilderView(props) {
         canEditForm,
         formData,
         handleSave,
+        handleLotoSelection,
+        handleSiteChange,
         handleTypeChange,
         isGlobalUser,
-        lotoProcedures,
+        approvedLotoProcedures,
         myEmail,
         myName,
         newNC,
@@ -371,6 +397,7 @@ function PermitBuilderView(props) {
         setInspectionModal,
         setInspectionObservation,
         setNewNC,
+        selectedLotoProcedure,
         toggleChecklistItem,
         togglePPE,
         toggleWahEquip,
@@ -437,10 +464,7 @@ function PermitBuilderView(props) {
                             <label className="mb-2 block text-[10px] font-bold uppercase tracking-widest text-slate-400">Site / Facility</label>
                             <select
                                 value={formData.siteId}
-                                onChange={(event) => {
-                                    updateField('siteId', event.target.value);
-                                    setFormData((prev) => ({ ...prev, contractorId: '', entrantNames: [] }));
-                                }}
+                                onChange={(event) => handleSiteChange(event.target.value)}
                                 disabled={formData.status !== 'Draft' || (!isGlobalUser && allowedSites.length <= 1) || !canEditForm}
                                 className="font-bold text-white shadow-inner"
                             >
@@ -576,18 +600,45 @@ function PermitBuilderView(props) {
                         <label className="mb-3 block text-xs font-bold uppercase tracking-widest text-amber-400 font-['Space_Grotesk']">
                             <i className="fas fa-lock mr-2"></i> LOTO Linkage Required
                         </label>
-                        <select value={formData.lotoRef} onChange={(event) => updateField('lotoRef', event.target.value)} disabled={formData.status !== 'Draft' || !canEditForm} className="border border-amber-900/50 p-4 text-base font-bold text-white shadow-inner focus:border-amber-500">
-                            <option value="">-- Select Active Approved LOTO Procedure --</option>
-                            {lotoProcedures
-                                .filter((procedure) => procedure.status === 'Approved' && (procedure.facility === formData.siteId || !formData.siteId))
-                                .map((procedure) => (
-                                    <option key={procedure.id} value={procedure.id}>
-                                        {procedure.id} - {procedure.description}
-                                    </option>
-                                ))}
+                        <select
+                            value={selectedLotoProcedure?.firebaseKey || formData.lotoProcedureKey || ''}
+                            onChange={(event) => handleLotoSelection(event.target.value)}
+                            disabled={formData.status !== 'Draft' || !canEditForm || !formData.siteId || approvedLotoProcedures.length === 0}
+                            className="border border-amber-900/50 p-4 text-base font-bold text-white shadow-inner focus:border-amber-500"
+                        >
+                            <option value="">
+                                {!formData.siteId
+                                    ? '-- Select Site First --'
+                                    : approvedLotoProcedures.length === 0
+                                        ? '-- No Approved Site LOTO Procedures --'
+                                        : '-- Select Approved Site LOTO Procedure --'}
+                            </option>
+                            {approvedLotoProcedures.map((procedure) => (
+                                <option key={procedure.firebaseKey || procedure.id} value={procedure.firebaseKey || ''}>
+                                    {procedure.id} - {procedure.description}
+                                </option>
+                            ))}
                         </select>
+                        {!formData.siteId && (
+                            <p className="mt-3 text-xs text-amber-300">
+                                <i className="fas fa-info-circle mr-1"></i> Choose the PTW site first so we can load the approved LOTO procedures for that facility.
+                            </p>
+                        )}
+                        {formData.siteId && approvedLotoProcedures.length === 0 && (
+                            <p className="mt-3 text-xs text-red-300">
+                                <i className="fas fa-triangle-exclamation mr-1"></i> No approved LOTO procedures are available for this site yet. Approve a LOTO procedure before issuing this electrical permit.
+                            </p>
+                        )}
+                        {selectedLotoProcedure && (
+                            <div className="mt-4 rounded-2xl border border-amber-500/30 bg-slate-950/40 p-4 text-sm text-slate-200">
+                                <div className="text-[10px] font-bold uppercase tracking-widest text-amber-400">Linked Procedure</div>
+                                <div className="mt-2 font-mono font-bold text-white">{selectedLotoProcedure.id}</div>
+                                <div className="mt-1">{selectedLotoProcedure.description}</div>
+                                <div className="mt-2 text-[10px] uppercase tracking-widest text-slate-500">Site: {selectedLotoProcedure.facility}</div>
+                            </div>
+                        )}
                         <p className="mt-3 text-xs text-slate-500">
-                            <i className="fas fa-info-circle mr-1"></i> Electrical permits require a designated energy isolation protocol to be selected before authorization.
+                            <i className="fas fa-info-circle mr-1"></i> Electrical permits must be tied to an approved energy isolation procedure for the same site before the permit can be saved.
                         </p>
                     </div>
                 )}
@@ -1381,6 +1432,18 @@ export default function FullScreenPTW() {
         return [];
     }, [contractors, formData, users]);
 
+    const approvedLotoProcedures = useMemo(() => {
+        if (!formData?.siteId) return [];
+        return lotoProcedures
+            .filter((procedure) => isApprovedLotoProcedureForSite(procedure, formData.siteId))
+            .sort((left, right) => String(left.id || '').localeCompare(String(right.id || '')));
+    }, [formData?.siteId, lotoProcedures]);
+
+    const selectedLotoProcedure = useMemo(() => {
+        const procedure = findLinkedLotoProcedure(lotoProcedures, formData);
+        return isApprovedLotoProcedureForSite(procedure, formData?.siteId) ? procedure : null;
+    }, [formData, lotoProcedures]);
+
     const canInspectPermit = (permit) => {
         if (!permit || !session) return false;
         const hasSiteAccess = isGlobalUser || allowedSiteCodes.has(permit.siteId);
@@ -1410,6 +1473,10 @@ export default function FullScreenPTW() {
         setPrintData(null);
         if (record) {
             const permitToEdit = normalizePermit({ ...record });
+            const linkedLotoProcedure = findLinkedLotoProcedure(lotoProcedures, permitToEdit);
+            if (linkedLotoProcedure) {
+                Object.assign(permitToEdit, buildLotoLinkFields(linkedLotoProcedure));
+            }
             if (permitToEdit.wms.length === 0) permitToEdit.wms = [{ step: '', hazard: '', precaution: '' }];
             if (permitToEdit.ppe.length === 0) permitToEdit.ppe = ['Hard Hat', 'Safety Glasses', 'Safety Shoes'];
             if (permitToEdit.checklist.length === 0) {
@@ -1441,6 +1508,9 @@ export default function FullScreenPTW() {
                 toxicGas: '',
                 flammability: '',
                 lotoRef: '',
+                lotoProcedureKey: '',
+                lotoProcedureDescription: '',
+                lotoProcedureSite: '',
                 wahEquipment: [],
                 wms: [{ step: '', hazard: '', precaution: '' }],
                 validFromDate: new Date().toISOString().split('T')[0],
@@ -1469,15 +1539,44 @@ export default function FullScreenPTW() {
             ...prev,
             typeId: newTypeId,
             permitType: getTypeConfig(newTypeId).label,
+            ...(newTypeId === 'ELE'
+                ? {}
+                : buildLotoLinkFields(null)),
             checklist: prev.status === 'Draft'
                 ? (CHECKLIST_ITEMS[newTypeId] || CHECKLIST_ITEMS.GEN).map((item) => ({ label: item, checked: false }))
                 : prev.checklist
         }));
     };
 
+    const handleSiteChange = (siteId) => {
+        if (!canEditForm) return;
+        setFormData((prev) => {
+            const existingProcedure = findLinkedLotoProcedure(lotoProcedures, prev);
+            return {
+                ...prev,
+                siteId,
+                contractorId: '',
+                contractorName: '',
+                entrantNames: [],
+                ...(prev.typeId === 'ELE' && !isApprovedLotoProcedureForSite(existingProcedure, siteId)
+                    ? buildLotoLinkFields(null)
+                    : {})
+            };
+        });
+    };
+
     const updateField = (field, value) => {
         if (!canEditForm) return;
         setFormData((prev) => ({ ...prev, [field]: value }));
+    };
+
+    const handleLotoSelection = (procedureKey) => {
+        if (!canEditForm) return;
+        const linkedProcedure = approvedLotoProcedures.find((procedure) => String(procedure.firebaseKey || '') === String(procedureKey || ''));
+        setFormData((prev) => ({
+            ...prev,
+            ...buildLotoLinkFields(linkedProcedure || null)
+        }));
     };
 
     const toggleWorker = (name) => {
@@ -1549,11 +1648,21 @@ export default function FullScreenPTW() {
             return;
         }
 
+        const linkedLotoProcedure = formData.typeId === 'ELE'
+            ? findLinkedLotoProcedure(lotoProcedures, formData)
+            : null;
+
+        if (formData.typeId === 'ELE' && !isApprovedLotoProcedureForSite(linkedLotoProcedure, formData.siteId)) {
+            alert('Electrical permits require one approved LOTO procedure from the same site before they can be saved.');
+            return;
+        }
+
         setSaving(true);
         try {
             const { firebaseKey, ...payload } = formData;
             payload.lastUpdated = new Date().toISOString();
             payload.publicQrEnabled = Boolean(payload.publicQrEnabled);
+            Object.assign(payload, formData.typeId === 'ELE' ? buildLotoLinkFields(linkedLotoProcedure) : buildLotoLinkFields(null));
             if (payload.workerType === 'Contractor') {
                 const vendor = contractors.find((contractor) => contractor.firebaseKey === payload.contractorId);
                 if (vendor) payload.contractorName = vendor.companyName;
@@ -1953,9 +2062,11 @@ export default function FullScreenPTW() {
                             canEditForm={canEditForm}
                             formData={formData}
                             handleSave={handleSave}
+                            handleLotoSelection={handleLotoSelection}
+                            handleSiteChange={handleSiteChange}
                             handleTypeChange={handleTypeChange}
                             isGlobalUser={isGlobalUser}
-                            lotoProcedures={lotoProcedures}
+                            approvedLotoProcedures={approvedLotoProcedures}
                             myEmail={myEmail}
                             myName={myName}
                             newNC={newNC}
@@ -1967,6 +2078,7 @@ export default function FullScreenPTW() {
                             setInspectionModal={setInspectionModal}
                             setInspectionObservation={setInspectionObservation}
                             setNewNC={setNewNC}
+                            selectedLotoProcedure={selectedLotoProcedure}
                             toggleChecklistItem={toggleChecklistItem}
                             togglePPE={togglePPE}
                             toggleWahEquip={toggleWahEquip}

@@ -124,10 +124,19 @@ export default function PrintView({ printData, qrImage }) {
                                 </tr>
                             )}
                             {printData.typeId === 'ELE' && (
-                                <tr>
-                                    <td className="w-1/4 py-1 font-bold">LOTO Procedure Ref:</td>
-                                    <td className="py-1 font-mono font-bold">{printData.lotoRef || 'N/A'}</td>
-                                </tr>
+                                <>
+                                    <tr>
+                                        <td className="w-1/4 py-1 font-bold">LOTO Procedure Ref:</td>
+                                        <td className="py-1 font-mono font-bold">{printData.lotoRef || 'N/A'}</td>
+                                    </tr>
+                                    <tr>
+                                        <td className="w-1/4 py-1 font-bold">LOTO Procedure Detail:</td>
+                                        <td className="py-1">
+                                            {printData.lotoProcedureDescription || 'N/A'}
+                                            {printData.lotoProcedureSite ? ` (${printData.lotoProcedureSite})` : ''}
+                                        </td>
+                                    </tr>
+                                </>
                             )}
                             {printData.typeId === 'WAH' && (
                                 <tr>

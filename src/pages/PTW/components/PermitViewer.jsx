@@ -175,7 +175,13 @@ export default function PermitViewer({
                         {permit.oxygenLevel && <div><span className="font-bold text-white">Oxygen:</span> {permit.oxygenLevel}</div>}
                         {permit.flammability && <div><span className="font-bold text-white">Flammability:</span> {permit.flammability}</div>}
                         {permit.toxicGas && <div><span className="font-bold text-white">Toxic Gas:</span> {permit.toxicGas}</div>}
-                        {permit.lotoRef && <div><span className="font-bold text-white">LOTO Ref:</span> {permit.lotoRef}</div>}
+                        {permit.lotoRef && (
+                            <div>
+                                <span className="font-bold text-white">LOTO Ref:</span> {permit.lotoRef}
+                                {permit.lotoProcedureDescription ? ` - ${permit.lotoProcedureDescription}` : ''}
+                                {permit.lotoProcedureSite ? ` (${permit.lotoProcedureSite})` : ''}
+                            </div>
+                        )}
                         {safeArr(permit.wahEquipment).length > 0 && <div><span className="font-bold text-white">WAH Equipment:</span> {safeArr(permit.wahEquipment).join(', ')}</div>}
                         {!permit.fireWatcherName && !permit.attendantName && !permit.entrySupervisorName && !permit.oxygenLevel && !permit.flammability && !permit.toxicGas && !permit.lotoRef && safeArr(permit.wahEquipment).length === 0 && (
                             <div className="italic text-slate-500">No specialized controls recorded.</div>
