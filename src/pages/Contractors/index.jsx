@@ -27,12 +27,16 @@ import { canEditCreateForRole, getAllowedSiteCodes, hasAccessibleModule, isGloba
 import { readStoredSession } from '../../utils/session';
 import { generateVendorPortalPassword } from '../../utils/security';
 
-const buildVendorPortalUrl = (email = '') => {
+const buildVendorPortalUrl = (email = '', options = {}) => {
     const url = new URL('/vendor-portal', window.location.origin);
     if (email) {
         url.searchParams.set('email', normalizeEmail(email));
         url.searchParams.set('source', 'contractor-management');
     }
+    if (options.orgId) url.searchParams.set('orgId', options.orgId);
+    if (options.contractorId) url.searchParams.set('contractorId', options.contractorId);
+    if (options.siteId) url.searchParams.set('siteId', options.siteId);
+    if (options.bootstrap) url.searchParams.set('bootstrap', '1');
     return url.toString();
 };
 
@@ -403,6 +407,7 @@ export default function Contractors() {
             let provisioningWarning = '';
             let issuedPortalPassword = '';
             let setupEmail = null;
+            let portalBootstrapPending = false;
             const baseUserPayload = {
                 name: activeVendor.contactPerson || activeVendor.companyName || 'Vendor Portal User',
                 email: vendorEmail,
@@ -454,9 +459,10 @@ export default function Contractors() {
                                         : provisioningWarning;
                                 } catch (createError) {
                                     if (createError?.code === 'auth/email-already-in-use') {
-                                        throw new Error('This email already exists in Firebase Authentication. Link it from the Users module first, then provision the contractor portal on the same shared login.');
+                                        portalBootstrapPending = true;
+                                        provisioningWarning = 'This email already exists in Firebase Authentication. A secure setup link will be sent so the vendor can finish linking this contractor profile on first sign-in.';
                                     }
-                                    throw createError;
+                                    else throw createError;
                                 }
                             } else {
                                 throw authError;
@@ -483,9 +489,10 @@ export default function Contractors() {
                                     issuedPortalPassword = nextPortalPassword;
                                 } catch (createError) {
                                     if (createError?.code === 'auth/email-already-in-use') {
-                                        throw new Error('This email already exists in Firebase Authentication. Add or update the same email in the Users module so the contractor portal can reuse that shared login.');
+                                        portalBootstrapPending = true;
+                                        provisioningWarning = 'This email already exists in Firebase Authentication. A secure setup link will be sent so the vendor can finish linking this contractor profile on first sign-in.';
                                     }
-                                    throw createError;
+                                    else throw createError;
                                 }
                             } else {
                                 throw authError;
@@ -497,13 +504,18 @@ export default function Contractors() {
                 }
             }
 
-            if (!portalUid) {
+            if (!portalUid && !portalBootstrapPending) {
                 throw new Error('Unable to provision a vendor portal auth account for this contractor.');
             }
 
             const portalPasswordManaged = Boolean(issuedPortalPassword);
             try {
-                setupEmail = await sendVendorPortalSetupLink(vendorEmail);
+                setupEmail = await sendVendorPortalSetupLink({
+                    vendorEmail,
+                    contractorId: activeVendor.firebaseKey,
+                    siteId: primarySite,
+                    bootstrap: portalBootstrapPending
+                });
             } catch (setupError) {
                 provisioningWarning = provisioningWarning
                     ? `${provisioningWarning} Setup email could not be sent automatically: ${setupError.message}`
@@ -511,78 +523,98 @@ export default function Contractors() {
             }
 
             const setupEmailSent = Boolean(setupEmail?.sentAt);
-            const nextUserPayload = {
-                ...baseUserPayload,
-                status: 'Active',
-                mustChangePassword: setupEmailSent ? false : portalPasswordManaged,
-                temporaryPasswordIssued: setupEmailSent ? false : portalPasswordManaged,
-                temporaryPasswordIssuedAt: setupEmailSent ? null : (portalPasswordManaged ? nowIso : null),
-                passwordUpdatedAt: portalPasswordManaged && !setupEmailSent ? null : (existingOrgUser?.passwordUpdatedAt || null),
-                portalSetupLinkSentAt: setupEmail?.sentAt || existingOrgUser?.portalSetupLinkSentAt || null,
-                portalSetupLinkSentBy: setupEmail?.sentAt ? (session.email || session.name || 'Global Owner') : (existingOrgUser?.portalSetupLinkSentBy || null),
-                portalSharedIdentity: reusingExistingOrgIdentity
-            };
+            if (portalUid) {
+                const nextUserPayload = {
+                    ...baseUserPayload,
+                    status: 'Active',
+                    mustChangePassword: setupEmailSent ? false : portalPasswordManaged,
+                    temporaryPasswordIssued: setupEmailSent ? false : portalPasswordManaged,
+                    temporaryPasswordIssuedAt: setupEmailSent ? null : (portalPasswordManaged ? nowIso : null),
+                    passwordUpdatedAt: portalPasswordManaged && !setupEmailSent ? null : (existingOrgUser?.passwordUpdatedAt || null),
+                    portalSetupLinkSentAt: setupEmail?.sentAt || existingOrgUser?.portalSetupLinkSentAt || null,
+                    portalSetupLinkSentBy: setupEmail?.sentAt ? (session.email || session.name || 'Global Owner') : (existingOrgUser?.portalSetupLinkSentBy || null),
+                    portalSharedIdentity: reusingExistingOrgIdentity
+                };
 
-            await update(ref(rtdb, `organizations/${session.orgId}/users/${portalUid}`), nextUserPayload);
+                await update(ref(rtdb, `organizations/${session.orgId}/users/${portalUid}`), nextUserPayload);
 
-            if (existingOrgUser?.firebaseKey && existingOrgUser.firebaseKey !== portalUid) {
-                await update(ref(rtdb, `organizations/${session.orgId}/users/${existingOrgUser.firebaseKey}`), {
-                    status: 'Deleted',
-                    vendorPortal: false,
-                    portalLinkedContractorId: '',
-                    supersededByUid: portalUid,
-                    deletedAt: nowIso,
-                    deletedBy: session.email || session.name || 'Global Owner'
+                if (existingOrgUser?.firebaseKey && existingOrgUser.firebaseKey !== portalUid) {
+                    await update(ref(rtdb, `organizations/${session.orgId}/users/${existingOrgUser.firebaseKey}`), {
+                        status: 'Deleted',
+                        vendorPortal: false,
+                        portalLinkedContractorId: '',
+                        supersededByUid: portalUid,
+                        deletedAt: nowIso,
+                        deletedBy: session.email || session.name || 'Global Owner'
+                    });
+                }
+
+                try {
+                    await set(ref(rtdb, `userDirectory/${portalUid}`), { orgId: session.orgId });
+                } catch (dirError) {
+                    const dirMessage = String(dirError?.message || '').toLowerCase();
+                    if (dirMessage.includes('permission denied')) {
+                        if (!createdPortalAuthUser && existingOrgUser) {
+                            provisioningWarning = provisioningWarning || 'Portal access was linked to an existing organization user. The userDirectory record could not be recreated from this screen, which usually means it already exists. If login still fails, verify that userDirectory points this user to the correct organization.';
+                        } else {
+                            throw new Error('This vendor email is already tied to a Firebase Auth account that cannot be linked automatically from this screen. If that account already belongs to another org or already has a userDirectory entry, please fix it in Firebase first and then provision again.');
+                        }
+                    } else {
+                        throw dirError;
+                    }
+                }
+
+                await updateVendorDB(activeVendor.firebaseKey, {
+                    email: vendorEmail,
+                    portalUid,
+                    portalSharedIdentity: reusingExistingOrgIdentity,
+                    portalBootstrapPending: false,
+                    portalBootstrapEmail: '',
+                    portalAssignedSite: primarySite,
+                    portalProvisionedAt: nowIso,
+                    portalProvisionedBy: session.email,
+                    portalSetupLinkSentAt: setupEmail?.sentAt || activeVendor.portalSetupLinkSentAt || null,
+                    portalSetupLinkSentBy: setupEmail?.sentAt ? (session.email || session.name || 'Global Owner') : (activeVendor.portalSetupLinkSentBy || null),
+                    portalPasswordRotatedAt: portalPasswordManaged ? nowIso : (activeVendor.portalPasswordRotatedAt || null),
+                    portalPasswordRotatedBy: portalPasswordManaged ? session.email : (activeVendor.portalPasswordRotatedBy || null)
+                });
+
+                setOrgUsers((prev) => {
+                    const nextUser = { firebaseKey: portalUid, ...nextUserPayload };
+                    const updated = prev.map((user) => (
+                        existingOrgUser?.firebaseKey && user.firebaseKey === existingOrgUser.firebaseKey && existingOrgUser.firebaseKey !== portalUid
+                            ? {
+                                ...user,
+                                status: 'Deleted',
+                                vendorPortal: false,
+                                portalLinkedContractorId: '',
+                                supersededByUid: portalUid,
+                                deletedAt: nowIso,
+                                deletedBy: session.email || session.name || 'Global Owner'
+                            }
+                            : user
+                    ));
+                    const index = updated.findIndex((user) => user.firebaseKey === portalUid);
+                    if (index === -1) return [...updated, nextUser];
+                    updated[index] = { ...updated[index], ...nextUser };
+                    return updated;
+                });
+            } else {
+                await updateVendorDB(activeVendor.firebaseKey, {
+                    email: vendorEmail,
+                    portalUid: '',
+                    portalSharedIdentity: false,
+                    portalBootstrapPending: true,
+                    portalBootstrapEmail: vendorEmail,
+                    portalAssignedSite: primarySite,
+                    portalProvisionedAt: nowIso,
+                    portalProvisionedBy: session.email,
+                    portalSetupLinkSentAt: setupEmail?.sentAt || activeVendor.portalSetupLinkSentAt || null,
+                    portalSetupLinkSentBy: setupEmail?.sentAt ? (session.email || session.name || 'Global Owner') : (activeVendor.portalSetupLinkSentBy || null),
+                    portalPasswordRotatedAt: null,
+                    portalPasswordRotatedBy: null
                 });
             }
-
-            try {
-                await set(ref(rtdb, `userDirectory/${portalUid}`), { orgId: session.orgId });
-            } catch (dirError) {
-                const dirMessage = String(dirError?.message || '').toLowerCase();
-                if (dirMessage.includes('permission denied')) {
-                    if (!createdPortalAuthUser && existingOrgUser) {
-                        provisioningWarning = provisioningWarning || 'Portal access was linked to an existing organization user. The userDirectory record could not be recreated from this screen, which usually means it already exists. If login still fails, verify that userDirectory points this user to the correct organization.';
-                    } else {
-                        throw new Error('This vendor email is already tied to a Firebase Auth account that cannot be linked automatically from this screen. If that account already belongs to another org or already has a userDirectory entry, please fix it in Firebase first and then provision again.');
-                    }
-                } else {
-                    throw dirError;
-                }
-            }
-
-            await updateVendorDB(activeVendor.firebaseKey, {
-                email: vendorEmail,
-                portalUid,
-                portalSharedIdentity: reusingExistingOrgIdentity,
-                portalProvisionedAt: nowIso,
-                portalProvisionedBy: session.email,
-                portalSetupLinkSentAt: setupEmail?.sentAt || activeVendor.portalSetupLinkSentAt || null,
-                portalSetupLinkSentBy: setupEmail?.sentAt ? (session.email || session.name || 'Global Owner') : (activeVendor.portalSetupLinkSentBy || null),
-                portalPasswordRotatedAt: portalPasswordManaged ? nowIso : (activeVendor.portalPasswordRotatedAt || null),
-                portalPasswordRotatedBy: portalPasswordManaged ? session.email : (activeVendor.portalPasswordRotatedBy || null)
-            });
-
-            setOrgUsers((prev) => {
-                const nextUser = { firebaseKey: portalUid, ...nextUserPayload };
-                const updated = prev.map((user) => (
-                    existingOrgUser?.firebaseKey && user.firebaseKey === existingOrgUser.firebaseKey && existingOrgUser.firebaseKey !== portalUid
-                        ? {
-                            ...user,
-                            status: 'Deleted',
-                            vendorPortal: false,
-                            portalLinkedContractorId: '',
-                            supersededByUid: portalUid,
-                            deletedAt: nowIso,
-                            deletedBy: session.email || session.name || 'Global Owner'
-                        }
-                        : user
-                ));
-                const index = updated.findIndex((user) => user.firebaseKey === portalUid);
-                if (index === -1) return [...updated, nextUser];
-                updated[index] = { ...updated[index], ...nextUser };
-                return updated;
-            });
 
             setPortalSuccess({
                 companyName: activeVendor.companyName,
@@ -591,6 +623,7 @@ export default function Contractors() {
                 temporaryPassword: issuedPortalPassword,
                 linkedExisting: !createdPortalAuthUser,
                 sharedIdentity: reusingExistingOrgIdentity,
+                bootstrapPending: portalBootstrapPending,
                 portalUrl: setupEmail?.portalUrl || buildVendorPortalUrl(vendorEmail),
                 setupEmailSent,
                 setupEmailSentAt: setupEmail?.sentAt || '',
@@ -668,20 +701,30 @@ export default function Contractors() {
         updateVendorDB(contractorId, { workers: updatedWorkers });
     };
 
-    const sendVendorPortalSetupLink = async (vendorEmail) => {
+    const sendVendorPortalSetupLink = async ({ vendorEmail, contractorId = '', siteId = '', bootstrap = false }) => {
         const cleanEmail = normalizeEmail(vendorEmail);
         if (!cleanEmail) {
             throw new Error('Portal email is missing on this contractor profile.');
         }
 
         const actionCodeSettings = {
-            url: buildVendorPortalUrl(cleanEmail),
+            url: buildVendorPortalUrl(cleanEmail, {
+                orgId: session?.orgId,
+                contractorId,
+                siteId,
+                bootstrap
+            }),
             handleCodeInApp: false
         };
 
         await sendPasswordResetEmail(auth, cleanEmail, actionCodeSettings);
         return {
-            portalUrl: buildVendorPortalUrl(cleanEmail),
+            portalUrl: buildVendorPortalUrl(cleanEmail, {
+                orgId: session?.orgId,
+                contractorId,
+                siteId,
+                bootstrap
+            }),
             sentAt: new Date().toISOString()
         };
     };
@@ -990,7 +1033,11 @@ export default function Contractors() {
                         }}
                         onDeleteVendor={deleteVendor}
                         onHandleDocUpload={handleDocUpload}
-                        onOpenVendorPortal={() => window.open(buildVendorPortalUrl(activeVendor?.email), '_blank', 'noopener,noreferrer')}
+                        onOpenVendorPortal={() => window.open(buildVendorPortalUrl(activeVendor?.email, {
+                            orgId: session?.orgId,
+                            contractorId: activeVendor?.firebaseKey,
+                            siteId: safeArr(activeVendor?.allocatedSites)[0] || activeVendor?.siteId || ''
+                        }), '_blank', 'noopener,noreferrer')}
                         onProvisionVendorPortalAccess={provisionVendorPortalAccess}
                         onRemoveWorker={removeWorkerFromProfile}
                         onRequestAdditionalDoc={requestAdditionalDoc}

@@ -12,7 +12,7 @@ import {
     signOut,
     updatePassword
 } from 'firebase/auth';
-import { equalTo, get, getDatabase, orderByChild, query, ref, update } from 'firebase/database';
+import { equalTo, get, getDatabase, orderByChild, query, ref, set, update } from 'firebase/database';
 import { auth } from '../config/firebase';
 
 const VENDOR_APP_NAME = 'vendor-portal-app';
@@ -134,6 +134,16 @@ export default function VendorPortal() {
     const [isPasswordSaving, setIsPasswordSaving] = useState(false);
     const manualLoginRef = useRef(false);
 
+    const getBootstrapHints = useCallback(() => {
+        const params = new URLSearchParams(window.location.search);
+        return {
+            orgId: params.get('orgId') || '',
+            contractorId: params.get('contractorId') || '',
+            siteId: params.get('siteId') || '',
+            bootstrap: params.get('bootstrap') === '1'
+        };
+    }, []);
+
     useEffect(() => {
         const params = new URLSearchParams(window.location.search);
         const prefilledEmail = normalizeEmail(params.get('email'));
@@ -160,6 +170,37 @@ export default function VendorPortal() {
         }
     }, []);
 
+    const ensureVendorBootstrapAccess = useCallback(async ({ user, cleanEmail, expectedOrgId = '', expectedContractorId = '' }) => {
+        const hints = getBootstrapHints();
+        const orgId = expectedOrgId || hints.orgId;
+        const contractorId = expectedContractorId || hints.contractorId;
+        const siteId = hints.siteId || '';
+
+        if (!orgId || !contractorId) {
+            throw new Error('This vendor login is not linked yet. Open the setup link sent by your admin or ask them to resend it.');
+        }
+
+        const nowIso = new Date().toISOString();
+        const bootstrapPayload = {
+            name: cleanEmail.split('@')[0] || 'Vendor Portal User',
+            email: cleanEmail,
+            role: 'User',
+            status: 'Active',
+            assignedSite: siteId,
+            accessibleSites: siteId ? [siteId] : [],
+            accessibleModules: [],
+            vendorPortal: true,
+            portalLinkedContractorId: contractorId,
+            portalBootstrapPending: false,
+            updatedAt: nowIso,
+            createdAt: nowIso
+        };
+
+        await set(ref(vendorDb, `organizations/${orgId}/users/${user.uid}`), bootstrapPayload);
+        await set(ref(vendorDb, `userDirectory/${user.uid}`), { orgId });
+        return { orgId, contractorId };
+    }, [getBootstrapHints]);
+
     const fetchVendorData = useCallback(async ({ user, vendorCode = '', expectedOrgId = '', expectedContractorId = '', showAlerts = true }) => {
         setLoading(true);
 
@@ -171,9 +212,18 @@ export default function VendorPortal() {
                 throw new Error('No authenticated portal session found. Please sign in again.');
             }
 
-            const userDirSnap = await get(ref(vendorDb, `userDirectory/${user.uid}`));
+            let userDirSnap = await get(ref(vendorDb, `userDirectory/${user.uid}`));
             if (!userDirSnap.exists()) {
-                throw new Error('This account is not mapped to any organization. Ask your client admin to register your portal account first.');
+                await ensureVendorBootstrapAccess({
+                    user,
+                    cleanEmail,
+                    expectedOrgId,
+                    expectedContractorId
+                });
+                userDirSnap = await get(ref(vendorDb, `userDirectory/${user.uid}`));
+                if (!userDirSnap.exists()) {
+                    throw new Error('This vendor login could not finish linking to the organization. Ask your client admin to resend the setup link.');
+                }
             }
 
             const orgId = userDirSnap.val().orgId;
@@ -181,9 +231,18 @@ export default function VendorPortal() {
                 throw new Error('This login belongs to a different organization than the saved portal session.');
             }
 
-            const orgUserSnap = await get(ref(vendorDb, `organizations/${orgId}/users/${user.uid}`));
+            let orgUserSnap = await get(ref(vendorDb, `organizations/${orgId}/users/${user.uid}`));
             if (!orgUserSnap.exists()) {
-                throw new Error('Your authenticated account is missing from the organization directory.');
+                await ensureVendorBootstrapAccess({
+                    user,
+                    cleanEmail,
+                    expectedOrgId: orgId,
+                    expectedContractorId
+                });
+                orgUserSnap = await get(ref(vendorDb, `organizations/${orgId}/users/${user.uid}`));
+                if (!orgUserSnap.exists()) {
+                    throw new Error('Your authenticated account is missing from the organization directory.');
+                }
             }
 
             const orgUser = orgUserSnap.val();
@@ -279,7 +338,7 @@ export default function VendorPortal() {
         } finally {
             setLoading(false);
         }
-    }, [resetPortalState]);
+    }, [ensureVendorBootstrapAccess, resetPortalState]);
 
     useEffect(() => {
         let cancelled = false;
@@ -373,9 +432,14 @@ export default function VendorPortal() {
             return;
         }
 
+        const hints = getBootstrapHints();
+
         setLoading(true);
         try {
-            await sendPasswordResetEmail(vendorAuth, cleanEmail);
+            await sendPasswordResetEmail(vendorAuth, cleanEmail, {
+                url: `${window.location.origin}/vendor-portal?email=${encodeURIComponent(cleanEmail)}${hints.orgId ? `&orgId=${encodeURIComponent(hints.orgId)}` : ''}${hints.contractorId ? `&contractorId=${encodeURIComponent(hints.contractorId)}` : ''}${hints.siteId ? `&siteId=${encodeURIComponent(hints.siteId)}` : ''}${hints.bootstrap ? '&bootstrap=1' : ''}`,
+                handleCodeInApp: false
+            });
             alert('If the vendor portal account exists for this email, a password reset link has been sent.');
         } catch (error) {
             if (error?.code === 'auth/invalid-email') {
