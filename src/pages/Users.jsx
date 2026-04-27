@@ -395,8 +395,45 @@ export default function Users() {
             } else {
                 const existingOrgUser = users.find((user) => String(user.email || '').toLowerCase() === payload.email);
                 if (existingOrgUser) {
+                    if (isSiteOwner && (normalizeRole(existingOrgUser.role) === GLOBAL_OWNER_ROLE || existingOrgUser.assignedSite !== managedSiteCode)) {
+                        setSaving(false);
+                        return alert('This email already belongs to a user outside your managed site.');
+                    }
+
+                    const { id: existingUserId, ...existingUserData } = existingOrgUser;
+                    const mergedPayload = {
+                        ...existingUserData,
+                        ...payload,
+                        vendorPortal: Boolean(existingOrgUser.vendorPortal),
+                        portalLinkedContractorId: existingOrgUser.portalLinkedContractorId || '',
+                        mustChangePassword: Boolean(existingOrgUser.mustChangePassword),
+                        temporaryPasswordIssued: Boolean(existingOrgUser.temporaryPasswordIssued),
+                        temporaryPasswordIssuedAt: existingOrgUser.temporaryPasswordIssuedAt || '',
+                        passwordUpdatedAt: existingOrgUser.passwordUpdatedAt || '',
+                        createdAt: existingOrgUser.createdAt || new Date().toISOString()
+                    };
+
+                    await update(ref(rtdb, `organizations/${session.orgId}/users/${existingUserId}`), mergedPayload);
+
+                    await writeAccessAuditLog(
+                        buildUserAccessAuditEntry({
+                            actorSession: session,
+                            beforeUser: existingOrgUser,
+                            afterUser: mergedPayload,
+                            targetUserId: existingUserId,
+                            action: existingOrgUser.vendorPortal ? 'user-access-linked-to-vendor' : 'user-access-updated'
+                        })
+                    );
+
+                    setUsers((prev) => prev.map((user) => (
+                        user.id === existingUserId ? { ...mergedPayload, id: existingUserId } : user
+                    )));
+                    alert(existingOrgUser.vendorPortal
+                        ? 'Existing email found and linked successfully. This account now serves both the user directory and the contractor portal.'
+                        : 'Existing user found. Access details were updated on the shared account instead of creating a duplicate login.');
+                    setIsModalOpen(false);
                     setSaving(false);
-                    return alert("A user with this email already exists in this organization.");
+                    return;
                 }
 
                 const temporaryPassword = generateTemporaryPassword();
