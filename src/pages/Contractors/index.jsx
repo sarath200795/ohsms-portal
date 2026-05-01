@@ -26,6 +26,7 @@ import {
 import { canEditCreateForRole, getAllowedSiteCodes, hasAccessibleModule, isGlobalOwnerRole } from '../../utils/permissions';
 import { readStoredSession } from '../../utils/session';
 import { generateVendorPortalPassword } from '../../utils/security';
+import { buildVendorCredentialMailto, isVendorCredentialEmailConfigured, sendVendorCredentialEmail } from '../../utils/vendorPortalEmail';
 
 const buildVendorPortalUrl = (email = '', options = {}) => {
     const url = new URL('/vendor-portal', window.location.origin);
@@ -38,6 +39,11 @@ const buildVendorPortalUrl = (email = '', options = {}) => {
     if (options.siteId) url.searchParams.set('siteId', options.siteId);
     if (options.bootstrap) url.searchParams.set('bootstrap', '1');
     return url.toString();
+};
+
+const buildVendorSiteLabel = (siteCode, sites) => {
+    const matchingSite = safeArr(sites).find((site) => site.code === siteCode);
+    return matchingSite ? `${matchingSite.name} (${matchingSite.code})` : siteCode;
 };
 
 export default function Contractors() {
@@ -391,6 +397,7 @@ export default function Contractors() {
             const nowIso = new Date().toISOString();
             const allocatedSites = safeArr(activeVendor.allocatedSites);
             const primarySite = allocatedSites[0] || activeVendor.siteId || 'GLOBAL';
+            const primarySiteLabel = buildVendorSiteLabel(primarySite, sites);
             const matchingOrgUsers = orgUsers.filter((user) => (
                 (activeVendor.portalUid && user.firebaseKey === activeVendor.portalUid) ||
                 normalizeEmail(user.email) === vendorEmail
@@ -407,6 +414,7 @@ export default function Contractors() {
             let provisioningWarning = '';
             let issuedPortalPassword = '';
             let setupEmail = null;
+            let credentialDispatch = null;
             let portalBootstrapPending = false;
             const baseUserPayload = {
                 name: activeVendor.contactPerson || activeVendor.companyName || 'Vendor Portal User',
@@ -509,28 +517,87 @@ export default function Contractors() {
             }
 
             const portalPasswordManaged = Boolean(issuedPortalPassword);
-            try {
-                setupEmail = await sendVendorPortalSetupLink({
-                    vendorEmail,
+            if (portalPasswordManaged) {
+                const portalUrl = buildVendorPortalUrl(vendorEmail, {
+                    orgId: session?.orgId,
                     contractorId: activeVendor.firebaseKey,
-                    siteId: primarySite,
-                    bootstrap: portalBootstrapPending
+                    siteId: primarySite
                 });
-            } catch (setupError) {
-                provisioningWarning = provisioningWarning
-                    ? `${provisioningWarning} Setup email could not be sent automatically: ${setupError.message}`
-                    : `Setup email could not be sent automatically: ${setupError.message}`;
+
+                if (isVendorCredentialEmailConfigured()) {
+                    try {
+                        credentialDispatch = await sendVendorCredentialEmail({
+                            toEmail: vendorEmail,
+                            toName: activeVendor.contactPerson || activeVendor.companyName || vendorEmail,
+                            companyName: activeVendor.companyName,
+                            portalUrl,
+                            temporaryPassword: issuedPortalPassword,
+                            vendorCode,
+                            siteName: primarySiteLabel,
+                            issuedBy: session.email || session.name || 'Global Owner'
+                        });
+                    } catch (credentialError) {
+                        credentialDispatch = {
+                            sentAt: '',
+                            manualDraftUrl: buildVendorCredentialMailto({
+                                toEmail: vendorEmail,
+                                toName: activeVendor.contactPerson || activeVendor.companyName || vendorEmail,
+                                companyName: activeVendor.companyName,
+                                portalUrl,
+                                temporaryPassword: issuedPortalPassword,
+                                vendorCode,
+                                siteName: primarySiteLabel
+                            })
+                        };
+                        provisioningWarning = provisioningWarning
+                            ? `${provisioningWarning} Vendor credential email could not be sent automatically: ${credentialError.message}`
+                            : `Vendor credential email could not be sent automatically: ${credentialError.message}`;
+                    }
+                } else {
+                    credentialDispatch = {
+                        sentAt: '',
+                        manualDraftUrl: buildVendorCredentialMailto({
+                            toEmail: vendorEmail,
+                            toName: activeVendor.contactPerson || activeVendor.companyName || vendorEmail,
+                            companyName: activeVendor.companyName,
+                            portalUrl,
+                            temporaryPassword: issuedPortalPassword,
+                            vendorCode,
+                            siteName: primarySiteLabel
+                        })
+                    };
+                    provisioningWarning = provisioningWarning
+                        ? `${provisioningWarning} Automatic vendor credential email is not configured yet, so a ready-to-send email draft has been prepared for the registrar.`
+                        : 'Automatic vendor credential email is not configured yet, so a ready-to-send email draft has been prepared for the registrar.';
+                }
+            } else {
+                try {
+                    setupEmail = await sendVendorPortalSetupLink({
+                        vendorEmail,
+                        contractorId: activeVendor.firebaseKey,
+                        siteId: primarySite,
+                        bootstrap: portalBootstrapPending
+                    });
+                } catch (setupError) {
+                    provisioningWarning = provisioningWarning
+                        ? `${provisioningWarning} Setup email could not be sent automatically: ${setupError.message}`
+                        : `Setup email could not be sent automatically: ${setupError.message}`;
+                }
             }
 
             const setupEmailSent = Boolean(setupEmail?.sentAt);
+            const credentialEmailSent = Boolean(credentialDispatch?.sentAt);
+            const manualCredentialDraftUrl = credentialDispatch?.manualDraftUrl || '';
             if (portalUid) {
                 const nextUserPayload = {
                     ...baseUserPayload,
                     status: 'Active',
-                    mustChangePassword: setupEmailSent ? false : portalPasswordManaged,
-                    temporaryPasswordIssued: setupEmailSent ? false : portalPasswordManaged,
-                    temporaryPasswordIssuedAt: setupEmailSent ? null : (portalPasswordManaged ? nowIso : null),
-                    passwordUpdatedAt: portalPasswordManaged && !setupEmailSent ? null : (existingOrgUser?.passwordUpdatedAt || null),
+                    mustChangePassword: portalPasswordManaged,
+                    temporaryPasswordIssued: portalPasswordManaged,
+                    temporaryPasswordIssuedAt: portalPasswordManaged ? nowIso : null,
+                    passwordUpdatedAt: portalPasswordManaged ? null : (existingOrgUser?.passwordUpdatedAt || null),
+                    portalCredentialEmailSentAt: credentialEmailSent ? credentialDispatch.sentAt : (existingOrgUser?.portalCredentialEmailSentAt || null),
+                    portalCredentialEmailSentBy: credentialEmailSent ? (session.email || session.name || 'Global Owner') : (existingOrgUser?.portalCredentialEmailSentBy || null),
                     portalSetupLinkSentAt: setupEmail?.sentAt || existingOrgUser?.portalSetupLinkSentAt || null,
                     portalSetupLinkSentBy: setupEmail?.sentAt ? (session.email || session.name || 'Global Owner') : (existingOrgUser?.portalSetupLinkSentBy || null),
                     portalSharedIdentity: reusingExistingOrgIdentity
@@ -579,6 +646,8 @@ export default function Contractors() {
                     portalAssignedSite: primarySite,
                     portalProvisionedAt: nowIso,
                     portalProvisionedBy: session.email,
+                    portalCredentialEmailSentAt: credentialEmailSent ? credentialDispatch.sentAt : (activeVendor.portalCredentialEmailSentAt || null),
+                    portalCredentialEmailSentBy: credentialEmailSent ? (session.email || session.name || 'Global Owner') : (activeVendor.portalCredentialEmailSentBy || null),
                     portalSetupLinkSentAt: setupEmail?.sentAt || activeVendor.portalSetupLinkSentAt || null,
                     portalSetupLinkSentBy: setupEmail?.sentAt ? (session.email || session.name || 'Global Owner') : (activeVendor.portalSetupLinkSentBy || null),
                     portalPasswordRotatedAt: portalPasswordManaged ? nowIso : (activeVendor.portalPasswordRotatedAt || null),
@@ -615,6 +684,8 @@ export default function Contractors() {
                     portalAssignedSite: primarySite,
                     portalProvisionedAt: nowIso,
                     portalProvisionedBy: session.email,
+                    portalCredentialEmailSentAt: credentialEmailSent ? credentialDispatch.sentAt : (activeVendor.portalCredentialEmailSentAt || null),
+                    portalCredentialEmailSentBy: credentialEmailSent ? (session.email || session.name || 'Global Owner') : (activeVendor.portalCredentialEmailSentBy || null),
                     portalSetupLinkSentAt: setupEmail?.sentAt || activeVendor.portalSetupLinkSentAt || null,
                     portalSetupLinkSentBy: setupEmail?.sentAt ? (session.email || session.name || 'Global Owner') : (activeVendor.portalSetupLinkSentBy || null),
                     portalPasswordRotatedAt: null,
@@ -630,9 +701,18 @@ export default function Contractors() {
                 linkedExisting: !createdPortalAuthUser,
                 sharedIdentity: reusingExistingOrgIdentity,
                 bootstrapPending: portalBootstrapPending,
-                portalUrl: setupEmail?.portalUrl || buildVendorPortalUrl(vendorEmail),
+                portalUrl: setupEmail?.portalUrl || buildVendorPortalUrl(vendorEmail, {
+                    orgId: session?.orgId,
+                    contractorId: activeVendor.firebaseKey,
+                    siteId: primarySite,
+                    bootstrap: portalBootstrapPending
+                }),
+                credentialEmailSent,
+                credentialEmailSentAt: credentialDispatch?.sentAt || '',
+                manualCredentialDraftUrl,
                 setupEmailSent,
                 setupEmailSentAt: setupEmail?.sentAt || '',
+                firstLoginRequiresPasswordChange: portalPasswordManaged,
                 warning: provisioningWarning
             });
         } catch (error) {

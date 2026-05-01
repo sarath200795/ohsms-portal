@@ -11,6 +11,21 @@ export default function PortalSuccessModal({ onClose, portalSuccess }) {
         }
     };
 
+    const copyTemporaryPassword = async () => {
+        if (!portalSuccess?.temporaryPassword) return;
+        try {
+            await navigator.clipboard.writeText(portalSuccess.temporaryPassword);
+            alert('Temporary password copied.');
+        } catch {
+            alert('Could not copy the temporary password automatically.');
+        }
+    };
+
+    const hasTemporaryPassword = Boolean(portalSuccess?.temporaryPassword);
+    const hasSetupEmail = Boolean(portalSuccess?.setupEmailSent);
+    const hasCredentialEmail = Boolean(portalSuccess?.credentialEmailSent);
+    const hasManualCredentialDraft = Boolean(portalSuccess?.manualCredentialDraftUrl);
+
     return (
         <div className="fixed inset-0 z-[110] bg-black/80 flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in">
             <div className="bg-slate-900 border border-emerald-500/40 rounded-3xl shadow-2xl max-w-md w-full p-8">
@@ -44,16 +59,26 @@ export default function PortalSuccessModal({ onClose, portalSuccess }) {
                     <div>
                         <div className="text-[10px] uppercase font-bold tracking-widest text-slate-500 mb-1">Vendor Login Method</div>
                         <div className="text-xs text-slate-300">
-                            {portalSuccess.setupEmailSent
-                                ? portalSuccess.temporaryPassword
-                                    ? 'A secure setup email has been sent, and a temporary password is also available below. The vendor can use either path to get in, then continue with the normal portal login.'
-                                    : 'A secure setup email has been sent. The vendor can set their own password from that email, then sign in with the same portal email.'
-                                : portalSuccess.temporaryPassword
-                                    ? 'Email plus temporary password. The vendor should change it immediately after the first successful login.'
-                                    : 'Email plus the vendor\'s current portal password. If they cannot sign in, resend the setup link from the contractor profile.'}
+                            {hasTemporaryPassword
+                                ? 'Use the portal email plus the temporary password below for the first sign-in. The portal will force an immediate password change, and the vendor must sign in again with the new password.'
+                                : hasSetupEmail
+                                    ? 'A secure setup link has been sent. The vendor should create or reset the portal password from that email, then sign in normally.'
+                                    : 'Use the current vendor portal password. If the vendor cannot sign in, resend the access email from the contractor profile.'}
                         </div>
                     </div>
-                    {portalSuccess.setupEmailSent && (
+                    {hasCredentialEmail && (
+                        <div>
+                            <div className="text-[10px] uppercase font-bold tracking-widest text-slate-500 mb-1">Temporary Password Email</div>
+                            <div className="text-xs text-emerald-300">The temporary password email was sent to the vendor mailbox{portalSuccess.credentialEmailSentAt ? ` on ${new Date(portalSuccess.credentialEmailSentAt).toLocaleString()}` : ''}.</div>
+                        </div>
+                    )}
+                    {hasManualCredentialDraft && (
+                        <div>
+                            <div className="text-[10px] uppercase font-bold tracking-widest text-slate-500 mb-1">Email Draft Prepared</div>
+                            <div className="text-xs text-amber-200">Automatic vendor email delivery is not configured, so a ready-to-send mail draft is available below for the registrar.</div>
+                        </div>
+                    )}
+                    {hasSetupEmail && (
                         <div>
                             <div className="text-[10px] uppercase font-bold tracking-widest text-slate-500 mb-1">Setup Email</div>
                             <div className="text-xs text-emerald-300">Password setup instructions were sent to the vendor mailbox{portalSuccess.setupEmailSentAt ? ` on ${new Date(portalSuccess.setupEmailSentAt).toLocaleString()}` : ''}.</div>
@@ -67,6 +92,16 @@ export default function PortalSuccessModal({ onClose, portalSuccess }) {
                     <button type="button" onClick={copyPortalLink} className="bg-slate-800 hover:bg-slate-700 text-white px-4 py-3 rounded-xl text-sm font-bold uppercase tracking-widest transition-colors border border-slate-700">
                         Copy Portal Link
                     </button>
+                    {hasTemporaryPassword && (
+                        <button type="button" onClick={copyTemporaryPassword} className="bg-slate-800 hover:bg-slate-700 text-white px-4 py-3 rounded-xl text-sm font-bold uppercase tracking-widest transition-colors border border-slate-700">
+                            Copy Temp Password
+                        </button>
+                    )}
+                    {hasManualCredentialDraft && (
+                        <a href={portalSuccess.manualCredentialDraftUrl} className="bg-amber-600 hover:bg-amber-500 text-white px-4 py-3 rounded-xl text-sm font-bold uppercase tracking-widest transition-colors shadow-lg shadow-amber-600/20 text-center">
+                            Open Email Draft
+                        </a>
+                    )}
                     <a href={portalSuccess.portalUrl} target="_blank" rel="noreferrer" className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-3 rounded-xl text-sm font-bold uppercase tracking-widest transition-colors shadow-lg shadow-emerald-600/20 text-center">
                         Open Portal
                     </a>

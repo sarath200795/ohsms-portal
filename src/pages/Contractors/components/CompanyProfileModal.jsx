@@ -77,6 +77,7 @@ export default function CompanyProfileModal({
                                 <span><i className="fas fa-envelope text-indigo-400 mr-1"></i> {activeVendor.email || 'No Portal Email'}</span>
                                 <span className={`px-2 py-0.5 rounded text-[9px] border ${activeVendor.portalUid ? 'bg-emerald-900/30 text-emerald-400 border-emerald-500/30' : 'bg-amber-900/20 text-amber-400 border-amber-500/30'}`}><i className={`fas ${activeVendor.portalUid ? 'fa-shield-check' : 'fa-user-lock'} mr-1`}></i>{activeVendor.portalUid ? 'Portal Linked' : 'Portal Pending'}</span>
                                 {activeVendor.portalSharedIdentity && <span className="px-2 py-0.5 rounded text-[9px] border bg-violet-900/30 text-violet-300 border-violet-500/30"><i className="fas fa-link mr-1"></i> Shared Login</span>}
+                                {activeVendor.portalCredentialEmailSentAt && <span className="px-2 py-0.5 rounded text-[9px] border bg-emerald-900/30 text-emerald-300 border-emerald-500/30"><i className="fas fa-envelope-circle-check mr-1"></i> Temp Password Emailed</span>}
                                 {activeVendor.portalSetupLinkSentAt && <span className="px-2 py-0.5 rounded text-[9px] border bg-sky-900/30 text-sky-300 border-sky-500/30"><i className="fas fa-envelope-open-text mr-1"></i> Setup Sent</span>}
                                 <span className={`px-2 py-0.5 rounded text-[9px] border ${getComplianceStatus(activeVendor.documents).color}`}>{getComplianceStatus(activeVendor.documents).label}</span>
                             </div>
@@ -89,7 +90,7 @@ export default function CompanyProfileModal({
                                 <button type="button" onClick={onProvisionVendorPortalAccess} disabled={portalProvisioning} className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 text-white px-4 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest transition-colors shadow-lg shadow-emerald-600/20">
                                     {portalProvisioning
                                         ? <><i className="fas fa-spinner fa-spin mr-1"></i> Working</>
-                                        : <><i className="fas fa-user-shield mr-1"></i> {activeVendor.portalUid ? 'Resend Setup Link' : 'Provision & Send Setup'}</>}
+                                        : <><i className="fas fa-user-shield mr-1"></i> {activeVendor.portalUid ? 'Resend Access Email' : 'Provision & Email Login'}</>}
                                 </button>
                                 {activeVendor.email && (
                                     <button type="button" onClick={onOpenVendorPortal} className="bg-slate-800 hover:bg-slate-700 text-white px-4 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest transition-colors border border-slate-600">

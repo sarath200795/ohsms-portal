@@ -68,7 +68,7 @@ export default function ContractorBuilder({
                     <div className="md:col-span-2">
                         <label className="text-[10px] uppercase font-bold text-slate-400 block mb-2 tracking-widest">Vendor Portal Email *</label>
                         <input type="email" value={formData.email} onChange={(event) => setFormData({ ...formData, email: event.target.value.toLowerCase() })} disabled={!canEdit} className="w-full bg-slate-900 border border-slate-700 rounded-xl p-4 text-white outline-none focus:border-indigo-500" placeholder="vendor@company.com" />
-                        <p className="text-[10px] text-slate-500 mt-2">This email will be used for vendor portal login. It can also be the same email already used in the Users module, because the system now links both contractor and internal access to one shared login identity.</p>
+                        <p className="text-[10px] text-slate-500 mt-2">This email will be used for vendor portal login. For brand-new vendor accounts, the system issues a temporary password for first login and then forces an immediate password change. The same email can also be reused from the Users module if this vendor needs a shared identity.</p>
                     </div>
                 </div>
             </div>
