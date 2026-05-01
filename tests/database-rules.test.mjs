@@ -172,6 +172,24 @@ test('public QR flows read only explicit single-record QR resources', () => {
     assert.doesNotMatch(orgRules.emergencyEquipment.$id['.read'], /assetId/, 'Emergency equipment QR reads must not expose every tagged asset publicly');
 });
 
+test('linked vendor portal users can read their own contractor record directly', () => {
+    const contractorChildRead = orgRules.contractors.$id['.read'];
+
+    assert.ok(contractorChildRead, 'contractor child read rule must exist');
+    assert.match(contractorChildRead, /portalLinkedContractorId/, 'contractor child read must support vendor-linked access');
+    assert.match(contractorChildRead, /Global Owner/, 'contractor child read must still support global owner access');
+});
+
+test('linked vendor portal users can update only their own contractor documents and workers', () => {
+    const contractorChildWrite = orgRules.contractors.$id['.write'];
+
+    assert.ok(contractorChildWrite, 'contractor child write rule must exist');
+    assert.match(contractorChildWrite, /portalLinkedContractorId/, 'contractor child write must recognize the linked vendor user');
+    assert.match(contractorChildWrite, /newData\.child\('companyName'\)\.val\(\) === data\.child\('companyName'\)\.val\(\)/, 'vendor writes must keep company identity immutable');
+    assert.match(contractorChildWrite, /newData\.child\('portalUid'\)\.val\(\) === data\.child\('portalUid'\)\.val\(\)/, 'vendor writes must not alter portal linkage');
+    assert.match(contractorChildWrite, /portalLastVendorUpdateAt/, 'vendor writes should allow audit metadata');
+});
+
 test('application code no longer opens organization-root realtime database reads', () => {
     const offenders = listSourceFiles('src')
         .map((filePath) => [filePath, readFileSync(filePath, 'utf8')])

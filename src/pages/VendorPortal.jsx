@@ -44,6 +44,11 @@ const safeArrWithKeys = (dataObj) => {
 
 const normalizeEmail = (value) => String(value || '').trim().toLowerCase();
 const normalizeVendorCode = (value) => String(value || '').trim().toUpperCase();
+const isPermissionDeniedError = (error) => {
+    const message = String(error?.message || '').toLowerCase();
+    const code = String(error?.code || '').toLowerCase();
+    return message.includes('permission_denied') || message.includes('permission denied') || code.includes('permission_denied');
+};
 const buildVendorAuthErrorMessage = (error) => {
     const code = error?.code || '';
 
@@ -116,6 +121,79 @@ const readVendorSiteCollection = async ({ orgId, childName, orgUser }) => {
 
     return entries.reduce((acc, entry) => ({ ...acc, ...entry }), {});
 };
+
+const readOptionalPasswordState = async ({ orgId, uid }) => {
+    try {
+        const snap = await get(ref(vendorDb, `organizations/${orgId}/userPasswordState/${uid}`));
+        return snap.exists() ? snap.val() : null;
+    } catch (error) {
+        if (isPermissionDeniedError(error)) {
+            console.warn('Vendor password-state read blocked; falling back to user profile flags.', error);
+            return null;
+        }
+        throw error;
+    }
+};
+
+const resolveLinkedContractor = async ({
+    cleanEmail,
+    cleanVendorCode,
+    expectedContractorId,
+    orgId,
+    orgUser,
+    user
+}) => {
+    const preferredContractorId = expectedContractorId || orgUser?.portalLinkedContractorId || '';
+    if (preferredContractorId) {
+        try {
+            const directSnap = await get(ref(vendorDb, `organizations/${orgId}/contractors/${preferredContractorId}`));
+            if (directSnap.exists()) {
+                return [preferredContractorId, directSnap.val()];
+            }
+        } catch (error) {
+            if (!isPermissionDeniedError(error)) {
+                throw error;
+            }
+            console.warn('Direct linked contractor read blocked, falling back to collection scan.', error);
+        }
+    }
+
+    const contractorSnap = await get(ref(vendorDb, `organizations/${orgId}/contractors`));
+    if (!contractorSnap.exists()) {
+        throw new Error('No contractor records were found for this organization.');
+    }
+
+    const matchedEntry = Object.entries(contractorSnap.val()).find(([contractorKey, contractor]) => {
+        const contractorEmail = normalizeEmail(contractor?.email);
+        const contractorCode = normalizeVendorCode(contractor?.vendorCode);
+        const contractorPortalUid = contractor?.portalUid || '';
+        if (expectedContractorId && contractorKey === expectedContractorId) {
+            return true;
+        }
+        if (orgUser?.portalLinkedContractorId && orgUser.portalLinkedContractorId === contractorKey) {
+            return true;
+        }
+        if (contractorPortalUid === user.uid) {
+            return true;
+        }
+        if (cleanVendorCode && contractorCode === cleanVendorCode && contractorEmail === cleanEmail) {
+            return true;
+        }
+        return contractorEmail === cleanEmail;
+    });
+
+    if (!matchedEntry) {
+        throw new Error('The signed-in account is not linked to any contractor profile. Ask your client admin to verify the portal email, contractor link, and portal access setup.');
+    }
+
+    return matchedEntry;
+};
+
+const buildVendorUpdateAuditPayload = (currentUser) => ({
+    portalLastVendorUpdateAt: new Date().toISOString(),
+    portalLastVendorUpdateBy: currentUser?.uid || '',
+    portalLastVendorUpdateEmail: normalizeEmail(currentUser?.email || '')
+});
 
 export default function VendorPortal() {
     const [loading, setLoading] = useState(true);
@@ -246,41 +324,32 @@ export default function VendorPortal() {
             }
 
             const orgUser = orgUserSnap.val();
-            const passwordStateSnap = await get(ref(vendorDb, `organizations/${orgId}/userPasswordState/${user.uid}`));
-            const passwordState = passwordStateSnap.exists() ? passwordStateSnap.val() : {};
+            const passwordState = await readOptionalPasswordState({ orgId, uid: user.uid });
             if (orgUser.status === 'Pending') {
                 throw new Error('Your portal account is still pending approval. Ask your client admin to activate it.');
             }
             if (orgUser.status === 'Deleted' || orgUser.status === 'Inactive') {
                 throw new Error('This portal account has been deactivated.');
             }
-
-            const contractorSnap = await get(ref(vendorDb, `organizations/${orgId}/contractors`));
-            if (!contractorSnap.exists()) {
-                throw new Error('No contractor records were found for this organization.');
+            if (!orgUser.vendorPortal || !String(orgUser.portalLinkedContractorId || '').trim()) {
+                throw new Error('This login is active in the organization, but vendor portal access has not been linked yet. Ask your client admin to provision contractor portal access for this account.');
             }
 
-            const matchedEntry = Object.entries(contractorSnap.val()).find(([contractorKey, contractor]) => {
-                const contractorEmail = normalizeEmail(contractor?.email);
-                const contractorCode = normalizeVendorCode(contractor?.vendorCode);
-                const contractorPortalUid = contractor?.portalUid || '';
-                if (expectedContractorId && contractorKey === expectedContractorId) {
-                    return true;
+            let matchedEntry;
+            try {
+                matchedEntry = await resolveLinkedContractor({
+                    cleanEmail,
+                    cleanVendorCode,
+                    expectedContractorId,
+                    orgId,
+                    orgUser,
+                    user
+                });
+            } catch (error) {
+                if (isPermissionDeniedError(error)) {
+                    throw new Error('Vendor login succeeded, but contractor records are still blocked by database rules. Please deploy the latest database rules and try again.');
                 }
-                if (orgUser?.portalLinkedContractorId && orgUser.portalLinkedContractorId === contractorKey) {
-                    return true;
-                }
-                if (contractorPortalUid === user.uid) {
-                    return true;
-                }
-                if (cleanVendorCode && contractorCode === cleanVendorCode && contractorEmail === cleanEmail) {
-                    return true;
-                }
-                return contractorEmail === cleanEmail;
-            });
-
-            if (!matchedEntry) {
-                throw new Error('The signed-in account is not linked to any contractor profile. Ask your client admin to verify the portal email, contractor link, and portal access setup.');
+                throw error;
             }
 
             const [firebaseKey, vendorData] = matchedEntry;
@@ -312,7 +381,7 @@ export default function VendorPortal() {
                 orgId,
                 vendorCode: resolvedVendorCode,
                 contractorId: firebaseKey,
-                mustChangePassword: passwordStateSnap.exists() ? Boolean(passwordState.mustChangePassword) : Boolean(orgUser.mustChangePassword)
+                mustChangePassword: passwordState ? Boolean(passwordState.mustChangePassword) : Boolean(orgUser.mustChangePassword)
             };
 
             setVendor(normalizedVendor);
@@ -574,7 +643,10 @@ export default function VendorPortal() {
         }
 
         try {
-            await update(ref(vendorDb, `organizations/${vendorSession.orgId}/contractors/${vendor.firebaseKey}`), updates);
+            await update(ref(vendorDb, `organizations/${vendorSession.orgId}/contractors/${vendor.firebaseKey}`), {
+                ...updates,
+                ...buildVendorUpdateAuditPayload(vendorAuth.currentUser)
+            });
             await fetchVendorData({
                 user: vendorAuth.currentUser,
                 expectedOrgId: vendorSession.orgId,
@@ -583,7 +655,11 @@ export default function VendorPortal() {
             });
             return true;
         } catch (error) {
-            alert('Upload failed: ' + error.message);
+            if (isPermissionDeniedError(error)) {
+                alert('Vendor update blocked by database rules. Please deploy the latest vendor portal rules and try again.');
+            } else {
+                alert('Upload failed: ' + error.message);
+            }
             return false;
         }
     };
