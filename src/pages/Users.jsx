@@ -454,6 +454,12 @@ export default function Users() {
                     };
 
                     await set(ref(rtdb, `organizations/${session.orgId}/users/${createdAuthUser.uid}`), newUserPayload);
+                    await set(ref(rtdb, `organizations/${session.orgId}/userPasswordState/${createdAuthUser.uid}`), {
+                        mustChangePassword: true,
+                        temporaryPasswordIssued: true,
+                        temporaryPasswordIssuedAt: newUserPayload.temporaryPasswordIssuedAt,
+                        passwordUpdatedAt: ''
+                    });
                     await set(ref(rtdb, `userDirectory/${createdAuthUser.uid}`), { orgId: session.orgId });
 
                     setUsers(prev => [...prev, { ...newUserPayload, id: createdAuthUser.uid }]);
@@ -465,6 +471,7 @@ export default function Users() {
                 } catch (provisionError) {
                     if (createdAuthUser) {
                         await remove(ref(rtdb, `organizations/${session.orgId}/users/${createdAuthUser.uid}`)).catch(() => {});
+                        await remove(ref(rtdb, `organizations/${session.orgId}/userPasswordState/${createdAuthUser.uid}`)).catch(() => {});
                         await remove(ref(rtdb, `userDirectory/${createdAuthUser.uid}`)).catch(() => {});
                         await deleteUser(createdAuthUser).catch(() => {});
                     }

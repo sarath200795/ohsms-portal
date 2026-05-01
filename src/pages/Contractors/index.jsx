@@ -537,6 +537,12 @@ export default function Contractors() {
                 };
 
                 await update(ref(rtdb, `organizations/${session.orgId}/users/${portalUid}`), nextUserPayload);
+                await update(ref(rtdb, `organizations/${session.orgId}/userPasswordState/${portalUid}`), {
+                    mustChangePassword: nextUserPayload.mustChangePassword,
+                    temporaryPasswordIssued: nextUserPayload.temporaryPasswordIssued,
+                    temporaryPasswordIssuedAt: nextUserPayload.temporaryPasswordIssuedAt || '',
+                    passwordUpdatedAt: nextUserPayload.passwordUpdatedAt || ''
+                });
 
                 if (existingOrgUser?.firebaseKey && existingOrgUser.firebaseKey !== portalUid) {
                     await update(ref(rtdb, `organizations/${session.orgId}/users/${existingOrgUser.firebaseKey}`), {

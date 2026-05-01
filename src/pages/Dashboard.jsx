@@ -303,10 +303,10 @@ export default function Dashboard() {
             await updatePassword(currentUser, passwordForm.next);
             const passwordUpdatedAt = new Date().toISOString();
             if (session?.orgId && currentUser.uid) {
-                await update(ref(rtdb, `organizations/${session.orgId}/users/${currentUser.uid}`), {
+                await update(ref(rtdb, `organizations/${session.orgId}/userPasswordState/${currentUser.uid}`), {
                     mustChangePassword: false,
                     temporaryPasswordIssued: false,
-                    temporaryPasswordIssuedAt: null,
+                    temporaryPasswordIssuedAt: '',
                     passwordUpdatedAt
                 });
             }

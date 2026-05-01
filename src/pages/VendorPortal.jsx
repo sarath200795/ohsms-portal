@@ -246,6 +246,8 @@ export default function VendorPortal() {
             }
 
             const orgUser = orgUserSnap.val();
+            const passwordStateSnap = await get(ref(vendorDb, `organizations/${orgId}/userPasswordState/${user.uid}`));
+            const passwordState = passwordStateSnap.exists() ? passwordStateSnap.val() : {};
             if (orgUser.status === 'Pending') {
                 throw new Error('Your portal account is still pending approval. Ask your client admin to activate it.');
             }
@@ -310,7 +312,7 @@ export default function VendorPortal() {
                 orgId,
                 vendorCode: resolvedVendorCode,
                 contractorId: firebaseKey,
-                mustChangePassword: Boolean(orgUser.mustChangePassword)
+                mustChangePassword: passwordStateSnap.exists() ? Boolean(passwordState.mustChangePassword) : Boolean(orgUser.mustChangePassword)
             };
 
             setVendor(normalizedVendor);
@@ -490,10 +492,10 @@ export default function VendorPortal() {
             await reauthenticateWithCredential(currentUser, credential);
             await updatePassword(currentUser, passwordForm.next);
             const passwordUpdatedAt = new Date().toISOString();
-            await update(ref(vendorDb, `organizations/${vendorSession.orgId}/users/${currentUser.uid}`), {
+            await update(ref(vendorDb, `organizations/${vendorSession.orgId}/userPasswordState/${currentUser.uid}`), {
                 mustChangePassword: false,
                 temporaryPasswordIssued: false,
-                temporaryPasswordIssuedAt: null,
+                temporaryPasswordIssuedAt: '',
                 passwordUpdatedAt
             });
 

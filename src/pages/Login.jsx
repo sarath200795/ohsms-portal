@@ -142,9 +142,11 @@ export default function Login() {
                 const userOrgId = userDirSnap.val().orgId;
                 const orgUserRef = ref(rtdb, `organizations/${userOrgId}/users/${user.uid}`);
                 const orgUserSnap = await get(orgUserRef);
+                const passwordStateSnap = await get(ref(rtdb, `organizations/${userOrgId}/userPasswordState/${user.uid}`));
 
                 if (orgUserSnap.exists()) {
                     const userData = orgUserSnap.val();
+                    const passwordState = passwordStateSnap.exists() ? passwordStateSnap.val() : {};
 
                     if (isPendingStatus(userData.status)) {
                         setLoading(false);
@@ -168,10 +170,10 @@ export default function Login() {
                         assignedSite: userData.assignedSite || 'GLOBAL',
                         accessibleSites: userData.accessibleSites || [],
                         accessibleModules: userData.accessibleModules || [],
-                        mustChangePassword: Boolean(userData.mustChangePassword),
-                        temporaryPasswordIssued: Boolean(userData.temporaryPasswordIssued),
-                        temporaryPasswordIssuedAt: userData.temporaryPasswordIssuedAt || '',
-                        passwordUpdatedAt: userData.passwordUpdatedAt || ''
+                        mustChangePassword: passwordStateSnap.exists() ? Boolean(passwordState.mustChangePassword) : Boolean(userData.mustChangePassword),
+                        temporaryPasswordIssued: passwordStateSnap.exists() ? Boolean(passwordState.temporaryPasswordIssued) : Boolean(userData.temporaryPasswordIssued),
+                        temporaryPasswordIssuedAt: passwordStateSnap.exists() ? (passwordState.temporaryPasswordIssuedAt || '') : (userData.temporaryPasswordIssuedAt || ''),
+                        passwordUpdatedAt: passwordStateSnap.exists() ? (passwordState.passwordUpdatedAt || '') : (userData.passwordUpdatedAt || '')
                     });
 
                     writeStoredSession(sessionData);
