@@ -56,6 +56,18 @@ const findLinkedLotoProcedure = (procedures, permit) => {
     )) || null;
 };
 
+const matchesPermitToken = (permit, token) => {
+    const cleanToken = String(token || '').trim();
+    if (!permit || !cleanToken) return false;
+
+    return String(permit.id || '').trim() === cleanToken
+        || String(permit.firebaseKey || '').trim() === cleanToken;
+};
+
+const findPermitByToken = (permitList, token) => (
+    safeArr(permitList).find((permit) => matchesPermitToken(permit, token)) || null
+);
+
 function PtwDashboardView({
     allowedSites,
     handleSiteFilterChange,
@@ -379,6 +391,9 @@ function PermitBuilderView(props) {
         availableContractors,
         availableWorkers,
         canEditForm,
+        canEditAuthRouting,
+        canEditEngApprover,
+        canEditProdApprover,
         formData,
         handleSave,
         handleLotoSelection,
@@ -419,10 +434,10 @@ function PermitBuilderView(props) {
 
                     {formData.status === 'Draft' && canEditForm ? (
                         <>
-                            <button type="button" onClick={() => handleSave(true)} className="rounded-xl border border-slate-600 bg-slate-800 px-6 py-2.5 font-['Inter'] text-sm font-bold text-white shadow transition hover:bg-slate-700">
+                            <button type="button" onClick={() => handleSave('draft')} className="rounded-xl border border-slate-600 bg-slate-800 px-6 py-2.5 font-['Inter'] text-sm font-bold text-white shadow transition hover:bg-slate-700">
                                 Save Draft
                             </button>
-                            <button type="button" onClick={() => handleSave(false)} className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-500 px-8 py-2.5 font-['Inter'] text-sm font-bold text-white shadow-lg shadow-emerald-900/50 transition hover:from-emerald-500 hover:to-teal-400">
+                            <button type="button" onClick={() => handleSave('submit')} className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-500 px-8 py-2.5 font-['Inter'] text-sm font-bold text-white shadow-lg shadow-emerald-900/50 transition hover:from-emerald-500 hover:to-teal-400">
                                 <i className="fas fa-paper-plane"></i> Submit for Authorization
                             </button>
                         </>
@@ -811,7 +826,7 @@ function PermitBuilderView(props) {
                             <label className="mb-2 block text-[10px] font-bold uppercase tracking-widest text-emerald-400">
                                 <i className="fas fa-cogs mr-1"></i> Engineering Approver
                             </label>
-                            <select value={formData.engApproverEmail} onChange={(event) => updateField('engApproverEmail', event.target.value)} disabled={formData.status !== 'Draft' || !canEditForm} className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 font-bold text-white outline-none shadow-inner focus:border-emerald-500">
+                            <select value={formData.engApproverEmail} onChange={(event) => updateField('engApproverEmail', event.target.value)} disabled={!canEditEngApprover} className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 font-bold text-white outline-none shadow-inner focus:border-emerald-500">
                                 <option value="">-- Select Engineering Auth --</option>
                                 <option value={myEmail} className="bg-slate-800 font-bold text-emerald-400">Assign to Me ({myName})</option>
                                 {users.filter((user) => user.assignedSite === formData.siteId || safeArr(user.accessibleSites).includes(formData.siteId) || user.assignedSite === 'GLOBAL').map((user) => (
@@ -820,6 +835,11 @@ function PermitBuilderView(props) {
                                     </option>
                                 ))}
                             </select>
+                            {formData.status === 'Pending Approval' && canEditAuthRouting && (
+                                <p className="mt-3 text-xs text-slate-400">
+                                    The permit creator can reroute this approval until the engineering approver has completed their decision.
+                                </p>
+                            )}
                             {formData.status !== 'Draft' && (
                                 <p className="mt-3 text-xs font-bold uppercase tracking-widest text-slate-500">
                                     Status: <span className={formData.engStatus.includes('Approved') ? 'text-emerald-400' : 'text-orange-400'}>{formData.engStatus}</span>
@@ -831,7 +851,7 @@ function PermitBuilderView(props) {
                             <label className="mb-2 block text-[10px] font-bold uppercase tracking-widest text-emerald-400">
                                 <i className="fas fa-industry mr-1"></i> Production Approver
                             </label>
-                            <select value={formData.prodApproverEmail} onChange={(event) => updateField('prodApproverEmail', event.target.value)} disabled={formData.status !== 'Draft' || !canEditForm} className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 font-bold text-white outline-none shadow-inner focus:border-emerald-500">
+                            <select value={formData.prodApproverEmail} onChange={(event) => updateField('prodApproverEmail', event.target.value)} disabled={!canEditProdApprover} className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 font-bold text-white outline-none shadow-inner focus:border-emerald-500">
                                 <option value="">-- Select Production Auth --</option>
                                 <option value={myEmail} className="bg-slate-800 font-bold text-emerald-400">Assign to Me ({myName})</option>
                                 {users.filter((user) => user.assignedSite === formData.siteId || safeArr(user.accessibleSites).includes(formData.siteId) || user.assignedSite === 'GLOBAL').map((user) => (
@@ -840,6 +860,11 @@ function PermitBuilderView(props) {
                                     </option>
                                 ))}
                             </select>
+                            {formData.status === 'Pending Approval' && canEditAuthRouting && (
+                                <p className="mt-3 text-xs text-slate-400">
+                                    The permit creator can reroute this approval until the production approver has completed their decision.
+                                </p>
+                            )}
                             {formData.status !== 'Draft' && (
                                 <p className="mt-3 text-xs font-bold uppercase tracking-widest text-slate-500">
                                     Status: <span className={formData.prodStatus.includes('Approved') ? 'text-emerald-400' : 'text-orange-400'}>{formData.prodStatus}</span>
@@ -873,7 +898,7 @@ function PermitBuilderView(props) {
                     Close Form
                 </button>
                 {canEditForm && (
-                    <button type="button" onClick={() => handleSave(formData.status === 'Draft')} disabled={saving} className="flex items-center gap-2 rounded-xl bg-emerald-600 px-10 py-3 text-xs font-bold uppercase tracking-widest text-white shadow-lg shadow-emerald-600/20 transition hover:bg-emerald-500 disabled:opacity-50">
+                    <button type="button" onClick={() => handleSave(formData.status === 'Draft' ? 'draft' : 'update')} disabled={saving} className="flex items-center gap-2 rounded-xl bg-emerald-600 px-10 py-3 text-xs font-bold uppercase tracking-widest text-white shadow-lg shadow-emerald-600/20 transition hover:bg-emerald-500 disabled:opacity-50">
                         {saving ? <i className="fas fa-spinner fa-spin"></i> : <i className="fas fa-save"></i>}
                         {formData.status === 'Draft' ? 'Save Draft' : 'Update Permit'}
                     </button>
@@ -1373,6 +1398,24 @@ export default function FullScreenPTW() {
         return allowedSiteCodes.has(formData.siteId);
     }, [allowedSiteCodes, formData?.siteId, isGlobalUser, permissions.canEditCreate]);
 
+    const canEditAuthRouting = useMemo(() => {
+        if (!formData || !canEditForm) return false;
+        if (formData.status === 'Draft') return true;
+        return formData.status === 'Pending Approval' && isCreator(formData);
+    }, [canEditForm, formData, isCreator]);
+
+    const canEditEngApprover = useMemo(() => {
+        if (!formData || !canEditAuthRouting) return false;
+        if (formData.status === 'Draft') return true;
+        return formData.engStatus !== 'Approved';
+    }, [canEditAuthRouting, formData]);
+
+    const canEditProdApprover = useMemo(() => {
+        if (!formData || !canEditAuthRouting) return false;
+        if (formData.status === 'Draft') return true;
+        return formData.prodStatus !== 'Approved';
+    }, [canEditAuthRouting, formData]);
+
     const visiblePermits = useMemo(() => {
         return permits.filter((permit) => {
             const hasSiteAccess = isGlobalUser || allowedSiteCodes.has(permit.siteId);
@@ -1384,7 +1427,7 @@ export default function FullScreenPTW() {
 
     const selectedPermit = useMemo(() => {
         if (!selectedPermitId) return null;
-        return permits.find((permit) => permit.id === selectedPermitId) || null;
+        return findPermitByToken(permits, selectedPermitId);
     }, [permits, selectedPermitId]);
 
     const myPendingApprovals = useMemo(() => {
@@ -1405,11 +1448,11 @@ export default function FullScreenPTW() {
         if (loading || !session) return;
         const permitIdFromQuery = new URLSearchParams(location.search).get('ptw');
         if (!permitIdFromQuery) return;
-        const permit = permits.find((entry) => entry.id === permitIdFromQuery);
+        const permit = findPermitByToken(permits, permitIdFromQuery);
         if (!permit) return;
         const hasSiteAccess = isGlobalUser || allowedSiteCodes.has(permit.siteId);
         if (!hasSiteAccess) return;
-        setSelectedPermitId(permitIdFromQuery);
+        setSelectedPermitId(permit.firebaseKey || permit.id);
         if (currentView !== 'builder') {
             setCurrentView('viewer');
         }
@@ -1452,9 +1495,10 @@ export default function FullScreenPTW() {
 
     const openPermitViewer = (permit) => {
         if (!permit) return;
-        setSelectedPermitId(permit.id);
+        const permitRouteToken = permit.firebaseKey || permit.id;
+        setSelectedPermitId(permitRouteToken);
         setCurrentView('viewer');
-        syncPtwQuery(permit.id);
+        syncPtwQuery(permitRouteToken);
     };
 
     const closePermitViewer = () => {
@@ -1626,7 +1670,7 @@ export default function FullScreenPTW() {
         setFormData({ ...formData, wahEquipment: equipment.includes(item) ? equipment.filter((entry) => entry !== item) : [...equipment, item] });
     };
 
-    const handleSave = async (isDraft = true) => {
+    const handleSave = async (mode = 'draft') => {
         if (!canEditForm) {
             alert('Security Error: You do not have permission to edit records for this site.');
             return;
@@ -1657,6 +1701,9 @@ export default function FullScreenPTW() {
             return;
         }
 
+        const isDraftMode = mode === 'draft';
+        const isSubmitMode = mode === 'submit';
+
         setSaving(true);
         try {
             const { firebaseKey, ...payload } = formData;
@@ -1668,7 +1715,7 @@ export default function FullScreenPTW() {
                 if (vendor) payload.contractorName = vendor.companyName;
             }
 
-            if (!isDraft) {
+            if (isSubmitMode) {
                 if (!payload.engApproverEmail || !payload.prodApproverEmail) {
                     setSaving(false);
                     alert('Cannot submit. Please select both Engineering and Production approvers in Section 5.');
@@ -1677,6 +1724,36 @@ export default function FullScreenPTW() {
                 payload.status = 'Pending Approval';
                 payload.engStatus = 'Pending';
                 payload.prodStatus = 'Pending';
+                payload.statusUpdatedOn = new Date().toISOString();
+            }
+
+            if (!isDraftMode && !isSubmitMode && firebaseKey) {
+                const originalPermit = permits.find((permit) => permit.firebaseKey === firebaseKey) || null;
+
+                if (originalPermit?.status === 'Pending Approval') {
+                    const engApproverChanged = payload.engApproverEmail !== originalPermit.engApproverEmail;
+                    const prodApproverChanged = payload.prodApproverEmail !== originalPermit.prodApproverEmail;
+
+                    if (engApproverChanged && originalPermit.engStatus === 'Approved') {
+                        setSaving(false);
+                        alert('Engineering approval is already complete, so that approver can no longer be changed from this permit.');
+                        return;
+                    }
+
+                    if (prodApproverChanged && originalPermit.prodStatus === 'Approved') {
+                        setSaving(false);
+                        alert('Production approval is already complete, so that approver can no longer be changed from this permit.');
+                        return;
+                    }
+
+                    if (engApproverChanged) {
+                        payload.engStatus = 'Pending';
+                    }
+
+                    if (prodApproverChanged) {
+                        payload.prodStatus = 'Pending';
+                    }
+                }
             }
 
             if (firebaseKey) {
@@ -1687,7 +1764,17 @@ export default function FullScreenPTW() {
                 setPermits((prev) => [normalizePermit({ ...payload, firebaseKey: newRef.key }), ...prev]);
             }
 
-            alert(`Success! Permit ${isDraft ? 'Draft Saved' : 'Sent for Dual Authorization'}.`);
+            if (firebaseKey) {
+                setSelectedPermitId(firebaseKey);
+            }
+
+            alert(`Success! Permit ${
+                isDraftMode
+                    ? 'Draft Saved'
+                    : isSubmitMode
+                        ? 'Sent for Dual Authorization'
+                        : 'Updated'
+            }.`);
             setCurrentView('inventory');
         } catch (error) {
             alert(`Error saving permit: ${error.message}`);
@@ -2060,6 +2147,9 @@ export default function FullScreenPTW() {
                             availableContractors={availableContractors}
                             availableWorkers={availableWorkers}
                             canEditForm={canEditForm}
+                            canEditAuthRouting={canEditAuthRouting}
+                            canEditEngApprover={canEditEngApprover}
+                            canEditProdApprover={canEditProdApprover}
                             formData={formData}
                             handleSave={handleSave}
                             handleLotoSelection={handleLotoSelection}

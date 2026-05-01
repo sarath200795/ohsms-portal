@@ -55,10 +55,10 @@ export default function FieldPortal() {
     const visibleModules = useMemo(() => getVisibleFieldModules(portalSession), [portalSession]);
     const isGlobalUser = isGlobalRole(portalSession?.role);
 
-    const syncMainSession = (sessionData, targetSite) => {
+    const syncMainSession = useCallback((sessionData, targetSite) => {
         sessionStorage.setItem('isoSession', JSON.stringify(sessionData));
         sessionStorage.setItem('isoCurrentSite', targetSite === 'All' ? 'GLOBAL' : targetSite);
-    };
+    }, []);
 
     const resetPortalState = (clearForm = false) => {
         setIsAuthenticated(false);
@@ -97,7 +97,7 @@ export default function FieldPortal() {
                 action: () => navigate(redirectPath, { replace: true })
             });
         }
-    }, [location.search, navigate, playTransition]);
+    }, [location.search, navigate, playTransition, syncMainSession]);
 
     useEffect(() => {
         let cancelled = false;
@@ -155,6 +155,30 @@ export default function FieldPortal() {
             unsubscribe();
         };
     }, [finalizePortalContext, location.search]);
+
+    useEffect(() => {
+        if (!portalSession) return undefined;
+
+        const syncSharedPortalContext = () => {
+            const nextSite = resolveInitialSite({
+                search: location.search,
+                session: portalSession,
+                visibleSites
+            }) || 'All';
+
+            setSelectedSite((currentSite) => (currentSite === nextSite ? currentSite : nextSite));
+            syncMainSession(portalSession, nextSite);
+        };
+
+        syncSharedPortalContext();
+        window.addEventListener('focus', syncSharedPortalContext);
+        window.addEventListener('pageshow', syncSharedPortalContext);
+
+        return () => {
+            window.removeEventListener('focus', syncSharedPortalContext);
+            window.removeEventListener('pageshow', syncSharedPortalContext);
+        };
+    }, [location.search, portalSession, syncMainSession, visibleSites]);
 
     const handleLogin = async (event) => {
         event.preventDefault();

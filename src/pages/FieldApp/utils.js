@@ -120,6 +120,15 @@ const normalizeFieldQrSite = (site, fallbackSite = 'All') => {
     return value;
 };
 
+const getFirstParamValue = (params, names) => {
+    for (const name of names) {
+        const value = String(params.get(name) || '').trim();
+        if (value) return value;
+    }
+
+    return '';
+};
+
 export const resolveFieldQrNavigation = ({ decodedText, fallbackSite = 'All' }) => {
     const rawValue = String(decodedText || '').trim();
     if (!rawValue) return null;
@@ -137,8 +146,8 @@ export const resolveFieldQrNavigation = ({ decodedText, fallbackSite = 'All' }) 
         params = new URLSearchParams(queryIndex >= 0 ? rawValue.slice(queryIndex + 1) : rawValue);
     }
 
-    if (params.has('ptw') || pathname.includes('/ptw')) {
-        const permitId = params.get('ptw');
+    if (params.has('ptw') || params.has('permit') || params.has('permitId') || pathname.includes('/ptw')) {
+        const permitId = getFirstParamValue(params, ['ptw', 'permit', 'permitId', 'id']);
         if (!permitId) return null;
 
         const site = normalizeFieldQrSite(params.get('site'), fallbackSite);
@@ -157,8 +166,8 @@ export const resolveFieldQrNavigation = ({ decodedText, fallbackSite = 'All' }) 
         };
     }
 
-    if (params.has('execute') || pathname.includes('/loto')) {
-        const procedureId = params.get('execute');
+    if (params.has('execute') || params.has('loto') || params.has('procedure') || pathname.includes('/loto')) {
+        const procedureId = getFirstParamValue(params, ['execute', 'loto', 'procedure', 'id']);
         if (!procedureId) return null;
 
         const site = normalizeFieldQrSite(params.get('site'), fallbackSite);
@@ -177,8 +186,8 @@ export const resolveFieldQrNavigation = ({ decodedText, fallbackSite = 'All' }) 
         };
     }
 
-    if (params.has('scan') || pathname.includes('/emergency-equipment')) {
-        const equipmentId = params.get('scan');
+    if (params.has('scan') || params.has('equipment') || params.has('asset') || pathname.includes('/emergency-equipment')) {
+        const equipmentId = getFirstParamValue(params, ['scan', 'equipment', 'asset', 'id']);
         if (!equipmentId) return null;
 
         const site = normalizeFieldQrSite(params.get('site'), fallbackSite);
