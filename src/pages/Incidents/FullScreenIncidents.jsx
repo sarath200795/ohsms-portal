@@ -4,7 +4,11 @@ import { push, ref, remove, update } from 'firebase/database';
 import * as XLSX from 'xlsx';
 import { rtdb } from '../../config/firebase';
 import { getPortalAwareHomePath } from '../FieldApp/portalAuth';
-import { buildEditableIncidentData, buildPrintableIncidentData } from '../../utils/incidents';
+import {
+    buildEditableIncidentData,
+    buildIncidentCapaWithVerificationActions,
+    buildPrintableIncidentData
+} from '../../utils/incidents';
 import { readOrgChild, readOrgChildren } from '../../utils/orgData';
 import {
     canDeleteForRole,
@@ -818,7 +822,13 @@ export default function Incidents() {
 
         setSaving(true);
         try {
-            const cleanCapa = (data.capa || []).filter((c) => c.act && c.act.trim() !== '');
+            const cleanCapa = (data.capa || [])
+                .filter((c) => c.act && c.act.trim() !== '')
+                .map((capaItem, index) => ({
+                    ...capaItem,
+                    actionId: capaItem.actionId || `capa-${Date.now()}-${index}`,
+                    actionType: capaItem.actionType || (capaItem.verificationForActionId ? 'Verification' : 'Corrective')
+                }));
             let explodedCapa = [];
 
             if (data.horizontalDeployment) {
@@ -830,7 +840,16 @@ export default function Incidents() {
                         if (existing) {
                             explodedCapa.push({ ...existing, siteId: site.code });
                         } else {
-                            explodedCapa.push({ act: desc, siteId: site.code, own: 'Unassigned', due: template?.due, status: 'Open' });
+                            explodedCapa.push({
+                                act: desc,
+                                actionId: `${template?.actionId || `capa-${Date.now()}`}-${site.code}`,
+                                actionType: template?.actionType || 'Corrective',
+                                verificationForActionId: template?.verificationForActionId || '',
+                                siteId: site.code,
+                                own: 'Unassigned',
+                                due: template?.due,
+                                status: 'Open'
+                            });
                         }
                     });
                 });
@@ -838,11 +857,18 @@ export default function Incidents() {
                 explodedCapa = cleanCapa.map((a) => ({ ...a, siteId: a.siteId || data.siteId }));
             }
 
+            const capaWithVerificationActions = buildIncidentCapaWithVerificationActions({
+                actions: explodedCapa,
+                severity: data.severity,
+                defaultSiteId: data.siteId,
+                createId: () => Date.now()
+            });
+
             const incidentId = currentIncidentId || 'Draft';
             const payload = JSON.parse(JSON.stringify({
                 ...data,
                 id: incidentId,
-                capa: explodedCapa,
+                capa: capaWithVerificationActions,
                 linkedHazards: data.linkedHazards || [],
                 timestamp: new Date().toISOString(),
                 reportedBy: session.user || session.name || session.email
