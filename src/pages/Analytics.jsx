@@ -2,6 +2,9 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { equalTo, get, orderByChild, push, query, ref } from 'firebase/database';
 import { Bar, Doughnut, Line } from 'react-chartjs-2';
+import * as XLSX from 'xlsx';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import {
     ArcElement,
     BarElement,
@@ -1229,6 +1232,276 @@ export default function Analytics() {
             .sort((left, right) => right.value - left.value);
     }, [filteredRiskAssessments]);
 
+    const comparisonSites = useMemo(() => {
+        if (siteFilter !== 'All') {
+            const matchedSite = visibleSites.find((site) => site.code === siteFilter);
+            if (matchedSite) return [matchedSite];
+            return siteFilter ? [{ code: siteFilter, name: siteFilter }] : [];
+        }
+
+        return visibleSites;
+    }, [siteFilter, visibleSites]);
+
+    const siteComparisonRows = useMemo(() => (
+        comparisonSites.map((site) => {
+            const siteCode = site.code;
+
+            return {
+                site: site.name || siteCode,
+                incidents: incidents.filter((incident) => incident.date >= rangeStartKey && incident.date <= rangeEndKey && String(incident.siteId || '').trim() === siteCode).length,
+                openCapas: capaActions.filter((action) => {
+                    const relevantDate = getCapaRelevantDate(action);
+                    return relevantDate
+                        && relevantDate >= rangeStartKey
+                        && relevantDate <= rangeEndKey
+                        && String(action.siteId || '').trim() === siteCode
+                        && action.status !== 'Closed';
+                }).length,
+                activePermits: ptwRecords.filter((permit) => (
+                    permit.analyticsDate >= rangeStartKey
+                    && permit.analyticsDate <= rangeEndKey
+                    && String(permit.siteId || '').trim() === siteCode
+                    && ['Pending Approval', 'Work in Progress', 'Pending Closure'].includes(String(permit.status || '').trim())
+                )).length,
+                trainings: trainingRecords.filter((record) => record.analyticsDate >= rangeStartKey && record.analyticsDate <= rangeEndKey && String(record.siteId || '').trim() === siteCode).length,
+                highRisk: riskAssessments.filter((assessment) => (
+                    assessment.analyticsDate >= rangeStartKey
+                    && assessment.analyticsDate <= rangeEndKey
+                    && String(assessment.siteId || '').trim() === siteCode
+                    && hasHighResidualRisk(assessment)
+                )).length
+            };
+        })
+    ), [capaActions, comparisonSites, incidents, ptwRecords, rangeEndKey, rangeStartKey, riskAssessments, trainingRecords]);
+
+    const siteComparisonChartData = useMemo(() => ({
+        labels: siteComparisonRows.map((row) => row.site),
+        datasets: [
+            { label: 'Incidents', data: siteComparisonRows.map((row) => row.incidents), backgroundColor: 'rgba(250, 204, 21, 0.85)', borderRadius: 8 },
+            { label: 'Open CAPA', data: siteComparisonRows.map((row) => row.openCapas), backgroundColor: 'rgba(16, 185, 129, 0.85)', borderRadius: 8 },
+            { label: 'Active Permits', data: siteComparisonRows.map((row) => row.activePermits), backgroundColor: 'rgba(56, 189, 248, 0.85)', borderRadius: 8 },
+            { label: 'Training Sessions', data: siteComparisonRows.map((row) => row.trainings), backgroundColor: 'rgba(139, 92, 246, 0.85)', borderRadius: 8 },
+            { label: 'High Risk Assessments', data: siteComparisonRows.map((row) => row.highRisk), backgroundColor: 'rgba(239, 68, 68, 0.85)', borderRadius: 8 }
+        ]
+    }), [siteComparisonRows]);
+
+    const ptwTrendRows = useMemo(() => {
+        const bucketMap = new Map(
+            periodBuckets.map((bucket) => [bucket.key, {
+                key: bucket.key,
+                label: bucket.label,
+                pendingApproval: 0,
+                workInProgress: 0,
+                pendingClosure: 0,
+                closed: 0,
+                cancelled: 0
+            }])
+        );
+
+        filteredPermits.forEach((permit) => {
+            const bucket = bucketMap.get(getBucketKeyFromDate(permit.analyticsDate, granularity));
+            if (!bucket) return;
+
+            if (permit.status === 'Pending Approval') bucket.pendingApproval += 1;
+            else if (permit.status === 'Work in Progress') bucket.workInProgress += 1;
+            else if (permit.status === 'Pending Closure') bucket.pendingClosure += 1;
+            else if (permit.status === 'Closed') bucket.closed += 1;
+            else if (permit.status === 'Cancelled') bucket.cancelled += 1;
+        });
+
+        return Array.from(bucketMap.values());
+    }, [filteredPermits, granularity, periodBuckets]);
+
+    const emergencyTrendRows = useMemo(() => {
+        const bucketMap = new Map(
+            periodBuckets.map((bucket) => [bucket.key, {
+                key: bucket.key,
+                label: bucket.label,
+                events: 0,
+                mockDrills: 0,
+                realEmergencies: 0,
+                capaRaised: 0
+            }])
+        );
+
+        filteredMockDrills.forEach((record) => {
+            const bucket = bucketMap.get(getBucketKeyFromDate(record.analyticsDate, granularity));
+            if (!bucket) return;
+
+            bucket.events += 1;
+            if (String(record.eventType || 'Mock Drill').trim() === 'Mock Drill') bucket.mockDrills += 1;
+            if (String(record.eventType || '').trim() === 'Real Emergency') bucket.realEmergencies += 1;
+            bucket.capaRaised += safeArray(record.capa).length;
+        });
+
+        return Array.from(bucketMap.values());
+    }, [filteredMockDrills, granularity, periodBuckets]);
+
+    const trainingTrendRows = useMemo(() => {
+        const bucketMap = new Map(
+            periodBuckets.map((bucket) => [bucket.key, {
+                key: bucket.key,
+                label: bucket.label,
+                sessions: 0,
+                attendees: 0
+            }])
+        );
+
+        filteredTrainingRecords.forEach((record) => {
+            const bucket = bucketMap.get(getBucketKeyFromDate(record.analyticsDate, granularity));
+            if (!bucket) return;
+
+            bucket.sessions += 1;
+            bucket.attendees += safeArray(record.attendees).filter((attendee) => attendee.status === 'Attended').length;
+        });
+
+        return Array.from(bucketMap.values());
+    }, [filteredTrainingRecords, granularity, periodBuckets]);
+
+    const riskTrendRows = useMemo(() => {
+        const bucketMap = new Map(
+            periodBuckets.map((bucket) => [bucket.key, {
+                key: bucket.key,
+                label: bucket.label,
+                assessments: 0,
+                hazards: 0,
+                highResidual: 0,
+                alarp: 0
+            }])
+        );
+
+        filteredRiskAssessments.forEach((assessment) => {
+            const bucket = bucketMap.get(getBucketKeyFromDate(assessment.analyticsDate, granularity));
+            if (!bucket) return;
+
+            bucket.assessments += 1;
+            bucket.hazards += (assessment.activities || []).reduce((sum, activity) => sum + safeArray(activity.hazards).length, 0);
+            if (hasHighResidualRisk(assessment)) bucket.highResidual += 1;
+            if (hasAlarpCase(assessment)) bucket.alarp += 1;
+        });
+
+        return Array.from(bucketMap.values());
+    }, [filteredRiskAssessments, granularity, periodBuckets]);
+
+    const ptwTrendChartData = useMemo(() => ({
+        labels: ptwTrendRows.map((row) => row.label),
+        datasets: [
+            { label: 'Pending Approval', data: ptwTrendRows.map((row) => row.pendingApproval), backgroundColor: 'rgba(249, 115, 22, 0.85)', borderRadius: 8 },
+            { label: 'Work In Progress', data: ptwTrendRows.map((row) => row.workInProgress), backgroundColor: 'rgba(56, 189, 248, 0.85)', borderRadius: 8 },
+            { label: 'Pending Closure', data: ptwTrendRows.map((row) => row.pendingClosure), backgroundColor: 'rgba(139, 92, 246, 0.85)', borderRadius: 8 },
+            { label: 'Closed', data: ptwTrendRows.map((row) => row.closed), backgroundColor: 'rgba(16, 185, 129, 0.85)', borderRadius: 8 }
+        ]
+    }), [ptwTrendRows]);
+
+    const ptwTypeChartData = useMemo(() => ({
+        labels: ptwTypeRows.map((row) => row.label),
+        datasets: [
+            {
+                data: ptwTypeRows.map((row) => row.value),
+                backgroundColor: ['#f59e0b', '#38bdf8', '#8b5cf6', '#10b981', '#f97316', '#ec4899'],
+                borderColor: '#020617',
+                borderWidth: 3
+            }
+        ]
+    }), [ptwTypeRows]);
+
+    const emergencyTrendChartData = useMemo(() => ({
+        labels: emergencyTrendRows.map((row) => row.label),
+        datasets: [
+            {
+                label: 'Events Logged',
+                data: emergencyTrendRows.map((row) => row.events),
+                borderColor: '#f43f5e',
+                backgroundColor: 'rgba(244, 63, 94, 0.18)',
+                fill: true,
+                tension: 0.35
+            },
+            {
+                label: 'Mock Drills',
+                data: emergencyTrendRows.map((row) => row.mockDrills),
+                borderColor: '#3b82f6',
+                backgroundColor: 'rgba(59, 130, 246, 0.12)',
+                fill: true,
+                tension: 0.35
+            },
+            {
+                label: 'Real Emergencies',
+                data: emergencyTrendRows.map((row) => row.realEmergencies),
+                borderColor: '#ef4444',
+                backgroundColor: 'rgba(239, 68, 68, 0.12)',
+                fill: true,
+                tension: 0.35
+            }
+        ]
+    }), [emergencyTrendRows]);
+
+    const emergencyTypeChartData = useMemo(() => ({
+        labels: emergencyTypeRows.map((row) => row.label),
+        datasets: [
+            {
+                data: emergencyTypeRows.map((row) => row.value),
+                backgroundColor: ['#f43f5e', '#3b82f6', '#8b5cf6', '#10b981', '#f97316'],
+                borderColor: '#020617',
+                borderWidth: 3
+            }
+        ]
+    }), [emergencyTypeRows]);
+
+    const trainingTrendChartData = useMemo(() => ({
+        labels: trainingTrendRows.map((row) => row.label),
+        datasets: [
+            {
+                label: 'Sessions',
+                data: trainingTrendRows.map((row) => row.sessions),
+                borderColor: '#8b5cf6',
+                backgroundColor: 'rgba(139, 92, 246, 0.18)',
+                fill: true,
+                tension: 0.35
+            },
+            {
+                label: 'Attendees',
+                data: trainingTrendRows.map((row) => row.attendees),
+                borderColor: '#06b6d4',
+                backgroundColor: 'rgba(6, 182, 212, 0.14)',
+                fill: true,
+                tension: 0.35
+            }
+        ]
+    }), [trainingTrendRows]);
+
+    const trainingCertificationChartData = useMemo(() => ({
+        labels: ['Valid', 'Expiring Soon', 'Expired'],
+        datasets: [
+            {
+                data: [trainingStats.validCerts, trainingStats.expiringSoon, trainingStats.expired],
+                backgroundColor: ['#10b981', '#facc15', '#ef4444'],
+                borderColor: '#020617',
+                borderWidth: 3
+            }
+        ]
+    }), [trainingStats.expired, trainingStats.expiringSoon, trainingStats.validCerts]);
+
+    const riskTrendChartData = useMemo(() => ({
+        labels: riskTrendRows.map((row) => row.label),
+        datasets: [
+            { label: 'Assessments', data: riskTrendRows.map((row) => row.assessments), backgroundColor: 'rgba(249, 115, 22, 0.85)', borderRadius: 8 },
+            { label: 'High Residual Risk', data: riskTrendRows.map((row) => row.highResidual), backgroundColor: 'rgba(239, 68, 68, 0.85)', borderRadius: 8 },
+            { label: 'ALARP Cases', data: riskTrendRows.map((row) => row.alarp), backgroundColor: 'rgba(250, 204, 21, 0.85)', borderRadius: 8 }
+        ]
+    }), [riskTrendRows]);
+
+    const riskStatusChartData = useMemo(() => ({
+        labels: riskStatusRows.map((row) => row.label),
+        datasets: [
+            {
+                data: riskStatusRows.map((row) => row.value),
+                backgroundColor: ['#10b981', '#f97316', '#94a3b8', '#38bdf8'],
+                borderColor: '#020617',
+                borderWidth: 3
+            }
+        ]
+    }), [riskStatusRows]);
+
     const capaStats = useMemo(() => {
         const todayKey = formatDateKey(new Date());
         const open = filteredCapaActions.filter((action) => action.status !== 'Closed').length;
@@ -1239,6 +1512,26 @@ export default function Analytics() {
 
         return { open, closed, closedBeforeDue, closedAfterDue, overdueOpen };
     }, [filteredCapaActions]);
+
+    const executiveStats = useMemo(() => ({
+        incidents: filteredIncidents.length,
+        openCapas: capaStats.open,
+        activePermits: ptwStats.pendingApproval + ptwStats.workInProgress + ptwStats.pendingClosure,
+        inspections: inspectionStats.total,
+        emergencyEvents: emergencyStats.total,
+        trainingSessions: trainingStats.sessions,
+        riskAssessments: riskStats.assessments
+    }), [capaStats.open, emergencyStats.total, filteredIncidents.length, inspectionStats.total, ptwStats.pendingApproval, ptwStats.pendingClosure, ptwStats.workInProgress, riskStats.assessments, trainingStats.sessions]);
+
+    const executiveOverviewRows = useMemo(() => ([
+        { label: 'Incidents Logged', value: executiveStats.incidents, valueClass: 'text-yellow-400' },
+        { label: 'Open CAPA', value: executiveStats.openCapas, valueClass: 'text-emerald-400' },
+        { label: 'Active Permits', value: executiveStats.activePermits, valueClass: 'text-sky-400' },
+        { label: 'Inspections Completed', value: executiveStats.inspections, valueClass: 'text-lime-400' },
+        { label: 'Emergency Events', value: executiveStats.emergencyEvents, valueClass: 'text-rose-400' },
+        { label: 'Training Sessions', value: executiveStats.trainingSessions, valueClass: 'text-violet-400' },
+        { label: 'Risk Assessments', value: executiveStats.riskAssessments, valueClass: 'text-orange-400' }
+    ]), [executiveStats]);
 
     const capaTrendRows = useMemo(() => {
         const bucketMap = new Map(
@@ -1397,10 +1690,234 @@ export default function Analytics() {
         }
     }), []);
 
+    const ptwChartOptions = useMemo(() => ({
+        ...baseChartOptions,
+        plugins: {
+            ...baseChartOptions.plugins,
+            title: {
+                display: true,
+                text: 'Permit Workflow Trend',
+                color: '#f8fafc',
+                font: { size: 14, weight: '700' }
+            }
+        }
+    }), []);
+
+    const emergencyChartOptions = useMemo(() => ({
+        ...baseChartOptions,
+        plugins: {
+            ...baseChartOptions.plugins,
+            title: {
+                display: true,
+                text: 'Emergency Event Trend',
+                color: '#f8fafc',
+                font: { size: 14, weight: '700' }
+            }
+        }
+    }), []);
+
+    const trainingChartOptions = useMemo(() => ({
+        ...baseChartOptions,
+        plugins: {
+            ...baseChartOptions.plugins,
+            title: {
+                display: true,
+                text: 'Training Delivery Trend',
+                color: '#f8fafc',
+                font: { size: 14, weight: '700' }
+            }
+        }
+    }), []);
+
+    const riskChartOptions = useMemo(() => ({
+        ...baseChartOptions,
+        plugins: {
+            ...baseChartOptions.plugins,
+            title: {
+                display: true,
+                text: 'Risk Assessment Trend',
+                color: '#f8fafc',
+                font: { size: 14, weight: '700' }
+            }
+        }
+    }), []);
+
+    const siteComparisonChartOptions = useMemo(() => ({
+        ...baseChartOptions,
+        plugins: {
+            ...baseChartOptions.plugins,
+            title: {
+                display: true,
+                text: 'Site vs Site Operational Comparison',
+                color: '#f8fafc',
+                font: { size: 14, weight: '700' }
+            }
+        }
+    }), []);
+
     const handleSiteFilterChange = (event) => {
         const selectedSite = event.target.value;
         setSiteFilter(selectedSite);
         setLogSite(selectedSite !== 'All' ? selectedSite : '');
+    };
+
+    const handleRangePresetChange = (event) => {
+        setRangePreset(event.target.value);
+    };
+
+    const handleFilterStartChange = (event) => {
+        setRangePreset('custom');
+        setFilterStart(event.target.value);
+    };
+
+    const handleFilterEndChange = (event) => {
+        setRangePreset('custom');
+        setFilterEnd(event.target.value);
+    };
+
+    const handleExportExcel = () => {
+        try {
+            const workbook = XLSX.utils.book_new();
+
+            const summarySheet = XLSX.utils.json_to_sheet([
+                { Metric: 'Active Site Filter', Value: siteFilter === 'All' ? 'All Authorized Sites' : siteFilter },
+                { Metric: 'Active Range', Value: activeRangeLabel },
+                { Metric: 'Granularity', Value: GRANULARITY_OPTIONS.find((option) => option.id === granularity)?.label || granularity },
+                ...executiveOverviewRows.map((row) => ({ Metric: row.label, Value: row.value }))
+            ]);
+
+            const incidentSheet = XLSX.utils.json_to_sheet(incidentTrendRows.map((row) => ({
+                Period: row.label,
+                Near_Miss: row.nearMisses,
+                First_Aid: row.firstAid,
+                Recordable: row.recordable,
+                Exposure_Hours: Math.round(row.hours),
+                NMR: row.nmr,
+                FAIR: row.fair,
+                RIR: row.rir
+            })));
+
+            const capaSheet = XLSX.utils.json_to_sheet(capaSourceRows.map((row) => ({
+                Source: formatSourceLabel(row.source),
+                Total: row.total,
+                Open: row.open,
+                Closed: row.closed,
+                Closed_Before_Due: row.closedBeforeDue,
+                Closed_After_Due: row.closedAfterDue
+            })));
+
+            const comparisonSheet = XLSX.utils.json_to_sheet(siteComparisonRows.map((row) => ({
+                Site: row.site,
+                Incidents: row.incidents,
+                Open_CAPA: row.openCapas,
+                Active_Permits: row.activePermits,
+                Training_Sessions: row.trainings,
+                High_Risk_Assessments: row.highRisk
+            })));
+
+            const ptwSheet = XLSX.utils.json_to_sheet(ptwTrendRows.map((row) => ({
+                Period: row.label,
+                Pending_Approval: row.pendingApproval,
+                Work_In_Progress: row.workInProgress,
+                Pending_Closure: row.pendingClosure,
+                Closed: row.closed,
+                Cancelled: row.cancelled
+            })));
+
+            const emergencySheet = XLSX.utils.json_to_sheet(emergencyTrendRows.map((row) => ({
+                Period: row.label,
+                Events_Logged: row.events,
+                Mock_Drills: row.mockDrills,
+                Real_Emergencies: row.realEmergencies,
+                CAPA_Raised: row.capaRaised
+            })));
+
+            const trainingSheet = XLSX.utils.json_to_sheet(trainingTopicRows.map((row) => ({
+                Topic: row.label,
+                Sessions: row.sessions,
+                Attendees: row.attendees
+            })));
+
+            const riskSheet = XLSX.utils.json_to_sheet(riskStatusRows.map((row) => ({
+                Status: row.label,
+                Assessments: row.value
+            })));
+
+            XLSX.utils.book_append_sheet(workbook, summarySheet, 'Executive_Summary');
+            XLSX.utils.book_append_sheet(workbook, incidentSheet, 'Incident_Dashboard');
+            XLSX.utils.book_append_sheet(workbook, capaSheet, 'CAPA_Dashboard');
+            XLSX.utils.book_append_sheet(workbook, comparisonSheet, 'Site_Comparison');
+            XLSX.utils.book_append_sheet(workbook, ptwSheet, 'PTW_Dashboard');
+            XLSX.utils.book_append_sheet(workbook, emergencySheet, 'Emergency_Dashboard');
+            XLSX.utils.book_append_sheet(workbook, trainingSheet, 'Training_Dashboard');
+            XLSX.utils.book_append_sheet(workbook, riskSheet, 'Risk_Dashboard');
+
+            XLSX.writeFile(workbook, `Analytics_Dashboard_${new Date().toISOString().slice(0, 10)}.xlsx`);
+        } catch (error) {
+            alert(`Excel export failed: ${error.message}`);
+        }
+    };
+
+    const handleExportPdf = () => {
+        try {
+            const doc = new jsPDF('p', 'mm', 'a4');
+
+            doc.setFillColor(15, 23, 42);
+            doc.rect(0, 0, 210, 24, 'F');
+            doc.setTextColor(255, 255, 255);
+            doc.setFontSize(18);
+            doc.text('OHSMS Analytics Executive Pack', 14, 15);
+
+            doc.setTextColor(71, 85, 105);
+            doc.setFontSize(10);
+            doc.text(`Site Filter: ${siteFilter === 'All' ? 'All Authorized Sites' : siteFilter}`, 14, 32);
+            doc.text(`Range: ${activeRangeLabel}`, 14, 38);
+            doc.text(`Granularity: ${GRANULARITY_OPTIONS.find((option) => option.id === granularity)?.label || granularity}`, 14, 44);
+
+            autoTable(doc, {
+                startY: 50,
+                head: [['Executive Summary', 'Value']],
+                body: executiveOverviewRows.map((row) => [row.label, String(row.value)]),
+                styles: { fontSize: 9 },
+                headStyles: { fillColor: [15, 23, 42] }
+            });
+
+            autoTable(doc, {
+                startY: doc.lastAutoTable.finalY + 6,
+                head: [['Module', 'Primary Metric', 'Value']],
+                body: [
+                    ['Incident Dashboard', 'RIR', formatRateValue(incidentStats.rir)],
+                    ['CAPA Dashboard', 'Open CAPA', String(capaStats.open)],
+                    ['PTW Dashboard', 'Active Permits', String(executiveStats.activePermits)],
+                    ['Audit Dashboard', 'Verification Pending', String(auditStats.verificationPending)],
+                    ['Inspection Dashboard', 'Total Issues', String(inspectionStats.issues)],
+                    ['Emergency Dashboard', 'Events Logged', String(emergencyStats.total)],
+                    ['Training Dashboard', 'Expired Certifications', String(trainingStats.expired)],
+                    ['Risk Dashboard', 'High Residual Risk', String(riskStats.highResidual)]
+                ],
+                styles: { fontSize: 8.5 },
+                headStyles: { fillColor: [30, 41, 59] }
+            });
+
+            autoTable(doc, {
+                startY: doc.lastAutoTable.finalY + 6,
+                head: [['Site', 'Incidents', 'Open CAPA', 'Active Permits', 'Training Sessions', 'High Risk']],
+                body: siteComparisonRows.map((row) => [
+                    row.site,
+                    String(row.incidents),
+                    String(row.openCapas),
+                    String(row.activePermits),
+                    String(row.trainings),
+                    String(row.highRisk)
+                ]),
+                styles: { fontSize: 8 },
+                headStyles: { fillColor: [8, 145, 178] }
+            });
+
+            doc.save(`Analytics_Executive_Pack_${new Date().toISOString().slice(0, 10)}.pdf`);
+        } catch (error) {
+            alert(`PDF export failed: ${error.message}`);
+        }
     };
 
     const handleLogHours = async () => {
@@ -1456,6 +1973,15 @@ export default function Analytics() {
     const hasIncidentData = incidentTrendRows.some((row) => row.hours || row.nearMisses || row.firstAid || row.recordable);
     const hasCapaTrendData = capaTrendRows.some((row) => row.open || row.closed || row.closedBeforeDue || row.closedAfterDue);
     const hasCapaSourceData = capaSourceRows.length > 0;
+    const hasPtwTrendData = ptwTrendRows.some((row) => row.pendingApproval || row.workInProgress || row.pendingClosure || row.closed || row.cancelled);
+    const hasPtwTypeData = ptwTypeRows.length > 0;
+    const hasEmergencyTrendData = emergencyTrendRows.some((row) => row.events || row.mockDrills || row.realEmergencies || row.capaRaised);
+    const hasEmergencyTypeData = emergencyTypeRows.length > 0;
+    const hasTrainingTrendData = trainingTrendRows.some((row) => row.sessions || row.attendees);
+    const hasTrainingCertData = trainingStats.validCerts || trainingStats.expiringSoon || trainingStats.expired;
+    const hasRiskTrendData = riskTrendRows.some((row) => row.assessments || row.hazards || row.highResidual || row.alarp);
+    const hasRiskStatusData = riskStatusRows.length > 0;
+    const hasSiteComparisonData = siteComparisonRows.some((row) => row.incidents || row.openCapas || row.activePermits || row.trainings || row.highRisk);
 
     return (
         <div className="flex h-screen flex-col overflow-hidden bg-slate-950 text-white font-['Space_Grotesk']">
@@ -1496,17 +2022,35 @@ export default function Analytics() {
                             <div>
                                 <h2 className="text-2xl font-black uppercase tracking-tight text-white">Multi-Dashboard Analytics</h2>
                                 <p className="mt-2 max-w-3xl text-sm text-slate-400">
-                                    Track incident rates, CAPA performance, and exposure hours by site, period preset, reporting granularity, or a custom date window.
+                                    Track cross-module performance by site, period preset, reporting granularity, or a custom date window, then export an executive pack or compare sites side by side.
                                 </p>
                             </div>
-                            <button
-                                type="button"
-                                onClick={() => loadAnalyticsData(true)}
-                                className="inline-flex items-center gap-2 rounded-2xl border border-cyan-500/30 bg-cyan-500/10 px-5 py-3 text-xs font-bold uppercase tracking-[0.25em] text-cyan-300 transition-colors hover:bg-cyan-500/20"
-                            >
-                                <i className={`fas ${refreshing ? 'fa-spinner fa-spin' : 'fa-rotate-right'}`}></i>
-                                Refresh Data
-                            </button>
+                            <div className="flex flex-wrap gap-3">
+                                <button
+                                    type="button"
+                                    onClick={() => loadAnalyticsData(true)}
+                                    className="inline-flex items-center gap-2 rounded-2xl border border-cyan-500/30 bg-cyan-500/10 px-5 py-3 text-xs font-bold uppercase tracking-[0.25em] text-cyan-300 transition-colors hover:bg-cyan-500/20"
+                                >
+                                    <i className={`fas ${refreshing ? 'fa-spinner fa-spin' : 'fa-rotate-right'}`}></i>
+                                    Refresh Data
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={handleExportExcel}
+                                    className="inline-flex items-center gap-2 rounded-2xl border border-emerald-500/30 bg-emerald-500/10 px-5 py-3 text-xs font-bold uppercase tracking-[0.25em] text-emerald-300 transition-colors hover:bg-emerald-500/20"
+                                >
+                                    <i className="fas fa-file-excel"></i>
+                                    Export Excel
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={handleExportPdf}
+                                    className="inline-flex items-center gap-2 rounded-2xl border border-red-500/30 bg-red-500/10 px-5 py-3 text-xs font-bold uppercase tracking-[0.25em] text-red-300 transition-colors hover:bg-red-500/20"
+                                >
+                                    <i className="fas fa-file-pdf"></i>
+                                    Export PDF
+                                </button>
+                            </div>
                         </div>
 
                         <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
@@ -1528,7 +2072,7 @@ export default function Analytics() {
                                 <label className="mb-2 block text-[10px] font-bold uppercase tracking-[0.25em] text-slate-500">Range Preset</label>
                                 <select
                                     value={rangePreset}
-                                    onChange={(event) => setRangePreset(event.target.value)}
+                                    onChange={handleRangePresetChange}
                                     className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm font-bold text-white outline-none transition-colors focus:border-cyan-500"
                                 >
                                     {RANGE_PRESET_OPTIONS.map((option) => (
@@ -1555,9 +2099,8 @@ export default function Analytics() {
                                 <input
                                     type="date"
                                     value={filterStart}
-                                    disabled={rangePreset !== 'custom'}
-                                    onChange={(event) => setFilterStart(event.target.value)}
-                                    className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm font-bold text-white outline-none transition-colors focus:border-cyan-500 disabled:cursor-not-allowed disabled:opacity-50"
+                                    onChange={handleFilterStartChange}
+                                    className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm font-bold text-white outline-none transition-colors focus:border-cyan-500"
                                 />
                             </div>
 
@@ -1566,9 +2109,8 @@ export default function Analytics() {
                                 <input
                                     type="date"
                                     value={filterEnd}
-                                    disabled={rangePreset !== 'custom'}
-                                    onChange={(event) => setFilterEnd(event.target.value)}
-                                    className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm font-bold text-white outline-none transition-colors focus:border-cyan-500 disabled:cursor-not-allowed disabled:opacity-50"
+                                    onChange={handleFilterEndChange}
+                                    className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm font-bold text-white outline-none transition-colors focus:border-cyan-500"
                                 />
                             </div>
                         </div>
@@ -1581,11 +2123,80 @@ export default function Analytics() {
                         </div>
                     </section>
 
+                    <Panel
+                        id="dashboard-executive"
+                        title="Executive Summary Dashboard"
+                        description="High-level cross-module snapshot for leadership review, plus site-vs-site comparison within the active analytics window."
+                        accentClass="border-cyan-500"
+                    >
+                        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+                            <StatCard title="Incidents" value={executiveStats.incidents} subtext="Total incidents in the active range" accentClass="border-l-4 border-yellow-500" icon={<i className="fas fa-triangle-exclamation text-yellow-400"></i>} />
+                            <StatCard title="Open CAPA" value={executiveStats.openCapas} subtext="Open corrective actions across all sources" accentClass="border-l-4 border-emerald-500" icon={<i className="fas fa-list-check text-emerald-400"></i>} />
+                            <StatCard title="Active Permits" value={executiveStats.activePermits} subtext="Pending approval, work in progress, and pending closure" accentClass="border-l-4 border-sky-500" icon={<i className="fas fa-file-signature text-sky-400"></i>} />
+                            <StatCard title="Training / Risk" value={`${executiveStats.trainingSessions} / ${executiveStats.riskAssessments}`} subtext="Training sessions and risk assessments in the same window" accentClass="border-l-4 border-violet-500" icon={<i className="fas fa-chart-pie text-violet-400"></i>} />
+                        </div>
+
+                        <div className="mt-8 grid grid-cols-1 gap-6 xl:grid-cols-[1.8fr_1fr]">
+                            <div className="rounded-2xl border border-slate-800 bg-slate-950 p-5">
+                                {hasSiteComparisonData ? (
+                                    <div className="h-[360px]">
+                                        <Bar data={siteComparisonChartData} options={siteComparisonChartOptions} />
+                                    </div>
+                                ) : (
+                                    <ChartEmptyState title="No site comparison data available for the current filter set" />
+                                )}
+                            </div>
+                            <SummaryList
+                                title="Executive Module Snapshot"
+                                rows={executiveOverviewRows}
+                            />
+                        </div>
+
+                        <div className="mt-8 overflow-hidden rounded-2xl border border-slate-800">
+                            <div className="border-b border-slate-800 bg-slate-950 px-5 py-4">
+                                <h3 className="text-xs font-black uppercase tracking-[0.25em] text-slate-300">Site Comparison Register</h3>
+                            </div>
+                            <div className="overflow-x-auto">
+                                <table className="min-w-full text-left text-sm text-slate-300">
+                                    <thead className="bg-slate-950/80 text-[10px] uppercase tracking-[0.25em] text-slate-500">
+                                        <tr>
+                                            <th className="px-5 py-4">Site</th>
+                                            <th className="px-5 py-4">Incidents</th>
+                                            <th className="px-5 py-4">Open CAPA</th>
+                                            <th className="px-5 py-4">Active Permits</th>
+                                            <th className="px-5 py-4">Training Sessions</th>
+                                            <th className="px-5 py-4">High Risk Assessments</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-800 bg-slate-950/60">
+                                        {siteComparisonRows.length > 0 ? siteComparisonRows.map((row) => (
+                                            <tr key={row.site} className="hover:bg-slate-900/70">
+                                                <td className="px-5 py-4 font-bold text-white">{row.site}</td>
+                                                <td className="px-5 py-4 text-yellow-400">{row.incidents}</td>
+                                                <td className="px-5 py-4 text-emerald-400">{row.openCapas}</td>
+                                                <td className="px-5 py-4 text-sky-400">{row.activePermits}</td>
+                                                <td className="px-5 py-4 text-violet-400">{row.trainings}</td>
+                                                <td className="px-5 py-4 text-red-400">{row.highRisk}</td>
+                                            </tr>
+                                        )) : (
+                                            <tr>
+                                                <td colSpan="6" className="px-5 py-10 text-center text-sm italic text-slate-500">
+                                                    No site comparison data found for the active filters.
+                                                </td>
+                                            </tr>
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </Panel>
+
                     <section className="rounded-3xl border border-slate-800 bg-slate-900 p-6 shadow-2xl">
                         <h2 className="text-lg font-black uppercase tracking-widest text-white">Dashboard Navigator</h2>
                         <p className="mt-2 text-sm text-slate-400">Jump straight to the module dashboard you want to review.</p>
                         <div className="mt-5 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-4">
                             {[
+                                ['dashboard-executive', 'Executive Summary', 'fa-chart-simple', 'text-cyan-400'],
                                 ['dashboard-incidents', 'Incident Dashboard', 'fa-triangle-exclamation', 'text-yellow-400'],
                                 ['dashboard-capa', 'CAPA Dashboard', 'fa-list-check', 'text-emerald-400'],
                                 ['dashboard-ptw', 'PTW Dashboard', 'fa-file-signature', 'text-amber-400'],
@@ -1865,6 +2476,27 @@ export default function Analytics() {
                             <StatCard title="Closed / Cancelled" value={`${ptwStats.closed} / ${ptwStats.cancelled}`} subtext="Completed versus cancelled permits" accentClass="border-l-4 border-emerald-500" icon={<i className="fas fa-lock text-emerald-400"></i>} />
                         </div>
 
+                        <div className="mt-8 grid grid-cols-1 gap-6 xl:grid-cols-[1.8fr_1fr]">
+                            <div className="rounded-2xl border border-slate-800 bg-slate-950 p-5">
+                                {hasPtwTrendData ? (
+                                    <div className="h-[340px]">
+                                        <Bar data={ptwTrendChartData} options={ptwChartOptions} />
+                                    </div>
+                                ) : (
+                                    <ChartEmptyState title="No PTW workflow trend available in the selected range" />
+                                )}
+                            </div>
+                            <div className="rounded-2xl border border-slate-800 bg-slate-950 p-5">
+                                {hasPtwTypeData ? (
+                                    <div className="h-[340px]">
+                                        <Doughnut data={ptwTypeChartData} options={doughnutOptions} />
+                                    </div>
+                                ) : (
+                                    <ChartEmptyState title="No permit type mix available in the selected range" />
+                                )}
+                            </div>
+                        </div>
+
                         <div className="mt-8 grid grid-cols-1 gap-6 xl:grid-cols-2">
                             <SummaryList
                                 title="Permit Type Mix"
@@ -1958,6 +2590,27 @@ export default function Analytics() {
                             <StatCard title="Headcount Logged" value={emergencyStats.headCount} subtext="Total persons captured during event reporting" accentClass="border-l-4 border-cyan-500" icon={<i className="fas fa-users text-cyan-400"></i>} />
                         </div>
 
+                        <div className="mt-8 grid grid-cols-1 gap-6 xl:grid-cols-[1.8fr_1fr]">
+                            <div className="rounded-2xl border border-slate-800 bg-slate-950 p-5">
+                                {hasEmergencyTrendData ? (
+                                    <div className="h-[340px]">
+                                        <Line data={emergencyTrendChartData} options={emergencyChartOptions} />
+                                    </div>
+                                ) : (
+                                    <ChartEmptyState title="No emergency trend available in the selected range" />
+                                )}
+                            </div>
+                            <div className="rounded-2xl border border-slate-800 bg-slate-950 p-5">
+                                {hasEmergencyTypeData ? (
+                                    <div className="h-[340px]">
+                                        <Doughnut data={emergencyTypeChartData} options={doughnutOptions} />
+                                    </div>
+                                ) : (
+                                    <ChartEmptyState title="No emergency event mix available in the selected range" />
+                                )}
+                            </div>
+                        </div>
+
                         <div className="mt-8 grid grid-cols-1 gap-6 xl:grid-cols-2">
                             <SummaryList
                                 title="Emergency Event Mix"
@@ -1986,6 +2639,27 @@ export default function Analytics() {
                             <StatCard title="Valid Certifications" value={trainingStats.validCerts} subtext="Still-valid certifications for the filtered site scope" accentClass="border-l-4 border-emerald-500" icon={<i className="fas fa-certificate text-emerald-400"></i>} />
                             <StatCard title="Expiring Soon" value={trainingStats.expiringSoon} subtext="Certifications inside 6 months or 30 days warning" accentClass="border-l-4 border-yellow-500" icon={<i className="fas fa-bell text-yellow-400"></i>} />
                             <StatCard title="Expired" value={trainingStats.expired} subtext="Certifications already expired" accentClass="border-l-4 border-red-500" icon={<i className="fas fa-circle-xmark text-red-400"></i>} />
+                        </div>
+
+                        <div className="mt-8 grid grid-cols-1 gap-6 xl:grid-cols-[1.8fr_1fr]">
+                            <div className="rounded-2xl border border-slate-800 bg-slate-950 p-5">
+                                {hasTrainingTrendData ? (
+                                    <div className="h-[340px]">
+                                        <Line data={trainingTrendChartData} options={trainingChartOptions} />
+                                    </div>
+                                ) : (
+                                    <ChartEmptyState title="No training trend available in the selected range" />
+                                )}
+                            </div>
+                            <div className="rounded-2xl border border-slate-800 bg-slate-950 p-5">
+                                {hasTrainingCertData ? (
+                                    <div className="h-[340px]">
+                                        <Doughnut data={trainingCertificationChartData} options={doughnutOptions} />
+                                    </div>
+                                ) : (
+                                    <ChartEmptyState title="No certification health mix available" />
+                                )}
+                            </div>
                         </div>
 
                         <div className="mt-8 grid grid-cols-1 gap-6 xl:grid-cols-2">
@@ -2020,6 +2694,27 @@ export default function Analytics() {
                             <StatCard title="Hazards Identified" value={riskStats.hazards} subtext="Total hazards documented across filtered assessments" accentClass="border-l-4 border-cyan-500" icon={<i className="fas fa-triangle-exclamation text-cyan-400"></i>} />
                             <StatCard title="High Residual Risk" value={riskStats.highResidual} subtext="Assessments still carrying residual risk above threshold" accentClass="border-l-4 border-red-500" icon={<i className="fas fa-fire text-red-400"></i>} />
                             <StatCard title="ALARP Cases" value={riskStats.alarp} subtext="Assessments with formal ALARP declaration" accentClass="border-l-4 border-yellow-500" icon={<i className="fas fa-scale-balanced text-yellow-400"></i>} />
+                        </div>
+
+                        <div className="mt-8 grid grid-cols-1 gap-6 xl:grid-cols-[1.8fr_1fr]">
+                            <div className="rounded-2xl border border-slate-800 bg-slate-950 p-5">
+                                {hasRiskTrendData ? (
+                                    <div className="h-[340px]">
+                                        <Bar data={riskTrendChartData} options={riskChartOptions} />
+                                    </div>
+                                ) : (
+                                    <ChartEmptyState title="No risk trend available in the selected range" />
+                                )}
+                            </div>
+                            <div className="rounded-2xl border border-slate-800 bg-slate-950 p-5">
+                                {hasRiskStatusData ? (
+                                    <div className="h-[340px]">
+                                        <Doughnut data={riskStatusChartData} options={doughnutOptions} />
+                                    </div>
+                                ) : (
+                                    <ChartEmptyState title="No risk status mix available in the selected range" />
+                                )}
+                            </div>
                         </div>
 
                         <div className="mt-8 grid grid-cols-1 gap-6 xl:grid-cols-2">
