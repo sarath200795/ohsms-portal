@@ -50,6 +50,23 @@ const GRANULARITY_OPTIONS = [
     { id: 'halfyearly', label: 'Half-Yearly' },
     { id: 'annually', label: 'Annually' }
 ];
+const COMPARISON_MODE_OPTIONS = [
+    { id: 'site', label: 'Compare Sites' },
+    { id: 'timeline', label: 'Compare Timeline' }
+];
+const COMPARISON_SITE_SCOPE_OPTIONS = [
+    { id: 'all-sites', label: 'All Authorized Sites' },
+    { id: 'filtered', label: 'Current Site Filter' }
+];
+const COMPARISON_METRIC_OPTIONS = [
+    { id: 'incidents', label: 'Incidents Logged', backgroundColor: 'rgba(250, 204, 21, 0.85)', borderColor: '#facc15', valueClass: 'text-yellow-400' },
+    { id: 'openCapas', label: 'Open CAPA', backgroundColor: 'rgba(16, 185, 129, 0.85)', borderColor: '#10b981', valueClass: 'text-emerald-400' },
+    { id: 'activePermits', label: 'Active Permits', backgroundColor: 'rgba(56, 189, 248, 0.85)', borderColor: '#38bdf8', valueClass: 'text-sky-400' },
+    { id: 'inspections', label: 'Inspections Completed', backgroundColor: 'rgba(132, 204, 22, 0.85)', borderColor: '#84cc16', valueClass: 'text-lime-400' },
+    { id: 'emergencyEvents', label: 'Emergency Events', backgroundColor: 'rgba(244, 63, 94, 0.85)', borderColor: '#f43f5e', valueClass: 'text-rose-400' },
+    { id: 'trainings', label: 'Training Sessions', backgroundColor: 'rgba(139, 92, 246, 0.85)', borderColor: '#8b5cf6', valueClass: 'text-violet-400' },
+    { id: 'highRisk', label: 'High Risk Assessments', backgroundColor: 'rgba(239, 68, 68, 0.85)', borderColor: '#ef4444', valueClass: 'text-red-400' }
+];
 const CAPA_SOURCE_OPTIONS = [
     'Incident',
     'Audit',
@@ -78,6 +95,7 @@ const SCOPED_CHILDREN = new Set([
     'trainings',
     'riskAssessments'
 ]);
+const ACTIVE_PERMIT_STATUSES = ['Pending Approval', 'Work in Progress', 'Pending Closure'];
 
 const resolveInitialAnalyticsSite = (session, search) => {
     const params = new URLSearchParams(search);
@@ -808,6 +826,9 @@ export default function Analytics() {
     const [filterStart, setFilterStart] = useState(formatDateKey(startOfYear(new Date())));
     const [filterEnd, setFilterEnd] = useState(formatDateKey(new Date()));
     const [capaSourceFilter, setCapaSourceFilter] = useState('All');
+    const [comparisonMode, setComparisonMode] = useState('site');
+    const [comparisonMetric, setComparisonMetric] = useState('incidents');
+    const [comparisonSiteScope, setComparisonSiteScope] = useState('all-sites');
 
     const [logDate, setLogDate] = useState(formatDateKey(new Date()));
     const [logSite, setLogSite] = useState(initialSiteFilter !== 'All' ? initialSiteFilter : '');
@@ -1232,7 +1253,14 @@ export default function Analytics() {
             .sort((left, right) => right.value - left.value);
     }, [filteredRiskAssessments]);
 
+    const comparisonMetricConfig = useMemo(
+        () => COMPARISON_METRIC_OPTIONS.find((option) => option.id === comparisonMetric) || COMPARISON_METRIC_OPTIONS[0],
+        [comparisonMetric]
+    );
+
     const comparisonSites = useMemo(() => {
+        if (comparisonSiteScope === 'all-sites') return visibleSites;
+
         if (siteFilter !== 'All') {
             const matchedSite = visibleSites.find((site) => site.code === siteFilter);
             if (matchedSite) return [matchedSite];
@@ -1240,7 +1268,7 @@ export default function Analytics() {
         }
 
         return visibleSites;
-    }, [siteFilter, visibleSites]);
+    }, [comparisonSiteScope, siteFilter, visibleSites]);
 
     const siteComparisonRows = useMemo(() => (
         comparisonSites.map((site) => {
@@ -1261,8 +1289,10 @@ export default function Analytics() {
                     permit.analyticsDate >= rangeStartKey
                     && permit.analyticsDate <= rangeEndKey
                     && String(permit.siteId || '').trim() === siteCode
-                    && ['Pending Approval', 'Work in Progress', 'Pending Closure'].includes(String(permit.status || '').trim())
+                    && ACTIVE_PERMIT_STATUSES.includes(String(permit.status || '').trim())
                 )).length,
+                inspections: inspectionRecords.filter((record) => record.analyticsDate >= rangeStartKey && record.analyticsDate <= rangeEndKey && String(record.siteId || '').trim() === siteCode).length,
+                emergencyEvents: mockDrills.filter((record) => record.analyticsDate >= rangeStartKey && record.analyticsDate <= rangeEndKey && String(record.siteId || '').trim() === siteCode).length,
                 trainings: trainingRecords.filter((record) => record.analyticsDate >= rangeStartKey && record.analyticsDate <= rangeEndKey && String(record.siteId || '').trim() === siteCode).length,
                 highRisk: riskAssessments.filter((assessment) => (
                     assessment.analyticsDate >= rangeStartKey
@@ -1272,18 +1302,88 @@ export default function Analytics() {
                 )).length
             };
         })
-    ), [capaActions, comparisonSites, incidents, ptwRecords, rangeEndKey, rangeStartKey, riskAssessments, trainingRecords]);
+    ), [capaActions, comparisonSites, incidents, inspectionRecords, mockDrills, ptwRecords, rangeEndKey, rangeStartKey, riskAssessments, trainingRecords]);
 
-    const siteComparisonChartData = useMemo(() => ({
-        labels: siteComparisonRows.map((row) => row.site),
-        datasets: [
-            { label: 'Incidents', data: siteComparisonRows.map((row) => row.incidents), backgroundColor: 'rgba(250, 204, 21, 0.85)', borderRadius: 8 },
-            { label: 'Open CAPA', data: siteComparisonRows.map((row) => row.openCapas), backgroundColor: 'rgba(16, 185, 129, 0.85)', borderRadius: 8 },
-            { label: 'Active Permits', data: siteComparisonRows.map((row) => row.activePermits), backgroundColor: 'rgba(56, 189, 248, 0.85)', borderRadius: 8 },
-            { label: 'Training Sessions', data: siteComparisonRows.map((row) => row.trainings), backgroundColor: 'rgba(139, 92, 246, 0.85)', borderRadius: 8 },
-            { label: 'High Risk Assessments', data: siteComparisonRows.map((row) => row.highRisk), backgroundColor: 'rgba(239, 68, 68, 0.85)', borderRadius: 8 }
-        ]
-    }), [siteComparisonRows]);
+    const metricSiteComparisonRows = useMemo(() => (
+        siteComparisonRows.map((row) => ({
+            label: row.site,
+            value: Number(row[comparisonMetric] || 0)
+        }))
+    ), [comparisonMetric, siteComparisonRows]);
+
+    const timelineComparisonRows = useMemo(() => {
+        const bucketMap = new Map(
+            periodBuckets.map((bucket) => [bucket.key, {
+                key: bucket.key,
+                label: bucket.label,
+                value: 0
+            }])
+        );
+
+        switch (comparisonMetric) {
+            case 'incidents':
+                filteredIncidents.forEach((incident) => {
+                    const bucket = bucketMap.get(getBucketKeyFromDate(incident.date, granularity));
+                    if (bucket) bucket.value += 1;
+                });
+                break;
+            case 'openCapas':
+                filteredCapaActions.forEach((action) => {
+                    if (action.status === 'Closed') return;
+                    const anchorDate = action.due || action.openedAt || action.closedAt;
+                    const bucket = bucketMap.get(getBucketKeyFromDate(anchorDate, granularity));
+                    if (bucket) bucket.value += 1;
+                });
+                break;
+            case 'activePermits':
+                filteredPermits.forEach((permit) => {
+                    if (!ACTIVE_PERMIT_STATUSES.includes(String(permit.status || '').trim())) return;
+                    const bucket = bucketMap.get(getBucketKeyFromDate(permit.analyticsDate, granularity));
+                    if (bucket) bucket.value += 1;
+                });
+                break;
+            case 'inspections':
+                filteredInspectionRecords.forEach((record) => {
+                    const bucket = bucketMap.get(getBucketKeyFromDate(record.analyticsDate, granularity));
+                    if (bucket) bucket.value += 1;
+                });
+                break;
+            case 'emergencyEvents':
+                filteredMockDrills.forEach((record) => {
+                    const bucket = bucketMap.get(getBucketKeyFromDate(record.analyticsDate, granularity));
+                    if (bucket) bucket.value += 1;
+                });
+                break;
+            case 'trainings':
+                filteredTrainingRecords.forEach((record) => {
+                    const bucket = bucketMap.get(getBucketKeyFromDate(record.analyticsDate, granularity));
+                    if (bucket) bucket.value += 1;
+                });
+                break;
+            case 'highRisk':
+                filteredRiskAssessments.forEach((assessment) => {
+                    if (!hasHighResidualRisk(assessment)) return;
+                    const bucket = bucketMap.get(getBucketKeyFromDate(assessment.analyticsDate, granularity));
+                    if (bucket) bucket.value += 1;
+                });
+                break;
+            default:
+                break;
+        }
+
+        return Array.from(bucketMap.values());
+    }, [
+        comparisonMetric,
+        filteredCapaActions,
+        filteredIncidents,
+        filteredInspectionRecords,
+        filteredMockDrills,
+        filteredPermits,
+        filteredRiskAssessments,
+        filteredTrainingRecords,
+        granularity,
+        periodBuckets
+    ]);
 
     const ptwTrendRows = useMemo(() => {
         const bucketMap = new Map(
@@ -1533,6 +1633,32 @@ export default function Analytics() {
         { label: 'Risk Assessments', value: executiveStats.riskAssessments, valueClass: 'text-orange-400' }
     ]), [executiveStats]);
 
+    const comparisonInsightRows = useMemo(() => {
+        const activeRows = comparisonMode === 'site' ? metricSiteComparisonRows : timelineComparisonRows;
+        const sortedRows = [...activeRows].sort((left, right) => right.value - left.value);
+        const topRow = sortedRows[0];
+        const totalValue = activeRows.reduce((sum, row) => sum + row.value, 0);
+        const averageValue = activeRows.length ? (totalValue / activeRows.length).toFixed(1) : '0.0';
+
+        if (comparisonMode === 'site') {
+            return [
+                { label: 'Comparison Metric', value: comparisonMetricConfig.label, valueClass: comparisonMetricConfig.valueClass },
+                { label: 'Sites Compared', value: activeRows.length, valueClass: 'text-cyan-400' },
+                { label: 'Leading Site', value: topRow ? topRow.label : 'N/A', valueClass: 'text-white' },
+                { label: 'Highest Value', value: topRow ? topRow.value : 0, valueClass: comparisonMetricConfig.valueClass },
+                { label: 'Average Per Site', value: averageValue, valueClass: 'text-slate-300' }
+            ];
+        }
+
+        return [
+            { label: 'Comparison Metric', value: comparisonMetricConfig.label, valueClass: comparisonMetricConfig.valueClass },
+            { label: 'Timeline Buckets', value: activeRows.length, valueClass: 'text-cyan-400' },
+            { label: 'Peak Period', value: topRow ? topRow.label : 'N/A', valueClass: 'text-white' },
+            { label: 'Peak Value', value: topRow ? topRow.value : 0, valueClass: comparisonMetricConfig.valueClass },
+            { label: 'Average Per Bucket', value: averageValue, valueClass: 'text-slate-300' }
+        ];
+    }, [comparisonMetricConfig, comparisonMode, metricSiteComparisonRows, timelineComparisonRows]);
+
     const capaTrendRows = useMemo(() => {
         const bucketMap = new Map(
             periodBuckets.map((bucket) => [bucket.key, {
@@ -1742,18 +1868,51 @@ export default function Analytics() {
         }
     }), []);
 
-    const siteComparisonChartOptions = useMemo(() => ({
+    const comparisonChartData = useMemo(() => {
+        const activeRows = comparisonMode === 'site' ? metricSiteComparisonRows : timelineComparisonRows;
+        if (comparisonMode === 'timeline') {
+            return {
+                labels: activeRows.map((row) => row.label),
+                datasets: [
+                    {
+                        label: comparisonMetricConfig.label,
+                        data: activeRows.map((row) => row.value),
+                        borderColor: comparisonMetricConfig.borderColor,
+                        backgroundColor: comparisonMetricConfig.backgroundColor.replace('0.85', '0.18'),
+                        fill: true,
+                        tension: 0.35
+                    }
+                ]
+            };
+        }
+
+        return {
+            labels: activeRows.map((row) => row.label),
+            datasets: [
+                {
+                    label: comparisonMetricConfig.label,
+                    data: activeRows.map((row) => row.value),
+                    backgroundColor: comparisonMetricConfig.backgroundColor,
+                    borderRadius: 8
+                }
+            ]
+        };
+    }, [comparisonMetricConfig, comparisonMode, metricSiteComparisonRows, timelineComparisonRows]);
+
+    const comparisonChartOptions = useMemo(() => ({
         ...baseChartOptions,
         plugins: {
             ...baseChartOptions.plugins,
             title: {
                 display: true,
-                text: 'Site vs Site Operational Comparison',
+                text: comparisonMode === 'site'
+                    ? `${comparisonMetricConfig.label} by Site`
+                    : `${comparisonMetricConfig.label} by ${GRANULARITY_OPTIONS.find((option) => option.id === granularity)?.label || granularity}`,
                 color: '#f8fafc',
                 font: { size: 14, weight: '700' }
             }
         }
-    }), []);
+    }), [comparisonMetricConfig.label, comparisonMode, granularity]);
 
     const handleSiteFilterChange = (event) => {
         const selectedSite = event.target.value;
@@ -1783,6 +1942,8 @@ export default function Analytics() {
                 { Metric: 'Active Site Filter', Value: siteFilter === 'All' ? 'All Authorized Sites' : siteFilter },
                 { Metric: 'Active Range', Value: activeRangeLabel },
                 { Metric: 'Granularity', Value: GRANULARITY_OPTIONS.find((option) => option.id === granularity)?.label || granularity },
+                { Metric: 'Comparison Mode', Value: COMPARISON_MODE_OPTIONS.find((option) => option.id === comparisonMode)?.label || comparisonMode },
+                { Metric: 'Comparison Metric', Value: comparisonMetricConfig.label },
                 ...executiveOverviewRows.map((row) => ({ Metric: row.label, Value: row.value }))
             ]);
 
@@ -1811,9 +1972,18 @@ export default function Analytics() {
                 Incidents: row.incidents,
                 Open_CAPA: row.openCapas,
                 Active_Permits: row.activePermits,
+                Inspections: row.inspections,
+                Emergency_Events: row.emergencyEvents,
                 Training_Sessions: row.trainings,
                 High_Risk_Assessments: row.highRisk
             })));
+
+            const currentComparisonSheet = XLSX.utils.json_to_sheet(
+                (comparisonMode === 'site' ? metricSiteComparisonRows : timelineComparisonRows).map((row) => ({
+                    [comparisonMode === 'site' ? 'Site' : 'Period']: row.label,
+                    [comparisonMetricConfig.label]: row.value
+                }))
+            );
 
             const ptwSheet = XLSX.utils.json_to_sheet(ptwTrendRows.map((row) => ({
                 Period: row.label,
@@ -1847,6 +2017,7 @@ export default function Analytics() {
             XLSX.utils.book_append_sheet(workbook, incidentSheet, 'Incident_Dashboard');
             XLSX.utils.book_append_sheet(workbook, capaSheet, 'CAPA_Dashboard');
             XLSX.utils.book_append_sheet(workbook, comparisonSheet, 'Site_Comparison');
+            XLSX.utils.book_append_sheet(workbook, currentComparisonSheet, 'Current_Comparison');
             XLSX.utils.book_append_sheet(workbook, ptwSheet, 'PTW_Dashboard');
             XLSX.utils.book_append_sheet(workbook, emergencySheet, 'Emergency_Dashboard');
             XLSX.utils.book_append_sheet(workbook, trainingSheet, 'Training_Dashboard');
@@ -1873,9 +2044,10 @@ export default function Analytics() {
             doc.text(`Site Filter: ${siteFilter === 'All' ? 'All Authorized Sites' : siteFilter}`, 14, 32);
             doc.text(`Range: ${activeRangeLabel}`, 14, 38);
             doc.text(`Granularity: ${GRANULARITY_OPTIONS.find((option) => option.id === granularity)?.label || granularity}`, 14, 44);
+            doc.text(`Comparison: ${(COMPARISON_MODE_OPTIONS.find((option) => option.id === comparisonMode)?.label || comparisonMode)} / ${comparisonMetricConfig.label}`, 14, 50);
 
             autoTable(doc, {
-                startY: 50,
+                startY: 56,
                 head: [['Executive Summary', 'Value']],
                 body: executiveOverviewRows.map((row) => [row.label, String(row.value)]),
                 styles: { fontSize: 9 },
@@ -1912,6 +2084,17 @@ export default function Analytics() {
                 ]),
                 styles: { fontSize: 8 },
                 headStyles: { fillColor: [8, 145, 178] }
+            });
+
+            autoTable(doc, {
+                startY: doc.lastAutoTable.finalY + 6,
+                head: [[comparisonMode === 'site' ? 'Site' : 'Period', comparisonMetricConfig.label]],
+                body: (comparisonMode === 'site' ? metricSiteComparisonRows : timelineComparisonRows).map((row) => [
+                    row.label,
+                    String(row.value)
+                ]),
+                styles: { fontSize: 8 },
+                headStyles: { fillColor: [30, 41, 59] }
             });
 
             doc.save(`Analytics_Executive_Pack_${new Date().toISOString().slice(0, 10)}.pdf`);
@@ -1981,7 +2164,9 @@ export default function Analytics() {
     const hasTrainingCertData = trainingStats.validCerts || trainingStats.expiringSoon || trainingStats.expired;
     const hasRiskTrendData = riskTrendRows.some((row) => row.assessments || row.hazards || row.highResidual || row.alarp);
     const hasRiskStatusData = riskStatusRows.length > 0;
-    const hasSiteComparisonData = siteComparisonRows.some((row) => row.incidents || row.openCapas || row.activePermits || row.trainings || row.highRisk);
+    const hasMetricSiteComparisonData = metricSiteComparisonRows.some((row) => row.value);
+    const hasTimelineComparisonData = timelineComparisonRows.some((row) => row.value);
+    const hasComparisonData = comparisonMode === 'site' ? hasMetricSiteComparisonData : hasTimelineComparisonData;
 
     return (
         <div className="flex h-screen flex-col overflow-hidden bg-slate-950 text-white font-['Space_Grotesk']">
@@ -2126,7 +2311,7 @@ export default function Analytics() {
                     <Panel
                         id="dashboard-executive"
                         title="Executive Summary Dashboard"
-                        description="High-level cross-module snapshot for leadership review, plus site-vs-site comparison within the active analytics window."
+                        description="High-level cross-module snapshot for leadership review, with a flexible compare tool that can switch between site-to-site performance and timeline movement."
                         accentClass="border-cyan-500"
                     >
                         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
@@ -2136,56 +2321,139 @@ export default function Analytics() {
                             <StatCard title="Training / Risk" value={`${executiveStats.trainingSessions} / ${executiveStats.riskAssessments}`} subtext="Training sessions and risk assessments in the same window" accentClass="border-l-4 border-violet-500" icon={<i className="fas fa-chart-pie text-violet-400"></i>} />
                         </div>
 
+                        <div className="mt-8 grid grid-cols-1 gap-4 lg:grid-cols-3">
+                            <div>
+                                <label className="mb-2 block text-[10px] font-bold uppercase tracking-[0.25em] text-slate-500">Compare By</label>
+                                <select
+                                    value={comparisonMode}
+                                    onChange={(event) => setComparisonMode(event.target.value)}
+                                    className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm font-bold text-white outline-none transition-colors focus:border-cyan-500"
+                                >
+                                    {COMPARISON_MODE_OPTIONS.map((option) => (
+                                        <option key={option.id} value={option.id}>{option.label}</option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div>
+                                <label className="mb-2 block text-[10px] font-bold uppercase tracking-[0.25em] text-slate-500">Metric</label>
+                                <select
+                                    value={comparisonMetric}
+                                    onChange={(event) => setComparisonMetric(event.target.value)}
+                                    className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm font-bold text-white outline-none transition-colors focus:border-cyan-500"
+                                >
+                                    {COMPARISON_METRIC_OPTIONS.map((option) => (
+                                        <option key={option.id} value={option.id}>{option.label}</option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div>
+                                <label className="mb-2 block text-[10px] font-bold uppercase tracking-[0.25em] text-slate-500">Site Scope</label>
+                                <select
+                                    value={comparisonSiteScope}
+                                    onChange={(event) => setComparisonSiteScope(event.target.value)}
+                                    disabled={comparisonMode !== 'site'}
+                                    className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm font-bold text-white outline-none transition-colors focus:border-cyan-500 disabled:cursor-not-allowed disabled:opacity-50"
+                                >
+                                    {COMPARISON_SITE_SCOPE_OPTIONS.map((option) => (
+                                        <option key={option.id} value={option.id}>{option.label}</option>
+                                    ))}
+                                </select>
+                            </div>
+                        </div>
+
                         <div className="mt-8 grid grid-cols-1 gap-6 xl:grid-cols-[1.8fr_1fr]">
                             <div className="rounded-2xl border border-slate-800 bg-slate-950 p-5">
-                                {hasSiteComparisonData ? (
+                                {hasComparisonData ? (
                                     <div className="h-[360px]">
-                                        <Bar data={siteComparisonChartData} options={siteComparisonChartOptions} />
+                                        {comparisonMode === 'site' ? (
+                                            <Bar data={comparisonChartData} options={comparisonChartOptions} />
+                                        ) : (
+                                            <Line data={comparisonChartData} options={comparisonChartOptions} />
+                                        )}
                                     </div>
                                 ) : (
-                                    <ChartEmptyState title="No site comparison data available for the current filter set" />
+                                    <ChartEmptyState title={`No ${comparisonMode === 'site' ? 'site comparison' : 'timeline comparison'} data available for the current filter set`} />
                                 )}
                             </div>
-                            <SummaryList
-                                title="Executive Module Snapshot"
-                                rows={executiveOverviewRows}
-                            />
+                            <div className="space-y-6">
+                                <SummaryList
+                                    title="Executive Module Snapshot"
+                                    rows={executiveOverviewRows}
+                                />
+                                <SummaryList
+                                    title={comparisonMode === 'site' ? 'Site Comparison Highlights' : 'Timeline Comparison Highlights'}
+                                    rows={comparisonInsightRows}
+                                />
+                            </div>
                         </div>
 
                         <div className="mt-8 overflow-hidden rounded-2xl border border-slate-800">
                             <div className="border-b border-slate-800 bg-slate-950 px-5 py-4">
-                                <h3 className="text-xs font-black uppercase tracking-[0.25em] text-slate-300">Site Comparison Register</h3>
+                                <h3 className="text-xs font-black uppercase tracking-[0.25em] text-slate-300">
+                                    {comparisonMode === 'site' ? 'Site Comparison Register' : 'Timeline Comparison Register'}
+                                </h3>
                             </div>
                             <div className="overflow-x-auto">
                                 <table className="min-w-full text-left text-sm text-slate-300">
-                                    <thead className="bg-slate-950/80 text-[10px] uppercase tracking-[0.25em] text-slate-500">
-                                        <tr>
-                                            <th className="px-5 py-4">Site</th>
-                                            <th className="px-5 py-4">Incidents</th>
-                                            <th className="px-5 py-4">Open CAPA</th>
-                                            <th className="px-5 py-4">Active Permits</th>
-                                            <th className="px-5 py-4">Training Sessions</th>
-                                            <th className="px-5 py-4">High Risk Assessments</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-slate-800 bg-slate-950/60">
-                                        {siteComparisonRows.length > 0 ? siteComparisonRows.map((row) => (
-                                            <tr key={row.site} className="hover:bg-slate-900/70">
-                                                <td className="px-5 py-4 font-bold text-white">{row.site}</td>
-                                                <td className="px-5 py-4 text-yellow-400">{row.incidents}</td>
-                                                <td className="px-5 py-4 text-emerald-400">{row.openCapas}</td>
-                                                <td className="px-5 py-4 text-sky-400">{row.activePermits}</td>
-                                                <td className="px-5 py-4 text-violet-400">{row.trainings}</td>
-                                                <td className="px-5 py-4 text-red-400">{row.highRisk}</td>
-                                            </tr>
-                                        )) : (
-                                            <tr>
-                                                <td colSpan="6" className="px-5 py-10 text-center text-sm italic text-slate-500">
-                                                    No site comparison data found for the active filters.
-                                                </td>
-                                            </tr>
-                                        )}
-                                    </tbody>
+                                    {comparisonMode === 'site' ? (
+                                        <>
+                                            <thead className="bg-slate-950/80 text-[10px] uppercase tracking-[0.25em] text-slate-500">
+                                                <tr>
+                                                    <th className="px-5 py-4">Site</th>
+                                                    <th className="px-5 py-4">Incidents</th>
+                                                    <th className="px-5 py-4">Open CAPA</th>
+                                                    <th className="px-5 py-4">Active Permits</th>
+                                                    <th className="px-5 py-4">Inspections</th>
+                                                    <th className="px-5 py-4">Emergency Events</th>
+                                                    <th className="px-5 py-4">Training Sessions</th>
+                                                    <th className="px-5 py-4">High Risk Assessments</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-slate-800 bg-slate-950/60">
+                                                {siteComparisonRows.length > 0 ? siteComparisonRows.map((row) => (
+                                                    <tr key={row.site} className="hover:bg-slate-900/70">
+                                                        <td className="px-5 py-4 font-bold text-white">{row.site}</td>
+                                                        <td className="px-5 py-4 text-yellow-400">{row.incidents}</td>
+                                                        <td className="px-5 py-4 text-emerald-400">{row.openCapas}</td>
+                                                        <td className="px-5 py-4 text-sky-400">{row.activePermits}</td>
+                                                        <td className="px-5 py-4 text-lime-400">{row.inspections}</td>
+                                                        <td className="px-5 py-4 text-rose-400">{row.emergencyEvents}</td>
+                                                        <td className="px-5 py-4 text-violet-400">{row.trainings}</td>
+                                                        <td className="px-5 py-4 text-red-400">{row.highRisk}</td>
+                                                    </tr>
+                                                )) : (
+                                                    <tr>
+                                                        <td colSpan="8" className="px-5 py-10 text-center text-sm italic text-slate-500">
+                                                            No site comparison data found for the active filters.
+                                                        </td>
+                                                    </tr>
+                                                )}
+                                            </tbody>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <thead className="bg-slate-950/80 text-[10px] uppercase tracking-[0.25em] text-slate-500">
+                                                <tr>
+                                                    <th className="px-5 py-4">Period</th>
+                                                    <th className="px-5 py-4">{comparisonMetricConfig.label}</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-slate-800 bg-slate-950/60">
+                                                {timelineComparisonRows.length > 0 ? timelineComparisonRows.map((row) => (
+                                                    <tr key={row.label} className="hover:bg-slate-900/70">
+                                                        <td className="px-5 py-4 font-bold text-white">{row.label}</td>
+                                                        <td className={`px-5 py-4 ${comparisonMetricConfig.valueClass}`}>{row.value}</td>
+                                                    </tr>
+                                                )) : (
+                                                    <tr>
+                                                        <td colSpan="2" className="px-5 py-10 text-center text-sm italic text-slate-500">
+                                                            No timeline comparison data found for the active filters.
+                                                        </td>
+                                                    </tr>
+                                                )}
+                                            </tbody>
+                                        </>
+                                    )}
                                 </table>
                             </div>
                         </div>
