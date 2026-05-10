@@ -89,12 +89,25 @@ export default function IncidentPrintOverlay({ printData }) {
                 </div>
             </div>
 
-            {printData.imageEvidence && (
-                <div className="mb-6 page-break-inside-avoid">
-                    <h2 className="text-sm font-bold mb-3 uppercase bg-gray-200 p-1 border border-gray-400 inline-block">Photographic Evidence</h2>
-                    <img src={printData.imageEvidence} className="max-h-[300px] border-2 border-black object-contain mt-2" alt="Evidence" />
-                </div>
-            )}
+            <div className="mb-6 page-break-inside-avoid border border-black p-4">
+                <h2 className="text-sm font-bold mb-3 uppercase bg-gray-200 p-1 border border-gray-400 inline-block">
+                    Photographic Evidence {isInvestigationReport ? '(From Initial Report)' : '(Initial Report)'}
+                </h2>
+                {printData.imageEvidence ? (
+                    <div>
+                        <p className="text-sm text-gray-700 mb-3">Uploaded evidence captured with the initial report is displayed below.</p>
+                        <img
+                            src={printData.imageEvidence}
+                            className="max-h-[360px] max-w-full border-2 border-black object-contain mt-2"
+                            alt={`${reportTitle} evidence`}
+                        />
+                    </div>
+                ) : (
+                    <div className="border border-dashed border-gray-400 bg-gray-50 p-4 text-sm italic text-gray-600">
+                        No photographic evidence was attached with the initial report.
+                    </div>
+                )}
+            </div>
 
             {isInvestigationReport ? (
                 <>
