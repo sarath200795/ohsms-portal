@@ -490,7 +490,18 @@ export default function FieldPortal() {
                                 className="myth-surface-soft rounded-2xl px-4 py-3 text-left transition-colors hover:border-[rgba(242,201,120,0.35)]"
                             >
                                 <div className={`mb-2 text-sm font-black ${module.accent}`}>{module.label}</div>
+                                {module.entryBadge && (
+                                    <div className={`mb-2 inline-flex items-center gap-2 rounded-full border px-2.5 py-1 text-[9px] font-bold uppercase tracking-[0.22em] ${module.entryBadgeClass || 'border-[rgba(242,201,120,0.14)] text-[var(--myth-gold)] bg-[rgba(8,7,5,0.55)]'}`}>
+                                        {module.entryIcon && <i className={`fas ${module.entryIcon}`}></i>}
+                                        <span>{module.entryBadge}</span>
+                                    </div>
+                                )}
                                 <div className="text-xs uppercase tracking-[0.2em] text-[var(--myth-muted)]">{module.actionLabel}</div>
+                                {module.fieldHint && (
+                                    <div className="mt-2 text-[11px] leading-relaxed text-[var(--myth-ink)]">
+                                        {module.fieldHint}
+                                    </div>
+                                )}
                             </button>
                         ))}
                     </div>

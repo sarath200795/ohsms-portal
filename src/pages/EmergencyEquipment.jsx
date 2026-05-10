@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { ref, get, push, update, remove } from 'firebase/database';
 import { rtdb } from '../config/firebase';
-import { getFieldPortalLoginPath, getPortalAwareHomePath } from './FieldApp/portalAuth';
+import { getFieldPortalLoginPath, getFieldPortalVerificationMessage, getPortalAwareHomePath, isFieldPortalHomeContext } from './FieldApp/portalAuth';
 import { readOrgChildren } from '../utils/orgData';
 import { canEditCreateForRole, isGlobalOwnerRole } from '../utils/permissions';
 import { readStoredSession } from '../utils/session';
@@ -348,6 +348,7 @@ const createEquipmentFormState = (siteId = '') => {
 export default function EmergencyEquipment() {
     const navigate = useNavigate();
     const location = useLocation();
+    const isFieldPortalMode = isFieldPortalHomeContext();
 
     const [session, setSession] = useState(null);
     const [isPublic, setIsPublic] = useState(false);
@@ -692,7 +693,7 @@ export default function EmergencyEquipment() {
                     : item
             )));
             setInspectData(prev => (prev ? { ...prev, ...payload, nextDate: nextInspection } : prev));
-            alert("Inspection logged successfully.");
+            alert(isFieldPortalMode ? getFieldPortalVerificationMessage('emergency equipment inspection report') : 'Inspection logged successfully.');
             setInspectData(null);
             setView('list');
             navigate(buildModulePath(inspectData.siteId || siteFilter), { replace: true });
@@ -1069,7 +1070,7 @@ export default function EmergencyEquipment() {
                     <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-orange-500 to-red-600 flex items-center justify-center text-white font-bold shadow-lg"><i className="fas fa-fire-extinguisher"></i></div>
                     <h1 className="text-base font-bold text-white hidden md:block uppercase tracking-wide">Emergency Equipment</h1>
                 </div>
-                {canEdit && view !== 'import' && (
+                {canEdit && view !== 'import' && !isFieldPortalMode && (
                     <button onClick={() => setView('import')} className="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-widest transition-colors shadow-lg flex items-center gap-2"><i className="fas fa-file-excel text-emerald-500"></i> Bulk Import</button>
                 )}
             </header>
@@ -1077,8 +1078,41 @@ export default function EmergencyEquipment() {
             <main className="flex-1 overflow-y-auto p-4 md:p-8 custom-scroll relative z-10 w-full no-print">
                 <div className="max-w-7xl mx-auto animate-in fade-in duration-500 space-y-6 pb-20">
 
+                    {isFieldPortalMode && view !== 'inspect' && !isPublic && (
+                        <div className="max-w-3xl mx-auto rounded-3xl border border-fuchsia-500/30 bg-slate-900/80 p-8 shadow-2xl">
+                            <div className="text-center">
+                                <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-fuchsia-500/10 text-fuchsia-300">
+                                    <i className="fas fa-qrcode text-2xl"></i>
+                                </div>
+                                <p className="text-[10px] font-bold uppercase tracking-[0.3em] text-fuchsia-300">Field Report Only</p>
+                                <h2 className="mt-3 text-3xl font-black text-white">Emergency Equipment Inspection</h2>
+                                <p className="mt-4 text-sm font-bold text-white">
+                                    Scan the asset QR tag to open the inspection sheet and submit the check.
+                                </p>
+                                <p className="mt-4 text-sm leading-relaxed text-slate-300">
+                                    The field portal does not show the equipment registry. Use the QR tag on the asset to open the inspection sheet, submit the inspection here, and then log in to the web portal to verify the report.
+                                </p>
+                            </div>
+
+                            <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:justify-center">
+                                <button
+                                    onClick={() => navigate(getPortalAwareHomePath({ fallbackPath: '/dashboard', site: siteFilter }))}
+                                    className="rounded-2xl bg-fuchsia-600 px-6 py-3 text-sm font-bold uppercase tracking-widest text-white shadow-lg shadow-fuchsia-900/30 transition hover:bg-fuchsia-500"
+                                >
+                                    Open Field Portal Scanner
+                                </button>
+                                <button
+                                    onClick={() => navigate(getPortalAwareHomePath({ fallbackPath: '/dashboard', site: siteFilter }))}
+                                    className="rounded-2xl border border-slate-700 bg-slate-800 px-6 py-3 text-sm font-bold uppercase tracking-widest text-slate-200 transition hover:bg-slate-700"
+                                >
+                                    Back to Field Home
+                                </button>
+                            </div>
+                        </div>
+                    )}
+
                     {/* Top Metrics & Filters */}
-                    {view === 'list' && (
+                    {!isFieldPortalMode && view === 'list' && (
                         <>
                             <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4 mb-2">
                                 <div>
@@ -1178,7 +1212,7 @@ export default function EmergencyEquipment() {
                     )}
 
                     {/* Registration Form */}
-                    {view === 'form' && (
+                    {!isFieldPortalMode && view === 'form' && (
                         <div className="max-w-4xl mx-auto bg-slate-900/80 p-6 md:p-8 rounded-3xl border border-slate-700 shadow-2xl animate-in slide-in-from-bottom-8 duration-300">
                             <div className="flex justify-between items-center mb-8 border-b border-slate-800 pb-4">
                                 <h3 className="text-xl font-bold text-white"><i className="fas fa-clipboard-list text-orange-500 mr-2"></i> {formData.firebaseKey ? 'Edit Equipment' : 'Register New Equipment'}</h3>
@@ -1337,7 +1371,7 @@ export default function EmergencyEquipment() {
                     )}
 
                     {/* SMART IMPORT VIEW */}
-                    {view === 'import' && canEdit && (
+                    {!isFieldPortalMode && view === 'import' && canEdit && (
                         <div className="animate-in fade-in duration-500 max-w-6xl mx-auto">
                             <div className="flex justify-between items-center mb-8 border-b border-slate-800 pb-4">
                                 <h3 className="text-xl font-bold text-white flex items-center gap-2"><i className="fas fa-file-excel text-emerald-500"></i> Smart Bulk Import</h3>

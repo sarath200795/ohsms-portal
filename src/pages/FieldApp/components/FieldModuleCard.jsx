@@ -23,12 +23,26 @@ export default function FieldModuleCard({ module, onOpen, siteLabel }) {
 
                 <div className="mb-6">
                     <p className="myth-kicker mb-2">Field Module</p>
+                    {module.entryBadge && (
+                        <div className={`mb-3 inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.24em] ${module.entryBadgeClass || 'border-[rgba(242,201,120,0.14)] text-[var(--myth-gold)] bg-[rgba(8,7,5,0.55)]'}`}>
+                            {module.entryIcon && <i className={`fas ${module.entryIcon}`}></i>}
+                            <span>{module.entryBadge}</span>
+                        </div>
+                    )}
                     <h3 className="mb-2 text-4xl tracking-tight text-white transition-colors group-hover:text-white">
                         {module.label}
                     </h3>
                     <p className="text-sm leading-relaxed text-[var(--myth-muted)]">
                         {module.desc}
                     </p>
+                    {module.fieldHint && (
+                        <div className="mt-4 rounded-2xl border border-[rgba(242,201,120,0.12)] bg-[rgba(8,7,5,0.55)] px-4 py-3">
+                            <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--myth-gold)]">Best Entry</p>
+                            <p className="mt-2 text-xs leading-relaxed text-[var(--myth-ink)]">
+                                {module.fieldHint}
+                            </p>
+                        </div>
+                    )}
                 </div>
 
                 <div className="mt-auto flex items-center justify-between border-t border-[rgba(242,201,120,0.12)] pt-4">

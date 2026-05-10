@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { ref, get, update, push } from 'firebase/database';
 import { rtdb } from '../config/firebase';
-import { getFieldPortalLoginPath, getPortalAwareHomePath } from './FieldApp/portalAuth';
+import { getFieldPortalLoginPath, getPortalAwareHomePath, isFieldPortalHomeContext } from './FieldApp/portalAuth';
 import FieldQrScannerModal from './FieldApp/components/FieldQrScannerModal';
 import { resolveFieldQrNavigation } from './FieldApp/utils';
 import { readOrgChildren } from '../utils/orgData';
@@ -57,6 +57,7 @@ const safeArrayParse = (data) => {
 export default function Loto() {
     const navigate = useNavigate();
     const location = useLocation();
+    const isFieldPortalMode = isFieldPortalHomeContext();
 
     // Session & Public State
     const [session, setSession] = useState(null);
@@ -523,17 +524,45 @@ export default function Loto() {
                 </div>
             </header>
 
-            <div className="flex gap-3 px-8 pt-6 bg-slate-950 border-b border-slate-800 pb-4 overflow-x-auto custom-scroll no-print">
-                <button onClick={() => setCurrentView('dashboard')} className={`px-5 py-2.5 rounded-lg font-bold text-sm transition-all flex items-center shadow-sm border whitespace-nowrap ${currentView === 'dashboard' ? 'bg-red-600 text-white border-red-500 shadow-red-900/50' : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700 hover:text-white'}`}><i className="fas fa-chart-pie mr-2"></i> Dashboard</button>
-                <button onClick={() => setCurrentView('inventory')} className={`px-5 py-2.5 rounded-lg font-bold text-sm transition-all flex items-center shadow-sm border whitespace-nowrap ${currentView === 'inventory' ? 'bg-blue-600 text-white border-blue-500 shadow-blue-900/50' : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700 hover:text-white'}`}><i className="fas fa-folder-open mr-2"></i> Inventory</button>
-                <button onClick={() => setCurrentView('register')} className={`px-5 py-2.5 rounded-lg font-bold text-sm transition-all flex items-center shadow-sm border whitespace-nowrap ${currentView === 'register' ? 'bg-orange-600 text-white border-orange-500 shadow-orange-900/50' : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700 hover:text-white'}`}><i className="fas fa-clipboard-list mr-2"></i> Live Register</button>
-                {permissions.canEditCreate && (
-                    <button onClick={() => startNewProcedure()} className={`px-5 py-2.5 rounded-lg font-bold text-sm transition-all flex items-center shadow-sm border whitespace-nowrap ${currentView === 'builder' ? 'bg-emerald-600 text-white border-emerald-500 shadow-emerald-900/50' : 'bg-slate-800 text-emerald-500 border-slate-700 hover:bg-slate-700 hover:text-white'}`}><i className="fas fa-plus mr-2"></i> New Procedure</button>
-                )}
-            </div>
+            {!isFieldPortalMode && (
+                <div className="flex gap-3 px-8 pt-6 bg-slate-950 border-b border-slate-800 pb-4 overflow-x-auto custom-scroll no-print">
+                    <button onClick={() => setCurrentView('dashboard')} className={`px-5 py-2.5 rounded-lg font-bold text-sm transition-all flex items-center shadow-sm border whitespace-nowrap ${currentView === 'dashboard' ? 'bg-red-600 text-white border-red-500 shadow-red-900/50' : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700 hover:text-white'}`}><i className="fas fa-chart-pie mr-2"></i> Dashboard</button>
+                    <button onClick={() => setCurrentView('inventory')} className={`px-5 py-2.5 rounded-lg font-bold text-sm transition-all flex items-center shadow-sm border whitespace-nowrap ${currentView === 'inventory' ? 'bg-blue-600 text-white border-blue-500 shadow-blue-900/50' : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700 hover:text-white'}`}><i className="fas fa-folder-open mr-2"></i> Inventory</button>
+                    <button onClick={() => setCurrentView('register')} className={`px-5 py-2.5 rounded-lg font-bold text-sm transition-all flex items-center shadow-sm border whitespace-nowrap ${currentView === 'register' ? 'bg-orange-600 text-white border-orange-500 shadow-orange-900/50' : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700 hover:text-white'}`}><i className="fas fa-clipboard-list mr-2"></i> Live Register</button>
+                    {permissions.canEditCreate && (
+                        <button onClick={() => startNewProcedure()} className={`px-5 py-2.5 rounded-lg font-bold text-sm transition-all flex items-center shadow-sm border whitespace-nowrap ${currentView === 'builder' ? 'bg-emerald-600 text-white border-emerald-500 shadow-emerald-900/50' : 'bg-slate-800 text-emerald-500 border-slate-700 hover:bg-slate-700 hover:text-white'}`}><i className="fas fa-plus mr-2"></i> New Procedure</button>
+                    )}
+                </div>
+            )}
 
             <main className="flex-1 overflow-y-auto custom-scroll p-8">
-                {currentView === 'dashboard' && (
+                {isFieldPortalMode && currentView !== 'execute' && (
+                    <div className="max-w-3xl mx-auto animate-fade-in">
+                        <div className="glass-panel p-10 rounded-3xl border border-red-500/30 shadow-2xl text-center">
+                            <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-red-500/10 text-red-300">
+                                <i className="fas fa-lock text-2xl"></i>
+                            </div>
+                            <p className="text-[10px] font-bold uppercase tracking-[0.3em] text-red-300">Field Operation Only</p>
+                            <h2 className="mt-3 text-3xl font-black text-white">LOTO Execution</h2>
+                            <p className="mt-4 text-sm font-bold text-white">
+                                Scan an approved LOTO QR tag or open the procedure from PTW to execute the isolation.
+                            </p>
+                            <p className="mt-4 text-sm leading-relaxed text-slate-300">
+                                The field portal does not show the full LOTO directory or live register. Scan an approved LOTO QR tag or open the procedure from PTW to execute the isolation in the field.
+                            </p>
+                            <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:justify-center">
+                                <button onClick={() => navigate(getPortalAwareHomePath({ fallbackPath: '/dashboard', site: siteFilter }))} className="bg-red-600 hover:bg-red-500 text-white px-6 py-3 rounded-2xl text-sm font-bold uppercase tracking-widest transition-colors shadow-lg">
+                                    Open Field Portal Scanner
+                                </button>
+                                <button onClick={() => navigate(getPortalAwareHomePath({ fallbackPath: '/dashboard', site: siteFilter }))} className="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white px-6 py-3 rounded-2xl text-sm font-bold uppercase tracking-widest transition-colors">
+                                    Back to Field Home
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {!isFieldPortalMode && currentView === 'dashboard' && (
                     <div className="max-w-7xl mx-auto animate-fade-in space-y-8">
                         <div className="md:hidden mb-4">
                             <label className="text-xs uppercase font-bold text-slate-500 block mb-1">Site Filter</label>
@@ -564,7 +593,7 @@ export default function Loto() {
                     </div>
                 )}
 
-                {currentView === 'inventory' && (
+                {!isFieldPortalMode && currentView === 'inventory' && (
                     <div className="max-w-7xl mx-auto animate-fade-in space-y-6">
                         <div className="flex justify-between items-end mb-8 border-b border-slate-800 pb-4">
                             <h2 className="text-3xl font-bold text-white">Procedure Inventory</h2>
@@ -607,7 +636,7 @@ export default function Loto() {
                     </div>
                 )}
 
-                {currentView === 'register' && (
+                {!isFieldPortalMode && currentView === 'register' && (
                     <div className="max-w-7xl mx-auto animate-fade-in space-y-10">
                         <div>
                             <div className="flex items-center justify-between mb-8 border-b border-slate-800 pb-4">
@@ -680,7 +709,7 @@ export default function Loto() {
                     </div>
                 )}
 
-                {currentView === 'builder' && procForm && (
+                {!isFieldPortalMode && currentView === 'builder' && procForm && (
                     <div className="max-w-5xl mx-auto animate-fade-in pb-20">
                         <div className="flex justify-between items-center mb-8 bg-slate-900/80 p-6 rounded-3xl border border-slate-700 shadow-xl backdrop-blur-md">
                             <div>

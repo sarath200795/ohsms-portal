@@ -3,7 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { push, ref, remove, update } from 'firebase/database';
 import * as XLSX from 'xlsx';
 import { rtdb } from '../../config/firebase';
-import { getPortalAwareHomePath } from '../FieldApp/portalAuth';
+import { getFieldPortalVerificationMessage, getPortalAwareHomePath, isFieldPortalHomeContext } from '../FieldApp/portalAuth';
 import {
     buildEditableIncidentData,
     buildIncidentCapaWithVerificationActions,
@@ -434,7 +434,7 @@ export default function Incidents() {
     const location = useLocation();
 
     const [fbReady, setFbReady] = useState(false);
-    const [view, setView] = useState('repo');
+    const [view, setView] = useState(() => (isFieldPortalHomeContext() ? 'form' : 'repo'));
     const [step, setStep] = useState(1);
     const [session] = useState(() => readStoredSession());
     const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -471,6 +471,7 @@ export default function Incidents() {
     const requestedSite = new URLSearchParams(location.search).get('site') || sessionStorage.getItem('isoCurrentSite') || session?.assignedSite || 'All';
     const defaultSiteFilter = resolveInitialSiteFilter({ session, search: location.search, isGlobalUser });
     const siteFilter = siteFilterOverride || defaultSiteFilter;
+    const isFieldPortalMode = isFieldPortalHomeContext();
 
     useEffect(() => {
         if (!sessionIsValid) {
@@ -903,6 +904,27 @@ export default function Incidents() {
 
             if (data.firebaseKey) {
                 await update(ref(rtdb, `organizations/${session.orgId}/incidents/${data.firebaseKey}`), payload);
+            } else {
+                await push(ref(rtdb, `organizations/${session.orgId}/incidents`), payload);
+            }
+
+            const refreshedIncidents = await readOrgChild(rtdb, session.orgId, 'incidents');
+            setIncidentsList(refreshedIncidents ? Object.entries(refreshedIncidents).map(([k, v]) => ({ firebaseKey: k, ...v })) : []);
+            if (isFieldPortalMode) {
+                const subject = saveStage === 'investigation-final'
+                    ? 'incident investigation report'
+                    : saveStage === 'initial'
+                        ? 'initial incident report'
+                        : 'incident draft report';
+                alert(getFieldPortalVerificationMessage(subject));
+                setData({
+                    ...initialDataState,
+                    id: '',
+                    siteId: (!isGlobalUser && allowedSites.length === 1) ? allowedSites[0].code : (siteFilter !== 'All' ? siteFilter : '')
+                });
+                setStep(1);
+                setView('form');
+            } else {
                 if (saveStage === 'initial') {
                     alert('Initial Information Report saved successfully.');
                 } else if (saveStage === 'investigation-final') {
@@ -910,20 +932,8 @@ export default function Incidents() {
                 } else {
                     alert(data.horizontalDeployment ? 'Horizontal Deployment Updated. Investigation draft saved and actions pushed globally!' : 'Incident investigation draft saved successfully.');
                 }
-            } else {
-                await push(ref(rtdb, `organizations/${session.orgId}/incidents`), payload);
-                if (saveStage === 'initial') {
-                    alert('Initial Information Report saved successfully.');
-                } else if (saveStage === 'investigation-final') {
-                    alert('Incident Investigation Report submitted successfully.');
-                } else {
-                    alert(data.horizontalDeployment ? 'Horizontal Deployment Active. Investigation draft saved and CAPAs deployed globally!' : 'Incident investigation draft saved successfully.');
-                }
+                setView('repo');
             }
-
-            const refreshedIncidents = await readOrgChild(rtdb, session.orgId, 'incidents');
-            setIncidentsList(refreshedIncidents ? Object.entries(refreshedIncidents).map(([k, v]) => ({ firebaseKey: k, ...v })) : []);
-            setView('repo');
         } catch (e) {
             alert(`Save failed: ${e.message}`);
         }
@@ -1123,6 +1133,9 @@ export default function Incidents() {
         if (permissions.viewOnly && permissions.canEditOwnedActions && row.own === (session?.name || session?.user || session?.email)) return true;
         return false;
     };
+    const handleViewChange = (nextView) => {
+        setView(isFieldPortalMode && nextView === 'repo' ? 'form' : nextView);
+    };
     if (!fbReady) {
         return (
             <div className="h-screen flex items-center justify-center bg-slate-950 text-white font-['Space_Grotesk']">
@@ -1158,26 +1171,32 @@ export default function Incidents() {
                             {permissions.viewOnly && <span className="text-[10px] uppercase font-bold tracking-widest bg-yellow-500/10 text-yellow-400 px-2 py-1 rounded border border-yellow-500/20">View Only</span>}
                         </div>
                     </div>
-                    <div className="flex bg-slate-900 border border-slate-800 p-1.5 rounded-xl shadow-inner">
-                        {permissions.canEditCreate && (
-                            <button
-                                type="button"
-                                onClick={() => {
-                                    setView('form');
+                    {!isFieldPortalMode ? (
+                        <div className="flex bg-slate-900 border border-slate-800 p-1.5 rounded-xl shadow-inner">
+                            {permissions.canEditCreate && (
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                    handleViewChange('form');
                                     setStep(1);
-                                    setData({
-                                        ...initialDataState,
-                                        id: '',
-                                        siteId: (!isGlobalUser && allowedSites.length === 1) ? allowedSites[0].code : (siteFilter !== 'All' ? siteFilter : '')
-                                    });
-                                }}
-                                className={`px-6 py-2 rounded-lg text-xs font-bold uppercase tracking-widest transition-all ${view === 'form' ? 'bg-red-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}
-                            >
-                                New Report
-                            </button>
-                        )}
-                        <button type="button" onClick={() => setView('repo')} className={`px-6 py-2 rounded-lg text-xs font-bold uppercase tracking-widest transition-all ${view === 'repo' ? 'bg-red-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}>Repository</button>
-                    </div>
+                                        setData({
+                                            ...initialDataState,
+                                            id: '',
+                                            siteId: (!isGlobalUser && allowedSites.length === 1) ? allowedSites[0].code : (siteFilter !== 'All' ? siteFilter : '')
+                                        });
+                                    }}
+                                    className={`px-6 py-2 rounded-lg text-xs font-bold uppercase tracking-widest transition-all ${view === 'form' ? 'bg-red-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}
+                                >
+                                    New Report
+                                </button>
+                            )}
+                            <button type="button" onClick={() => handleViewChange('repo')} className={`px-6 py-2 rounded-lg text-xs font-bold uppercase tracking-widest transition-all ${view === 'repo' ? 'bg-red-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}>Repository</button>
+                        </div>
+                    ) : (
+                        <div className="rounded-xl border border-orange-500/20 bg-orange-500/10 px-4 py-2 text-[10px] font-bold uppercase tracking-widest text-orange-300">
+                            Field Report Only
+                        </div>
+                    )}
                 </header>
 
                 <div className="flex-1 overflow-y-auto p-8 w-full print:overflow-visible custom-scroll">
@@ -1191,53 +1210,62 @@ export default function Incidents() {
                         </div>
                     ) : (
                         useModularView ? (
-                            <IncidentBuilder
-                                activePersonnelList={activePersonnelList}
-                                addCapa={addCapa}
-                                addFiveWhyPath={addFiveWhyPath}
-                                allowedSites={allowedSites}
-                                canEditCapa={canEditCapa}
-                                canEditForm={canEditForm}
-                                contractors={contractors}
-                                data={data}
-                                externalName={externalName}
-                                generateSmartInvestigation={generateSmartInvestigation}
-                                handleAddTeamMember={handleAddTeamMember}
-                                handleDescriptionBlur={handleDescriptionBlur}
-                                handleImageUpload={handleImageUpload}
-                                initialDataState={initialDataState}
-                                incidentReporting={incidentReporting}
-                                investigationRequired={investigationRequired}
-                                isAnalyzing={isAnalyzing}
-                                isGlobalUser={isGlobalUser}
-                                newCapaAct={newCapaAct}
-                                newCapaDue={newCapaDue}
-                                newCapaOwn={newCapaOwn}
-                                newCapaSite={newCapaSite}
-                                removeCapa={removeCapa}
-                                removeFiveWhyPath={removeFiveWhyPath}
-                                removeTeamMember={removeTeamMember}
-                                saveData={saveData}
-                                saving={saving}
-                                scanHiraDatabase={scanHiraDatabase}
-                                selectedUserToAdd={selectedUserToAdd}
-                                setData={setData}
-                                setExternalName={setExternalName}
-                                setNewCapaAct={setNewCapaAct}
-                                setNewCapaDue={setNewCapaDue}
-                                setNewCapaOwn={setNewCapaOwn}
-                                setNewCapaSite={setNewCapaSite}
-                                setSelectedUserToAdd={setSelectedUserToAdd}
-                                setStep={setStep}
-                                setView={setView}
-                                siteUsers={siteUsers}
-                                sites={sites}
-                                step={step}
-                                steps={steps}
-                                triggerPrint={triggerPrint}
-                                updateFiveWhy={updateFiveWhy}
-                                updatePathName={updatePathName}
-                            />
+                            <div className="max-w-6xl mx-auto space-y-6">
+                                {isFieldPortalMode && (
+                                    <div className="rounded-2xl border border-orange-500/30 bg-orange-900/20 p-5 text-sm text-orange-100">
+                                        <div className="text-[10px] font-bold uppercase tracking-[0.25em] text-orange-300 mb-2">Best Entry</div>
+                                        <div className="font-bold text-white mb-2">Start a new incident report, complete the initial details, and submit it from the field.</div>
+                                        This field workspace is report-only for incidents. Submit the incident here, then log in to the web portal to verify and continue the record.
+                                    </div>
+                                )}
+                                <IncidentBuilder
+                                    activePersonnelList={activePersonnelList}
+                                    addCapa={addCapa}
+                                    addFiveWhyPath={addFiveWhyPath}
+                                    allowedSites={allowedSites}
+                                    canEditCapa={canEditCapa}
+                                    canEditForm={canEditForm}
+                                    contractors={contractors}
+                                    data={data}
+                                    externalName={externalName}
+                                    generateSmartInvestigation={generateSmartInvestigation}
+                                    handleAddTeamMember={handleAddTeamMember}
+                                    handleDescriptionBlur={handleDescriptionBlur}
+                                    handleImageUpload={handleImageUpload}
+                                    initialDataState={initialDataState}
+                                    incidentReporting={incidentReporting}
+                                    investigationRequired={investigationRequired}
+                                    isAnalyzing={isAnalyzing}
+                                    isGlobalUser={isGlobalUser}
+                                    newCapaAct={newCapaAct}
+                                    newCapaDue={newCapaDue}
+                                    newCapaOwn={newCapaOwn}
+                                    newCapaSite={newCapaSite}
+                                    removeCapa={removeCapa}
+                                    removeFiveWhyPath={removeFiveWhyPath}
+                                    removeTeamMember={removeTeamMember}
+                                    saveData={saveData}
+                                    saving={saving}
+                                    scanHiraDatabase={scanHiraDatabase}
+                                    selectedUserToAdd={selectedUserToAdd}
+                                    setData={setData}
+                                    setExternalName={setExternalName}
+                                    setNewCapaAct={setNewCapaAct}
+                                    setNewCapaDue={setNewCapaDue}
+                                    setNewCapaOwn={setNewCapaOwn}
+                                    setNewCapaSite={setNewCapaSite}
+                                    setSelectedUserToAdd={setSelectedUserToAdd}
+                                    setStep={setStep}
+                                    setView={handleViewChange}
+                                    siteUsers={siteUsers}
+                                    sites={sites}
+                                    step={step}
+                                    steps={steps}
+                                    triggerPrint={triggerPrint}
+                                    updateFiveWhy={updateFiveWhy}
+                                    updatePathName={updatePathName}
+                                />
+                            </div>
                         ) : (
                         <div className="max-w-6xl mx-auto pb-20 animate-in fade-in slide-in-from-bottom-4 duration-500">
                             <div className="flex gap-2 mb-8 form-view-tabs bg-slate-900/40 p-2 rounded-2xl border border-slate-800 backdrop-blur-sm shadow-xl">

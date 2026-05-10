@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { ref, push, remove } from 'firebase/database';
 import { rtdb } from '../config/firebase';
-import { getPortalAwareHomePath } from './FieldApp/portalAuth';
+import { getFieldPortalVerificationMessage, getPortalAwareHomePath, isFieldPortalHomeContext } from './FieldApp/portalAuth';
 import { readOrgChildren } from '../utils/orgData';
 import {
     canDeleteForRole,
@@ -268,6 +268,7 @@ export default function MockDrill() {
     const [checks, setChecks] = useState({});
     const [teamChecks, setTeamChecks] = useState({});
     const [actionLog, setActionLog] = useState([{ time: '', action: '', observation: '' }]);
+    const isFieldPortalMode = isFieldPortalHomeContext();
 
     // --- CHECK AUTH & LOAD DATA ---
     useEffect(() => {
@@ -441,7 +442,7 @@ export default function MockDrill() {
             await push(ref(rtdb, `organizations/${session.orgId}/mockDrills`), newRecord);
             setHistory([newRecord, ...history]);
             setSelectedDrill(null);
-            alert(`${form.eventType} Report Submitted! ID: ${docId}`);
+            alert(isFieldPortalMode ? `${form.eventType} logged successfully. ${getFieldPortalVerificationMessage('emergency report')}` : `${form.eventType} Report Submitted! ID: ${docId}`);
         } catch (e) {
             alert("Failed to submit report: " + e.message);
         }
@@ -512,6 +513,13 @@ export default function MockDrill() {
 
             <div className="app-ui flex-1 overflow-y-auto p-8 custom-scroll no-print relative z-10">
                 <div className="max-w-7xl mx-auto animate-in fade-in duration-500">
+                    {isFieldPortalMode && (
+                        <div className="mb-8 rounded-2xl border border-sky-500/30 bg-sky-900/20 p-5 text-sm text-sky-100">
+                            <div className="text-[10px] font-bold uppercase tracking-[0.25em] text-sky-300 mb-2">Best Entry</div>
+                            <div className="font-bold text-white mb-2">Choose the emergency scenario, complete the event actions, and submit the report from the field.</div>
+                            This field workspace is report-only for emergency records. Initiate and submit the event here, then log in to the web portal to verify the completed report.
+                        </div>
+                    )}
 
                     {/* SCENARIO CARDS - Hidden for Read-Only Users */}
                     {permissions.canEditCreate && (
@@ -529,7 +537,8 @@ export default function MockDrill() {
                         </>
                     )}
 
-                    <div className={permissions.canEditCreate ? "border-t border-slate-800 pt-8" : ""}>
+                    {!isFieldPortalMode && (
+                        <div className={permissions.canEditCreate ? "border-t border-slate-800 pt-8" : ""}>
                         <div className="flex justify-between items-center mb-4">
                             <h3 className="font-bold text-slate-500 uppercase tracking-widest text-xs">Recent Drill & Emergency Logs</h3>
 
@@ -583,7 +592,8 @@ export default function MockDrill() {
                                 </tbody>
                             </table>
                         </div>
-                    </div>
+                        </div>
+                    )}
                 </div>
             </div>
 

@@ -46,6 +46,12 @@ export const setFieldModuleHomeContext = (context) => {
 
 export const readFieldModuleHomeContext = () => sessionStorage.getItem(FIELD_MODULE_HOME_CONTEXT_KEY) || '';
 
+export const isFieldPortalHomeContext = () => readFieldModuleHomeContext() === 'field-portal';
+
+export const getFieldPortalVerificationMessage = (subject = 'report') => (
+    `Submission completed successfully. Please log in to the web portal to verify the ${subject}.`
+);
+
 export const clearFieldModuleHomeContext = () => {
     sessionStorage.removeItem(FIELD_MODULE_HOME_CONTEXT_KEY);
 };

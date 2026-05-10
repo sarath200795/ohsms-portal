@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { ref, push, update, remove } from 'firebase/database';
 import { rtdb } from '../config/firebase';
-import { getPortalAwareHomePath } from './FieldApp/portalAuth';
+import { getFieldPortalVerificationMessage, getPortalAwareHomePath, isFieldPortalHomeContext } from './FieldApp/portalAuth';
 import { readOrgChildren } from '../utils/orgData';
 import { canEditCreateForRole, isGlobalOwnerRole } from '../utils/permissions';
 import { readStoredSession } from '../utils/session';
@@ -156,6 +156,7 @@ export default function Inspections() {
     const [executingTask, setExecutingTask] = useState(null);
     const [inspectionForm, setInspectionForm] = useState({});
     const [viewingRecord, setViewingRecord] = useState(null);
+    const isFieldPortalMode = isFieldPortalHomeContext();
 
     useEffect(() => {
         const sess = readStoredSession();
@@ -468,9 +469,13 @@ export default function Inspections() {
             setTemplates(prev => prev.map(t => t.firebaseKey === executingTask.templateId ? { ...t, deferredTo: null } : t));
 
             if (generatedCapas.length > 0) {
-                alert(`Inspection Completed! ${generatedCapas.length} Corrective Actions (CAPAs) were automatically added to the Global CAPA Register.`);
+                if (isFieldPortalMode) {
+                    alert(`${generatedCapas.length} corrective action(s) were raised. ${getFieldPortalVerificationMessage('inspection report')}`);
+                } else {
+                    alert(`Inspection Completed! ${generatedCapas.length} Corrective Actions (CAPAs) were automatically added to the Global CAPA Register.`);
+                }
             } else {
-                alert("Inspection Completed Successfully!");
+                alert(isFieldPortalMode ? getFieldPortalVerificationMessage('inspection report') : 'Inspection Completed Successfully!');
             }
 
             setExecutingTask(null);
@@ -518,8 +523,8 @@ export default function Inspections() {
                     </div>
                     <div className="app-tabbar">
                         <button onClick={() => setView('calendar')} className={`app-tab ${view === 'calendar' ? 'app-tab-active' : ''}`}><i className="fas fa-calendar-alt"></i> Schedule</button>
-                        <button onClick={() => setView('history')} className={`app-tab ${view === 'history' ? 'app-tab-active' : ''}`}><i className="fas fa-history"></i> History</button>
-                        {canEdit && <button onClick={() => setView('templates')} className={`app-tab app-tab-success ${view === 'templates' || view === 'builder' ? 'app-tab-active' : ''}`}><i className="fas fa-layer-group"></i> Manage Forms</button>}
+                        {!isFieldPortalMode && <button onClick={() => setView('history')} className={`app-tab ${view === 'history' ? 'app-tab-active' : ''}`}><i className="fas fa-history"></i> History</button>}
+                        {!isFieldPortalMode && canEdit && <button onClick={() => setView('templates')} className={`app-tab app-tab-success ${view === 'templates' || view === 'builder' ? 'app-tab-active' : ''}`}><i className="fas fa-layer-group"></i> Manage Forms</button>}
                     </div>
                 </header>
 
@@ -529,6 +534,13 @@ export default function Inspections() {
                         {/* --- CALENDAR VIEW --- */}
                         {view === 'calendar' && (
                             <div className="space-y-6">
+                                {isFieldPortalMode && (
+                                    <div className="max-w-6xl mx-auto bg-blue-900/20 border border-blue-500/30 rounded-2xl p-5 text-sm text-blue-100">
+                                        <div className="text-[10px] font-bold uppercase tracking-[0.25em] text-blue-300 mb-2">Best Entry</div>
+                                        <div className="font-bold text-white mb-2">Open an assigned inspection from the schedule, complete the questions, and submit the report.</div>
+                                        This field workspace is report-only for inspections. Complete the assigned inspection here, then log in to the web portal to verify the submitted report.
+                                    </div>
+                                )}
                                 <div className="flex justify-between items-end mb-4">
                                     <div>
                                         <h2 className="text-3xl font-bold text-white mb-1">Inspection Schedule</h2>
