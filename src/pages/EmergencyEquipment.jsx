@@ -1078,49 +1078,28 @@ export default function EmergencyEquipment() {
             <main className="flex-1 overflow-y-auto p-4 md:p-8 custom-scroll relative z-10 w-full no-print">
                 <div className="max-w-7xl mx-auto animate-in fade-in duration-500 space-y-6 pb-20">
 
-                    {isFieldPortalMode && view !== 'inspect' && !isPublic && (
-                        <div className="max-w-3xl mx-auto rounded-3xl border border-fuchsia-500/30 bg-slate-900/80 p-8 shadow-2xl">
-                            <div className="text-center">
-                                <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-fuchsia-500/10 text-fuchsia-300">
-                                    <i className="fas fa-qrcode text-2xl"></i>
-                                </div>
-                                <p className="text-[10px] font-bold uppercase tracking-[0.3em] text-fuchsia-300">Field Report Only</p>
-                                <h2 className="mt-3 text-3xl font-black text-white">Emergency Equipment Inspection</h2>
-                                <p className="mt-4 text-sm font-bold text-white">
-                                    Scan the asset QR tag to open the inspection sheet and submit the check.
-                                </p>
-                                <p className="mt-4 text-sm leading-relaxed text-slate-300">
-                                    The field portal does not show the equipment registry. Use the QR tag on the asset to open the inspection sheet, submit the inspection here, and then log in to the web portal to verify the report.
-                                </p>
-                            </div>
-
-                            <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:justify-center">
-                                <button
-                                    onClick={() => navigate(getPortalAwareHomePath({ fallbackPath: '/dashboard', site: siteFilter }))}
-                                    className="rounded-2xl bg-fuchsia-600 px-6 py-3 text-sm font-bold uppercase tracking-widest text-white shadow-lg shadow-fuchsia-900/30 transition hover:bg-fuchsia-500"
-                                >
-                                    Open Field Portal Scanner
-                                </button>
-                                <button
-                                    onClick={() => navigate(getPortalAwareHomePath({ fallbackPath: '/dashboard', site: siteFilter }))}
-                                    className="rounded-2xl border border-slate-700 bg-slate-800 px-6 py-3 text-sm font-bold uppercase tracking-widest text-slate-200 transition hover:bg-slate-700"
-                                >
-                                    Back to Field Home
-                                </button>
-                            </div>
-                        </div>
-                    )}
-
                     {/* Top Metrics & Filters */}
-                    {!isFieldPortalMode && view === 'list' && (
+                    {view === 'list' && (
                         <>
                             <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4 mb-2">
                                 <div>
-                                    <h2 className="text-2xl font-bold text-white flex items-center gap-3">Facility Registry</h2>
-                                    <p className="text-sm text-slate-400">QR-Enabled inspection tracking for life-safety apparatus.</p>
+                                    <h2 className="text-2xl font-bold text-white flex items-center gap-3">{isFieldPortalMode ? 'Field Equipment Register' : 'Facility Registry'}</h2>
+                                    <p className="text-sm text-slate-400">
+                                        {isFieldPortalMode
+                                            ? 'Open an asset from the register or scan its QR tag to submit the inspection, then verify the report on the web portal.'
+                                            : 'QR-Enabled inspection tracking for life-safety apparatus.'}
+                                    </p>
                                 </div>
-                                {canEdit && <button onClick={() => { setFormData(createEquipmentFormState(siteFilter === 'All' ? '' : siteFilter)); setView('form'); }} className="bg-gradient-to-tr from-orange-600 to-red-500 hover:from-orange-500 hover:to-red-400 text-white px-5 py-2.5 rounded-xl font-bold text-sm shadow-lg flex items-center gap-2 transition-transform active:scale-95 whitespace-nowrap"><i className="fas fa-plus"></i> Add Equipment</button>}
+                                {canEdit && !isFieldPortalMode && <button onClick={() => { setFormData(createEquipmentFormState(siteFilter === 'All' ? '' : siteFilter)); setView('form'); }} className="bg-gradient-to-tr from-orange-600 to-red-500 hover:from-orange-500 hover:to-red-400 text-white px-5 py-2.5 rounded-xl font-bold text-sm shadow-lg flex items-center gap-2 transition-transform active:scale-95 whitespace-nowrap"><i className="fas fa-plus"></i> Add Equipment</button>}
                             </div>
+
+                            {isFieldPortalMode && (
+                                <div className="rounded-2xl border border-fuchsia-500/30 bg-slate-900/80 p-5 text-sm text-fuchsia-100 shadow-lg">
+                                    <div className="text-[10px] font-bold uppercase tracking-[0.25em] text-fuchsia-300 mb-2">Field Register Access</div>
+                                    <div className="font-bold text-white mb-2">The equipment register is now available in the field portal for quick operational access.</div>
+                                    Use <span className="font-bold text-white">Inspect</span> from the register or scan the QR tag on the asset. Equipment creation, QR tag printing, and record editing remain on the main web portal.
+                                </div>
+                            )}
 
                             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-2">
                                 <div className="bg-slate-900/80 p-6 rounded-2xl border border-slate-700 shadow-lg flex items-center justify-between border-l-4 border-l-blue-500">
@@ -1191,14 +1170,16 @@ export default function EmergencyEquipment() {
                                                 <td className="p-4 font-mono text-xs">{e.lastInspection || 'Unknown'}</td>
                                                 <td className="p-4 align-top py-4">{getStatusBadge(e)}</td>
                                                 <td className="p-4 pr-6 text-right">
-                                                    {canEdit && (
+                                                    {(canEdit || isFieldPortalMode) && (
                                                         <div className="flex justify-end gap-2">
-                                                            {/* QR TAG BUTTON */}
-                                                            <button onClick={() => preparePrintTag(e)} className="bg-slate-800 hover:bg-slate-700 border border-slate-600 text-white px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-colors shadow" title="Print QR Tag"><i className="fas fa-qrcode"></i> Tag</button>
-
                                                             <button onClick={() => { setInspectData(createInspectionDraft(e)); setView('inspect'); }} className={`${equipmentMeta.inspectButtonClass} px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-colors border`}><i className="fas fa-clipboard-check mr-1"></i> Inspect</button>
-                                                            <button onClick={() => { setFormData(e); setView('form'); }} className="bg-slate-800 hover:bg-slate-700 text-slate-300 w-8 h-8 rounded-lg flex items-center justify-center transition-colors"><i className="fas fa-edit"></i></button>
-                                                            <button onClick={() => handleDelete(e.firebaseKey)} className="bg-red-900/20 hover:bg-red-600 text-red-500 hover:text-white w-8 h-8 rounded-lg flex items-center justify-center transition-colors"><i className="fas fa-trash-alt"></i></button>
+                                                            {canEdit && !isFieldPortalMode && (
+                                                                <>
+                                                                    <button onClick={() => preparePrintTag(e)} className="bg-slate-800 hover:bg-slate-700 border border-slate-600 text-white px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-colors shadow" title="Print QR Tag"><i className="fas fa-qrcode"></i> Tag</button>
+                                                                    <button onClick={() => { setFormData(e); setView('form'); }} className="bg-slate-800 hover:bg-slate-700 text-slate-300 w-8 h-8 rounded-lg flex items-center justify-center transition-colors"><i className="fas fa-edit"></i></button>
+                                                                    <button onClick={() => handleDelete(e.firebaseKey)} className="bg-red-900/20 hover:bg-red-600 text-red-500 hover:text-white w-8 h-8 rounded-lg flex items-center justify-center transition-colors"><i className="fas fa-trash-alt"></i></button>
+                                                                </>
+                                                            )}
                                                         </div>
                                                     )}
                                                 </td>
