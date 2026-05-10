@@ -21,23 +21,58 @@ const SCENARIOS = [
     },
     {
         id: 2, title: 'Chemical Spill', icon: 'fa-bottle-droplet', color: 'text-yellow-500', border: 'border-b-4 border-yellow-500',
-        checklist: ["Isolate the area immediately.", "Identify chemical & consult MSDS.", "Don appropriate PPE.", "Use Spill Kit to contain.", "Dispose waste in haz-waste bins.", "Ventilate the area."]
+        checklist: [
+            "Activate the alarm or reporting method and notify the emergency coordinator immediately.",
+            "Isolate the area, restrict access, and evacuate non-essential personnel if there is inhalation, fire, or reaction risk.",
+            "Identify the substance, review the SDS or site chemical information, and confirm required controls.",
+            "Allow only trained responders with the required PPE and spill equipment to contain the release.",
+            "Prevent the spill from entering drains or occupied areas and arrange compatible waste collection.",
+            "Ventilate, decontaminate, and release the area only after the hazard is verified as controlled."
+        ]
     },
     {
         id: 3, title: 'Electrical Outage', icon: 'fa-bolt', color: 'text-amber-500', border: 'border-b-4 border-amber-500',
-        checklist: ["Remain calm in work area.", "Lower MHE/Forklifts to floor.", "Check DG status.", "Ensure access control is functional.", "Contact Power Utility Provider."]
+        checklist: [
+            "Report the outage immediately and activate the site emergency communication process.",
+            "Stop ongoing work safely, secure equipment, and lower mobile plant or suspended loads where applicable.",
+            "Use emergency lighting, keep exit routes clear, and prevent panic or uncontrolled movement.",
+            "Allow only designated persons to manage generators, utilities, or safe shutdown of critical systems.",
+            "Verify life safety systems, access control, and essential communications remain functional or are backed up.",
+            "Coordinate utility restoration and restart only after equipment and process checks are completed."
+        ]
     },
     {
         id: 4, title: 'Severe Weather', icon: 'fa-cloud-bolt', color: 'text-blue-500', border: 'border-b-4 border-blue-500',
-        checklist: ["Monitor weather alerts.", "Secure loose outdoor items.", "Close doors/windows securely.", "Move away from glass.", "Move to designated shelter."]
+        checklist: [
+            "Monitor official weather warnings and communicate the site response decision promptly.",
+            "Secure outdoor operations, equipment, and loose materials if this can be done safely before impact.",
+            "Use the designated shelter-in-place or evacuation signal according to the emergency action plan.",
+            "Move personnel to the pre-identified safe shelter area away from glass, roofs, and exposed hazards.",
+            "Account for all employees, contractors, and visitors once sheltering or evacuation is complete.",
+            "Wait for the all-clear and inspect the area for damage before resuming work activities."
+        ]
     },
     {
         id: 5, title: 'Armed Aggressor', icon: 'fa-person-rifle', color: 'text-red-900', border: 'border-b-4 border-red-900',
-        checklist: ["Run: Evacuate if safe.", "Hide: Lock door, lights off, silence phones.", "Fight: Last resort only.", "Keep hands visible for Police.", "Lockdown site access."]
+        checklist: [
+            "Notify emergency services and the site emergency coordinator as soon as it is safe to do so.",
+            "Evacuate immediately if a safe escape path exists and move away from the threat area.",
+            "If evacuation is not safe, secure in place, lock or barricade access, silence devices, and stay out of view.",
+            "Fight or physically resist only as a last resort when there is an immediate threat to life.",
+            "Prevent unauthorized access to the affected area and keep hands visible when law enforcement arrives.",
+            "Do not re-enter until the official all-clear is given and accountability is completed."
+        ]
     },
     {
         id: 6, title: 'Earthquake', icon: 'fa-house-crack', color: 'text-purple-500', border: 'border-b-4 border-purple-500',
-        checklist: ["DROP, COVER, HOLD ON.", "Stay away from glass/shelving.", "Evacuate AFTER shaking stops.", "Inspect building for damage."]
+        checklist: [
+            "DROP, COVER, and HOLD ON immediately when shaking starts.",
+            "Stay away from windows, shelving, unsecured materials, and overhead hazards during shaking.",
+            "Do not run outside during active shaking unless the structure is immediately collapsing around you.",
+            "After shaking stops, evacuate carefully if required and watch for debris, leaks, or damaged surfaces.",
+            "Account for employees at the assembly point and report injured or missing persons immediately.",
+            "Do not re-enter the structure until it has been checked and released by competent personnel."
+        ]
     },
     {
         id: 7, title: 'Medical Emergency', icon: 'fa-briefcase-medical', color: 'text-emerald-500', border: 'border-b-4 border-emerald-500',
@@ -45,7 +80,116 @@ const SCENARIOS = [
     },
     {
         id: 8, title: 'Civil Threat', icon: 'fa-user-secret', color: 'text-indigo-500', border: 'border-b-4 border-indigo-500',
-        checklist: ["Do not touch suspicious items.", "Cordon off area.", "Notify Security/Police.", "Do not use radios near item.", "Evacuate immediate area."]
+        checklist: [
+            "Treat the threat as real, remain calm, and notify the emergency coordinator and security or police immediately.",
+            "Do not touch, move, open, or disturb any suspicious item or area linked to the threat.",
+            "Isolate and cordon off the area, keeping personnel and visitors clear of the hazard zone.",
+            "Avoid actions that may trigger the device or escalate the threat, including unnecessary radio use near suspicious items.",
+            "Evacuate or shelter according to the emergency action plan and maintain accountability of personnel.",
+            "Preserve information and the scene for emergency responders and investigation teams."
+        ]
+    }
+];
+
+const FIRE_SOURCE_OPTIONS = [
+    {
+        id: 'electrical-panel',
+        label: 'Electrical Panel / Wiring',
+        checklist: [
+            'Activate the alarm, notify the emergency coordinator, and identify the affected electrical source.',
+            'Keep egress routes clear and move personnel out of the electrical hazard zone immediately.',
+            'Isolate power only if the disconnect point is known and can be reached safely by an authorized person.',
+            'Allow only trained responders using the correct extinguisher and required PPE to tackle an incipient-stage fire.',
+            'Account for exposed personnel at the assembly point and escalate to external responders if the fire is not immediately controlled.',
+            'Prevent re-energization and hold the equipment for electrical inspection before restart.'
+        ]
+    },
+    {
+        id: 'flammable-liquid',
+        label: 'Flammable Liquid / Fuel',
+        checklist: [
+            'Activate the alarm, notify the emergency coordinator, and stop nearby ignition sources immediately.',
+            'Evacuate non-essential personnel, keep exit routes open, and establish an upwind exclusion zone.',
+            'Isolate the leaking or feeding source only if this can be done safely and without entering the fire area.',
+            'Allow only trained responders with the approved extinguisher, spill controls, and PPE to intervene.',
+            'Call external responders if the fire spreads, threatens storage, or cannot be controlled at incipient stage.',
+            'Secure runoff, preserve the scene, and arrange safe disposal of contaminated absorbents and waste.'
+        ]
+    },
+    {
+        id: 'solid-material',
+        label: 'Solid Material / Combustible Storage',
+        checklist: [
+            'Activate the alarm, identify the burning storage area, and initiate the site emergency action plan.',
+            'Evacuate nearby personnel using designated means of egress and close doors when leaving to slow spread.',
+            'Allow only trained responders with a protected escape route to attack a small controllable fire.',
+            'Check adjacent racks, stock, and hidden spaces for extension while maintaining accountability of responders.',
+            'Remove nearby combustibles only when it does not compromise safe evacuation or responder safety.',
+            'Hold the area for damage assessment, housekeeping, and restart approval before normal operations resume.'
+        ]
+    },
+    {
+        id: 'vehicle-equipment',
+        label: 'Vehicle / Equipment Fire',
+        checklist: [
+            'Activate the alarm, stop the vehicle or equipment if safe, and notify the emergency coordinator.',
+            'Evacuate personnel away from tires, cylinders, batteries, fuel tanks, and hydraulic lines.',
+            'Keep access roads clear for emergency responders and establish a safe perimeter around the equipment.',
+            'Allow only trained responders with the correct extinguisher and PPE to intervene on an incipient-stage fire.',
+            'Monitor for leaking fuel, oil, or hydraulics that can cause re-ignition or environmental spread.',
+            'Lock out movement and restart until maintenance isolation, inspection, and release are completed.'
+        ]
+    },
+    {
+        id: 'other',
+        label: 'Other / Unknown Source',
+        checklist: [
+            'Activate the alarm, notify the emergency coordinator, and identify visible fire behavior and smoke conditions.',
+            'Evacuate personnel through designated exits and maintain a controlled exclusion zone around the fire area.',
+            'Do not commit to firefighting until the fire class, hazards, and safe response method are reasonably understood.',
+            'Allow only trained responders with approved equipment and a protected escape route to intervene.',
+            'Escalate immediately to external responders when the source remains uncertain or the fire is not quickly controlled.',
+            'Preserve the scene after control for investigation, re-entry assessment, and restart authorization.'
+        ]
+    }
+];
+
+const MEDICAL_INCIDENT_OPTIONS = [
+    {
+        id: 'cardiac-arrest',
+        label: 'Cardiac Arrest',
+        checklist: [
+            'Check scene safety, use required barrier protection, and confirm the casualty is unresponsive.',
+            'Call emergency medical support immediately and send for the AED without delay.',
+            'Open the airway and check briefly for normal breathing and signs of life.',
+            'Start CPR immediately if the casualty is not breathing normally.',
+            'Apply the AED as soon as it arrives and follow the device prompts exactly.',
+            'Continue CPR and AED cycles until qualified medical handover or clear signs of recovery.'
+        ]
+    },
+    {
+        id: 'fracture',
+        label: 'Fracture / Suspected Fracture',
+        checklist: [
+            'Check scene safety, use appropriate PPE, and reassure the injured person.',
+            'Do not move the casualty unless there is immediate danger or a life-saving reason to do so.',
+            'Examine for pain, deformity, swelling, open wounds, and circulation or sensation beyond the injury.',
+            'Control any bleeding and support the injured area in the position found.',
+            'Immobilize the suspected fracture only if trained and if this will not worsen the injury.',
+            'Arrange medical transfer, monitor for shock, and document the condition during handover.'
+        ]
+    },
+    {
+        id: 'heart-attack',
+        label: 'Heart Attack',
+        checklist: [
+            'Check scene safety, use appropriate PPE, and place the casualty in the most comfortable resting position.',
+            'Assess chest pain, breathing difficulty, sweating, skin color, and level of responsiveness.',
+            'Call emergency medical support immediately and keep access clear for the ambulance team.',
+            'Keep the casualty calm, loosen restrictive clothing, and discourage walking or exertion.',
+            'Assist only with the casualty’s own prescribed medication if they are alert and able to take it.',
+            'Monitor continuously and prepare for CPR and AED use if the casualty collapses or stops breathing normally.'
+        ]
     }
 ];
 
@@ -53,6 +197,22 @@ const EMERGENCY_TEAMS = [
     "Transportation Team", "Spill Response Team", "Fire Fighting Team", "Evacuation Team",
     "Medical Emergency Team", "Security", "Public Relation"
 ];
+
+const getActiveChecklist = (scenarioTitle, fireSource, medicalIncidentType) => {
+    if (scenarioTitle === 'Fire Emergency') {
+        return FIRE_SOURCE_OPTIONS.find((item) => item.id === fireSource)?.checklist || SCENARIOS.find((scenario) => scenario.title === scenarioTitle)?.checklist || [];
+    }
+
+    if (scenarioTitle === 'Medical Emergency') {
+        return MEDICAL_INCIDENT_OPTIONS.find((item) => item.id === medicalIncidentType)?.checklist || SCENARIOS.find((scenario) => scenario.title === scenarioTitle)?.checklist || [];
+    }
+
+    return SCENARIOS.find((scenario) => scenario.title === scenarioTitle)?.checklist || [];
+};
+
+const getFireSourceLabel = (fireSource) => FIRE_SOURCE_OPTIONS.find((item) => item.id === fireSource)?.label || fireSource || '-';
+
+const getMedicalIncidentLabel = (medicalIncidentType) => MEDICAL_INCIDENT_OPTIONS.find((item) => item.id === medicalIncidentType)?.label || medicalIncidentType || '-';
 
 const resolveInitialMockDrillSite = (session, search) => {
     const urlSite = new URLSearchParams(search).get('site');
@@ -102,7 +262,8 @@ export default function MockDrill() {
     const [form, setForm] = useState({
         siteId: initialSiteFilter !== 'All' ? initialSiteFilter : ((session?.assignedSite !== 'GLOBAL') ? session?.assignedSite || '' : ''),
         eventType: 'Mock Drill', date: new Date().toISOString().split('T')[0], time: '',
-        shift: 'Day', commander: '', evacTime: '', ertResponseTime: '', headCount: '', debrief: '', capa: []
+        shift: 'Day', commander: '', evacTime: '', ertResponseTime: '', headCount: '', debrief: '', capa: [],
+        fireSource: '', medicalIncidentType: ''
     });
     const [checks, setChecks] = useState({});
     const [teamChecks, setTeamChecks] = useState({});
@@ -184,6 +345,10 @@ export default function MockDrill() {
         });
     }, [history, siteFilter, isGlobalUser, allowedSiteCodes]);
 
+    const activeChecklist = useMemo(() => (
+        selectedDrill ? getActiveChecklist(selectedDrill.title, form.fireSource, form.medicalIncidentType) : []
+    ), [selectedDrill, form.fireSource, form.medicalIncidentType]);
+
     const handleSiteFilterChange = (e) => {
         const newSite = e.target.value;
         setSiteFilter(newSite);
@@ -199,7 +364,8 @@ export default function MockDrill() {
             siteId: (!isGlobalUser && visibleSites.length === 1) ? visibleSites[0].code : (siteFilter !== 'All' ? siteFilter : ''),
             eventType: 'Mock Drill',
             time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }),
-            headCount: '', debrief: '', evacTime: '', ertResponseTime: '', capa: []
+            headCount: '', debrief: '', evacTime: '', ertResponseTime: '', capa: [],
+            fireSource: '', medicalIncidentType: ''
         });
         setChecks({});
         setTeamChecks({});
@@ -228,6 +394,8 @@ export default function MockDrill() {
         if (!permissions.canEditCreate) return alert("Security Error: You do not have permission to save reports.");
         if (!form.siteId) return alert("Please select a Site ID.");
         if (!form.commander) return alert("Please select an Incident Commander.");
+        if (selectedDrill?.title === 'Fire Emergency' && !form.fireSource) return alert("Please select the source of the fire.");
+        if (selectedDrill?.title === 'Medical Emergency' && !form.medicalIncidentType) return alert("Please select the type of medical incident.");
 
         // Security Check: Block injection of unassigned sites
         if (!isGlobalUser && !allowedSiteCodes.has(form.siteId)) {
@@ -240,8 +408,8 @@ export default function MockDrill() {
         }
 
         const completedCount = Object.values(checks).filter(Boolean).length;
-        const totalCount = selectedDrill.checklist.length;
-        const score = Math.round((completedCount / totalCount) * 100);
+        const totalCount = activeChecklist.length;
+        const score = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
 
         const prefix = form.eventType === 'Mock Drill' ? 'MD' : 'ER';
         const srNo = Math.floor(10000 + Math.random() * 90000);
@@ -255,6 +423,9 @@ export default function MockDrill() {
             ...form,
             docId: docId,
             scenario: selectedDrill.title,
+            fireSource: form.fireSource,
+            medicalIncidentType: form.medicalIncidentType,
+            checklistUsed: activeChecklist,
             score: score,
             teamsAlerted: teamChecks || {},
             checklistStatus: checks || {},
@@ -464,6 +635,66 @@ export default function MockDrill() {
                                 <div className="col-span-1"><label className="text-[10px] uppercase text-blue-400 font-bold block mb-2 tracking-widest ml-1">ERT Response (min)</label><input type="number" className="w-full bg-slate-950 border border-blue-900/50 rounded-xl p-3 text-sm text-white outline-none focus:border-blue-500 text-center font-bold" value={form.ertResponseTime} onChange={e => setForm({ ...form, ertResponseTime: e.target.value })} /></div>
                             </div>
 
+                            {selectedDrill.title === 'Fire Emergency' && (
+                                <div className="bg-red-950/20 p-6 rounded-2xl border border-red-900/50 shadow-inner">
+                                    <div className="grid grid-cols-1 md:grid-cols-[320px,1fr] gap-6 items-start">
+                                        <div>
+                                            <label className="text-[10px] uppercase text-red-300 font-bold block mb-2 tracking-widest ml-1">Source of Fire *</label>
+                                            <select
+                                                className="w-full bg-slate-950 border border-red-900/50 rounded-xl p-3 text-sm text-white outline-none focus:border-red-500"
+                                                value={form.fireSource}
+                                                onChange={e => {
+                                                    setForm({ ...form, fireSource: e.target.value });
+                                                    setChecks({});
+                                                }}
+                                            >
+                                                <option value="">Select fire source...</option>
+                                                {FIRE_SOURCE_OPTIONS.map((source) => (
+                                                    <option key={source.id} value={source.id}>{source.label}</option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                        <div className="bg-slate-950/70 rounded-xl border border-slate-800 p-4">
+                                            <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-2">Checklist Logic</div>
+                                            <p className="text-sm text-slate-300 leading-relaxed">
+                                                Select the fire source first so the response checklist focuses on the right controls, extinguisher type, isolation method, and follow-up actions for that fire origin.
+                                            </p>
+                                            <p className="text-[11px] text-slate-500 mt-3">Aligned to OSHA emergency preparedness and response planning guidance.</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
+                            {selectedDrill.title === 'Medical Emergency' && (
+                                <div className="bg-emerald-950/20 p-6 rounded-2xl border border-emerald-900/50 shadow-inner">
+                                    <div className="grid grid-cols-1 md:grid-cols-[320px,1fr] gap-6 items-start">
+                                        <div>
+                                            <label className="text-[10px] uppercase text-emerald-300 font-bold block mb-2 tracking-widest ml-1">Medical Incident Type *</label>
+                                            <select
+                                                className="w-full bg-slate-950 border border-emerald-900/50 rounded-xl p-3 text-sm text-white outline-none focus:border-emerald-500"
+                                                value={form.medicalIncidentType}
+                                                onChange={e => {
+                                                    setForm({ ...form, medicalIncidentType: e.target.value });
+                                                    setChecks({});
+                                                }}
+                                            >
+                                                <option value="">Select medical incident...</option>
+                                                {MEDICAL_INCIDENT_OPTIONS.map((incident) => (
+                                                    <option key={incident.id} value={incident.id}>{incident.label}</option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                        <div className="bg-slate-950/70 rounded-xl border border-slate-800 p-4">
+                                            <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-2">Examination Steps</div>
+                                            <p className="text-sm text-slate-300 leading-relaxed">
+                                                Choose the medical emergency type to load the correct examination and response sequence for the casualty before transfer, AED use, immobilization, or escalation.
+                                            </p>
+                                            <p className="text-[11px] text-slate-500 mt-3">Aligned to OSHA emergency preparedness and response planning guidance.</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
                             {/* Teams & Checklist */}
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                                 <div className="bg-slate-900/50 p-6 rounded-2xl border border-slate-700 shadow-inner">
@@ -483,9 +714,14 @@ export default function MockDrill() {
                                     </div>
                                 </div>
                                 <div className="bg-slate-900/50 p-6 rounded-2xl border border-slate-700 shadow-inner">
-                                    <h3 className="font-bold text-blue-400 text-xs mb-4 uppercase tracking-widest flex items-center gap-2"><i className="fas fa-list-check"></i> Procedural Checklist</h3>
+                                    <h3 className="font-bold text-blue-400 text-xs mb-4 uppercase tracking-widest flex items-center gap-2"><i className="fas fa-list-check"></i> {selectedDrill.title === 'Medical Emergency' ? 'Medical Examination & Response Steps' : 'Procedural Checklist'}</h3>
                                     <div className="space-y-2">
-                                        {selectedDrill.checklist.map((item, idx) => (
+                                        {activeChecklist.length === 0 && (selectedDrill.title === 'Fire Emergency' || selectedDrill.title === 'Medical Emergency') && (
+                                            <div className="bg-slate-950 border border-dashed border-slate-800 rounded-xl p-4 text-sm text-slate-500 italic">
+                                                Select the required fire source or medical incident type to load the checklist.
+                                            </div>
+                                        )}
+                                        {activeChecklist.map((item, idx) => (
                                             <label key={idx} className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-colors ${checks[idx] ? 'bg-blue-900/10 border-blue-500/30' : 'bg-slate-950 border-slate-800 hover:border-slate-600'}`}>
                                                 <div className="relative flex items-center mt-0.5">
                                                     <input type="checkbox" className="peer hidden" checked={!!checks[idx]} onChange={() => toggleCheck(idx, setChecks)} />
@@ -559,7 +795,7 @@ export default function MockDrill() {
                             <div className="flex items-center gap-3">
                                 <div className="text-[10px] uppercase font-bold text-slate-500 tracking-widest">Protocol Integrity</div>
                                 <div className="bg-slate-950 px-3 py-1.5 rounded-lg border border-slate-800 text-white font-bold text-xs font-mono">
-                                    <span className="text-emerald-400">{Object.values(checks).filter(Boolean).length}</span> / {selectedDrill.checklist.length}
+                                    <span className="text-emerald-400">{Object.values(checks).filter(Boolean).length}</span> / {activeChecklist.length}
                                 </div>
                             </div>
                             <button onClick={handleSubmit} className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold py-3 px-10 rounded-xl shadow-lg shadow-blue-900/50 transition-transform active:scale-95 uppercase tracking-widest text-sm flex items-center gap-2">
@@ -601,6 +837,18 @@ export default function MockDrill() {
                                     <td className="font-bold py-2 border-none">Commander:</td>
                                     <td colSpan="3" className="py-2 border-none font-bold text-base">{printData.commander}</td>
                                 </tr>
+                                {printData.fireSource && (
+                                    <tr>
+                                        <td className="font-bold py-2 border-t border-gray-300">Fire Source:</td>
+                                        <td colSpan="3" className="py-2 border-t border-gray-300">{getFireSourceLabel(printData.fireSource)}</td>
+                                    </tr>
+                                )}
+                                {printData.medicalIncidentType && (
+                                    <tr>
+                                        <td className="font-bold py-2 border-t border-gray-300">Medical Incident Type:</td>
+                                        <td colSpan="3" className="py-2 border-t border-gray-300">{getMedicalIncidentLabel(printData.medicalIncidentType)}</td>
+                                    </tr>
+                                )}
                             </tbody>
                         </table>
                     </div>
@@ -635,7 +883,7 @@ export default function MockDrill() {
                     </table>
 
                     <div className="page-break-inside-avoid mb-6">
-                        <h2 className="text-sm font-bold mb-3 uppercase bg-gray-200 p-1 border border-gray-400 inline-block">3. Procedural Execution Checklist</h2>
+                        <h2 className="text-sm font-bold mb-3 uppercase bg-gray-200 p-1 border border-gray-400 inline-block">{printData.scenario === 'Medical Emergency' ? '3. Medical Examination & Response Checklist' : '3. Procedural Execution Checklist'}</h2>
                         <table className="w-full text-sm border-collapse border border-black">
                             <thead>
                                 <tr className="bg-gray-200">
@@ -644,7 +892,7 @@ export default function MockDrill() {
                                 </tr>
                             </thead>
                             <tbody>
-                                {printData.scenarioDef ? printData.scenarioDef.checklist.map((item, idx) => (
+                                {(printData.checklistUsed || printData.scenarioDef?.checklist || []).length > 0 ? (printData.checklistUsed || printData.scenarioDef?.checklist || []).map((item, idx) => (
                                     <tr key={idx}>
                                         <td className="border border-black p-2 text-center font-bold font-mono">{printData.checklistStatus && printData.checklistStatus[idx] ? 'PASS' : 'FAIL'}</td>
                                         <td className="border border-black p-2">{item}</td>
