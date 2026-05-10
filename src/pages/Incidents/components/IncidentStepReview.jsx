@@ -3,6 +3,8 @@ import React from 'react';
 export default function IncidentStepReview({
     canEditForm,
     data,
+    incidentReporting,
+    investigationRequired,
     saveData,
     saving,
     scanHiraDatabase,
@@ -53,10 +55,30 @@ export default function IncidentStepReview({
                 </div>
             </div>
 
+            <div className={`mb-10 rounded-2xl border p-6 ${investigationRequired ? 'border-amber-500/30 bg-amber-500/10' : 'border-cyan-500/20 bg-cyan-500/10'}`}>
+                <div className="flex flex-wrap items-center justify-between gap-4">
+                    <div>
+                        <p className={`text-xs font-bold uppercase tracking-[0.25em] ${investigationRequired ? 'text-amber-300' : 'text-cyan-300'}`}>
+                            {investigationRequired ? 'Stage 2 Investigation Report Mandatory' : 'Stage 2 Investigation Report Optional'}
+                        </p>
+                        <p className="mt-2 text-sm text-slate-300">
+                            {investigationRequired
+                                ? 'This incident cannot be treated as closed on the initial report alone. Submit the Investigation Report from this stage to complete the record.'
+                                : 'You can issue the Investigation Report from this stage if you want the full RCA, CAPA, and HIRA linkage captured in one final document.'}
+                        </p>
+                    </div>
+                    <div className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-right">
+                        <p className="text-[10px] font-bold uppercase tracking-[0.25em] text-slate-500">Current Report Status</p>
+                        <p className="mt-2 text-sm font-black uppercase text-white">{incidentReporting?.investigationStatus || 'Pending'}</p>
+                    </div>
+                </div>
+            </div>
+
             <div className="flex justify-end gap-4 pt-8 border-t border-slate-800 action-buttons">
-                <button type="button" onClick={() => triggerPrint(data)} className="bg-slate-800 hover:bg-slate-700 text-white font-bold px-8 py-4 rounded-xl transition shadow text-xs uppercase tracking-widest flex items-center gap-2"><i className="fas fa-print text-lg"></i> Print Record</button>
+                <button type="button" onClick={() => triggerPrint(data, 'initial')} className="bg-slate-800 hover:bg-slate-700 text-white font-bold px-8 py-4 rounded-xl transition shadow text-xs uppercase tracking-widest flex items-center gap-2"><i className="fas fa-print text-lg"></i> Print Initial Report</button>
+                <button type="button" onClick={() => triggerPrint(data, 'investigation')} className="bg-slate-800 hover:bg-slate-700 text-white font-bold px-8 py-4 rounded-xl transition shadow text-xs uppercase tracking-widest flex items-center gap-2"><i className="fas fa-file-lines text-lg"></i> Preview Investigation Report</button>
                 {canEditForm && (
-                    <button type="button" onClick={saveData} disabled={saving} className="bg-gradient-to-r from-red-600 to-orange-600 hover:from-red-500 hover:to-orange-500 text-white font-bold px-10 py-4 rounded-xl shadow-lg shadow-red-900/50 flex items-center gap-3 transition-transform active:scale-95 text-sm uppercase tracking-widest disabled:opacity-50"><i className={`fas ${saving ? 'fa-spinner fa-spin' : 'fa-cloud-arrow-up'} text-lg`}></i> {saving ? 'Saving...' : 'Save & Submit Record'}</button>
+                    <button type="button" onClick={() => saveData('investigation-final')} disabled={saving} className="bg-gradient-to-r from-red-600 to-orange-600 hover:from-red-500 hover:to-orange-500 text-white font-bold px-10 py-4 rounded-xl shadow-lg shadow-red-900/50 flex items-center gap-3 transition-transform active:scale-95 text-sm uppercase tracking-widest disabled:opacity-50"><i className={`fas ${saving ? 'fa-spinner fa-spin' : 'fa-cloud-arrow-up'} text-lg`}></i> {saving ? 'Saving...' : 'Submit Investigation Report'}</button>
                 )}
             </div>
         </div>

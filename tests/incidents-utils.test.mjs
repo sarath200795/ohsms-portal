@@ -5,6 +5,8 @@ import {
     buildVerificationActionDescription,
     buildEditableIncidentData,
     buildPrintableIncidentData,
+    incidentNeedsInvestigation,
+    resolveIncidentReportingState,
     incidentSeverityNeedsVerification,
     normalizeIncidentFiveWhys
 } from '../src/utils/incidents.js';
@@ -54,6 +56,58 @@ test('printable incident payload preserves structured five-why paths', () => {
     const printable = buildPrintableIncidentData(incident, () => 100);
 
     assert.deepEqual(printable.investigation.fiveWhys, [{ id: 7, name: 'Analysis Path 7', whys: ['a', 'b'] }]);
+});
+
+test('initial report save marks investigation as pending when the incident requires stage two reporting', () => {
+    const reporting = resolveIncidentReportingState({
+        type: 'Property Damage',
+        severity: 'Level B',
+        smartType: 'Machinery & Equipment',
+        investigation: { fiveWhys: [] }
+    }, {
+        saveStage: 'initial',
+        timestamp: '2026-05-10T10:00:00.000Z',
+        assumeLegacyCompletion: false
+    });
+
+    assert.equal(reporting.investigationRequired, true);
+    assert.equal(reporting.investigationStatus, 'Pending');
+    assert.equal(reporting.currentStage, 'initial');
+    assert.equal(reporting.initialSubmittedAt, '2026-05-10T10:00:00.000Z');
+});
+
+test('investigation final save marks stage two reporting as completed', () => {
+    const reporting = resolveIncidentReportingState({
+        type: 'First Aid injury',
+        severity: 'Level A',
+        smartType: 'Manual Handling',
+        consultationSummary: 'Investigation completed and documented.'
+    }, {
+        saveStage: 'investigation-final',
+        timestamp: '2026-05-10T11:30:00.000Z',
+        assumeLegacyCompletion: false
+    });
+
+    assert.equal(reporting.investigationRequired, true);
+    assert.equal(reporting.investigationStatus, 'Completed');
+    assert.equal(reporting.currentStage, 'investigation');
+    assert.equal(reporting.investigationCompletedAt, '2026-05-10T11:30:00.000Z');
+});
+
+test('near miss severity C does not require a mandatory investigation report under the current workflow rule', () => {
+    assert.equal(incidentNeedsInvestigation({
+        type: 'Near Miss',
+        severity: 'Level C',
+        smartType: 'Slips, Trips & Falls'
+    }), false);
+});
+
+test('fire incidents always require an investigation report', () => {
+    assert.equal(incidentNeedsInvestigation({
+        type: 'Near Miss',
+        severity: 'Level D',
+        smartType: 'Fire & Explosion'
+    }), true);
 });
 
 test('high severity incident CAPA closure creates one verification follow-up action', () => {

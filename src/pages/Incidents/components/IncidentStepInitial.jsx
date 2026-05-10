@@ -10,12 +10,15 @@ export default function IncidentStepInitial({
     handleDescriptionBlur,
     handleImageUpload,
     initialDataState,
+    incidentReporting,
+    investigationRequired,
     isAnalyzing,
     isGlobalUser,
     saveData,
     saving,
     setData,
     setView,
+    triggerPrint,
     generateSmartInvestigation
 }) {
     return (
@@ -122,6 +125,22 @@ export default function IncidentStepInitial({
                 <textarea rows="3" value={data.immediateAction} onChange={(e) => setData({ ...data, immediateAction: e.target.value })} className="w-full bg-slate-950 border border-slate-700 rounded-xl p-4 text-sm text-white focus:border-red-500 outline-none shadow-inner" disabled={!canEditForm} placeholder="What was done immediately to secure the scene or treat the injured?"></textarea>
             </div>
 
+            <div className={`mb-6 rounded-2xl border p-5 ${investigationRequired ? 'border-amber-500/30 bg-amber-500/10' : 'border-emerald-500/20 bg-emerald-500/10'}`}>
+                <p className={`text-xs font-bold uppercase tracking-[0.25em] ${investigationRequired ? 'text-amber-300' : 'text-emerald-300'}`}>
+                    {investigationRequired ? 'Stage 2 Investigation Report Required' : 'Stage 2 Investigation Report Optional'}
+                </p>
+                <p className="mt-2 text-sm text-slate-300">
+                    {investigationRequired
+                        ? 'Save this stage as the Initial Information Report first. After that, the incident must be completed through the Investigation Report before closure.'
+                        : 'This incident can remain as an Initial Information Report, or you can continue into the Investigation Report if you want a full root-cause record.'}
+                </p>
+                {incidentReporting?.initialSubmittedAt && (
+                    <p className="mt-3 text-[11px] font-bold uppercase tracking-[0.22em] text-slate-400">
+                        Initial report already saved on {new Date(incidentReporting.initialSubmittedAt).toLocaleString()}
+                    </p>
+                )}
+            </div>
+
             <div className="bg-slate-950/50 border border-slate-800 p-6 rounded-xl">
                 <label className="text-[10px] uppercase font-bold text-slate-500 mb-4 block"><i className="fas fa-camera mr-2"></i> Photographic Evidence</label>
                 {data.imageEvidence && (
@@ -141,8 +160,11 @@ export default function IncidentStepInitial({
 
             <div className="flex justify-end gap-3 mt-8 pt-6 border-t border-slate-800">
                 <button type="button" onClick={() => { setView('repo'); setData(initialDataState); }} className="text-slate-400 hover:text-white px-5 py-2.5 rounded-xl transition-colors font-bold text-sm">Cancel</button>
+                <button type="button" onClick={() => triggerPrint(data, 'initial')} className="bg-slate-800 hover:bg-slate-700 text-white font-bold px-6 py-4 rounded-xl transition shadow text-xs uppercase tracking-widest flex items-center gap-2">
+                    <i className="fas fa-print text-lg"></i> Print Initial Report
+                </button>
                 {canEditForm && (
-                    <button type="button" onClick={saveData} disabled={saving} className="bg-gradient-to-r from-red-600 to-orange-600 hover:from-red-500 hover:to-orange-500 text-white font-bold px-10 py-4 rounded-xl shadow-lg shadow-red-900/50 flex items-center gap-3 transition-transform active:scale-95 text-sm uppercase tracking-widest disabled:opacity-50"><i className={`fas ${saving ? 'fa-spinner fa-spin' : 'fa-save'} text-lg`}></i> {saving ? 'Saving...' : 'Save Draft'}</button>
+                    <button type="button" onClick={() => saveData('initial')} disabled={saving} className="bg-gradient-to-r from-red-600 to-orange-600 hover:from-red-500 hover:to-orange-500 text-white font-bold px-10 py-4 rounded-xl shadow-lg shadow-red-900/50 flex items-center gap-3 transition-transform active:scale-95 text-sm uppercase tracking-widest disabled:opacity-50"><i className={`fas ${saving ? 'fa-spinner fa-spin' : 'fa-save'} text-lg`}></i> {saving ? 'Saving...' : 'Save Initial Report'}</button>
                 )}
             </div>
         </div>

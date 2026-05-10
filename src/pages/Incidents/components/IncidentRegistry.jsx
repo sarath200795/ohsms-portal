@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import * as XLSX from 'xlsx';
+import { resolveIncidentReportingState } from '../../../utils/incidents';
 import IncidentDashboard from './IncidentDashboard';
 import { safeArr } from '../utils';
 
@@ -38,7 +39,9 @@ export default function IncidentRegistry({
     };
 
     const exportToExcel = () => {
-        const dataToExport = filteredData.map(({ id, date, time, siteId, title, type, severity, affectedPersonName, affectedPersonType }) => ({
+        const dataToExport = filteredData.map(({ id, date, time, siteId, title, type, severity, affectedPersonName, affectedPersonType, reporting, smartType }) => {
+            const reportState = resolveIncidentReportingState({ reporting, type, severity, smartType });
+            return ({
             ID: id,
             Date: date,
             Time: time,
@@ -47,8 +50,11 @@ export default function IncidentRegistry({
             Type: type,
             Severity: severity,
             Affected_Person: affectedPersonName,
-            Person_Type: affectedPersonType
-        }));
+            Person_Type: affectedPersonType,
+            Investigation_Required: reportState.investigationRequired ? 'Yes' : 'No',
+            Report_Status: reportState.investigationStatus
+        });
+        });
         const worksheet = XLSX.utils.json_to_sheet(dataToExport);
         const workbook = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(workbook, worksheet, 'Incidents');
@@ -90,7 +96,7 @@ export default function IncidentRegistry({
             <div className="bg-slate-900/40 backdrop-blur-md rounded-xl overflow-hidden border border-slate-700 shadow-xl">
                 <table className="w-full text-left text-sm text-slate-300">
                     <thead className="bg-slate-950 text-xs uppercase font-bold text-slate-500 border-b border-slate-800">
-                        <tr><th className="p-4">Incident ID</th><th className="p-4">Date</th><th className="p-4">Type</th><th className="p-4">Details & Person</th><th className="p-4 text-center">HIRA Linked</th><th className="p-4 text-right">Actions</th></tr>
+                        <tr><th className="p-4">Incident ID</th><th className="p-4">Date</th><th className="p-4">Type</th><th className="p-4">Details & Person</th><th className="p-4 text-center">Report Stage</th><th className="p-4 text-center">HIRA Linked</th><th className="p-4 text-right">Actions</th></tr>
                     </thead>
                     <tbody className="divide-y divide-slate-800/50">
                         {filteredData.map((incident) => {
@@ -98,6 +104,21 @@ export default function IncidentRegistry({
                             const closed = safeArr(incident.capa).filter((c) => c.status === 'Closed').length;
                             const progress = total > 0 ? (closed / total) * 100 : 0;
                             const canEditRow = permissions.canEditCreate && (isGlobalUser || uniqueSites.some((site) => site.code === incident.siteId));
+                            const reportState = resolveIncidentReportingState(incident);
+                            const reportBadgeClass = reportState.investigationStatus === 'Completed'
+                                ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-300'
+                                : reportState.investigationStatus === 'Draft'
+                                    ? 'border-cyan-500/20 bg-cyan-500/10 text-cyan-300'
+                                    : reportState.investigationStatus === 'Pending'
+                                        ? 'border-amber-500/20 bg-amber-500/10 text-amber-300'
+                                        : 'border-slate-700 bg-slate-800/80 text-slate-300';
+                            const reportLabel = reportState.investigationStatus === 'Completed'
+                                ? 'Investigation Ready'
+                                : reportState.investigationStatus === 'Draft'
+                                    ? 'Investigation Draft'
+                                    : reportState.investigationStatus === 'Pending'
+                                        ? 'Investigation Required'
+                                        : 'Initial Report Only';
 
                             return (
                                 <tr key={incident.id} className="hover:bg-slate-800/50 transition-colors">
@@ -124,13 +145,18 @@ export default function IncidentRegistry({
                                         )}
                                     </td>
                                     <td className="p-4 text-center">
+                                        <div className={`inline-flex rounded-full border px-3 py-1 text-[10px] font-bold uppercase tracking-[0.22em] ${reportBadgeClass}`}>
+                                            {reportLabel}
+                                        </div>
+                                    </td>
+                                    <td className="p-4 text-center">
                                         {incident.linkedHazards && incident.linkedHazards.length > 0 ? <span className="text-emerald-400 font-bold bg-emerald-900/20 px-2 py-1 rounded border border-emerald-500/20"><i className="fas fa-link mr-1"></i> {incident.linkedHazards.length}</span> : <span className="text-slate-600">-</span>}
                                     </td>
                                     <td className="p-4 text-right flex justify-end gap-2">
-                                        <button type="button" onClick={() => onPrint(incident)} className="text-blue-400 hover:text-white bg-blue-500/10 hover:bg-blue-600 px-3 py-1.5 rounded-lg transition" title="Print Report"><i className="fas fa-print"></i></button>
+                                        <button type="button" onClick={() => onPrint(incident)} className="text-blue-400 hover:text-white bg-blue-500/10 hover:bg-blue-600 px-3 py-1.5 rounded-lg transition" title={reportState.investigationCompletedAt ? 'Print Investigation Report' : 'Print Initial Report'}><i className="fas fa-print"></i></button>
 
                                         {canEditRow ? (
-                                            <button type="button" onClick={() => onEdit(incident)} className="text-purple-400 hover:text-white bg-purple-500/10 hover:bg-purple-600 px-3 py-1.5 rounded-lg transition font-bold text-xs uppercase tracking-widest">Edit</button>
+                                            <button type="button" onClick={() => onEdit(incident)} className="text-purple-400 hover:text-white bg-purple-500/10 hover:bg-purple-600 px-3 py-1.5 rounded-lg transition font-bold text-xs uppercase tracking-widest">{reportState.investigationStatus === 'Pending' ? 'Investigate' : 'Edit'}</button>
                                         ) : (
                                             <button type="button" onClick={() => onEdit(incident)} className="text-slate-400 hover:text-white bg-slate-800 hover:bg-slate-700 px-3 py-1.5 rounded-lg transition font-bold text-xs uppercase tracking-widest">View</button>
                                         )}
@@ -142,7 +168,7 @@ export default function IncidentRegistry({
                                 </tr>
                             );
                         })}
-                        {filteredData.length === 0 && <tr><td colSpan="6" className="p-8 text-center text-slate-500 italic">No incidents match your filters.</td></tr>}
+                        {filteredData.length === 0 && <tr><td colSpan="7" className="p-8 text-center text-slate-500 italic">No incidents match your filters.</td></tr>}
                     </tbody>
                 </table>
             </div>

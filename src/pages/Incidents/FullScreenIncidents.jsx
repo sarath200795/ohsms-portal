@@ -7,7 +7,10 @@ import { getPortalAwareHomePath } from '../FieldApp/portalAuth';
 import {
     buildEditableIncidentData,
     buildIncidentCapaWithVerificationActions,
-    buildPrintableIncidentData
+    buildPrintableIncidentData,
+    createDefaultIncidentReporting,
+    incidentNeedsInvestigation,
+    resolveIncidentReportingState
 } from '../../utils/incidents';
 import { readOrgChild, readOrgChildren } from '../../utils/orgData';
 import {
@@ -60,7 +63,8 @@ const createInitialDataState = () => ({
     linkedHazards: [],
     riskUpdated: false,
     horizontalDeployment: false,
-    manualOverrides: { type: false, severity: false, smartType: false }
+    manualOverrides: { type: false, severity: false, smartType: false },
+    reporting: createDefaultIncidentReporting()
 });
 
 const fileToBase64 = (file) => new Promise((resolve, reject) => {
@@ -608,6 +612,18 @@ export default function Incidents() {
     }, [canEditForm, data.firebaseKey, data.siteId, data.type, incidentsList, session]);
 
     const currentIncidentId = data.id || suggestedIncidentId || '';
+    const investigationRequired = useMemo(
+        () => incidentNeedsInvestigation({
+            type: data.type,
+            smartType: data.smartType,
+            severity: data.severity
+        }),
+        [data.severity, data.smartType, data.type]
+    );
+    const incidentReporting = useMemo(
+        () => resolveIncidentReportingState(data, { assumeLegacyCompletion: Boolean(data.firebaseKey) }),
+        [data]
+    );
 
     const handleDescriptionBlur = () => {
         if (!data.description || data.description.trim() === '') return;
@@ -807,7 +823,7 @@ export default function Incidents() {
         setData((prev) => ({ ...prev, investigationTeam: (prev.investigationTeam || []).filter((_, i) => i !== index) }));
     };
 
-    const saveData = async () => {
+    const saveData = async (saveStage = 'initial') => {
         if (!session) {
             alert('Session expired. Please sign in again.');
             navigate('/');
@@ -822,6 +838,7 @@ export default function Incidents() {
 
         setSaving(true);
         try {
+            const saveTimestamp = new Date().toISOString();
             const cleanCapa = (data.capa || [])
                 .filter((c) => c.act && c.act.trim() !== '')
                 .map((capaItem, index) => ({
@@ -865,21 +882,43 @@ export default function Incidents() {
             });
 
             const incidentId = currentIncidentId || 'Draft';
+            const reporting = resolveIncidentReportingState({
+                ...data,
+                id: incidentId,
+                capa: capaWithVerificationActions
+            }, {
+                saveStage,
+                timestamp: saveTimestamp,
+                assumeLegacyCompletion: Boolean(data.firebaseKey)
+            });
             const payload = JSON.parse(JSON.stringify({
                 ...data,
                 id: incidentId,
+                reporting,
                 capa: capaWithVerificationActions,
                 linkedHazards: data.linkedHazards || [],
-                timestamp: new Date().toISOString(),
+                timestamp: saveTimestamp,
                 reportedBy: session.user || session.name || session.email
             }));
 
             if (data.firebaseKey) {
                 await update(ref(rtdb, `organizations/${session.orgId}/incidents/${data.firebaseKey}`), payload);
-                alert(data.horizontalDeployment ? 'Horizontal Deployment Updated. Actions pushed globally!' : 'Incident Saved Successfully!');
+                if (saveStage === 'initial') {
+                    alert('Initial Information Report saved successfully.');
+                } else if (saveStage === 'investigation-final') {
+                    alert('Incident Investigation Report submitted successfully.');
+                } else {
+                    alert(data.horizontalDeployment ? 'Horizontal Deployment Updated. Investigation draft saved and actions pushed globally!' : 'Incident investigation draft saved successfully.');
+                }
             } else {
                 await push(ref(rtdb, `organizations/${session.orgId}/incidents`), payload);
-                alert(data.horizontalDeployment ? 'Horizontal Deployment Active. CAPAs deployed globally!' : 'Incident Saved Successfully!');
+                if (saveStage === 'initial') {
+                    alert('Initial Information Report saved successfully.');
+                } else if (saveStage === 'investigation-final') {
+                    alert('Incident Investigation Report submitted successfully.');
+                } else {
+                    alert(data.horizontalDeployment ? 'Horizontal Deployment Active. Investigation draft saved and CAPAs deployed globally!' : 'Incident investigation draft saved successfully.');
+                }
             }
 
             const refreshedIncidents = await readOrgChild(rtdb, session.orgId, 'incidents');
@@ -911,9 +950,17 @@ export default function Incidents() {
         setStep(1);
     };
 
-    const triggerPrint = (dataObj) => {
+    const triggerPrint = (dataObj, requestedStage = '') => {
         const incidentId = dataObj.id || currentIncidentId;
-        setPrintData(buildPrintableIncidentData({ ...dataObj, id: incidentId }));
+        setPrintData(buildPrintableIncidentData(
+            {
+                ...dataObj,
+                id: incidentId,
+                reporting: dataObj.reporting || incidentReporting
+            },
+            () => Date.now(),
+            requestedStage
+        ));
         setTimeout(() => window.print(), 800);
     };
 
@@ -1159,6 +1206,8 @@ export default function Incidents() {
                                 handleDescriptionBlur={handleDescriptionBlur}
                                 handleImageUpload={handleImageUpload}
                                 initialDataState={initialDataState}
+                                incidentReporting={incidentReporting}
+                                investigationRequired={investigationRequired}
                                 isAnalyzing={isAnalyzing}
                                 isGlobalUser={isGlobalUser}
                                 newCapaAct={newCapaAct}
