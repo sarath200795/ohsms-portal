@@ -13,8 +13,11 @@ export default function PtwRegistry({
     isGlobalUser,
     isProdApprover,
     openForm,
+    onRegionChange,
     onViewPermit,
     permissions,
+    regionFilter,
+    regionOptions,
     setInspectionModal,
     setInspectionObservation,
     setNewApproverEmail,
@@ -30,14 +33,24 @@ export default function PtwRegistry({
                     <h2 className="mb-2 text-3xl font-bold text-white">Permit Registry</h2>
                     <p className="font-['Inter'] text-sm text-slate-400">Master log of all drafted, active, and historical permits.</p>
                 </div>
-                <select value={siteFilter} onChange={handleSiteFilterChange} className="w-48 rounded-xl border border-slate-600 bg-slate-900 px-4 py-2.5 font-['Inter'] text-sm font-bold text-white shadow-lg outline-none focus:border-amber-500">
-                    {(isGlobalUser || allowedSites.length > 1) && <option value="All">All Authorized Sites</option>}
-                    {allowedSites.map((site) => (
-                        <option key={site.code} value={site.code}>
-                            {site.name}
-                        </option>
-                    ))}
-                </select>
+                <div className="flex gap-3">
+                    <select value={regionFilter} onChange={onRegionChange} className="w-40 rounded-xl border border-slate-600 bg-slate-900 px-4 py-2.5 font-['Inter'] text-sm font-bold text-white shadow-lg outline-none focus:border-amber-500">
+                        <option value="All">All Regions</option>
+                        {regionOptions.map((region) => (
+                            <option key={region} value={region}>
+                                {region}
+                            </option>
+                        ))}
+                    </select>
+                    <select value={siteFilter} onChange={handleSiteFilterChange} className="w-48 rounded-xl border border-slate-600 bg-slate-900 px-4 py-2.5 font-['Inter'] text-sm font-bold text-white shadow-lg outline-none focus:border-amber-500">
+                        {(isGlobalUser || allowedSites.length > 1) && <option value="All">All Authorized Sites</option>}
+                        {allowedSites.map((site) => (
+                            <option key={site.code} value={site.code}>
+                                {site.name}
+                            </option>
+                        ))}
+                    </select>
+                </div>
             </div>
 
             <div className="glass-panel overflow-hidden rounded-2xl border border-slate-700 shadow-xl font-['Inter']">

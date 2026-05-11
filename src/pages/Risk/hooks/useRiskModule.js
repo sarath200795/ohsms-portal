@@ -20,6 +20,7 @@ import {
     isSiteOwnerRole
 } from '../../../utils/permissions';
 import { readStoredSession } from '../../../utils/session';
+import { buildRegionOptions, filterSitesByRegion, normalizeSites, passesSiteAndRegionFilter } from '../../../utils/siteRegions';
 
 const normalizeRiskAssessments = (collection = {}) => (
     Object.keys(collection).map((key) => {
@@ -56,6 +57,7 @@ export function useRiskModule() {
     const [view, setView] = useState('list');
     const [printData, setPrintData] = useState(null);
     const [filterSite, setFilterSite] = useState('All');
+    const [regionFilter, setRegionFilter] = useState('All');
     const [filterStatus, setFilterStatus] = useState('All');
     const [importing, setImporting] = useState(false);
     const [permissions, setPermissions] = useState({ viewOnly: false, canDelete: false, canEditCreate: false });
@@ -121,14 +123,7 @@ export function useRiskModule() {
                 const value = await readOrgChildren(rtdb, parsedSession.orgId, ['riskAssessments', 'sites', 'users']);
                 if (value.riskAssessments) setRepo(normalizeRiskAssessments(value.riskAssessments));
 
-                if (value.sites) {
-                    setSites(Object.keys(value.sites).map((key) => {
-                        const siteValue = value.sites[key];
-                        return typeof siteValue === 'object'
-                            ? { code: siteValue.code || key, name: siteValue.name || siteValue.code || key }
-                            : { code: siteValue, name: siteValue };
-                    }));
-                }
+                if (value.sites) setSites(normalizeSites(value.sites));
 
                 if (value.users) {
                     setUsers(Object.entries(value.users).map(([key, user]) => ({ id: key, ...user })).filter((user) => user.status !== 'Inactive'));
@@ -155,6 +150,13 @@ export function useRiskModule() {
         if (isGlobalUser) return sites;
         return sites.filter((site) => allowedSiteCodes.has(site.code));
     }, [sites, isGlobalUser, allowedSiteCodes]);
+
+    const regionOptions = useMemo(() => buildRegionOptions(visibleSites), [visibleSites]);
+
+    const filteredVisibleSites = useMemo(
+        () => filterSitesByRegion(visibleSites, regionFilter),
+        [visibleSites, regionFilter]
+    );
 
     const activeUsers = useMemo(() => {
         if (!formData.siteId) return users;
@@ -186,15 +188,31 @@ export function useRiskModule() {
         sessionStorage.setItem('isoCurrentSite', nextSite === 'All' ? 'GLOBAL' : nextSite);
     };
 
+    const handleRegionFilterChange = (event) => {
+        setRegionFilter(event.target.value);
+    };
+
+    useEffect(() => {
+        if (filterSite !== 'All' && !filteredVisibleSites.some((site) => site.code === filterSite)) {
+            setFilterSite('All');
+            sessionStorage.setItem('isoCurrentSite', 'GLOBAL');
+        }
+    }, [filterSite, filteredVisibleSites]);
+
     const filteredRepo = useMemo(() => (
         repo.filter((record) => {
             const canView = isGlobalUser || allowedSiteCodes.has(record.siteId);
             if (!canView) return false;
-            const matchSite = filterSite === 'All' || record.siteId === filterSite;
+            const matchSite = passesSiteAndRegionFilter({
+                siteId: record.siteId,
+                siteFilter: filterSite,
+                regionFilter,
+                sites: visibleSites
+            });
             const matchStatus = filterStatus === 'All' || record.status === filterStatus;
             return matchSite && matchStatus;
         }).sort((a, b) => new Date(b.date) - new Date(a.date))
-    ), [repo, filterSite, filterStatus, isGlobalUser, allowedSiteCodes]);
+    ), [repo, filterSite, filterStatus, isGlobalUser, allowedSiteCodes, regionFilter, visibleSites]);
 
     const totalGlobalHazards = useMemo(() => (
         filteredRepo.reduce((sum, assessment) => sum + (assessment.activities || []).reduce((activitySum, activity) => activitySum + (activity.hazards || []).length, 0), 0)
@@ -619,11 +637,13 @@ export function useRiskModule() {
         exportExcel,
         filterSite,
         filterStatus,
+        filteredVisibleSites,
         filteredRepo,
         formData,
         getRiskStyle,
         handleCategoryChange,
         handleExcelImport,
+        handleRegionFilterChange,
         handleSiteFilterChange,
         handleSubCategoryChange,
         highRiskCount,
@@ -636,6 +656,8 @@ export function useRiskModule() {
         permissions,
         printData,
         processSave,
+        regionFilter,
+        regionOptions,
         removeActivity,
         removeHazard,
         removeTeam,

@@ -2,9 +2,12 @@ import React from 'react';
 
 export default function TrainingDashboardView({
     filterSite,
+    regionFilter,
+    regionOptions,
+    filteredVisibleSites,
+    onRegionChange,
     onSiteChange,
     isGlobalUser,
-    visibleSites,
     validCount,
     expiringCount,
     pendingCount,
@@ -17,10 +20,16 @@ export default function TrainingDashboardView({
     return (
         <div className="max-w-7xl mx-auto space-y-6 animate-in fade-in duration-500">
             <div className="flex justify-end mb-4">
-                <select value={filterSite} onChange={onSiteChange} className="w-48 text-xs bg-slate-950 border border-slate-700 text-white outline-none focus:border-blue-500 rounded-xl p-3 shadow-inner">
-                    {(isGlobalUser || visibleSites.length > 1) && <option value="All">All Authorized Sites</option>}
-                    {visibleSites.map((site) => <option key={site.code} value={site.code}>{site.name}</option>)}
-                </select>
+                <div className="flex w-full justify-end gap-3 md:w-auto">
+                    <select value={regionFilter} onChange={onRegionChange} className="w-40 text-xs bg-slate-950 border border-slate-700 text-white outline-none focus:border-blue-500 rounded-xl p-3 shadow-inner">
+                        <option value="All">All Regions</option>
+                        {regionOptions.map((region) => <option key={region} value={region}>{region}</option>)}
+                    </select>
+                    <select value={filterSite} onChange={onSiteChange} className="w-48 text-xs bg-slate-950 border border-slate-700 text-white outline-none focus:border-blue-500 rounded-xl p-3 shadow-inner">
+                        {(isGlobalUser || filteredVisibleSites.length > 1) && <option value="All">All Authorized Sites</option>}
+                        {filteredVisibleSites.map((site) => <option key={site.code} value={site.code}>{site.name}</option>)}
+                    </select>
+                </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-4 gap-6">

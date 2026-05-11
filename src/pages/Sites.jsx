@@ -4,6 +4,7 @@ import { ref, get, update, push, remove } from 'firebase/database';
 import { rtdb } from '../config/firebase';
 import { isGlobalOwnerRole } from '../utils/permissions';
 import { readStoredSession } from '../utils/session';
+import { normalizeSites, SITE_REGION_OPTIONS } from '../utils/siteRegions';
 
 export default function Sites() {
     const navigate = useNavigate();
@@ -13,7 +14,7 @@ export default function Sites() {
 
     // Modal & Form State
     const [isModalOpen, setIsModalOpen] = useState(false);
-    const [formData, setFormData] = useState({ firebaseKey: '', code: '', name: '', address: '', manager: '' });
+    const [formData, setFormData] = useState({ firebaseKey: '', code: '', name: '', region: '', address: '', manager: '' });
 
     useEffect(() => {
         const sess = readStoredSession();
@@ -32,12 +33,7 @@ export default function Sites() {
             try {
                 const snap = await get(ref(rtdb, `organizations/${sess.orgId}/sites`));
                 if (snap.exists()) {
-                    const data = snap.val();
-                    const parsedSites = Object.keys(data).map(key => ({
-                        firebaseKey: key,
-                        ...(typeof data[key] === 'object' ? data[key] : { code: key, name: data[key] })
-                    }));
-                    setSites(parsedSites.sort((a, b) => a.code.localeCompare(b.code)));
+                    setSites(normalizeSites(snap.val()));
                 }
             } catch (e) {
                 console.error("Failed to fetch sites:", e);
@@ -51,16 +47,16 @@ export default function Sites() {
 
     const openForm = (site = null) => {
         if (site) {
-            setFormData({ ...site });
+            setFormData({ region: '', address: '', manager: '', ...site });
         } else {
-            setFormData({ firebaseKey: '', code: '', name: '', address: '', manager: '' });
+            setFormData({ firebaseKey: '', code: '', name: '', region: '', address: '', manager: '' });
         }
         setIsModalOpen(true);
     };
 
     const handleSave = async (e) => {
         e.preventDefault();
-        if (!formData.code || !formData.name) return alert("Site Code and Name are required.");
+        if (!formData.code || !formData.name || !formData.region) return alert("Site Code, Name, and Region are required.");
 
         const cleanCode = formData.code.toUpperCase().trim();
 
@@ -73,6 +69,7 @@ export default function Sites() {
             const payload = {
                 code: cleanCode,
                 name: formData.name,
+                region: formData.region,
                 address: formData.address,
                 manager: formData.manager,
                 updatedAt: new Date().toISOString(),
@@ -131,6 +128,7 @@ export default function Sites() {
                                 <tr>
                                     <th className="p-4 pl-6">Site Code</th>
                                     <th className="p-4">Facility Name</th>
+                                    <th className="p-4">Region</th>
                                     <th className="p-4">Location / Address</th>
                                     <th className="p-4 pr-6 text-right">Actions</th>
                                 </tr>
@@ -140,6 +138,7 @@ export default function Sites() {
                                     <tr key={site.firebaseKey} className="hover:bg-slate-800/50 transition">
                                         <td className="p-4 pl-6 font-mono text-emerald-400 font-bold">{site.code}</td>
                                         <td className="p-4 font-bold text-white">{site.name}</td>
+                                        <td className="p-4 text-xs font-bold text-cyan-300">{site.region || 'Unassigned'}</td>
                                         <td className="p-4 text-slate-400 text-xs">{site.address || 'N/A'}</td>
                                         <td className="p-4 pr-6 text-right">
                                             <div className="flex justify-end gap-2">
@@ -149,7 +148,7 @@ export default function Sites() {
                                         </td>
                                     </tr>
                                 ))}
-                                {sites.length === 0 && <tr><td colSpan={4} className="p-10 text-center text-slate-500 italic">No facilities configured.</td></tr>}
+                                {sites.length === 0 && <tr><td colSpan={5} className="p-10 text-center text-slate-500 italic">No facilities configured.</td></tr>}
                             </tbody>
                         </table>
                     </div>
@@ -173,6 +172,13 @@ export default function Sites() {
                             <div>
                                 <label className="text-[10px] uppercase font-bold text-slate-400 block mb-2">Facility Name</label>
                                 <input required value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} placeholder="e.g. New York Assembly Plant" className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-sm text-white outline-none focus:border-emerald-500" />
+                            </div>
+                            <div>
+                                <label className="text-[10px] uppercase font-bold text-slate-400 block mb-2">Region</label>
+                                <select required value={formData.region} onChange={e => setFormData({ ...formData, region: e.target.value })} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-sm text-white outline-none focus:border-emerald-500">
+                                    <option value="">Select Region...</option>
+                                    {SITE_REGION_OPTIONS.map((region) => <option key={region} value={region}>{region}</option>)}
+                                </select>
                             </div>
                             <div>
                                 <label className="text-[10px] uppercase font-bold text-slate-400 block mb-2">Address / Location</label>

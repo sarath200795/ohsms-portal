@@ -24,6 +24,7 @@ import {
     isSiteOwnerRole
 } from '../../utils/permissions';
 import { canAuthenticateStatus, readStoredSession } from '../../utils/session';
+import { buildRegionOptions, filterSitesByRegion, matchesRegionFilter, normalizeSites } from '../../utils/siteRegions';
 import PtwDashboardComponent from './components/PtwDashboard';
 import PtwRegistryComponent from './components/PtwRegistry';
 import PermitViewerComponent from './components/PermitViewer';
@@ -1190,6 +1191,7 @@ export default function FullScreenPTW() {
     const [users, setUsers] = useState([]);
     const [contractors, setContractors] = useState([]);
     const [lotoProcedures, setLotoProcedures] = useState([]);
+    const [regionFilter, setRegionFilter] = useState('All');
     const [siteFilter, setSiteFilter] = useState('All');
     const [permits, setPermits] = useState([]);
 
@@ -1281,12 +1283,7 @@ export default function FullScreenPTW() {
                     const data = await readOrgChildren(rtdb, sess.orgId, ['sites', 'users', 'contractors', 'ptwRecords', 'lotoProcedures']);
 
                     if (data.sites) {
-                        setSites(Object.keys(data.sites).map((key) => {
-                            const siteValue = data.sites[key];
-                            return typeof siteValue === 'object'
-                                ? { code: siteValue.code || key, name: siteValue.name || siteValue.code || key }
-                                : { code: siteValue, name: siteValue };
-                        }));
+                        setSites(normalizeSites(data.sites));
                     }
 
                     if (data.users) {
@@ -1361,6 +1358,21 @@ export default function FullScreenPTW() {
         if (isGlobalUser) return sites;
         return sites.filter((site) => allowedSiteCodes.has(site.code));
     }, [allowedSiteCodes, isGlobalUser, sites]);
+    const regionOptions = useMemo(() => buildRegionOptions(allowedSites), [allowedSites]);
+    const filteredAllowedSites = useMemo(
+        () => filterSitesByRegion(allowedSites, regionFilter),
+        [allowedSites, regionFilter]
+    );
+
+    useEffect(() => {
+        if (siteFilter !== 'All' && !filteredAllowedSites.some((site) => site.code === siteFilter)) {
+            setSiteFilter(isGlobalUser ? 'All' : (filteredAllowedSites[0]?.code || 'All'));
+        }
+    }, [filteredAllowedSites, isGlobalUser, siteFilter]);
+
+    const handleRegionFilterChange = (event) => {
+        setRegionFilter(event.target.value);
+    };
 
     const handleSiteFilterChange = (event) => {
         const value = event.target.value;
@@ -1420,10 +1432,11 @@ export default function FullScreenPTW() {
         return permits.filter((permit) => {
             const hasSiteAccess = isGlobalUser || allowedSiteCodes.has(permit.siteId);
             if (!hasSiteAccess) return false;
+            if (regionFilter !== 'All' && !matchesRegionFilter(permit.siteId, allowedSites, regionFilter)) return false;
             if (siteFilter !== 'All' && permit.siteId !== siteFilter) return false;
             return true;
         });
-    }, [allowedSiteCodes, isGlobalUser, permits, siteFilter]);
+    }, [allowedSiteCodes, allowedSites, isGlobalUser, permits, regionFilter, siteFilter]);
 
     const selectedPermit = useMemo(() => {
         if (!selectedPermitId) return null;
@@ -2103,11 +2116,11 @@ export default function FullScreenPTW() {
 
                 <main className="relative flex-1 overflow-y-auto pb-20 font-['Inter'] custom-scroll">
                     {currentView === 'dashboard' && (
-                        <PtwDashboardComponent allowedSites={allowedSites} handleSiteFilterChange={handleSiteFilterChange} isGlobalUser={isGlobalUser} myPendingApprovals={myPendingApprovals} onViewPermit={openPermitViewer} setCurrentView={setCurrentView} siteFilter={siteFilter} visiblePermits={visiblePermits} />
+                        <PtwDashboardComponent allowedSites={filteredAllowedSites} handleSiteFilterChange={handleSiteFilterChange} isGlobalUser={isGlobalUser} myPendingApprovals={myPendingApprovals} onRegionChange={handleRegionFilterChange} onViewPermit={openPermitViewer} regionFilter={regionFilter} regionOptions={regionOptions} setCurrentView={setCurrentView} siteFilter={siteFilter} visiblePermits={visiblePermits} />
                     )}
                     {currentView === 'inventory' && (
                         <PtwRegistryComponent
-                            allowedSites={allowedSites}
+                            allowedSites={filteredAllowedSites}
                             handleApproveClosure={handleApproveClosure}
                             handleApproveInitiation={handleApproveInitiation}
                             handleRequestClosure={handleRequestClosure}
@@ -2117,8 +2130,11 @@ export default function FullScreenPTW() {
                             isGlobalUser={isGlobalUser}
                             isProdApprover={isProdApprover}
                             openForm={openForm}
+                            onRegionChange={handleRegionFilterChange}
                             onViewPermit={openPermitViewer}
                             permissions={permissions}
+                            regionFilter={regionFilter}
+                            regionOptions={regionOptions}
                             setInspectionModal={setInspectionModal}
                             setInspectionObservation={setInspectionObservation}
                             setNewApproverEmail={setNewApproverEmail}

@@ -20,6 +20,7 @@ import {
     isGlobalScopeUserRecord
 } from '../../../utils/permissions';
 import { canAuthenticateStatus, readStoredSession } from '../../../utils/session';
+import { buildRegionOptions, filterSitesByRegion, matchesRegionFilter, normalizeSites } from '../../../utils/siteRegions';
 
 const normalizeTrainings = (collection = {}) => (
     Object.entries(collection).map(([key, value]) => ({
@@ -155,6 +156,7 @@ export function useTrainingModule() {
     const [saving, setSaving] = useState(false);
     const [permissions, setPermissions] = useState({ viewOnly: false, canDelete: false, canEditCreate: false });
     const [filterSite, setFilterSite] = useState('All');
+    const [regionFilter, setRegionFilter] = useState('All');
     const [matrixSiteFilter, setMatrixSiteFilter] = useState('All');
     const [matrixContractorFilter, setMatrixContractorFilter] = useState('All');
     const [calendarSiteFilter, setCalendarSiteFilter] = useState('All');
@@ -231,7 +233,7 @@ export function useTrainingModule() {
 
                 if (orgData.trainings) setTrainings(normalizeTrainings(orgData.trainings));
                 if (orgData.contractors) setContractors(normalizeContractors(orgData.contractors));
-                if (orgData.sites) setSites(Object.keys(orgData.sites).map((key) => ({ code: orgData.sites[key].code || key, name: orgData.sites[key].name || key })));
+                if (orgData.sites) setSites(normalizeSites(orgData.sites));
                 if (orgData.users) setUsers(normalizeUsers(orgData.users));
                 setTrainingCapas(buildTrainingCapas(orgDataWithId));
             } catch (error) {
@@ -263,6 +265,13 @@ export function useTrainingModule() {
         return sites.filter((site) => allowedSiteCodes.has(site.code));
     }, [sites, isGlobalUser, allowedSiteCodes]);
 
+    const regionOptions = useMemo(() => buildRegionOptions(visibleSites), [visibleSites]);
+
+    const filteredVisibleSites = useMemo(
+        () => filterSitesByRegion(visibleSites, regionFilter),
+        [visibleSites, regionFilter]
+    );
+
     const getSmartSiteDefault = (preferredSite = null) => {
         if (preferredSite && preferredSite !== 'Global' && preferredSite !== 'GLOBAL' && preferredSite !== 'All') return preferredSite;
         if (filterSite !== 'All') return filterSite;
@@ -272,8 +281,16 @@ export function useTrainingModule() {
     };
 
     const handleDashboardSiteChange = (event) => { setFilterSite(event.target.value); sessionStorage.setItem('isoCurrentSite', event.target.value === 'All' ? 'GLOBAL' : event.target.value); };
+    const handleRegionFilterChange = (event) => { setRegionFilter(event.target.value); };
     const handleMatrixSiteChange = (event) => { setMatrixSiteFilter(event.target.value); sessionStorage.setItem('isoCurrentSite', event.target.value === 'All' ? 'GLOBAL' : event.target.value); };
     const handleCalendarSiteChange = (event) => { setCalendarSiteFilter(event.target.value); sessionStorage.setItem('isoCurrentSite', event.target.value === 'All' ? 'GLOBAL' : event.target.value); };
+
+    useEffect(() => {
+        if (filterSite !== 'All' && !filteredVisibleSites.some((site) => site.code === filterSite)) {
+            setFilterSite('All');
+            sessionStorage.setItem('isoCurrentSite', 'GLOBAL');
+        }
+    }, [filterSite, filteredVisibleSites]);
 
     const canEditForm = useMemo(() => {
         if (!permissions.canEditCreate) return false;
@@ -379,8 +396,20 @@ export function useTrainingModule() {
 
     const filteredAlerts = useMemo(() => {
         const alerts = Object.values(certifications).filter((cert) => cert.status !== 'Valid').sort((a, b) => new Date(a.expiryDate) - new Date(b.expiryDate));
-        if (filterSite === 'All') return alerts;
         return alerts.filter((alert) => {
+            if (regionFilter !== 'All') {
+                const internalUserRegionMatch = users.find((user) => user.name === alert.userName);
+                if (internalUserRegionMatch) {
+                    const candidateSites = [internalUserRegionMatch.assignedSite, ...safeArr(internalUserRegionMatch.accessibleSites)].filter(Boolean);
+                    if (!candidateSites.some((siteId) => matchesRegionFilter(siteId, visibleSites, regionFilter))) return false;
+                } else {
+                    const contractorForRegion = contractors.find((item) => safeArr(item.workers).some((worker) => worker.name === alert.userName));
+                    const workerForRegion = contractorForRegion ? safeArr(contractorForRegion.workers).find((item) => item.name === alert.userName) : null;
+                    const candidateSites = [workerForRegion?.deployedSite, contractorForRegion?.siteId].filter(Boolean);
+                    if (!candidateSites.some((siteId) => matchesRegionFilter(siteId, visibleSites, regionFilter))) return false;
+                }
+            }
+            if (filterSite === 'All') return true;
             const internalUser = users.find((user) => user.name === alert.userName);
             if (internalUser) return internalUser.assignedSite === filterSite || safeArr(internalUser.accessibleSites).includes(filterSite);
             const contractor = contractors.find((item) => safeArr(item.workers).some((worker) => worker.name === alert.userName));
@@ -390,16 +419,17 @@ export function useTrainingModule() {
             }
             return false;
         });
-    }, [certifications, filterSite, users, contractors]);
+    }, [certifications, contractors, filterSite, regionFilter, users, visibleSites]);
 
     const pendingTrainingCapas = useMemo(() => (
         trainingCapas.filter((capa) => {
             if (capa.status === 'Closed') return false;
             if (!isGlobalUser && !allowedSiteCodes.has(capa.siteId) && capa.siteId !== 'Global') return false;
+            if (regionFilter !== 'All' && !matchesRegionFilter(capa.siteId, visibleSites, regionFilter)) return false;
             if (filterSite !== 'All' && capa.siteId !== filterSite && capa.source !== 'Incident') return false;
             return true;
         })
-    ), [trainingCapas, filterSite, isGlobalUser, allowedSiteCodes]);
+    ), [trainingCapas, filterSite, isGlobalUser, allowedSiteCodes, regionFilter, visibleSites]);
 
     const toggleTopicFilter = (topic) => setHiddenTopics((prev) => prev.includes(topic) ? prev.filter((item) => item !== topic) : [...prev, topic]);
     const selectAllTopics = () => setHiddenTopics([]);
@@ -570,12 +600,14 @@ export function useTrainingModule() {
         externalName,
         filterRef,
         filterSite,
+        filteredVisibleSites,
         filteredAlerts,
         getMatrixCell,
         handleCalendarSiteChange,
         handleDashboardSiteChange,
         handleDelete,
         handleMatrixSiteChange,
+        handleRegionFilterChange,
         hiddenTopics,
         initiateCapaTraining,
         initiateRetraining,
@@ -592,6 +624,8 @@ export function useTrainingModule() {
         pendingTrainingCapas,
         permissions,
         printData,
+        regionFilter,
+        regionOptions,
         removeAttendee,
         saving,
         searchTerm,

@@ -13,6 +13,7 @@ import {
     isGlobalScopeUserRecord
 } from '../utils/permissions';
 import { readStoredSession } from '../utils/session';
+import { buildRegionOptions, filterSitesByRegion, matchesRegionFilter, normalizeSites } from '../utils/siteRegions';
 
 const SCENARIOS = [
     {
@@ -257,6 +258,7 @@ export default function MockDrill() {
 
     // RBAC & Filter States
     const [siteFilter, setSiteFilter] = useState(initialSiteFilter);
+    const [regionFilter, setRegionFilter] = useState('All');
 
     // Form State
     const [form, setForm] = useState({
@@ -291,11 +293,7 @@ export default function MockDrill() {
             try {
                 const val = await readOrgChildren(rtdb, session.orgId, ['sites', 'users', 'mockDrills']);
                 if (val.sites) {
-                    const parsedSites = Object.keys(val.sites).map(key => {
-                        const sVal = val.sites[key];
-                        return typeof sVal === 'object' ? { code: sVal.code || key, name: sVal.name || sVal.code || key } : { code: sVal, name: sVal };
-                    });
-                    setSites(parsedSites);
+                    setSites(normalizeSites(val.sites));
                 }
                 if (val.users) {
                     setUsers(Object.entries(val.users).map(([k, v]) => ({ id: k, ...v })).filter(u => u.status !== 'Inactive'));
@@ -314,10 +312,6 @@ export default function MockDrill() {
         fetchAll();
     }, [location.search, navigate, session]);
 
-    useEffect(() => {
-        sessionStorage.setItem('isoCurrentSite', siteFilter === 'All' ? 'GLOBAL' : siteFilter);
-    }, [siteFilter]);
-
     // ==========================================
     // 4. STRICT ROW-LEVEL SECURITY (RLS)
     // ==========================================
@@ -331,6 +325,24 @@ export default function MockDrill() {
         return sites.filter(s => allowedSiteCodes.has(s.code));
     }, [sites, isGlobalUser, allowedSiteCodes]);
 
+    const regionOptions = useMemo(() => buildRegionOptions(visibleSites), [visibleSites]);
+
+    const filteredVisibleSites = useMemo(
+        () => filterSitesByRegion(visibleSites, regionFilter),
+        [visibleSites, regionFilter]
+    );
+    const activeSiteFilter = useMemo(() => {
+        const fallbackSite = isGlobalUser ? 'All' : (filteredVisibleSites[0]?.code || 'All');
+        if (siteFilter !== 'All' && !filteredVisibleSites.some((site) => site.code === siteFilter)) {
+            return fallbackSite;
+        }
+        return siteFilter;
+    }, [filteredVisibleSites, isGlobalUser, siteFilter]);
+
+    useEffect(() => {
+        sessionStorage.setItem('isoCurrentSite', activeSiteFilter === 'All' ? 'GLOBAL' : activeSiteFilter);
+    }, [activeSiteFilter]);
+
     const availableCommanders = useMemo(() => {
         if (!form.siteId) return [];
         return users.filter(u => isGlobalScopeUserRecord(u) || u.assignedSite === form.siteId || (u.accessibleSites && u.accessibleSites.includes(form.siteId)));
@@ -341,10 +353,11 @@ export default function MockDrill() {
             const hasSiteAccess = isGlobalUser || allowedSiteCodes.has(h.siteId);
             if (!hasSiteAccess) return false;
 
-            if (siteFilter !== 'All' && h.siteId !== siteFilter) return false;
+            if (regionFilter !== 'All' && !matchesRegionFilter(h.siteId, visibleSites, regionFilter)) return false;
+            if (activeSiteFilter !== 'All' && h.siteId !== activeSiteFilter) return false;
             return true;
         });
-    }, [history, siteFilter, isGlobalUser, allowedSiteCodes]);
+    }, [activeSiteFilter, allowedSiteCodes, history, isGlobalUser, regionFilter, visibleSites]);
 
     const activeChecklist = useMemo(() => (
         selectedDrill ? getActiveChecklist(selectedDrill.title, form.fireSource, form.medicalIncidentType) : []
@@ -362,7 +375,7 @@ export default function MockDrill() {
         setSelectedDrill(scenario);
         setForm({
             ...form,
-            siteId: (!isGlobalUser && visibleSites.length === 1) ? visibleSites[0].code : (siteFilter !== 'All' ? siteFilter : ''),
+            siteId: (!isGlobalUser && visibleSites.length === 1) ? visibleSites[0].code : (activeSiteFilter !== 'All' ? activeSiteFilter : ''),
             eventType: 'Mock Drill',
             time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }),
             headCount: '', debrief: '', evacTime: '', ertResponseTime: '', capa: [],
@@ -490,7 +503,7 @@ export default function MockDrill() {
             {/* HEADER */}
             <div className="app-ui h-16 border-b border-slate-800 bg-slate-900/80 backdrop-blur-md flex items-center justify-between px-6 no-print flex-shrink-0 z-20">
                 <div className="flex items-center gap-4">
-                    <button onClick={() => navigate(getPortalAwareHomePath({ fallbackPath: '/dashboard', site: siteFilter }))} className="text-slate-400 hover:text-white flex items-center gap-2 transition-colors">
+                                <button onClick={() => navigate(getPortalAwareHomePath({ fallbackPath: '/dashboard', site: activeSiteFilter }))} className="text-slate-400 hover:text-white flex items-center gap-2 transition-colors">
                         <i className="fas fa-arrow-left"></i> Hub
                     </button>
                     <div className="h-6 w-px bg-slate-800 mx-2"></div>
@@ -544,9 +557,13 @@ export default function MockDrill() {
 
                             <div className="flex bg-slate-900 border border-slate-700 p-1.5 rounded-xl shadow-inner items-center gap-2">
                                 <span className="text-xs font-bold text-slate-500 uppercase ml-2">Site Filter:</span>
-                                <select value={siteFilter} onChange={handleSiteFilterChange} className="bg-slate-950 text-white text-xs font-bold px-3 py-2 rounded-lg outline-none border border-slate-800">
-                                    {(isGlobalUser || visibleSites.length > 1) && <option value="All">All Authorized Sites</option>}
-                                    {visibleSites.map(s => <option key={s.code} value={s.code}>{s.name}</option>)}
+                                <select value={regionFilter} onChange={(e) => setRegionFilter(e.target.value)} className="bg-slate-950 text-white text-xs font-bold px-3 py-2 rounded-lg outline-none border border-slate-800">
+                                    <option value="All">All Regions</option>
+                                    {regionOptions.map((region) => <option key={region} value={region}>{region}</option>)}
+                                </select>
+                                    <select value={activeSiteFilter} onChange={handleSiteFilterChange} className="bg-slate-950 text-white text-xs font-bold px-3 py-2 rounded-lg outline-none border border-slate-800">
+                                    {(isGlobalUser || filteredVisibleSites.length > 1) && <option value="All">All Authorized Sites</option>}
+                                    {filteredVisibleSites.map(s => <option key={s.code} value={s.code}>{s.name}</option>)}
                                 </select>
                             </div>
                         </div>

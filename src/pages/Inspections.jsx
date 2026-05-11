@@ -6,6 +6,7 @@ import { getFieldPortalVerificationMessage, getPortalAwareHomePath, isFieldPorta
 import { readOrgChildren } from '../utils/orgData';
 import { canEditCreateForRole, isGlobalOwnerRole } from '../utils/permissions';
 import { readStoredSession } from '../utils/session';
+import { buildRegionOptions, filterSitesByRegion, matchesRegionFilter, normalizeSites } from '../utils/siteRegions';
 import * as XLSX from 'xlsx';
 
 const FREQUENCIES = ['Daily', 'Weekly', 'Monthly', 'Quarterly', 'Bi-Annually', 'Annually'];
@@ -143,6 +144,7 @@ export default function Inspections() {
     const [sites, setSites] = useState([]);
     const [users, setUsers] = useState([]);
     const [siteFilter, setSiteFilter] = useState('All');
+    const [regionFilter, setRegionFilter] = useState('All');
 
     // Calendar & Deferral State
     const [currentMonth, setCurrentMonth] = useState(new Date());
@@ -175,7 +177,7 @@ export default function Inspections() {
                 const data = await readOrgChildren(rtdb, sess.orgId, ['inspectionTemplates', 'inspectionRecords', 'sites', 'users']);
                 if (data.inspectionTemplates) setTemplates(Object.entries(data.inspectionTemplates).map(([k, v]) => ({ firebaseKey: k, ...v })));
                 if (data.inspectionRecords) setRecords(Object.entries(data.inspectionRecords).map(([k, v]) => ({ firebaseKey: k, ...v })));
-                if (data.sites) setSites(Object.keys(data.sites).map(key => ({ code: data.sites[key].code || key, name: data.sites[key].name || key })));
+                if (data.sites) setSites(normalizeSites(data.sites));
                 if (data.users) setUsers(Object.entries(data.users).map(([k, v]) => ({ id: k, ...v })).filter(u => u.status !== 'Inactive'));
             } catch (err) { console.error(err); } finally { setLoading(false); }
         };
@@ -184,6 +186,19 @@ export default function Inspections() {
 
     const isGlobalUser = isGlobalOwnerRole(session?.role);
     const canEdit = canEditCreateForRole(session?.role);
+
+    const regionOptions = useMemo(() => buildRegionOptions(sites), [sites]);
+
+    const filteredVisibleSites = useMemo(
+        () => filterSitesByRegion(sites, regionFilter),
+        [sites, regionFilter]
+    );
+
+    useEffect(() => {
+        if (siteFilter !== 'All' && !filteredVisibleSites.some((site) => site.code === siteFilter)) {
+            setSiteFilter(isGlobalUser ? 'All' : (filteredVisibleSites[0]?.code || 'All'));
+        }
+    }, [filteredVisibleSites, isGlobalUser, siteFilter]);
 
     // --- SCHEDULING ENGINE (WITH GLOBAL EXPLOSION) ---
     const scheduledTasks = useMemo(() => {
@@ -197,10 +212,11 @@ export default function Inspections() {
         activeTemplates.forEach(t => {
             if (!t.assignedFrom) return;
             if (t.assignedTo && t.assignedTo < todayString) return;
+            if (regionFilter !== 'All' && !matchesRegionFilter(t.siteId, sites, regionFilter) && t.siteId !== 'GLOBAL') return;
 
             let targetSites = [];
             if (t.siteId === 'GLOBAL') {
-                targetSites = siteFilter === 'All' ? sites.map(s => s.code) : [siteFilter];
+                targetSites = siteFilter === 'All' ? filteredVisibleSites.map(s => s.code) : [siteFilter];
             } else if (siteFilter === 'All' || t.siteId === siteFilter) {
                 targetSites = [t.siteId];
             }
@@ -236,7 +252,7 @@ export default function Inspections() {
             });
         });
         return tasks.sort((a, b) => a.dueDate - b.dueDate);
-    }, [templates, records, siteFilter, sites, currentMonth]);
+    }, [currentMonth, filteredVisibleSites, records, regionFilter, siteFilter, sites, templates]);
 
     // --- CALENDAR LOGIC ---
     const daysInMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 0).getDate();
@@ -547,9 +563,13 @@ export default function Inspections() {
                                         <p className="text-sm text-slate-400">Assigned inspections appear only on their scheduled frequency dates, and the due card turns red in the final 7 days.</p>
                                     </div>
                                     <div className="flex gap-4 items-center">
-                                        <select value={siteFilter} onChange={e => { setSiteFilter(e.target.value); sessionStorage.setItem('isoCurrentSite', e.target.value); }} className="bg-slate-900 border border-slate-700 text-white text-xs font-bold px-4 py-2 rounded-xl outline-none">
-                                            {(isGlobalUser || sites.length > 1) && <option value="All">All Authorized Sites</option>}
-                                            {sites.map(s => <option key={s.code} value={s.code}>{s.name}</option>)}
+                                        <select value={regionFilter} onChange={e => setRegionFilter(e.target.value)} className="bg-slate-900 border border-slate-700 text-white text-xs font-bold px-4 py-2 rounded-xl outline-none">
+                                            <option value="All">All Regions</option>
+                                            {regionOptions.map(region => <option key={region} value={region}>{region}</option>)}
+                                        </select>
+                                        <select value={siteFilter} onChange={e => { setSiteFilter(e.target.value); sessionStorage.setItem('isoCurrentSite', e.target.value === 'All' ? 'GLOBAL' : e.target.value); }} className="bg-slate-900 border border-slate-700 text-white text-xs font-bold px-4 py-2 rounded-xl outline-none">
+                                            {(isGlobalUser || filteredVisibleSites.length > 1) && <option value="All">All Authorized Sites</option>}
+                                            {filteredVisibleSites.map(s => <option key={s.code} value={s.code}>{s.name}</option>)}
                                         </select>
                                         <div className="flex items-center gap-2 bg-slate-900 border border-slate-700 rounded-xl p-1 shadow-inner">
                                             <button onClick={() => setCurrentMonth(new Date(currentMonth.setMonth(currentMonth.getMonth() - 1)))} className="w-8 h-8 rounded-lg hover:bg-slate-800 text-slate-400 flex items-center justify-center"><i className="fas fa-chevron-left"></i></button>
@@ -675,7 +695,10 @@ export default function Inspections() {
                                             <tr><th className="p-5 pl-6">Form Title</th><th className="p-5">Site Target</th><th className="p-5">Frequency</th><th className="p-5">Live Status</th><th className="p-5 pr-6 text-right">Actions</th></tr>
                                         </thead>
                                         <tbody className="divide-y divide-slate-800/50">
-                                            {templates.filter(t => siteFilter === 'All' || t.siteId === siteFilter || t.siteId === 'GLOBAL').map(t => (
+                                    {templates.filter(t => {
+                                        if (regionFilter !== 'All' && !matchesRegionFilter(t.siteId, sites, regionFilter) && t.siteId !== 'GLOBAL') return false;
+                                        return siteFilter === 'All' || t.siteId === siteFilter || t.siteId === 'GLOBAL';
+                                    }).map(t => (
                                                 <tr key={t.firebaseKey} className="hover:bg-slate-800/40">
                                                     <td className="p-5 pl-6">
                                                         <div className="font-bold text-white text-base">{t.title}</div>
@@ -706,7 +729,10 @@ export default function Inspections() {
                                                     </td>
                                                 </tr>
                                             ))}
-                                            {templates.filter(t => siteFilter === 'All' || t.siteId === siteFilter || t.siteId === 'GLOBAL').length === 0 && <tr><td colSpan="5" className="p-12 text-center text-slate-500 italic">No inspection templates found. Create one to get started.</td></tr>}
+                                    {templates.filter(t => {
+                                        if (regionFilter !== 'All' && !matchesRegionFilter(t.siteId, sites, regionFilter) && t.siteId !== 'GLOBAL') return false;
+                                        return siteFilter === 'All' || t.siteId === siteFilter || t.siteId === 'GLOBAL';
+                                    }).length === 0 && <tr><td colSpan="5" className="p-12 text-center text-slate-500 italic">No inspection templates found. Create one to get started.</td></tr>}
                                         </tbody>
                                     </table>
                                 </div>
@@ -892,7 +918,10 @@ export default function Inspections() {
                                             <tr><th className="p-4 pl-6">Date</th><th className="p-4">Inspection Type</th><th className="p-4">Site</th><th className="p-4">Inspector</th><th className="p-4 text-center">Score / Issues</th><th className="p-4 pr-6 text-right">Actions</th></tr>
                                         </thead>
                                         <tbody className="divide-y divide-slate-800/50">
-                                            {records.filter(r => siteFilter === 'All' || r.siteId === siteFilter).sort((a, b) => new Date(b.completedAt) - new Date(a.completedAt)).map(r => {
+                                {records.filter(r => {
+                                    if (regionFilter !== 'All' && !matchesRegionFilter(r.siteId, sites, regionFilter)) return false;
+                                    return siteFilter === 'All' || r.siteId === siteFilter;
+                                }).sort((a, b) => new Date(b.completedAt) - new Date(a.completedAt)).map(r => {
                                                 const fails = Object.values(r.responses || {}).filter(res => res.answer === 'Fail').length;
                                                 return (
                                                     <tr key={r.firebaseKey} className="hover:bg-slate-800/40 transition-colors">
@@ -912,7 +941,10 @@ export default function Inspections() {
                                                     </tr>
                                                 )
                                             })}
-                                            {records.filter(r => siteFilter === 'All' || r.siteId === siteFilter).length === 0 && <tr><td colSpan="6" className="p-8 text-center italic text-slate-500">No inspection history found.</td></tr>}
+                                {records.filter(r => {
+                                    if (regionFilter !== 'All' && !matchesRegionFilter(r.siteId, sites, regionFilter)) return false;
+                                    return siteFilter === 'All' || r.siteId === siteFilter;
+                                }).length === 0 && <tr><td colSpan="6" className="p-8 text-center italic text-slate-500">No inspection history found.</td></tr>}
                                         </tbody>
                                     </table>
                                 </div>

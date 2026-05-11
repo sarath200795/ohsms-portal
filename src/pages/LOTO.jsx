@@ -19,6 +19,7 @@ import {
     isSiteOwnerRole
 } from '../utils/permissions';
 import { canAuthenticateStatus, readStoredSession } from '../utils/session';
+import { buildRegionOptions, filterSitesByRegion, matchesRegionFilter, normalizeSites } from '../utils/siteRegions';
 
 // ==========================================
 // CONFIGURATION & CONSTANTS
@@ -73,6 +74,7 @@ export default function Loto() {
     const [currentView, setCurrentView] = useState(() => (isFieldPortalMode ? 'inventory' : 'dashboard'));
     const [permissions, setPermissions] = useState({ viewOnly: true, canDelete: false, canEditCreate: false });
     const [siteFilter, setSiteFilter] = useState('All');
+    const [regionFilter, setRegionFilter] = useState('All');
     const [scannerOpen, setScannerOpen] = useState(false);
     const [procForm, setProcForm] = useState(null);
     const [executionProc, setExecutionProc] = useState(null);
@@ -144,12 +146,7 @@ export default function Loto() {
                 // Fetch only the LOTO collections required by this module.
                 const data = await readOrgChildren(rtdb, sess.orgId, ['sites', 'lotoProcedures', 'lotoLogs']);
 
-                if (data.sites) {
-                    setSites(Object.keys(data.sites).map(key => {
-                        const sVal = data.sites[key];
-                        return typeof sVal === 'object' ? { code: sVal.code || key, name: sVal.name || sVal.code || key } : { code: sVal, name: sVal };
-                    }));
-                }
+                if (data.sites) setSites(normalizeSites(data.sites));
                 if (data.lotoProcedures) setProcedures(safeArrayParse(data.lotoProcedures));
                 if (data.lotoLogs) setLogs(safeArrayParse(data.lotoLogs));
 
@@ -174,12 +171,21 @@ export default function Loto() {
     }, [session]);
 
     const allowedSites = useMemo(() => isGlobalUser ? sites : sites.filter(s => allowedSiteCodes.has(s.code)), [sites, isGlobalUser, allowedSiteCodes]);
+    const regionOptions = useMemo(() => buildRegionOptions(allowedSites), [allowedSites]);
+    const filteredAllowedSites = useMemo(() => filterSitesByRegion(allowedSites, regionFilter), [allowedSites, regionFilter]);
 
     const handleSiteFilterChange = (e) => {
         const val = e.target.value;
         setSiteFilter(val);
         sessionStorage.setItem('isoCurrentSite', val === 'All' ? 'GLOBAL' : val);
     };
+
+    useEffect(() => {
+        if (siteFilter !== 'All' && !filteredAllowedSites.some((site) => site.code === siteFilter)) {
+            setSiteFilter('All');
+            sessionStorage.setItem('isoCurrentSite', 'GLOBAL');
+        }
+    }, [filteredAllowedSites, siteFilter]);
 
     const canViewRecord = useCallback((siteId) => (
         isPublic || isGlobalUser || siteId === 'Global' || siteId === 'GLOBAL' || allowedSiteCodes.has(siteId)
@@ -214,11 +220,11 @@ export default function Loto() {
     };
 
     // Data filtering
-    const filteredProcedures = useMemo(() => procedures.filter(p => canViewRecord(p.facility) && (siteFilter === 'All' || p.facility === siteFilter)), [procedures, siteFilter, canViewRecord]);
+    const filteredProcedures = useMemo(() => procedures.filter(p => canViewRecord(p.facility) && matchesRegionFilter(p.facility, allowedSites, regionFilter) && (siteFilter === 'All' || p.facility === siteFilter)), [allowedSites, canViewRecord, procedures, regionFilter, siteFilter]);
     const filteredLogs = useMemo(() => logs.filter(log => {
         const proc = procedures.find(p => p.firebaseKey === log.procId);
-        return proc && canViewRecord(proc.facility) && (siteFilter === 'All' || proc.facility === siteFilter);
-    }), [logs, procedures, siteFilter, canViewRecord]);
+        return proc && canViewRecord(proc.facility) && matchesRegionFilter(proc.facility, allowedSites, regionFilter) && (siteFilter === 'All' || proc.facility === siteFilter);
+    }), [allowedSites, canViewRecord, logs, procedures, regionFilter, siteFilter]);
 
     const liveStatusMap = useMemo(() => {
         const map = {};
@@ -515,9 +521,13 @@ export default function Loto() {
                 <div className="flex items-center gap-4">
                     <div className="hidden md:flex items-center gap-2 bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 shadow-inner">
                         <i className="fas fa-filter text-slate-500 text-xs"></i>
+                        <select value={regionFilter} onChange={(e) => setRegionFilter(e.target.value)} className="bg-transparent border-none text-slate-200 font-bold text-xs outline-none shadow-none m-0 p-0 pr-2">
+                            <option value="All">All Regions</option>
+                            {regionOptions.map((region) => <option key={region} value={region}>{region}</option>)}
+                        </select>
                         <select value={siteFilter} onChange={handleSiteFilterChange} className="bg-transparent border-none text-slate-200 font-bold text-xs outline-none shadow-none m-0 p-0 pr-2">
-                            {(isGlobalUser || allowedSites.length > 1) && <option value="All">All Sites (Global)</option>}
-                            {allowedSites.map(s => <option key={s.code} value={s.code}>{s.name}</option>)}
+                            {(isGlobalUser || filteredAllowedSites.length > 1) && <option value="All">All Sites (Global)</option>}
+                            {filteredAllowedSites.map(s => <option key={s.code} value={s.code}>{s.name}</option>)}
                         </select>
                     </div>
                     <button onClick={() => setScannerOpen(true)} className="bg-purple-600 hover:bg-purple-500 text-white px-5 py-2.5 rounded-xl text-xs font-bold transition shadow-lg shadow-purple-900/50 flex items-center gap-2"><i className="fas fa-qrcode"></i> Scan Any QR</button>
@@ -540,9 +550,13 @@ export default function Loto() {
                     <div className="max-w-7xl mx-auto animate-fade-in space-y-8">
                         <div className="md:hidden mb-4">
                             <label className="text-xs uppercase font-bold text-slate-500 block mb-1">Site Filter</label>
+                            <select value={regionFilter} onChange={(e) => setRegionFilter(e.target.value)} className="w-full bg-slate-900 border border-slate-700 p-3 rounded-xl outline-none text-white font-bold mb-3">
+                                <option value="All">All Regions</option>
+                                {regionOptions.map((region) => <option key={region} value={region}>{region}</option>)}
+                            </select>
                             <select value={siteFilter} onChange={handleSiteFilterChange} className="w-full bg-slate-900 border border-slate-700 p-3 rounded-xl outline-none text-white font-bold">
-                                {(isGlobalUser || allowedSites.length > 1) && <option value="All">All Authorized Sites</option>}
-                                {allowedSites.map(s => <option key={s.code} value={s.code}>{s.name}</option>)}
+                                {(isGlobalUser || filteredAllowedSites.length > 1) && <option value="All">All Authorized Sites</option>}
+                                {filteredAllowedSites.map(s => <option key={s.code} value={s.code}>{s.name}</option>)}
                             </select>
                         </div>
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">

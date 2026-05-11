@@ -7,7 +7,10 @@ export default function PtwDashboard({
     handleSiteFilterChange,
     isGlobalUser,
     myPendingApprovals,
+    onRegionChange,
     onViewPermit,
+    regionFilter,
+    regionOptions,
     setCurrentView,
     siteFilter,
     visiblePermits
@@ -20,6 +23,14 @@ export default function PtwDashboard({
                     <p className="font-['Inter'] text-sm text-slate-400">Real-time status of safe work permits for your allowed locations.</p>
                 </div>
                 <div className="flex items-center gap-4 text-sm font-bold">
+                    <select value={regionFilter} onChange={onRegionChange} className="rounded-xl border border-slate-600 bg-slate-900 px-4 py-2.5 font-['Inter'] text-white shadow-lg outline-none focus:border-amber-500">
+                        <option value="All">All Regions</option>
+                        {regionOptions.map((region) => (
+                            <option key={region} value={region}>
+                                {region}
+                            </option>
+                        ))}
+                    </select>
                     <select value={siteFilter} onChange={handleSiteFilterChange} className="rounded-xl border border-slate-600 bg-slate-900 px-4 py-2.5 font-['Inter'] text-white shadow-lg outline-none focus:border-amber-500">
                         {(isGlobalUser || allowedSites.length > 1) && <option value="All">All Authorized Sites</option>}
                         {allowedSites.map((site) => (

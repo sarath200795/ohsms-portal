@@ -12,6 +12,7 @@ import {
     isSiteOwnerRole
 } from '../utils/permissions';
 import { canAuthenticateStatus, readStoredSession } from '../utils/session';
+import { buildRegionOptions, filterSitesByRegion, matchesRegionFilter, normalizeSites } from '../utils/siteRegions';
 
 // Auto-detect Firebase export name to prevent import crashes
 const rtdb = firebaseSetup.rtdb || firebaseSetup.db;
@@ -78,6 +79,7 @@ export default function Standards() {
     // RBAC & Filter State
     const [permissions, setPermissions] = useState({ viewOnly: false, canDelete: false, canEditCreate: false });
     const [siteFilter, setSiteFilter] = useState('All');
+    const [regionFilter, setRegionFilter] = useState('All');
     const [categoryFilter, setCategoryFilter] = useState('All');
     const [searchQuery, setSearchQuery] = useState('');
 
@@ -141,10 +143,7 @@ export default function Standards() {
 
             const unsubscribeSites = onValue(ref(rtdb, `organizations/${sess.orgId}/sites`), (snap) => {
                 const data = snap.exists() ? snap.val() : {};
-                setSites(Object.keys(data).map(key => ({
-                    code: data[key].code || key,
-                    name: data[key].name || key
-                })));
+                setSites(normalizeSites(data));
                 markLoaded('sites');
             }, (error) => {
                 setFatalError(error.message);
@@ -187,11 +186,25 @@ export default function Standards() {
         return sites.filter(s => allowedSiteCodes.has(s.code));
     }, [sites, isGlobalUser, allowedSiteCodes]);
 
+    const regionOptions = useMemo(() => buildRegionOptions(visibleSites), [visibleSites]);
+
+    const filteredVisibleSites = useMemo(
+        () => filterSitesByRegion(visibleSites, regionFilter),
+        [visibleSites, regionFilter]
+    );
+
     const handleSiteFilterChange = (e) => {
         const newSite = e.target.value;
         setSiteFilter(newSite);
         sessionStorage.setItem('isoCurrentSite', newSite === 'All' ? 'GLOBAL' : newSite);
     };
+
+    useEffect(() => {
+        if (siteFilter !== 'All' && !filteredVisibleSites.some((site) => site.code === siteFilter)) {
+            setSiteFilter('All');
+            sessionStorage.setItem('isoCurrentSite', 'GLOBAL');
+        }
+    }, [filteredVisibleSites, siteFilter]);
 
     const canViewRecord = useCallback((siteId) => (
         isGlobalUser || siteId === 'GLOBAL' || allowedSiteCodes.has(siteId)
@@ -222,13 +235,14 @@ export default function Standards() {
         return (documents || []).filter(doc => {
             if (!canViewRecord(doc.siteId)) return false; // Hard Block
 
+            if (regionFilter !== 'All' && !matchesRegionFilter(doc.siteId, visibleSites, regionFilter)) return false;
             const matchSite = siteFilter === 'All' || doc.siteId === siteFilter || doc.siteId === 'GLOBAL';
             const matchCat = categoryFilter === 'All' || doc.category === categoryFilter;
             const matchSearch = String(doc.title || '').toLowerCase().includes(searchQuery.toLowerCase()) || String(doc.docId || '').toLowerCase().includes(searchQuery.toLowerCase());
 
             return matchSite && matchCat && matchSearch;
         });
-    }, [documents, siteFilter, categoryFilter, searchQuery, canViewRecord]);
+    }, [documents, siteFilter, categoryFilter, searchQuery, canViewRecord, regionFilter, visibleSites]);
 
     const stats = useMemo(() => {
         const total = filteredDocs.length;
@@ -437,10 +451,14 @@ export default function Standards() {
                                     <i className="fas fa-search absolute left-4 top-1/2 -translate-y-1/2 text-slate-500"></i>
                                     <input type="text" placeholder="Search by title or ID..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full bg-slate-900 border border-slate-700 pl-10 pr-4 py-2.5 rounded-xl text-sm focus:border-indigo-500 text-white outline-none" />
                                 </div>
+                                <select value={regionFilter} onChange={e => setRegionFilter(e.target.value)} className="bg-slate-900 border border-slate-700 text-white px-4 py-2.5 rounded-xl outline-none focus:border-indigo-500 text-sm font-bold">
+                                    <option value="All">All Regions</option>
+                                    {regionOptions.map(region => <option key={region} value={region}>{region}</option>)}
+                                </select>
                                 <select value={siteFilter} onChange={handleSiteFilterChange} className="bg-slate-900 border border-slate-700 text-white px-4 py-2.5 rounded-xl outline-none focus:border-indigo-500 text-sm font-bold">
-                                    {(isGlobalUser || visibleSites.length > 1) && <option value="All">All Authorized Sites</option>}
+                                    {(isGlobalUser || filteredVisibleSites.length > 1) && <option value="All">All Authorized Sites</option>}
                                     <option value="GLOBAL">Global Corporate</option>
-                                    {visibleSites.map(s => <option key={s.code} value={s.code}>{s.name}</option>)}
+                                    {filteredVisibleSites.map(s => <option key={s.code} value={s.code}>{s.name}</option>)}
                                 </select>
                                 <select value={categoryFilter} onChange={e => setCategoryFilter(e.target.value)} className="bg-slate-900 border border-slate-700 text-white px-4 py-2.5 rounded-xl outline-none focus:border-indigo-500 text-sm font-bold">
                                     <option value="All">All Categories</option>

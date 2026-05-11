@@ -11,6 +11,9 @@ export default function IncidentRegistry({
     onEdit,
     onPrint,
     permissions,
+    regionFilter,
+    regionOptions,
+    setRegionFilter,
     setSiteFilter,
     siteFilter,
     uniqueSites
@@ -80,6 +83,13 @@ export default function IncidentRegistry({
                     <div><label className="text-[10px] text-purple-300 font-bold uppercase block mb-1">From</label><input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="w-32 bg-slate-950 border border-slate-700 text-xs rounded-lg p-2 text-white outline-none focus:border-purple-500" /></div>
                     <div><label className="text-[10px] text-purple-300 font-bold uppercase block mb-1">To</label><input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="w-32 bg-slate-950 border border-slate-700 text-xs rounded-lg p-2 text-white outline-none focus:border-purple-500" /></div>
 
+                    <div>
+                        <label className="text-[10px] text-purple-300 font-bold uppercase block mb-1">Region</label>
+                        <select value={regionFilter} onChange={(e) => setRegionFilter(e.target.value)} className="w-32 bg-slate-950 border border-slate-700 text-xs rounded-lg p-2 text-white outline-none focus:border-purple-500">
+                            <option value="All">All Regions</option>
+                            {regionOptions.map((region) => <option key={region} value={region}>{region}</option>)}
+                        </select>
+                    </div>
                     <div>
                         <label className="text-[10px] text-purple-300 font-bold uppercase block mb-1">Site Filter</label>
                         <select value={siteFilter} onChange={handleSiteFilterChange} className="w-32 bg-slate-950 border border-slate-700 text-xs rounded-lg p-2 text-white outline-none focus:border-purple-500">

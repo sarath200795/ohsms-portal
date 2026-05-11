@@ -53,6 +53,10 @@ export default function TrainingPage() {
                     {module.view === 'dashboard' && (
                         <TrainingDashboardView
                             filterSite={module.filterSite}
+                            regionFilter={module.regionFilter}
+                            regionOptions={module.regionOptions}
+                            filteredVisibleSites={module.filteredVisibleSites}
+                            onRegionChange={module.handleRegionFilterChange}
                             onSiteChange={module.handleDashboardSiteChange}
                             isGlobalUser={module.isGlobalUser}
                             visibleSites={module.visibleSites}
@@ -120,6 +124,10 @@ export default function TrainingPage() {
                             isGlobalUser={module.isGlobalUser}
                             allowedSiteCodes={module.allowedSiteCodes}
                             filterSite={module.filterSite}
+                            regionFilter={module.regionFilter}
+                            regionOptions={module.regionOptions}
+                            filteredVisibleSites={module.filteredVisibleSites}
+                            onRegionChange={module.handleRegionFilterChange}
                             onSiteChange={module.handleDashboardSiteChange}
                             visibleSites={module.visibleSites}
                             trainings={module.trainings}

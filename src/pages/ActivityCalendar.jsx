@@ -6,6 +6,7 @@ import { useAppTransition } from '../hooks/useAppTransition';
 import { readOrgChildren } from '../utils/orgData';
 import { getAllowedSiteCodes, hasAccessibleModule, isGlobalOwnerRole } from '../utils/permissions';
 import { readStoredSession } from '../utils/session';
+import { buildRegionOptions, filterSitesByRegion, matchesRegionFilter, normalizeSites } from '../utils/siteRegions';
 
 const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -222,6 +223,7 @@ export default function ActivityCalendar() {
     const [orgData, setOrgData] = useState(null);
     const [sites, setSites] = useState([]);
     const [siteFilter, setSiteFilter] = useState('All');
+    const [regionFilter, setRegionFilter] = useState('All');
     const [sourceFilter, setSourceFilter] = useState('All');
     const [viewMode, setViewMode] = useState('month');
     const [currentMonth, setCurrentMonth] = useState(() => new Date());
@@ -277,12 +279,7 @@ export default function ActivityCalendar() {
                 ]);
 
                 setOrgData(value);
-                setSites(
-                    safeObjectEntries(value.sites).map(([key, site]) => ({
-                        code: site.code || key,
-                        name: site.name || site.code || key
-                    }))
-                );
+                setSites(normalizeSites(value.sites));
             } catch (error) {
                 console.error('Activity calendar load error:', error);
             } finally {
@@ -304,6 +301,20 @@ export default function ActivityCalendar() {
         if (isGlobalUser) return sites;
         return sites.filter((site) => allowedSiteCodes.has(site.code));
     }, [allowedSiteCodes, isGlobalUser, sites]);
+
+    const regionOptions = useMemo(() => buildRegionOptions(visibleSites), [visibleSites]);
+
+    const filteredVisibleSites = useMemo(
+        () => filterSitesByRegion(visibleSites, regionFilter),
+        [visibleSites, regionFilter]
+    );
+
+    useEffect(() => {
+        if (siteFilter !== 'All' && !filteredVisibleSites.some((site) => site.code === siteFilter)) {
+            setSiteFilter('All');
+            sessionStorage.setItem('isoCurrentSite', 'GLOBAL');
+        }
+    }, [filteredVisibleSites, siteFilter]);
 
     const availableSources = useMemo(() => {
         const sources = Object.keys(SOURCE_CONFIG).filter((sourceId) => canAccessSource(session, sourceId));
@@ -545,11 +556,12 @@ export default function ActivityCalendar() {
             if (!isGlobalUser && activity.siteId !== 'Global' && activity.siteId !== 'GLOBAL' && !allowedSiteCodes.has(activity.siteId)) {
                 return false;
             }
+            if (regionFilter !== 'All' && !matchesRegionFilter(activity.siteId, visibleSites, regionFilter)) return false;
             if (siteFilter !== 'All' && activity.siteId !== siteFilter) return false;
             if (sourceFilter !== 'All' && activity.sourceId !== sourceFilter) return false;
             return true;
         });
-    }, [activities, allowedSiteCodes, isGlobalUser, siteFilter, sourceFilter]);
+    }, [activities, allowedSiteCodes, isGlobalUser, regionFilter, siteFilter, sourceFilter, visibleSites]);
 
     const selectedDateValue = useMemo(() => parseDateOnly(selectedDate) || new Date(), [selectedDate]);
     const { weekStart, weekEnd } = useMemo(() => ({
@@ -862,6 +874,19 @@ export default function ActivityCalendar() {
 
                             <div className="flex flex-col gap-3 lg:flex-row">
                                 <div className="myth-surface-soft rounded-2xl px-4 py-3 text-sm text-[var(--myth-muted)]">
+                                    <label className="mr-3 text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--myth-gold)]">Region</label>
+                                    <select
+                                        value={regionFilter}
+                                        onChange={(event) => setRegionFilter(event.target.value)}
+                                        className="min-w-[180px] bg-transparent font-bold text-white outline-none"
+                                    >
+                                        <option value="All">All Regions</option>
+                                        {regionOptions.map((region) => (
+                                            <option key={region} value={region}>{region}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                                <div className="myth-surface-soft rounded-2xl px-4 py-3 text-sm text-[var(--myth-muted)]">
                                     <label className="mr-3 text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--myth-gold)]">Site</label>
                                     <select
                                         value={siteFilter}
@@ -872,8 +897,8 @@ export default function ActivityCalendar() {
                                         }}
                                         className="min-w-[200px] bg-transparent font-bold text-white outline-none"
                                     >
-                                        {(isGlobalUser || visibleSites.length > 1) && <option value="All">All Authorized Sites</option>}
-                                        {visibleSites.map((site) => (
+                                        {(isGlobalUser || filteredVisibleSites.length > 1) && <option value="All">All Authorized Sites</option>}
+                                        {filteredVisibleSites.map((site) => (
                                             <option key={site.code} value={site.code}>
                                                 {site.name} ({site.code})
                                             </option>

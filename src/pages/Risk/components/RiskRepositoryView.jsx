@@ -17,11 +17,14 @@ const getHazardMetrics = (assessment) => {
 
 export default function RiskRepositoryView({
     filterSite,
+    regionFilter,
+    regionOptions,
+    filteredVisibleSites,
+    onFilterRegionChange,
     onFilterSiteChange,
     filterStatus,
     onFilterStatusChange,
     isGlobalUser,
-    visibleSites,
     onExport,
     totalGlobalHazards,
     highRiskCount,
@@ -42,9 +45,13 @@ export default function RiskRepositoryView({
                 </div>
                 <div className="flex items-center gap-3">
                     <div className="bg-slate-900 border border-slate-700 p-1.5 rounded-xl flex gap-2 shadow-inner">
+                        <select value={regionFilter} onChange={onFilterRegionChange} className="bg-slate-950 text-white text-xs font-bold px-3 py-2 rounded-lg outline-none border border-slate-800">
+                            <option value="All">All Regions</option>
+                            {regionOptions.map((region) => <option key={region} value={region}>{region}</option>)}
+                        </select>
                         <select value={filterSite} onChange={onFilterSiteChange} className="bg-slate-950 text-white text-xs font-bold px-3 py-2 rounded-lg outline-none border border-slate-800">
-                            {(isGlobalUser || visibleSites.length > 1) && <option value="All">All Authorized Sites</option>}
-                            {visibleSites.map((site) => <option key={site.code} value={site.code}>{site.name}</option>)}
+                            {(isGlobalUser || filteredVisibleSites.length > 1) && <option value="All">All Authorized Sites</option>}
+                            {filteredVisibleSites.map((site) => <option key={site.code} value={site.code}>{site.name}</option>)}
                         </select>
                         <select value={filterStatus} onChange={(e) => onFilterStatusChange(e.target.value)} className="bg-slate-950 text-white text-xs font-bold px-3 py-2 rounded-lg outline-none border border-slate-800">
                             <option value="All">All Statuses</option>

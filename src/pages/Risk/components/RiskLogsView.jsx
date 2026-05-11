@@ -3,9 +3,12 @@ import React from 'react';
 export default function RiskLogsView({
     allChangeLogs,
     filterSite,
+    regionFilter,
+    regionOptions,
+    filteredVisibleSites,
+    onFilterRegionChange,
     onFilterSiteChange,
     isGlobalUser,
-    visibleSites,
     onOpenLogRecord
 }) {
     return (
@@ -17,9 +20,13 @@ export default function RiskLogsView({
                 </div>
                 <div className="bg-slate-900 border border-slate-700 p-1.5 rounded-xl shadow-inner flex items-center gap-2">
                     <span className="text-xs font-bold text-slate-500 uppercase ml-2">Filter Site:</span>
+                    <select value={regionFilter} onChange={onFilterRegionChange} className="bg-slate-950 text-white text-xs font-bold px-3 py-2 rounded-lg outline-none border border-slate-800">
+                        <option value="All">All Regions</option>
+                        {regionOptions.map((region) => <option key={region} value={region}>{region}</option>)}
+                    </select>
                     <select value={filterSite} onChange={onFilterSiteChange} className="bg-slate-950 text-white text-xs font-bold px-3 py-2 rounded-lg outline-none border border-slate-800">
-                        {(isGlobalUser || visibleSites.length > 1) && <option value="All">All Authorized Sites</option>}
-                        {visibleSites.map((site) => <option key={site.code} value={site.code}>{site.name}</option>)}
+                        {(isGlobalUser || filteredVisibleSites.length > 1) && <option value="All">All Authorized Sites</option>}
+                        {filteredVisibleSites.map((site) => <option key={site.code} value={site.code}>{site.name}</option>)}
                     </select>
                 </div>
             </div>

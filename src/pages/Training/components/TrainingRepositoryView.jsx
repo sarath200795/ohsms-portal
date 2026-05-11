@@ -5,8 +5,11 @@ export default function TrainingRepositoryView({
     isGlobalUser,
     allowedSiteCodes,
     filterSite,
+    regionFilter,
+    regionOptions,
+    filteredVisibleSites,
+    onRegionChange,
     onSiteChange,
-    visibleSites,
     trainings,
     permissions,
     onPrint,
@@ -14,7 +17,12 @@ export default function TrainingRepositoryView({
     onDelete
 }) {
     const filteredTrainings = trainings
-        .filter((training) => filterSite === 'All' ? (isGlobalUser || allowedSiteCodes.has(training.siteId)) : training.siteId === filterSite)
+        .filter((training) => {
+            const hasAccess = filterSite === 'All' ? (isGlobalUser || allowedSiteCodes.has(training.siteId)) : training.siteId === filterSite;
+            if (!hasAccess) return false;
+            if (regionFilter === 'All') return true;
+            return filteredVisibleSites.some((site) => site.code === training.siteId);
+        })
         .sort((a, b) => new Date(b.date) - new Date(a.date));
 
     return (
@@ -24,10 +32,16 @@ export default function TrainingRepositoryView({
                     <h2 className="text-3xl font-bold text-white mb-2"><i className="fas fa-history text-blue-400 mr-3"></i> Training Master Log</h2>
                     <p className="text-sm text-slate-400">Historical repository of all completed training sessions.</p>
                 </div>
-                <select value={filterSite} onChange={onSiteChange} className="w-48 text-xs bg-slate-950 border border-slate-700 text-white rounded-xl p-3 outline-none focus:border-blue-500 shadow-inner">
-                    {(isGlobalUser || visibleSites.length > 1) && <option value="All">All Authorized Sites</option>}
-                    {visibleSites.map((site) => <option key={site.code} value={site.code}>{site.name}</option>)}
-                </select>
+                <div className="flex gap-3">
+                    <select value={regionFilter} onChange={onRegionChange} className="w-40 text-xs bg-slate-950 border border-slate-700 text-white rounded-xl p-3 outline-none focus:border-blue-500 shadow-inner">
+                        <option value="All">All Regions</option>
+                        {regionOptions.map((region) => <option key={region} value={region}>{region}</option>)}
+                    </select>
+                    <select value={filterSite} onChange={onSiteChange} className="w-48 text-xs bg-slate-950 border border-slate-700 text-white rounded-xl p-3 outline-none focus:border-blue-500 shadow-inner">
+                        {(isGlobalUser || filteredVisibleSites.length > 1) && <option value="All">All Authorized Sites</option>}
+                        {filteredVisibleSites.map((site) => <option key={site.code} value={site.code}>{site.name}</option>)}
+                    </select>
+                </div>
             </div>
             <div className="overflow-x-auto rounded-xl border border-slate-800 bg-slate-900/50 shadow-inner custom-scroll">
                 <table className="w-full text-left text-sm text-slate-300 whitespace-nowrap">

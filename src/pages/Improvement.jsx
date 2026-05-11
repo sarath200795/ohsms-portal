@@ -12,6 +12,7 @@ import {
     isGlobalScopeUserRecord
 } from '../utils/permissions';
 import { canAuthenticateStatus, readStoredSession } from '../utils/session';
+import { buildRegionOptions, filterSitesByRegion, matchesRegionFilter, normalizeSites } from '../utils/siteRegions';
 
 // --- COMPONENTS ---
 const DynamicList = ({ label, items, onChange, placeholder, color = "text-slate-500", disabled }) => {
@@ -199,6 +200,7 @@ export default function Improvement() {
     // RBAC & Filter
     const [permissions, setPermissions] = useState({ viewOnly: false, canDelete: false, canEditCreate: false });
     const [filterSite, setFilterSite] = useState('All');
+    const [regionFilter, setRegionFilter] = useState('All');
 
     const [form, setForm] = useState({
         firebaseKey: null, type: 'JDI', title: '', siteId: '', date: new Date().toISOString().split('T')[0], description: '', cost: '',
@@ -255,13 +257,7 @@ export default function Improvement() {
             try {
                 const val = await readOrgChildren(rtdb, sess.orgId, ['sites', 'users', 'improvements']);
 
-                if (val.sites) {
-                    const parsedSites = Object.keys(val.sites).map(key => {
-                        const sVal = val.sites[key];
-                        return typeof sVal === 'object' ? { code: sVal.code || key, name: sVal.name || sVal.code || key } : { code: sVal, name: sVal };
-                    });
-                    setSites(parsedSites);
-                }
+                if (val.sites) setSites(normalizeSites(val.sites));
 
                 if (val.users) {
                     const allUsers = Object.keys(val.users).map(key => {
@@ -300,11 +296,25 @@ export default function Improvement() {
         return sites.filter(s => allowedSiteCodes.has(s.code));
     }, [sites, isGlobalUser, allowedSiteCodes]);
 
+    const regionOptions = useMemo(() => buildRegionOptions(visibleSites), [visibleSites]);
+
+    const filteredVisibleSites = useMemo(
+        () => filterSitesByRegion(visibleSites, regionFilter),
+        [visibleSites, regionFilter]
+    );
+
     const handleSiteFilterChange = (e) => {
         const newSite = e.target.value;
         setFilterSite(newSite);
         sessionStorage.setItem('isoCurrentSite', newSite === 'All' ? 'GLOBAL' : newSite);
     };
+
+    useEffect(() => {
+        if (filterSite !== 'All' && !filteredVisibleSites.some((site) => site.code === filterSite)) {
+            setFilterSite('All');
+            sessionStorage.setItem('isoCurrentSite', 'GLOBAL');
+        }
+    }, [filterSite, filteredVisibleSites]);
 
     const canViewRecord = useCallback((siteId) => (
         isGlobalUser || allowedSiteCodes.has(siteId)
@@ -342,10 +352,11 @@ export default function Improvement() {
     const filteredImprovements = useMemo(() => {
         return improvements.filter(imp => {
             if (!canViewRecord(imp.siteId)) return false;
+            if (regionFilter !== 'All' && !matchesRegionFilter(imp.siteId, visibleSites, regionFilter)) return false;
             if (filterSite === 'All') return true;
             return imp.siteId === filterSite;
         });
-    }, [improvements, filterSite, canViewRecord]);
+    }, [canViewRecord, filterSite, improvements, regionFilter, visibleSites]);
 
     const stats = useMemo(() => {
         let totalActions = 0;
@@ -508,9 +519,13 @@ export default function Improvement() {
                                 </div>
                                 <div className="bg-slate-900 p-1.5 rounded-xl border border-slate-700 flex items-center gap-2 shadow-inner">
                                     <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest ml-2">Filter Site:</span>
+                                    <select value={regionFilter} onChange={(e) => setRegionFilter(e.target.value)} className="bg-slate-950 text-white text-xs font-bold rounded-lg border border-slate-800 px-3 py-2 w-40 outline-none focus:border-blue-500 transition-colors">
+                                        <option value="All">All Regions</option>
+                                        {regionOptions.map((region) => <option key={region} value={region}>{region}</option>)}
+                                    </select>
                                     <select value={filterSite} onChange={handleSiteFilterChange} className="bg-slate-950 text-white text-xs font-bold rounded-lg border border-slate-800 px-3 py-2 w-48 outline-none focus:border-blue-500 transition-colors">
-                                        {(isGlobalUser || visibleSites.length > 1) && <option value="All">All Authorized Sites</option>}
-                                        {visibleSites.map(s => <option key={s.code} value={s.code}>{s.name}</option>)}
+                                        {(isGlobalUser || filteredVisibleSites.length > 1) && <option value="All">All Authorized Sites</option>}
+                                        {filteredVisibleSites.map(s => <option key={s.code} value={s.code}>{s.name}</option>)}
                                     </select>
                                 </div>
                             </div>

@@ -26,6 +26,7 @@ import {
 import { canEditCreateForRole, getAllowedSiteCodes, hasAccessibleModule, isGlobalOwnerRole } from '../../utils/permissions';
 import { readStoredSession } from '../../utils/session';
 import { generateVendorPortalPassword } from '../../utils/security';
+import { buildRegionOptions, filterSitesByRegion, matchesRegionFilter, normalizeSites } from '../../utils/siteRegions';
 import { buildVendorCredentialMailto, isVendorCredentialEmailConfigured, sendVendorCredentialEmail } from '../../utils/vendorPortalEmail';
 
 const buildVendorPortalUrl = (email = '', options = {}) => {
@@ -58,6 +59,7 @@ export default function Contractors() {
     const [orgUsers, setOrgUsers] = useState([]);
     const [sites, setSites] = useState([]);
     const [siteFilter, setSiteFilter] = useState('All');
+    const [regionFilter, setRegionFilter] = useState('All');
     const [workerCompanyFilter, setWorkerCompanyFilter] = useState('All');
     const [deploymentCompanyFilter, setDeploymentCompanyFilter] = useState('All');
     const [saving, setSaving] = useState(false);
@@ -119,12 +121,7 @@ export default function Contractors() {
                     );
                 }
                 if (data.sites) {
-                    setSites(
-                        Object.keys(data.sites).map((key) => ({
-                            code: data.sites[key].code || key,
-                            name: data.sites[key].name || key
-                        }))
-                    );
+                    setSites(normalizeSites(data.sites));
                 }
                 if (data.trainings) setGlobalTrainings(safeArr(data.trainings));
                 if (data.ptwRecords) {
@@ -168,6 +165,20 @@ export default function Contractors() {
         return sites.filter((site) => allowedSiteCodes.has(site.code));
     }, [allowedSiteCodes, isGlobalUser, sites]);
 
+    const regionOptions = useMemo(() => buildRegionOptions(visibleSites), [visibleSites]);
+
+    const filteredVisibleSites = useMemo(
+        () => filterSitesByRegion(visibleSites, regionFilter),
+        [visibleSites, regionFilter]
+    );
+
+    useEffect(() => {
+        if (siteFilter !== 'All' && regionFilter !== 'All' && !matchesRegionFilter(siteFilter, visibleSites, regionFilter)) {
+            setSiteFilter('All');
+            sessionStorage.setItem('isoCurrentSite', 'GLOBAL');
+        }
+    }, [regionFilter, siteFilter, visibleSites]);
+
     const visibleContractors = useMemo(() => {
         return contractors.filter((contractor) => {
             if (
@@ -183,9 +194,14 @@ export default function Contractors() {
                 return false;
             }
 
+            if (regionFilter !== 'All') {
+                const contractorRegions = safeArr(contractor.allocatedSites).map((siteCode) => visibleSites.find((site) => site.code === siteCode)?.region).filter(Boolean);
+                if (!contractorRegions.includes(regionFilter)) return false;
+            }
+
             return true;
         });
-    }, [contractors, isGlobalUser, session, siteFilter]);
+    }, [contractors, isGlobalUser, regionFilter, session, siteFilter, visibleSites]);
 
     const allWorkers = useMemo(() => {
         const list = [];
@@ -1029,10 +1045,16 @@ export default function Contractors() {
                                     <h2 className="text-2xl font-bold text-white">{view === 'companies' ? 'Vendor Master Data' : view === 'deployments' ? 'Site Deployments Dashboard' : 'Contractor Personnel Registry'}</h2>
                                     <p className="text-xs text-slate-400 uppercase tracking-widest mt-1">ISO 45001 Compliance Tracking</p>
                                 </div>
-                                <select value={siteFilter} onChange={(event) => { setSiteFilter(event.target.value); sessionStorage.setItem('isoCurrentSite', event.target.value); }} className="bg-slate-950 border border-slate-700 text-white text-xs font-bold px-4 py-2.5 rounded-xl outline-none shadow-inner w-full md:w-auto">
-                                    {(isGlobalUser || sites.length > 1) && <option value="All">All Authorized Sites</option>}
-                                    {visibleSites.map((site) => <option key={site.code} value={site.code}>{site.name}</option>)}
-                                </select>
+                                <div className="flex w-full flex-col gap-3 md:w-auto md:flex-row">
+                                    <select value={regionFilter} onChange={(event) => setRegionFilter(event.target.value)} className="bg-slate-950 border border-slate-700 text-white text-xs font-bold px-4 py-2.5 rounded-xl outline-none shadow-inner w-full md:w-auto">
+                                        <option value="All">All Regions</option>
+                                        {regionOptions.map((region) => <option key={region} value={region}>{region}</option>)}
+                                    </select>
+                                    <select value={siteFilter} onChange={(event) => { setSiteFilter(event.target.value); sessionStorage.setItem('isoCurrentSite', event.target.value === 'All' ? 'GLOBAL' : event.target.value); }} className="bg-slate-950 border border-slate-700 text-white text-xs font-bold px-4 py-2.5 rounded-xl outline-none shadow-inner w-full md:w-auto">
+                                        {(isGlobalUser || filteredVisibleSites.length > 1) && <option value="All">All Authorized Sites</option>}
+                                        {filteredVisibleSites.map((site) => <option key={site.code} value={site.code}>{site.name}</option>)}
+                                    </select>
+                                </div>
                             </div>
                         )}
 

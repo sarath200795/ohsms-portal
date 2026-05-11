@@ -22,6 +22,7 @@ import {
     isGlobalScopeUserRecord
 } from '../../utils/permissions';
 import { canAuthenticateStatus, readStoredSession } from '../../utils/session';
+import { buildRegionOptions, filterSitesByRegion, matchesRegionFilter, normalizeSites } from '../../utils/siteRegions';
 import IncidentBuilder from './components/IncidentBuilder';
 import IncidentHazardEditorModal from './components/IncidentHazardEditorModal';
 import IncidentHazardMatchesModal from './components/IncidentHazardMatchesModal';
@@ -263,7 +264,7 @@ const renderPrintFaultTree = (node) => {
     );
 };
 
-const IncidentRepository = ({ incidents, onEdit, onPrint, onDelete, permissions, siteFilter, setSiteFilter, uniqueSites, isGlobalUser }) => {
+const IncidentRepository = ({ incidents, onEdit, onPrint, onDelete, permissions, regionFilter, setRegionFilter, regionOptions, siteFilter, setSiteFilter, uniqueSites, isGlobalUser }) => {
     const [filterType, setFilterType] = useState('All');
     const [filterLevel, setFilterLevel] = useState('All');
     const [dateFrom, setDateFrom] = useState('');
@@ -353,6 +354,13 @@ const IncidentRepository = ({ incidents, onEdit, onPrint, onDelete, permissions,
                     <div><label className="text-[10px] text-purple-300 font-bold uppercase block mb-1">From</label><input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="w-32 bg-slate-950 border border-slate-700 text-xs rounded-lg p-2 text-white outline-none focus:border-purple-500" /></div>
                     <div><label className="text-[10px] text-purple-300 font-bold uppercase block mb-1">To</label><input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="w-32 bg-slate-950 border border-slate-700 text-xs rounded-lg p-2 text-white outline-none focus:border-purple-500" /></div>
 
+                    <div>
+                        <label className="text-[10px] text-purple-300 font-bold uppercase block mb-1">Region</label>
+                        <select value={regionFilter} onChange={(e) => setRegionFilter(e.target.value)} className="w-32 bg-slate-950 border border-slate-700 text-xs rounded-lg p-2 text-white outline-none focus:border-purple-500">
+                            <option value="All">All Regions</option>
+                            {regionOptions.map((region) => <option key={region} value={region}>{region}</option>)}
+                        </select>
+                    </div>
                     <div>
                         <label className="text-[10px] text-purple-300 font-bold uppercase block mb-1">Site Filter</label>
                         <select value={siteFilter} onChange={handleSiteFilterChange} className="w-32 bg-slate-950 border border-slate-700 text-xs rounded-lg p-2 text-white outline-none focus:border-purple-500">
@@ -449,6 +457,7 @@ export default function Incidents() {
     const [saving, setSaving] = useState(false);
 
     const [siteFilterOverride, setSiteFilterOverride] = useState('');
+    const [regionFilter, setRegionFilter] = useState('All');
 
     const [searchModalOpen, setSearchModalOpen] = useState(false);
     const [matchedHazards, setMatchedHazards] = useState([]);
@@ -470,7 +479,7 @@ export default function Incidents() {
     const hasModuleAccess = sessionIsValid && (isGlobalUser || hasAccessibleModule(session.accessibleModules, 'Incidents'));
     const requestedSite = new URLSearchParams(location.search).get('site') || sessionStorage.getItem('isoCurrentSite') || session?.assignedSite || 'All';
     const defaultSiteFilter = resolveInitialSiteFilter({ session, search: location.search, isGlobalUser });
-    const siteFilter = siteFilterOverride || defaultSiteFilter;
+    const rawSiteFilter = siteFilterOverride || defaultSiteFilter;
     const isFieldPortalMode = isFieldPortalHomeContext();
 
     useEffect(() => {
@@ -497,10 +506,7 @@ export default function Incidents() {
                 let loadedIncidents = [];
 
                 if (orgData.sites) {
-                    setSites(Object.keys(orgData.sites).map((key) => ({
-                        code: orgData.sites[key].code || key,
-                        name: orgData.sites[key].name || key
-                    })));
+                    setSites(normalizeSites(orgData.sites));
                 }
 
                 if (orgData.incidents) {
@@ -568,10 +574,27 @@ export default function Incidents() {
         if (isGlobalUser) return sites;
         return sites.filter((s) => allowedSiteCodes.has(s.code));
     }, [sites, isGlobalUser, allowedSiteCodes]);
+    const regionOptions = useMemo(() => buildRegionOptions(allowedSites), [allowedSites]);
+    const filteredAllowedSites = useMemo(
+        () => filterSitesByRegion(allowedSites, regionFilter),
+        [allowedSites, regionFilter]
+    );
+    const siteFilter = useMemo(() => {
+        const fallbackSite = isGlobalUser ? 'All' : (filteredAllowedSites[0]?.code || 'All');
+        if (rawSiteFilter !== 'All' && !filteredAllowedSites.some((site) => site.code === rawSiteFilter)) {
+            return fallbackSite;
+        }
+        return rawSiteFilter;
+    }, [filteredAllowedSites, isGlobalUser, rawSiteFilter]);
 
     const visibleIncidents = useMemo(() => {
-        return incidentsList.filter((i) => isGlobalUser || allowedSiteCodes.has(i.siteId));
-    }, [incidentsList, isGlobalUser, allowedSiteCodes]);
+        return incidentsList.filter((incident) => {
+            if (!isGlobalUser && !allowedSiteCodes.has(incident.siteId)) return false;
+            if (regionFilter !== 'All' && !matchesRegionFilter(incident.siteId, allowedSites, regionFilter)) return false;
+            if (siteFilter !== 'All' && incident.siteId !== siteFilter) return false;
+            return true;
+        });
+    }, [allowedSiteCodes, allowedSites, incidentsList, isGlobalUser, regionFilter, siteFilter]);
 
     const siteUsers = useMemo(() => {
         return users.filter((u) => {
@@ -1203,9 +1226,9 @@ export default function Incidents() {
                     {view === 'repo' ? (
                         <div className="max-w-7xl mx-auto">
                             {useModularView ? (
-                                <IncidentRegistry incidents={visibleIncidents} onEdit={handleEdit} onPrint={triggerPrint} onDelete={handleDeleteRecord} permissions={permissions} siteFilter={siteFilter} setSiteFilter={setSiteFilterOverride} uniqueSites={allowedSites} isGlobalUser={isGlobalUser} />
+                                <IncidentRegistry incidents={visibleIncidents} onEdit={handleEdit} onPrint={triggerPrint} onDelete={handleDeleteRecord} permissions={permissions} regionFilter={regionFilter} setRegionFilter={setRegionFilter} regionOptions={regionOptions} siteFilter={siteFilter} setSiteFilter={setSiteFilterOverride} uniqueSites={filteredAllowedSites} isGlobalUser={isGlobalUser} />
                             ) : (
-                                <IncidentRepository incidents={visibleIncidents} onEdit={handleEdit} onPrint={triggerPrint} onDelete={handleDeleteRecord} permissions={permissions} siteFilter={siteFilter} setSiteFilter={setSiteFilterOverride} uniqueSites={allowedSites} isGlobalUser={isGlobalUser} />
+                                <IncidentRepository incidents={visibleIncidents} onEdit={handleEdit} onPrint={triggerPrint} onDelete={handleDeleteRecord} permissions={permissions} regionFilter={regionFilter} setRegionFilter={setRegionFilter} regionOptions={regionOptions} siteFilter={siteFilter} setSiteFilter={setSiteFilterOverride} uniqueSites={filteredAllowedSites} isGlobalUser={isGlobalUser} />
                             )}
                         </div>
                     ) : (

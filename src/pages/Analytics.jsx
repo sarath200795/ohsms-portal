@@ -21,6 +21,7 @@ import {
 import { rtdb } from '../config/firebase';
 import { canEditCreateForRole, getAllowedSiteCodes, hasAccessibleModule, isGlobalOwnerRole } from '../utils/permissions';
 import { readStoredSession } from '../utils/session';
+import { buildRegionOptions, filterSitesByRegion, matchesRegionFilter, normalizeSites as normalizeSiteCollection } from '../utils/siteRegions';
 
 ChartJS.register(
     ArcElement,
@@ -315,13 +316,6 @@ const fetchScopedChild = async (orgId, childName, session) => {
 
     return mergeSnapshots(snapshots);
 };
-
-const normalizeSites = (rawSites) => (
-    safeObjectEntries(rawSites).map(([key, site]) => ({
-        code: site.code || key,
-        name: site.name || site.code || key
-    }))
-);
 
 const normalizeIncidents = (rawIncidents) => (
     safeObjectEntries(rawIncidents)
@@ -652,7 +646,7 @@ const normalizeCapaActions = (rawData) => {
     return actions;
 };
 
-const matchesSiteScope = (siteId, siteFilter, isGlobalUser, allowedSiteCodes) => {
+const matchesSiteScope = (siteId, siteFilter, regionFilter, sites, isGlobalUser, allowedSiteCodes) => {
     const cleanSiteId = String(siteId || '').trim() || 'Global';
 
     if (!isGlobalUser) {
@@ -660,6 +654,7 @@ const matchesSiteScope = (siteId, siteFilter, isGlobalUser, allowedSiteCodes) =>
         if (!allowedSiteCodes.has(cleanSiteId)) return false;
     }
 
+    if (regionFilter !== 'All' && !matchesRegionFilter(cleanSiteId, sites, regionFilter)) return false;
     return siteFilter === 'All' || cleanSiteId === siteFilter;
 };
 
@@ -821,6 +816,7 @@ export default function Analytics() {
 
     const initialSiteFilter = resolveInitialAnalyticsSite(session, location.search);
     const [siteFilter, setSiteFilter] = useState(initialSiteFilter);
+    const [regionFilter, setRegionFilter] = useState('All');
     const [rangePreset, setRangePreset] = useState('annually');
     const [granularity, setGranularity] = useState('monthly');
     const [filterStart, setFilterStart] = useState(formatDateKey(startOfYear(new Date())));
@@ -844,6 +840,13 @@ export default function Analytics() {
         if (isGlobalUser) return sites;
         return sites.filter((site) => allowedSiteCodes.has(site.code));
     }, [sites, isGlobalUser, allowedSiteCodes]);
+
+    const regionOptions = useMemo(() => buildRegionOptions(visibleSites), [visibleSites]);
+
+    const filteredVisibleSites = useMemo(
+        () => filterSitesByRegion(visibleSites, regionFilter),
+        [visibleSites, regionFilter]
+    );
 
     const loadAnalyticsData = useCallback(async (showRefreshState = false) => {
         if (!session?.orgId) return;
@@ -872,7 +875,7 @@ export default function Analytics() {
 
             const rawData = Object.fromEntries(childEntries);
 
-            setSites(normalizeSites(rawData.sites));
+            setSites(normalizeSiteCollection(rawData.sites));
             setIncidents(normalizeIncidents(rawData.incidents));
             setManHours(normalizeManHours(rawData.manHours));
             setCapaActions(normalizeCapaActions(rawData));
@@ -920,6 +923,16 @@ export default function Analytics() {
     }, [siteFilter]);
 
     useEffect(() => {
+        if (siteFilter !== 'All' && !filteredVisibleSites.some((site) => site.code === siteFilter)) {
+            setSiteFilter('All');
+            sessionStorage.setItem('isoCurrentSite', 'GLOBAL');
+        }
+        if (logSite && !filteredVisibleSites.some((site) => site.code === logSite)) {
+            setLogSite('');
+        }
+    }, [filteredVisibleSites, logSite, siteFilter]);
+
+    useEffect(() => {
         if (!logSite && !isGlobalUser && visibleSites.length === 1) {
             setLogSite(visibleSites[0].code);
         }
@@ -956,16 +969,16 @@ export default function Analytics() {
     const filteredIncidents = useMemo(() => (
         incidents.filter((incident) => {
             if (!incident.date || incident.date < rangeStartKey || incident.date > rangeEndKey) return false;
-            return matchesSiteScope(incident.siteId, siteFilter, isGlobalUser, allowedSiteCodes);
+            return matchesSiteScope(incident.siteId, siteFilter, regionFilter, visibleSites, isGlobalUser, allowedSiteCodes);
         })
-    ), [allowedSiteCodes, incidents, isGlobalUser, rangeEndKey, rangeStartKey, siteFilter]);
+    ), [allowedSiteCodes, incidents, isGlobalUser, rangeEndKey, rangeStartKey, regionFilter, siteFilter, visibleSites]);
 
     const filteredManHours = useMemo(() => (
         manHours.filter((hourEntry) => {
             if (!hourEntry.date || hourEntry.date < rangeStartKey || hourEntry.date > rangeEndKey) return false;
-            return matchesSiteScope(hourEntry.siteId, siteFilter, isGlobalUser, allowedSiteCodes);
+            return matchesSiteScope(hourEntry.siteId, siteFilter, regionFilter, visibleSites, isGlobalUser, allowedSiteCodes);
         })
-    ), [allowedSiteCodes, isGlobalUser, manHours, rangeEndKey, rangeStartKey, siteFilter]);
+    ), [allowedSiteCodes, isGlobalUser, manHours, rangeEndKey, rangeStartKey, regionFilter, siteFilter, visibleSites]);
 
     const incidentStats = useMemo(() => {
         const totalHours = filteredManHours.reduce((sum, entry) => sum + entry.perm + entry.cont, 0);
@@ -1071,59 +1084,59 @@ export default function Analytics() {
         capaActions.filter((action) => {
             const relevantDate = getCapaRelevantDate(action);
             if (!relevantDate || relevantDate < rangeStartKey || relevantDate > rangeEndKey) return false;
-            if (!matchesSiteScope(action.siteId, siteFilter, isGlobalUser, allowedSiteCodes)) return false;
+            if (!matchesSiteScope(action.siteId, siteFilter, regionFilter, visibleSites, isGlobalUser, allowedSiteCodes)) return false;
             if (capaSourceFilter !== 'All' && action.source !== capaSourceFilter) return false;
             return true;
         })
-    ), [allowedSiteCodes, capaActions, capaSourceFilter, isGlobalUser, rangeEndKey, rangeStartKey, siteFilter]);
+    ), [allowedSiteCodes, capaActions, capaSourceFilter, isGlobalUser, rangeEndKey, rangeStartKey, regionFilter, siteFilter, visibleSites]);
 
     const filteredPermits = useMemo(() => (
         ptwRecords.filter((permit) => {
             if (!permit.analyticsDate || permit.analyticsDate < rangeStartKey || permit.analyticsDate > rangeEndKey) return false;
-            return matchesSiteScope(permit.siteId, siteFilter, isGlobalUser, allowedSiteCodes);
+            return matchesSiteScope(permit.siteId, siteFilter, regionFilter, visibleSites, isGlobalUser, allowedSiteCodes);
         })
-    ), [allowedSiteCodes, isGlobalUser, ptwRecords, rangeEndKey, rangeStartKey, siteFilter]);
+    ), [allowedSiteCodes, isGlobalUser, ptwRecords, rangeEndKey, rangeStartKey, regionFilter, siteFilter, visibleSites]);
 
     const filteredAuditRecords = useMemo(() => (
         auditRecords.filter((audit) => {
             if (!audit.analyticsDate || audit.analyticsDate < rangeStartKey || audit.analyticsDate > rangeEndKey) return false;
-            return matchesSiteScope(audit.siteId, siteFilter, isGlobalUser, allowedSiteCodes);
+            return matchesSiteScope(audit.siteId, siteFilter, regionFilter, visibleSites, isGlobalUser, allowedSiteCodes);
         })
-    ), [allowedSiteCodes, auditRecords, isGlobalUser, rangeEndKey, rangeStartKey, siteFilter]);
+    ), [allowedSiteCodes, auditRecords, isGlobalUser, rangeEndKey, rangeStartKey, regionFilter, siteFilter, visibleSites]);
 
     const filteredInspectionRecords = useMemo(() => (
         inspectionRecords.filter((record) => {
             if (!record.analyticsDate || record.analyticsDate < rangeStartKey || record.analyticsDate > rangeEndKey) return false;
-            return matchesSiteScope(record.siteId, siteFilter, isGlobalUser, allowedSiteCodes);
+            return matchesSiteScope(record.siteId, siteFilter, regionFilter, visibleSites, isGlobalUser, allowedSiteCodes);
         })
-    ), [allowedSiteCodes, inspectionRecords, isGlobalUser, rangeEndKey, rangeStartKey, siteFilter]);
+    ), [allowedSiteCodes, inspectionRecords, isGlobalUser, rangeEndKey, rangeStartKey, regionFilter, siteFilter, visibleSites]);
 
     const filteredMockDrills = useMemo(() => (
         mockDrills.filter((record) => {
             if (!record.analyticsDate || record.analyticsDate < rangeStartKey || record.analyticsDate > rangeEndKey) return false;
-            return matchesSiteScope(record.siteId, siteFilter, isGlobalUser, allowedSiteCodes);
+            return matchesSiteScope(record.siteId, siteFilter, regionFilter, visibleSites, isGlobalUser, allowedSiteCodes);
         })
-    ), [allowedSiteCodes, isGlobalUser, mockDrills, rangeEndKey, rangeStartKey, siteFilter]);
+    ), [allowedSiteCodes, isGlobalUser, mockDrills, rangeEndKey, rangeStartKey, regionFilter, siteFilter, visibleSites]);
 
     const filteredTrainingRecords = useMemo(() => (
         trainingRecords.filter((record) => {
             if (!record.analyticsDate || record.analyticsDate < rangeStartKey || record.analyticsDate > rangeEndKey) return false;
-            return matchesSiteScope(record.siteId, siteFilter, isGlobalUser, allowedSiteCodes);
+            return matchesSiteScope(record.siteId, siteFilter, regionFilter, visibleSites, isGlobalUser, allowedSiteCodes);
         })
-    ), [allowedSiteCodes, isGlobalUser, rangeEndKey, rangeStartKey, siteFilter, trainingRecords]);
+    ), [allowedSiteCodes, isGlobalUser, rangeEndKey, rangeStartKey, regionFilter, siteFilter, trainingRecords, visibleSites]);
 
     const filteredRiskAssessments = useMemo(() => (
         riskAssessments.filter((assessment) => {
             if (!assessment.analyticsDate || assessment.analyticsDate < rangeStartKey || assessment.analyticsDate > rangeEndKey) return false;
-            return matchesSiteScope(assessment.siteId, siteFilter, isGlobalUser, allowedSiteCodes);
+            return matchesSiteScope(assessment.siteId, siteFilter, regionFilter, visibleSites, isGlobalUser, allowedSiteCodes);
         })
-    ), [allowedSiteCodes, isGlobalUser, rangeEndKey, rangeStartKey, riskAssessments, siteFilter]);
+    ), [allowedSiteCodes, isGlobalUser, rangeEndKey, rangeStartKey, regionFilter, riskAssessments, siteFilter, visibleSites]);
 
     const trainingCertifications = useMemo(() => (
         buildTrainingCertifications(trainingRecords).filter((certification) => (
-            matchesSiteScope(certification.siteId, siteFilter, isGlobalUser, allowedSiteCodes)
+            matchesSiteScope(certification.siteId, siteFilter, regionFilter, visibleSites, isGlobalUser, allowedSiteCodes)
         ))
-    ), [allowedSiteCodes, isGlobalUser, siteFilter, trainingRecords]);
+    ), [allowedSiteCodes, isGlobalUser, regionFilter, siteFilter, trainingRecords, visibleSites]);
 
     const ptwStats = useMemo(() => ({
         total: filteredPermits.length,
@@ -1259,16 +1272,16 @@ export default function Analytics() {
     );
 
     const comparisonSites = useMemo(() => {
-        if (comparisonSiteScope === 'all-sites') return visibleSites;
+        if (comparisonSiteScope === 'all-sites') return filteredVisibleSites;
 
         if (siteFilter !== 'All') {
-            const matchedSite = visibleSites.find((site) => site.code === siteFilter);
+            const matchedSite = filteredVisibleSites.find((site) => site.code === siteFilter);
             if (matchedSite) return [matchedSite];
             return siteFilter ? [{ code: siteFilter, name: siteFilter }] : [];
         }
 
-        return visibleSites;
-    }, [comparisonSiteScope, siteFilter, visibleSites]);
+        return filteredVisibleSites;
+    }, [comparisonSiteScope, filteredVisibleSites, siteFilter]);
 
     const siteComparisonRows = useMemo(() => (
         comparisonSites.map((site) => {
@@ -1920,6 +1933,10 @@ export default function Analytics() {
         setLogSite(selectedSite !== 'All' ? selectedSite : '');
     };
 
+    const handleRegionFilterChange = (event) => {
+        setRegionFilter(event.target.value);
+    };
+
     const handleRangePresetChange = (event) => {
         setRangePreset(event.target.value);
     };
@@ -1939,6 +1956,7 @@ export default function Analytics() {
             const workbook = XLSX.utils.book_new();
 
             const summarySheet = XLSX.utils.json_to_sheet([
+                { Metric: 'Active Region Filter', Value: regionFilter === 'All' ? 'All Regions' : regionFilter },
                 { Metric: 'Active Site Filter', Value: siteFilter === 'All' ? 'All Authorized Sites' : siteFilter },
                 { Metric: 'Active Range', Value: activeRangeLabel },
                 { Metric: 'Granularity', Value: GRANULARITY_OPTIONS.find((option) => option.id === granularity)?.label || granularity },
@@ -2041,13 +2059,14 @@ export default function Analytics() {
 
             doc.setTextColor(71, 85, 105);
             doc.setFontSize(10);
-            doc.text(`Site Filter: ${siteFilter === 'All' ? 'All Authorized Sites' : siteFilter}`, 14, 32);
-            doc.text(`Range: ${activeRangeLabel}`, 14, 38);
-            doc.text(`Granularity: ${GRANULARITY_OPTIONS.find((option) => option.id === granularity)?.label || granularity}`, 14, 44);
-            doc.text(`Comparison: ${(COMPARISON_MODE_OPTIONS.find((option) => option.id === comparisonMode)?.label || comparisonMode)} / ${comparisonMetricConfig.label}`, 14, 50);
+            doc.text(`Region Filter: ${regionFilter === 'All' ? 'All Regions' : regionFilter}`, 14, 32);
+            doc.text(`Site Filter: ${siteFilter === 'All' ? 'All Authorized Sites' : siteFilter}`, 14, 38);
+            doc.text(`Range: ${activeRangeLabel}`, 14, 44);
+            doc.text(`Granularity: ${GRANULARITY_OPTIONS.find((option) => option.id === granularity)?.label || granularity}`, 14, 50);
+            doc.text(`Comparison: ${(COMPARISON_MODE_OPTIONS.find((option) => option.id === comparisonMode)?.label || comparisonMode)} / ${comparisonMetricConfig.label}`, 14, 56);
 
             autoTable(doc, {
-                startY: 56,
+                startY: 62,
                 head: [['Executive Summary', 'Value']],
                 body: executiveOverviewRows.map((row) => [row.label, String(row.value)]),
                 styles: { fontSize: 9 },
@@ -2238,7 +2257,20 @@ export default function Analytics() {
                             </div>
                         </div>
 
-                        <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
+                        <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-6">
+                            <div>
+                                <label className="mb-2 block text-[10px] font-bold uppercase tracking-[0.25em] text-slate-500">Region</label>
+                                <select
+                                    value={regionFilter}
+                                    onChange={handleRegionFilterChange}
+                                    className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm font-bold text-white outline-none transition-colors focus:border-cyan-500"
+                                >
+                                    <option value="All">All Regions</option>
+                                    {regionOptions.map((region) => (
+                                        <option key={region} value={region}>{region}</option>
+                                    ))}
+                                </select>
+                            </div>
                             <div>
                                 <label className="mb-2 block text-[10px] font-bold uppercase tracking-[0.25em] text-slate-500">Site</label>
                                 <select
@@ -2246,8 +2278,8 @@ export default function Analytics() {
                                     onChange={handleSiteFilterChange}
                                     className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm font-bold text-white outline-none transition-colors focus:border-cyan-500"
                                 >
-                                    {(isGlobalUser || visibleSites.length > 1) && <option value="All">All Authorized Sites</option>}
-                                    {visibleSites.map((site) => (
+                                    {(isGlobalUser || filteredVisibleSites.length > 1) && <option value="All">All Authorized Sites</option>}
+                                    {filteredVisibleSites.map((site) => (
                                         <option key={site.code} value={site.code}>{site.name}</option>
                                     ))}
                                 </select>
@@ -3054,7 +3086,7 @@ export default function Analytics() {
                                             className="w-full rounded-2xl border border-slate-700 bg-slate-900 px-4 py-3 text-sm font-bold text-white outline-none transition-colors focus:border-violet-500"
                                         >
                                             <option value="">Select Site...</option>
-                                            {visibleSites.map((site) => (
+                                            {filteredVisibleSites.map((site) => (
                                                 <option key={site.code} value={site.code}>{site.name}</option>
                                             ))}
                                         </select>

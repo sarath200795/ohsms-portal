@@ -13,6 +13,7 @@ import {
     isSiteOwnerRole
 } from '../utils/permissions';
 import { canAuthenticateStatus, readStoredSession } from '../utils/session';
+import { buildRegionOptions, filterSitesByRegion, matchesRegionFilter, normalizeSites } from '../utils/siteRegions';
 
 const fileToBase64 = (file) => new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -147,6 +148,7 @@ export default function HealthDashboard() {
     const [sites, setSites] = useState([]);
     const [users, setUsers] = useState([]);
     const [siteFilter, setSiteFilter] = useState('All');
+    const [regionFilter, setRegionFilter] = useState('All');
     const [illnessSeq] = useState(Math.floor(100000 + Math.random() * 900000));
 
     // Core Data States
@@ -256,11 +258,7 @@ export default function HealthDashboard() {
                 ]);
 
                 if (data.sites) {
-                    const parsedSites = Object.keys(data.sites).map(key => {
-                        const sVal = data.sites[key];
-                        return typeof sVal === 'object' ? { code: sVal.code || key, name: sVal.name || sVal.code || key } : { code: sVal, name: sVal };
-                    });
-                    setSites(parsedSites);
+                    setSites(normalizeSites(data.sites));
                 }
 
                 if (data.users) {
@@ -317,6 +315,13 @@ export default function HealthDashboard() {
         return sites.filter(s => allowedSiteCodes.has(s.code));
     }, [sites, isGlobalUser, allowedSiteCodes]);
 
+    const regionOptions = useMemo(() => buildRegionOptions(visibleSites), [visibleSites]);
+
+    const filteredVisibleSites = useMemo(
+        () => filterSitesByRegion(visibleSites, regionFilter),
+        [visibleSites, regionFilter]
+    );
+
     const canViewRecord = useCallback((siteId) => (
         isGlobalUser || allowedSiteCodes.has(siteId)
     ), [allowedSiteCodes, isGlobalUser]);
@@ -326,6 +331,13 @@ export default function HealthDashboard() {
         setSiteFilter(newSite);
         sessionStorage.setItem('isoCurrentSite', newSite === 'All' ? 'GLOBAL' : newSite);
     };
+
+    useEffect(() => {
+        if (siteFilter !== 'All' && !filteredVisibleSites.some((site) => site.code === siteFilter)) {
+            setSiteFilter('All');
+            sessionStorage.setItem('isoCurrentSite', 'GLOBAL');
+        }
+    }, [filteredVisibleSites, siteFilter]);
 
     const siteUsers = useMemo(() => {
         return users.filter(u => {
@@ -339,34 +351,38 @@ export default function HealthDashboard() {
     const filteredIncidents = useMemo(() => {
         return incidents.filter(inc => {
             if (!canViewRecord(inc.siteId)) return false;
+            if (regionFilter !== 'All' && !matchesRegionFilter(inc.siteId, visibleSites, regionFilter)) return false;
             if (siteFilter !== 'All' && inc.siteId !== siteFilter) return false;
             return true;
         });
-    }, [incidents, siteFilter, canViewRecord]);
+    }, [incidents, siteFilter, canViewRecord, regionFilter, visibleSites]);
 
     const filteredSurveillance = useMemo(() => {
         return surveillanceList.filter(s => {
             if (!canViewRecord(s.siteId)) return false;
+            if (regionFilter !== 'All' && !matchesRegionFilter(s.siteId, visibleSites, regionFilter)) return false;
             if (siteFilter !== 'All' && s.siteId !== siteFilter) return false;
             return true;
         });
-    }, [surveillanceList, siteFilter, canViewRecord]);
+    }, [surveillanceList, siteFilter, canViewRecord, regionFilter, visibleSites]);
 
     const filteredVaccination = useMemo(() => {
         return vaccinationList.filter(v => {
             if (!canViewRecord(v.siteId)) return false;
+            if (regionFilter !== 'All' && !matchesRegionFilter(v.siteId, visibleSites, regionFilter)) return false;
             if (siteFilter !== 'All' && v.siteId !== siteFilter) return false;
             return true;
         });
-    }, [vaccinationList, siteFilter, canViewRecord]);
+    }, [vaccinationList, siteFilter, canViewRecord, regionFilter, visibleSites]);
 
     const filteredIllness = useMemo(() => {
         return illnessList.filter(i => {
             if (!canViewRecord(i.siteId)) return false;
+            if (regionFilter !== 'All' && !matchesRegionFilter(i.siteId, visibleSites, regionFilter)) return false;
             if (siteFilter !== 'All' && i.siteId !== siteFilter) return false;
             return true;
         });
-    }, [illnessList, siteFilter, canViewRecord]);
+    }, [illnessList, siteFilter, canViewRecord, regionFilter, visibleSites]);
 
     const heatmapData = useMemo(() => {
         const counts = {};
@@ -374,6 +390,7 @@ export default function HealthDashboard() {
             const inc = incidents.find(i => i.firebaseKey === key);
             if (!inc) return;
             if (!canViewRecord(inc.siteId)) return;
+            if (regionFilter !== 'All' && !matchesRegionFilter(inc.siteId, visibleSites, regionFilter)) return;
             if (siteFilter !== 'All' && inc.siteId !== siteFilter) return;
             if (dashboardFilter !== 'All' && inc.type !== dashboardFilter) return;
 
@@ -387,7 +404,7 @@ export default function HealthDashboard() {
             });
         });
         return counts;
-    }, [healthCases, incidents, dashboardFilter, siteFilter, canViewRecord]);
+    }, [healthCases, incidents, dashboardFilter, siteFilter, canViewRecord, regionFilter, visibleSites]);
 
     // ==========================================
     // INJURY CASE LOGIC
@@ -479,7 +496,7 @@ export default function HealthDashboard() {
             if (!migratedRecord.testGroups) migratedRecord.testGroups = [];
             setSurvForm(migratedRecord);
         } else {
-            const sId = (!isGlobalUser && visibleSites.length === 1) ? visibleSites[0].code : (siteFilter !== 'All' ? siteFilter : '');
+        const sId = (!isGlobalUser && filteredVisibleSites.length === 1) ? filteredVisibleSites[0].code : (siteFilter !== 'All' ? siteFilter : '');
             setSurvForm({
                 id: `HSV-${Date.now().toString().slice(-6)}`, firebaseKey: '',
                 type: 'Periodic Surveillance', date: new Date().toISOString().split('T')[0],
@@ -534,7 +551,7 @@ export default function HealthDashboard() {
         if (record) {
             setVaccForm(record);
         } else {
-            const sId = (!isGlobalUser && visibleSites.length === 1) ? visibleSites[0].code : (siteFilter !== 'All' ? siteFilter : '');
+        const sId = (!isGlobalUser && filteredVisibleSites.length === 1) ? filteredVisibleSites[0].code : (siteFilter !== 'All' ? siteFilter : '');
             setVaccForm({
                 id: `VAC-${Date.now().toString().slice(-6)}`, firebaseKey: '',
                 date: new Date().toISOString().split('T')[0],
@@ -594,7 +611,7 @@ export default function HealthDashboard() {
         if (record) {
             setIllnessForm(record);
         } else {
-            const sId = (!isGlobalUser && visibleSites.length === 1) ? visibleSites[0].code : (siteFilter !== 'All' ? siteFilter : '');
+        const sId = (!isGlobalUser && filteredVisibleSites.length === 1) ? filteredVisibleSites[0].code : (siteFilter !== 'All' ? siteFilter : '');
             setIllnessForm({
                 id: `${session.orgId}-${sId}-ILL-${illnessSeq}`, firebaseKey: '', siteId: sId,
                 date: new Date().toISOString().split('T')[0], time: '', empNameId: '',
@@ -678,6 +695,18 @@ export default function HealthDashboard() {
                 </div>
             )}
 
+            {!selectedIncident && !selectedSurveillance && !selectedVaccination && !selectedIllness && (
+                <div className="px-8 pt-4 print:hidden bg-slate-950">
+                    <div className="flex flex-wrap gap-3 rounded-2xl border border-slate-800 bg-slate-900/60 px-4 py-3 font-['Space_Grotesk']">
+                        <select value={regionFilter} onChange={(e) => setRegionFilter(e.target.value)} className="bg-slate-950 border border-slate-700 text-white px-4 py-2.5 rounded-xl outline-none focus:border-rose-500 shadow-lg text-xs font-bold">
+                            <option value="All">All Regions</option>
+                            {regionOptions.map((region) => <option key={region} value={region}>{region}</option>)}
+                        </select>
+                        <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500 self-center">Region filter applies across records and analytics.</div>
+                    </div>
+                </div>
+            )}
+
             {/* Main Content */}
             <main className="flex-1 overflow-y-auto custom-scroll relative pb-20 print:hidden font-['Inter']">
 
@@ -691,8 +720,8 @@ export default function HealthDashboard() {
                             </div>
                             <div className="flex gap-4 text-sm font-bold items-center">
                                 <select value={siteFilter} onChange={handleSiteFilterChange} className="bg-slate-900 border border-slate-600 text-white px-4 py-2.5 rounded-xl outline-none focus:border-rose-500 shadow-lg">
-                                    {(isGlobalUser || visibleSites.length > 1) && <option value="All">All Authorized Sites</option>}
-                                    {visibleSites.map(s => <option key={s.code} value={s.code}>{s.name}</option>)}
+                                    {(isGlobalUser || filteredVisibleSites.length > 1) && <option value="All">All Authorized Sites</option>}
+                                    {filteredVisibleSites.map(s => <option key={s.code} value={s.code}>{s.name}</option>)}
                                 </select>
                                 <div className="bg-slate-800 px-5 py-2.5 rounded-xl border border-slate-700 text-slate-300 shadow-lg">Total Cases: <span className="text-white text-lg ml-2">{filteredIncidents.length}</span></div>
                                 <div className="bg-rose-900/30 px-5 py-2.5 rounded-xl border border-rose-500/50 text-rose-400 shadow-lg">Pending Eval: <span className="text-white text-lg ml-2">{filteredIncidents.filter(i => !healthCases[i.firebaseKey]).length}</span></div>
@@ -732,8 +761,8 @@ export default function HealthDashboard() {
                             </div>
                             <div className="flex gap-4 text-sm font-bold items-center">
                                 <select value={siteFilter} onChange={handleSiteFilterChange} className="bg-slate-900 border border-slate-600 text-white px-4 py-2.5 rounded-xl outline-none focus:border-amber-500 shadow-lg">
-                                    {(isGlobalUser || visibleSites.length > 1) && <option value="All">All Authorized Sites</option>}
-                                    {visibleSites.map(s => <option key={s.code} value={s.code}>{s.name}</option>)}
+                                    {(isGlobalUser || filteredVisibleSites.length > 1) && <option value="All">All Authorized Sites</option>}
+                                    {filteredVisibleSites.map(s => <option key={s.code} value={s.code}>{s.name}</option>)}
                                 </select>
                                 {permissions.canEditCreate && (
                                     <button onClick={() => openIllnessForm()} className="bg-gradient-to-r from-amber-600 to-orange-500 hover:from-amber-500 hover:to-orange-400 text-white font-bold px-6 py-2.5 rounded-xl shadow-lg transition-transform active:scale-95 flex items-center gap-2">
@@ -776,8 +805,8 @@ export default function HealthDashboard() {
                             </div>
                             <div className="flex gap-4 text-sm font-bold items-center">
                                 <select value={siteFilter} onChange={handleSiteFilterChange} className="bg-slate-900 border border-slate-600 text-white px-4 py-2.5 rounded-xl outline-none focus:border-indigo-500 shadow-lg">
-                                    {(isGlobalUser || visibleSites.length > 1) && <option value="All">All Authorized Sites</option>}
-                                    {visibleSites.map(s => <option key={s.code} value={s.code}>{s.name}</option>)}
+                                    {(isGlobalUser || filteredVisibleSites.length > 1) && <option value="All">All Authorized Sites</option>}
+                                    {filteredVisibleSites.map(s => <option key={s.code} value={s.code}>{s.name}</option>)}
                                 </select>
                                 {permissions.canEditCreate && (
                                     <button onClick={() => openSurveillanceForm()} className="bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-bold px-6 py-2.5 rounded-xl shadow-lg transition-transform active:scale-95 flex items-center gap-2">
@@ -823,8 +852,8 @@ export default function HealthDashboard() {
                             </div>
                             <div className="flex gap-4 text-sm font-bold items-center">
                                 <select value={siteFilter} onChange={handleSiteFilterChange} className="bg-slate-900 border border-slate-600 text-white px-4 py-2.5 rounded-xl outline-none focus:border-cyan-500 shadow-lg">
-                                    {(isGlobalUser || visibleSites.length > 1) && <option value="All">All Authorized Sites</option>}
-                                    {visibleSites.map(s => <option key={s.code} value={s.code}>{s.name}</option>)}
+                                    {(isGlobalUser || filteredVisibleSites.length > 1) && <option value="All">All Authorized Sites</option>}
+                                    {filteredVisibleSites.map(s => <option key={s.code} value={s.code}>{s.name}</option>)}
                                 </select>
                                 {permissions.canEditCreate && (
                                     <button onClick={() => openVaccinationForm()} className="bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white font-bold px-6 py-2.5 rounded-xl shadow-lg transition-transform active:scale-95 flex items-center gap-2">
@@ -867,8 +896,8 @@ export default function HealthDashboard() {
                             <div className="bg-slate-800/80 p-6 rounded-2xl mb-8 border border-slate-700 shadow-lg">
                                 <label className="text-xs uppercase font-bold text-slate-400 block mb-2 tracking-wider">Filter by Site</label>
                                 <select value={siteFilter} onChange={handleSiteFilterChange} className="w-full mb-6 font-medium text-sm bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-white outline-none">
-                                    {(isGlobalUser || visibleSites.length > 1) && <option value="All">All Authorized Sites</option>}
-                                    {visibleSites.map(s => <option key={s.code} value={s.code}>{s.name}</option>)}
+                                    {(isGlobalUser || filteredVisibleSites.length > 1) && <option value="All">All Authorized Sites</option>}
+                                    {filteredVisibleSites.map(s => <option key={s.code} value={s.code}>{s.name}</option>)}
                                 </select>
 
                                 <label className="text-xs uppercase font-bold text-slate-400 block mb-2 tracking-wider">Filter by Injury Type</label>
@@ -1024,8 +1053,8 @@ export default function HealthDashboard() {
                                 <div>
                                     <label className="text-[10px] uppercase font-bold text-slate-400 tracking-widest block mb-2 ml-1">Site</label>
                                     <select value={illnessForm.siteId} onChange={e => setIllnessForm({ ...illnessForm, siteId: e.target.value })} disabled={!permissions.canEditCreate} className="font-bold text-slate-200 font-['Inter'] w-full bg-slate-950 border border-slate-700 rounded-lg p-3 outline-none focus:border-amber-500">
-                                        {(isGlobalUser || visibleSites.length > 1) && <option value="">Select Site...</option>}
-                                        {visibleSites.map(s => <option key={s.code} value={s.code}>{s.name}</option>)}
+                                    {(isGlobalUser || filteredVisibleSites.length > 1) && <option value="">Select Site...</option>}
+                                    {filteredVisibleSites.map(s => <option key={s.code} value={s.code}>{s.name}</option>)}
                                     </select>
                                 </div>
                                 <div><label className="text-[10px] uppercase font-bold text-slate-400 tracking-widest block mb-2 ml-1">Employee Name / ID</label><input placeholder="e.g. John Doe (EMP-123)" value={illnessForm.empNameId} onChange={e => setIllnessForm({ ...illnessForm, empNameId: e.target.value })} disabled={!permissions.canEditCreate} className="font-bold text-amber-300 border-amber-900/50 font-['Inter'] w-full bg-slate-950 rounded-lg p-3 outline-none focus:border-amber-500" /></div>
@@ -1131,8 +1160,8 @@ export default function HealthDashboard() {
                                 <div>
                                     <label className="text-[10px] uppercase font-bold text-slate-400 tracking-widest block mb-2 ml-1">Site</label>
                                     <select value={survForm.siteId} onChange={e => setSurvForm({ ...survForm, siteId: e.target.value })} disabled={!permissions.canEditCreate} className="font-bold text-white font-['Inter'] w-full bg-slate-950 border border-slate-700 rounded-lg p-3 outline-none focus:border-indigo-500">
-                                        {(isGlobalUser || visibleSites.length > 1) && <option value="">Select Site...</option>}
-                                        {visibleSites.map(s => <option key={s.code} value={s.code}>{s.name}</option>)}
+                                    {(isGlobalUser || filteredVisibleSites.length > 1) && <option value="">Select Site...</option>}
+                                    {filteredVisibleSites.map(s => <option key={s.code} value={s.code}>{s.name}</option>)}
                                     </select>
                                 </div>
                                 <div>
@@ -1239,8 +1268,8 @@ export default function HealthDashboard() {
                                 <div>
                                     <label className="text-[10px] uppercase font-bold text-slate-400 tracking-widest block mb-2 ml-1">Site</label>
                                     <select value={vaccForm.siteId} onChange={e => setVaccForm({ ...vaccForm, siteId: e.target.value })} disabled={!permissions.canEditCreate} className="font-bold text-white font-['Inter'] w-full bg-slate-950 border border-slate-700 rounded-lg p-3 outline-none focus:border-cyan-500">
-                                        {(isGlobalUser || visibleSites.length > 1) && <option value="">Select Site...</option>}
-                                        {visibleSites.map(s => <option key={s.code} value={s.code}>{s.name}</option>)}
+                                    {(isGlobalUser || filteredVisibleSites.length > 1) && <option value="">Select Site...</option>}
+                                    {filteredVisibleSites.map(s => <option key={s.code} value={s.code}>{s.name}</option>)}
                                     </select>
                                 </div>
                                 <div><label className="text-[10px] uppercase font-bold text-slate-400 tracking-widest block mb-2 ml-1">Date</label><input type="date" value={vaccForm.date} onChange={e => setVaccForm({ ...vaccForm, date: e.target.value })} disabled={!permissions.canEditCreate} className="font-['Inter'] font-mono w-full bg-slate-950 border border-slate-700 rounded-lg p-3 text-white outline-none focus:border-cyan-500" /></div>

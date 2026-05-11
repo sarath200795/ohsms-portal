@@ -67,6 +67,10 @@ export default function RiskPage() {
                     {module.view === 'list' && (
                         <RiskRepositoryView
                             filterSite={module.filterSite}
+                            regionFilter={module.regionFilter}
+                            regionOptions={module.regionOptions}
+                            filteredVisibleSites={module.filteredVisibleSites}
+                            onFilterRegionChange={module.handleRegionFilterChange}
                             onFilterSiteChange={module.handleSiteFilterChange}
                             filterStatus={module.filterStatus}
                             onFilterStatusChange={module.setFilterStatus}
@@ -89,6 +93,10 @@ export default function RiskPage() {
                         <RiskLogsView
                             allChangeLogs={module.allChangeLogs}
                             filterSite={module.filterSite}
+                            regionFilter={module.regionFilter}
+                            regionOptions={module.regionOptions}
+                            filteredVisibleSites={module.filteredVisibleSites}
+                            onFilterRegionChange={module.handleRegionFilterChange}
                             onFilterSiteChange={module.handleSiteFilterChange}
                             isGlobalUser={module.isGlobalUser}
                             visibleSites={module.visibleSites}

@@ -6,6 +6,7 @@ import { getFieldPortalLoginPath, getFieldPortalVerificationMessage, getPortalAw
 import { readOrgChildren } from '../utils/orgData';
 import { canEditCreateForRole, isGlobalOwnerRole } from '../utils/permissions';
 import { readStoredSession } from '../utils/session';
+import { buildRegionOptions, filterSitesByRegion, matchesRegionFilter, normalizeSites } from '../utils/siteRegions';
 import { QRCodeSVG } from 'qrcode.react';
 import * as XLSX from 'xlsx';
 
@@ -360,6 +361,7 @@ export default function EmergencyEquipment() {
     const [view, setView] = useState('list');
 
     // --- ADVANCED FILTERS ---
+    const [regionFilter, setRegionFilter] = useState('All');
     const [siteFilter, setSiteFilter] = useState('All');
     const [typeFilter, setTypeFilter] = useState('All');
     const [complianceFilter, setComplianceFilter] = useState('All');
@@ -426,7 +428,7 @@ export default function EmergencyEquipment() {
                 } else { setEquipment([]); }
 
                 if (data.sites) {
-                    setSites(Object.keys(data.sites).map(key => ({ code: data.sites[key].code || key, name: data.sites[key].name || key })));
+                    setSites(normalizeSites(data.sites));
                 }
 
                 if (scanId) {
@@ -481,6 +483,22 @@ export default function EmergencyEquipment() {
 
     const isGlobalUser = isGlobalOwnerRole(session?.role);
     const canEdit = canEditCreateForRole(session?.role);
+    const visibleSites = useMemo(() => {
+        if (isGlobalUser) return sites;
+        return sites.filter((site) => site.code === session?.assignedSite || (session?.accessibleSites || []).includes(site.code));
+    }, [isGlobalUser, session?.accessibleSites, session?.assignedSite, sites]);
+    const regionOptions = useMemo(() => buildRegionOptions(visibleSites), [visibleSites]);
+    const filteredVisibleSites = useMemo(
+        () => filterSitesByRegion(visibleSites, regionFilter),
+        [visibleSites, regionFilter]
+    );
+
+    useEffect(() => {
+        if (siteFilter !== 'All' && !filteredVisibleSites.some((site) => site.code === siteFilter)) {
+            setSiteFilter(isGlobalUser ? 'All' : (filteredVisibleSites[0]?.code || 'All'));
+        }
+    }, [filteredVisibleSites, isGlobalUser, siteFilter]);
+
     const hasInspectionSiteAccess = useMemo(() => {
         if (!inspectData || !session) return false;
         if (isGlobalUser) return true;
@@ -504,6 +522,14 @@ export default function EmergencyEquipment() {
         return inspectData.nextInspection < todayDate;
     }, [inspectData?.nextInspection, todayDate]);
     const missedInspectionCycles = useMemo(() => countMissedInspectionCycles(inspectData?.nextInspection, todayDate), [inspectData?.nextInspection, todayDate]);
+    const siteScopedEquipment = useMemo(() => {
+        return equipment.filter((item) => {
+            if (!isGlobalUser && session?.assignedSite !== 'GLOBAL' && item.siteId !== session?.assignedSite && !(session?.accessibleSites || []).includes(item.siteId)) return false;
+            if (regionFilter !== 'All' && !matchesRegionFilter(item.siteId, visibleSites, regionFilter)) return false;
+            if (siteFilter !== 'All' && item.siteId !== siteFilter) return false;
+            return true;
+        });
+    }, [equipment, isGlobalUser, regionFilter, session, siteFilter, visibleSites]);
 
     // --- FILTER ENGINE ---
     const visibleEquipment = useMemo(() => {
@@ -516,6 +542,7 @@ export default function EmergencyEquipment() {
         return equipment.filter(e => {
             // 1. Site Filter
             if (!isGlobalUser && session?.assignedSite !== 'GLOBAL' && e.siteId !== session?.assignedSite && !(session?.accessibleSites || []).includes(e.siteId)) return false;
+            if (regionFilter !== 'All' && !matchesRegionFilter(e.siteId, visibleSites, regionFilter)) return false;
             if (siteFilter !== 'All' && e.siteId !== siteFilter) return false;
 
             // 2. Type Filter
@@ -542,18 +569,18 @@ export default function EmergencyEquipment() {
 
             return true;
         });
-    }, [equipment, siteFilter, typeFilter, complianceFilter, isGlobalUser, session]);
+    }, [complianceFilter, equipment, isGlobalUser, regionFilter, session, siteFilter, typeFilter, visibleSites]);
 
     const stats = useMemo(() => {
         const now = new Date();
         const dueSoonDate = new Date(now);
         dueSoonDate.setDate(now.getDate() + DUE_SOON_WINDOW_DAYS);
 
-        let total = equipment.filter(e => siteFilter === 'All' || e.siteId === siteFilter).length;
+        let total = siteScopedEquipment.length;
         let expiringSoon = 0;
         let actionNeeded = 0;
 
-        equipment.filter(e => siteFilter === 'All' || e.siteId === siteFilter).forEach(e => {
+        siteScopedEquipment.forEach(e => {
             let isAction = false;
             const firstAidDueDate = getEarliestFirstAidExpiryDate(getFirstAidContentExpiryState(e));
             if (e.status === 'Out of Service' || e.status === 'Missing' || e.status === 'Needs Inspection') isAction = true;
@@ -588,7 +615,7 @@ export default function EmergencyEquipment() {
         });
 
         return { total, expiringSoon, actionNeeded };
-    }, [equipment, siteFilter]);
+    }, [siteScopedEquipment]);
 
 
     const handleSave = async () => {
@@ -1119,10 +1146,17 @@ export default function EmergencyEquipment() {
                             {/* SMART FILTER BAR */}
                             <div className="bg-slate-900/50 p-4 rounded-2xl border border-slate-700 flex flex-wrap gap-4 items-end shadow-inner">
                                 <div>
+                                    <label className="text-[9px] font-bold text-slate-500 uppercase tracking-widest block mb-1">Region</label>
+                                    <select value={regionFilter} onChange={e => setRegionFilter(e.target.value)} className="bg-slate-950 border border-slate-700 text-white text-xs font-bold px-3 py-2 rounded-lg outline-none focus:border-blue-500 min-w-[140px]">
+                                        <option value="All">All Regions</option>
+                                        {regionOptions.map((region) => <option key={region} value={region}>{region}</option>)}
+                                    </select>
+                                </div>
+                                <div>
                                     <label className="text-[9px] font-bold text-slate-500 uppercase tracking-widest block mb-1">Facility / Site</label>
-                                    <select value={siteFilter} onChange={e => { setSiteFilter(e.target.value); sessionStorage.setItem('isoCurrentSite', e.target.value); }} className="bg-slate-950 border border-slate-700 text-white text-xs font-bold px-3 py-2 rounded-lg outline-none focus:border-blue-500 min-w-[150px]">
-                                        {(isGlobalUser || sites.length > 1) && <option value="All">All Authorized Sites</option>}
-                                        {sites.filter(s => isGlobalUser || s.code === session?.assignedSite || (session?.accessibleSites || []).includes(s.code)).map(s => <option key={s.code} value={s.code}>{s.name}</option>)}
+                                    <select value={siteFilter} onChange={e => { setSiteFilter(e.target.value); sessionStorage.setItem('isoCurrentSite', e.target.value === 'All' ? 'GLOBAL' : e.target.value); }} className="bg-slate-950 border border-slate-700 text-white text-xs font-bold px-3 py-2 rounded-lg outline-none focus:border-blue-500 min-w-[150px]">
+                                        {(isGlobalUser || filteredVisibleSites.length > 1) && <option value="All">All Authorized Sites</option>}
+                                        {filteredVisibleSites.map(s => <option key={s.code} value={s.code}>{s.name}</option>)}
                                     </select>
                                 </div>
                                 <div>
