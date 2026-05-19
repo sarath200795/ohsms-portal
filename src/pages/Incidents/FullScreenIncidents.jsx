@@ -780,7 +780,14 @@ export default function Incidents() {
         .map((item) => normalizeInvestigationText(item))
         .filter(Boolean);
 
-    const findSentenceByPattern = (sentences, pattern) => sentences.find((sentence) => pattern.test(sentence));
+    const matchesPattern = (value, pattern) => {
+        if (!value) return false;
+
+        const flags = pattern.flags.includes('g') ? pattern.flags.replace('g', '') : pattern.flags;
+        return new RegExp(pattern.source, flags).test(value);
+    };
+
+    const findAllSentencesByPattern = (sentences, pattern) => sentences.filter((sentence) => matchesPattern(sentence, pattern));
 
     const extractClauseByPattern = (context, patterns) => {
         for (const pattern of patterns) {
@@ -876,11 +883,29 @@ export default function Incidents() {
             /(?:because|due to|caused by|after|following)\s+([^.!?]+)/i,
             /(?:when|while)\s+([^.!?]+)/i
         ]);
-        const peopleSentence = findSentenceByPattern(sentences, /(operator|worker|employee|contractor|rushing|untrained|distracted|tired|fatigue|ignored|forgot|bypassed|without|did not|failed to wear)/i);
-        const equipmentSentence = findSentenceByPattern(sentences, /(machine|equipment|forklift|vehicle|ladder|scaffold|valve|hose|pipe|wire|panel|motor|guard|tool|blade|pump|gasket|cable)/i);
-        const materialSentence = findSentenceByPattern(sentences, /(oil|fluid|chemical|acid|solvent|gas|dust|smoke|spark|fire|debris|material|load|spill|leak)/i);
-        const environmentSentence = findSentenceByPattern(sentences, /(wet|dark|noise|weather|rain|heat|cold|floor|surface|lighting|housekeeping|congested|slippery|cramped)/i);
-        const methodSentence = findSentenceByPattern(sentences, /(inspection|maintenance|permit|loto|training|risk assessment|procedure|supervision|reported|complained|check|guard|barricade|ppe)/i);
+
+        const issueFlags = {
+            slipLike: /(slip|trip|fall|puddle|slippery|uneven|wet floor)/i.test(context),
+            contactLike: /(cut|laceration|amputation|crush|nip|entangle|caught|pinch|blade)/i.test(context),
+            fireLike: /(burn|fire|explosion|spark|smoke|ignite|flame)/i.test(context),
+            containmentLike: /(leak|spill|fume|inhale|chemical|gas|vapour|vapor|release)/i.test(context),
+            electricalLike: /(shock|electrical|wire|cable|panel|arc|live|energ)/i.test(context),
+            reportIgnored: /(reported|complained|known issue|repeated issue|weeks|days|previously raised|already informed)/i.test(context),
+            trainingGap: /(untrained|new worker|first time|inexperienced|competency|not trained|induction|awareness)/i.test(context),
+            procedureGap: /(permit|loto|procedure|sop|risk assessment|method statement|checklist|instruction|supervision|briefing)/i.test(context),
+            maintenanceGap: /(inspection|maintenance|pre-use|pre use|service|pm|preventive maintenance|preventative maintenance|repair|broken|failed|snapped|damaged|defective)/i.test(context),
+            barrierGap: /(guard|barrier|barricade|interlock|alarm|sensor|shield|cover|extinguisher|detector|isolation|lockout|tagout|ppe)/i.test(context),
+            environmentGap: /(wet|dark|poor lighting|lighting|housekeeping|congested|cramped|weather|rain|heat|cold|noise|floor|surface|access|visibility)/i.test(context),
+            designGap: /(design|layout|location|access|clearance|blind spot|ergonomic|reach|line of fire)/i.test(context),
+            humanAction: /(rushing|hurry|fatigue|tired|distracted|shortcut|ignored|forgot|bypassed|did not|without authorization|without ppe|without gloves|without guard)/i.test(context)
+        };
+
+        const peopleSentences = findAllSentencesByPattern(sentences, /(operator|worker|employee|contractor|rushing|untrained|distracted|tired|fatigue|ignored|forgot|bypassed|without|did not|failed to wear|manual handling|lifting)/i);
+        const equipmentSentences = findAllSentencesByPattern(sentences, /(machine|equipment|forklift|vehicle|ladder|scaffold|valve|hose|pipe|wire|panel|motor|guard|tool|blade|pump|gasket|cable|switch|extinguisher)/i);
+        const materialSentences = findAllSentencesByPattern(sentences, /(oil|fluid|chemical|acid|solvent|gas|dust|smoke|spark|fire|debris|material|load|spill|leak|vapour|fume)/i);
+        const environmentSentences = findAllSentencesByPattern(sentences, /(wet|dark|noise|weather|rain|heat|cold|floor|surface|lighting|housekeeping|congested|slippery|cramped|access|visibility)/i);
+        const methodSentences = findAllSentencesByPattern(sentences, /(inspection|maintenance|permit|loto|training|risk assessment|procedure|supervision|reported|complained|check|guard|barricade|ppe|briefing|method statement)/i);
+
         const peopleFactors = [];
         const equipmentFactors = [];
         const materialFactors = [];
@@ -889,51 +914,106 @@ export default function Incidents() {
         const managementFactors = [];
 
         const eventSummary = ensureSentence(incidentData?.title || sentences[0] || `An incident involving ${objectInvolved} was reported.`);
-        const immediateCause = ensureSentence(directCause || equipmentSentence || materialSentence || `${objectInvolved} contributed to the ${hazardType} described in "${eventLabel}".`);
 
-        appendUniqueStatement(peopleFactors, peopleSentence || `People actions around ${objectInvolved} during "${eventLabel}" need to be verified against the incident narrative`);
-        appendUniqueStatement(equipmentFactors, equipmentSentence || `${objectInvolved} condition is referenced in the incident record for "${eventLabel}"`);
-        appendUniqueStatement(materialFactors, materialSentence || `${hazardType} was the material or energy exposure described during "${eventLabel}"`);
-        appendUniqueStatement(methodFactors, methodSentence || `Work controls and task steps around ${objectInvolved} were not strong enough for "${eventLabel}"`);
-        appendUniqueStatement(environmentFactors, environmentSentence || `The surrounding work environment during "${eventLabel}" should be reviewed for contributing conditions`);
+        const immediateCause = ensureSentence(
+            directCause
+            || (issueFlags.slipLike ? `The person lost traction or stability after being exposed to an uncorrected walking or working surface hazard around ${objectInvolved}` : '')
+            || (issueFlags.contactLike ? `The person came into contact with moving, sharp, or uncontrolled parts of ${objectInvolved}` : '')
+            || (issueFlags.fireLike ? `An ignition source or uncontrolled thermal condition around ${objectInvolved} led to a fire-related event` : '')
+            || (issueFlags.containmentLike ? `Hazardous material or energy escaped from ${objectInvolved} and exposed the area or people nearby` : '')
+            || (issueFlags.electricalLike ? `Electrical energy remained accessible during the task and exposed the person to live parts or residual energy` : '')
+            || equipmentSentences[0]
+            || materialSentences[0]
+            || `${objectInvolved} contributed to the ${hazardType} described in "${eventLabel}".`
+        );
 
-        if (/(rushing|hurry|fatigue|tired|distracted|shortcut|ignored|forgot|bypassed|did not|without authorization|without ppe|without gloves|without guard)/i.test(context)) {
-            appendUniqueStatement(peopleFactors, `The person involved appears to have been exposed because behaviour or task execution controls failed during "${eventLabel}"`);
-            appendUniqueStatement(managementFactors, `Supervision, competency assurance, or behavioural reinforcement did not prevent unsafe actions during "${eventLabel}"`);
+        const failedControl = ensureSentence(
+            issueFlags.slipLike ? `The work area hazard was not identified, isolated, cleaned, or barricaded before the task continued.` :
+            issueFlags.contactLike ? `Machine guarding, separation distance, or isolation controls did not keep people clear of the danger zone.` :
+            issueFlags.fireLike ? `Fire prevention and ignition-source controls did not contain combustible material or stop the escalation pathway.` :
+            issueFlags.containmentLike ? `Containment, isolation, drainage, or ventilation controls did not prevent the release from affecting people or the workplace.` :
+            issueFlags.electricalLike ? `Isolation, lockout verification, or test-for-dead controls did not ensure the system was in a zero-energy state.` :
+            `The primary barrier intended to control ${hazardType} around ${objectInvolved} was absent, weak, or not verified before the event.`
+        );
+
+        if (peopleSentences.length > 0) {
+            peopleSentences.forEach((sentence) => appendUniqueStatement(peopleFactors, sentence));
+        } else {
+            appendUniqueStatement(peopleFactors, `People involved in "${eventLabel}" were exposed because task execution and human-factor controls were not strong enough for the job being done.`);
         }
-        if (/(untrained|new worker|first time|inexperienced|competency|not trained)/i.test(context)) {
-            appendUniqueStatement(methodFactors, `Training or competency assurance for the task involving ${objectInvolved} was not adequate before "${eventLabel}"`);
-            appendUniqueStatement(managementFactors, `The management system did not verify competency before allowing work involving ${objectInvolved}`);
+
+        if (equipmentSentences.length > 0) {
+            equipmentSentences.forEach((sentence) => appendUniqueStatement(equipmentFactors, sentence));
+        } else {
+            appendUniqueStatement(equipmentFactors, `${objectInvolved} or its associated safety-critical condition needs to be examined as part of "${eventLabel}".`);
         }
-        if (/(reported|complained|known issue|repeated issue|weeks|days)/i.test(context)) {
-            appendUniqueStatement(methodFactors, `Known concerns about ${objectInvolved} were reported before the incident but were not escalated or closed out`);
-            appendUniqueStatement(managementFactors, `Defect reporting, escalation, and corrective action tracking did not resolve the known issue before "${eventLabel}"`);
+
+        if (materialSentences.length > 0) {
+            materialSentences.forEach((sentence) => appendUniqueStatement(materialFactors, sentence));
+        } else {
+            appendUniqueStatement(materialFactors, `${hazardType} was the material or energy exposure involved in "${eventLabel}".`);
         }
-        if (/(inspection|maintenance|pre-use|pre use|service|pm|preventive maintenance|preventative maintenance|repair)/i.test(context) || /(broken|failed|snapped|leak|spill|damaged|missing|defective)/i.test(context)) {
-            appendUniqueStatement(equipmentFactors, `Inspection, maintenance, or pre-use checks did not identify or remove the unsafe condition affecting ${objectInvolved}`);
-            appendUniqueStatement(managementFactors, `The equipment assurance system did not keep ${objectInvolved} in a safe operating condition`);
+
+        if (methodSentences.length > 0) {
+            methodSentences.forEach((sentence) => appendUniqueStatement(methodFactors, sentence));
+        } else {
+            appendUniqueStatement(methodFactors, `Task planning, sequencing, and work controls around ${objectInvolved} were not strong enough for "${eventLabel}".`);
         }
-        if (/(permit|loto|procedure|sop|risk assessment|method statement|checklist)/i.test(context)) {
-            appendUniqueStatement(methodFactors, `The safe system of work for "${eventLabel}" was missing, inadequate, or not followed consistently`);
-            appendUniqueStatement(managementFactors, `Planning and control of work did not verify that the right permit, LOTO, or procedure controls were in place`);
+
+        if (environmentSentences.length > 0) {
+            environmentSentences.forEach((sentence) => appendUniqueStatement(environmentFactors, sentence));
+        } else {
+            appendUniqueStatement(environmentFactors, `The surrounding work environment during "${eventLabel}" should be reviewed for conditions that increased exposure to the hazard.`);
         }
-        if (/(guard|barrier|barricade|interlock|alarm|sensor|shield|cover)/i.test(context)) {
-            appendUniqueStatement(equipmentFactors, `Critical physical safeguards for ${objectInvolved} were absent, ineffective, or not checked`);
-            appendUniqueStatement(managementFactors, `Barrier integrity and verification controls did not prevent exposure to the hazard during "${eventLabel}"`);
+
+        appendUniqueStatement(methodFactors, failedControl);
+
+        if (incidentData.evidenceObservations?.trim()) {
+            appendUniqueStatement(methodFactors, `Scene observations recorded by the reporter indicate: ${incidentData.evidenceObservations}`);
         }
-        if (/(wet|dark|poor lighting|lighting|housekeeping|congested|cramped|weather|rain|heat|cold|noise|floor|surface)/i.test(context)) {
-            appendUniqueStatement(environmentFactors, `Site conditions increased exposure to the hazard during "${eventLabel}"`);
-            appendUniqueStatement(managementFactors, `Environmental and housekeeping standards were not controlled to a level that prevented the event`);
+
+        if (issueFlags.humanAction) {
+            appendUniqueStatement(peopleFactors, `Human actions during "${eventLabel}" suggest the task was completed under behavioural pressure, distraction, or a bypass of expected safe actions.`);
+            appendUniqueStatement(managementFactors, `Supervision and behavioural reinforcement controls did not prevent unsafe actions from developing during the task.`);
         }
-        if (/(design|layout|location|access|clearance|blind spot)/i.test(context)) {
-            appendUniqueStatement(environmentFactors, `Workplace layout or equipment location contributed to the incident pathway in "${eventLabel}"`);
-            appendUniqueStatement(managementFactors, `Design or layout review did not identify the hazard exposure created by the current setup`);
+
+        if (issueFlags.trainingGap) {
+            appendUniqueStatement(methodFactors, `Training, briefing, or competency assurance for the task involving ${objectInvolved} was not sufficient before the work was carried out.`);
+            appendUniqueStatement(managementFactors, `The system for verifying worker competence did not confirm capability before the person was exposed to the task hazard.`);
+        }
+
+        if (issueFlags.reportIgnored) {
+            appendUniqueStatement(methodFactors, `Known concerns about ${objectInvolved} were reported before the event but were not escalated, tracked, or closed out effectively.`);
+            appendUniqueStatement(managementFactors, `Defect reporting, escalation, and corrective action tracking did not remove the known risk before "${eventLabel}".`);
+        }
+
+        if (issueFlags.maintenanceGap) {
+            appendUniqueStatement(equipmentFactors, `Inspection, maintenance, or pre-use checks did not identify or remove the unsafe condition affecting ${objectInvolved}.`);
+            appendUniqueStatement(managementFactors, `The equipment assurance regime did not keep ${objectInvolved} in a demonstrably safe operating condition.`);
+        }
+
+        if (issueFlags.procedureGap) {
+            appendUniqueStatement(methodFactors, `The safe system of work for "${eventLabel}" was missing, inadequate, poorly communicated, or not followed consistently.`);
+            appendUniqueStatement(managementFactors, `Planning and control of work did not verify that the correct permit, LOTO, risk assessment, or instruction set was active before the task started.`);
+        }
+
+        if (issueFlags.barrierGap) {
+            appendUniqueStatement(equipmentFactors, `Critical safeguards, PPE, or physical barriers linked to ${objectInvolved} were absent, ineffective, bypassed, or not verified before use.`);
+            appendUniqueStatement(managementFactors, `Barrier integrity checks and critical-control verification did not stop the exposure pathway from developing.`);
+        }
+
+        if (issueFlags.environmentGap) {
+            appendUniqueStatement(environmentFactors, `Site conditions such as floor condition, lighting, access, congestion, or visibility increased exposure to the hazard during "${eventLabel}".`);
+            appendUniqueStatement(managementFactors, `Environmental and housekeeping standards were not controlled to a level that prevented the event pathway from forming.`);
+        }
+
+        if (issueFlags.designGap) {
+            appendUniqueStatement(environmentFactors, `Workplace layout, access, or equipment positioning contributed to the incident pathway in "${eventLabel}".`);
+            appendUniqueStatement(managementFactors, `Design or layout review did not identify and eliminate the hazard exposure created by the current setup.`);
         }
 
         if (managementFactors.length === 0) {
-            appendUniqueStatement(managementFactors, /(reported|complained|maintenance|inspection|permit|loto)/i.test(context)
-                ? `Known concerns about ${objectInvolved} were not fully closed out before "${eventLabel}"`
-                : `Inspection, training, supervision, or risk controls did not prevent the conditions described in "${eventLabel}"`);
+            appendUniqueStatement(managementFactors, `Inspection, planning, supervision, and corrective-action verification did not provide enough assurance to prevent the conditions described in "${eventLabel}".`);
         }
 
         const peopleFactor = peopleFactors[0];
@@ -942,7 +1022,16 @@ export default function Incidents() {
         const methodFactor = methodFactors[0];
         const environmentFactor = environmentFactors[0];
         const systemicFactor = managementFactors[0];
-        const rootCause = ensureSentence(`The organization did not adequately control ${objectInvolved}, the ${hazardType}, and the supporting competency, inspection, and supervision measures needed to prevent "${eventLabel}"`);
+        const underlyingCause = ensureSentence(
+            methodFactors[1]
+            || peopleFactors[1]
+            || `The task controls, worker preparation, and verification steps around ${objectInvolved} were not strong enough to stop the incident pathway once the hazard was present.`
+        );
+        const rootCause = ensureSentence(
+            issueFlags.trainingGap || issueFlags.procedureGap || issueFlags.maintenanceGap || issueFlags.reportIgnored
+                ? `The organization did not consistently manage competence, work planning, equipment assurance, and corrective-action closure for ${objectInvolved}, allowing the conditions behind "${eventLabel}" to remain in place.`
+                : `The organization did not adequately identify, verify, and sustain the critical controls needed to manage ${objectInvolved} and the ${hazardType} involved in "${eventLabel}".`
+        );
 
         return {
             context,
@@ -951,6 +1040,8 @@ export default function Incidents() {
             objectInvolved,
             hazardType,
             immediateCause,
+            failedControl,
+            underlyingCause,
             peopleFactor,
             equipmentFactor,
             materialFactor,
@@ -963,7 +1054,8 @@ export default function Incidents() {
             materialFactors,
             methodFactors,
             environmentFactors,
-            managementFactors
+            managementFactors,
+            issueFlags
         };
     };
 
@@ -1014,8 +1106,77 @@ export default function Incidents() {
         ]
     });
 
+    const buildFiveWhyPathsFromInsights = (insights) => {
+        const pathCandidates = [
+            {
+                name: 'Path 1 - Immediate Event',
+                why2: insights.immediateCause,
+                why3: insights.failedControl,
+                why4: insights.systemicFactor
+            },
+            {
+                name: 'Path 2 - People Factors',
+                why2: chooseSpecificStatement(insights.peopleFactors?.[0], insights.peopleFactor),
+                why3: chooseSpecificStatement(insights.underlyingCause, insights.failedControl),
+                why4: chooseSpecificStatement(insights.managementFactors?.[0], insights.systemicFactor)
+            },
+            {
+                name: 'Path 3 - Equipment / Asset Factors',
+                why2: chooseSpecificStatement(insights.equipmentFactors?.[0], insights.equipmentFactor),
+                why3: chooseSpecificStatement(insights.failedControl, insights.methodFactors?.[0] || insights.underlyingCause),
+                why4: chooseSpecificStatement(insights.managementFactors?.[0], insights.systemicFactor)
+            },
+            {
+                name: 'Path 4 - Method / Procedure Factors',
+                why2: chooseSpecificStatement(insights.methodFactors?.[0], insights.underlyingCause),
+                why3: chooseSpecificStatement(insights.failedControl, insights.methodFactors?.[1] || insights.systemicFactor),
+                why4: chooseSpecificStatement(insights.managementFactors?.[0], insights.systemicFactor)
+            },
+            {
+                name: 'Path 5 - Environment / Workplace Factors',
+                why2: chooseSpecificStatement(insights.environmentFactors?.[0], insights.environmentFactor),
+                why3: chooseSpecificStatement(insights.failedControl, insights.methodFactors?.[0] || insights.underlyingCause),
+                why4: chooseSpecificStatement(insights.managementFactors?.[0], insights.systemicFactor)
+            },
+            {
+                name: 'Path 6 - Material / Energy Factors',
+                why2: chooseSpecificStatement(insights.materialFactors?.[0], insights.materialFactor),
+                why3: chooseSpecificStatement(insights.failedControl, insights.methodFactors?.[0] || insights.underlyingCause),
+                why4: chooseSpecificStatement(insights.managementFactors?.[0], insights.systemicFactor)
+            }
+        ];
+
+        const seenWhy2 = new Set();
+
+        return pathCandidates
+            .map((candidate, index) => {
+                const why2 = ensureSentence(candidate.why2);
+                const why3 = ensureSentence(candidate.why3);
+                const why4 = ensureSentence(candidate.why4);
+
+                if (!why2 || !why3 || !why4) return null;
+                if (seenWhy2.has(why2)) return null;
+
+                seenWhy2.add(why2);
+
+                return {
+                    id: Date.now() + index,
+                    name: candidate.name,
+                    whys: [
+                        `Why 1 (The Event): ${insights.eventSummary}`,
+                        `Why 2 (Factor): ${why2}`,
+                        `Why 3 (Failed Control): ${why3}`,
+                        `Why 4 (Systemic Factor): ${why4}`,
+                        `Why 5 (Root Cause): ${insights.rootCause}`
+                    ]
+                };
+            })
+            .filter(Boolean);
+    };
+
     const buildLocalSmartInvestigationDraft = (incidentData) => {
         const insights = buildContextualIncidentInsights(incidentData);
+        const generatedWhyPaths = buildFiveWhyPathsFromInsights(insights);
 
         const fishbone = {
             man: [...(insights.peopleFactors || [insights.peopleFactor])],
@@ -1032,14 +1193,6 @@ export default function Incidents() {
             fishbone.method.push(ensureSentence(`Evidence observations noted: ${incidentData.evidenceObservations}`));
         }
 
-        const generatedWhys = [
-            `Why 1 (The Event): ${insights.eventSummary}`,
-            `Why 2 (Immediate Cause): ${insights.immediateCause}`,
-            `Why 3 (Underlying Cause): ${chooseSpecificStatement(insights.methodFactors?.[0], insights.peopleFactors?.[0] || insights.methodFactor)}`,
-            `Why 4 (Systemic Factor): ${insights.systemicFactor}`,
-            `Why 5 (Root Cause): ${insights.rootCause}`
-        ];
-
         const generatedFta = {
             id: 1,
             label: `Top Event: ${cleanTreeLabel(insights.eventLabel).toUpperCase()}`,
@@ -1051,8 +1204,9 @@ export default function Incidents() {
                     type: 'OR',
                     children: [
                         { id: 4, label: `Condition: ${cleanTreeLabel(insights.environmentFactor)}`, type: 'EVENT' },
-                        { id: 5, label: `People / Method: ${cleanTreeLabel(chooseSpecificStatement(insights.peopleFactors?.[0], insights.methodFactors?.[0] || insights.peopleFactor))}`, type: 'EVENT' },
-                        { id: 6, label: `Management / Control: ${cleanTreeLabel(insights.managementFactors?.[0] || insights.systemicFactor)}`, type: 'EVENT' }
+                        { id: 5, label: `Failed Barrier: ${cleanTreeLabel(insights.failedControl)}`, type: 'EVENT' },
+                        { id: 6, label: `People / Method: ${cleanTreeLabel(chooseSpecificStatement(insights.underlyingCause, insights.peopleFactors?.[0] || insights.methodFactors?.[0] || insights.peopleFactor))}`, type: 'EVENT' },
+                        { id: 7, label: `Management / Control: ${cleanTreeLabel(insights.managementFactors?.[0] || insights.systemicFactor)}`, type: 'EVENT' }
                     ]
                 }
             ]
@@ -1081,12 +1235,19 @@ export default function Incidents() {
         if (/(permit|loto|procedure|risk assessment|method statement|checklist)/i.test(insights.context)) {
             dynamicCapa.push({ act: `Review the permit, LOTO, procedure, or task risk assessment for "${insights.eventLabel}" and strengthen the control checks`, siteId: incidentData.siteId, own: '', due: '', status: 'Open' });
         }
+        dynamicCapa.push({
+            act: `Investigate whether supervision, competency assurance, and pre-task planning were sufficient to detect the failed control behind "${insights.eventLabel}" before the work started`,
+            siteId: incidentData.siteId,
+            own: '',
+            due: '',
+            status: 'Open'
+        });
         dynamicCapa.push({ act: `Verify the effectiveness of corrective actions implemented after "${insights.eventLabel}" and confirm recurrence controls are working`, siteId: incidentData.siteId, own: '', due: '', status: 'Open' });
 
         return {
             investigation: {
                 rootCause: insights.rootCause,
-                fiveWhys: [{ id: Date.now(), name: 'Inference Engine Analysis', whys: generatedWhys }],
+                fiveWhys: generatedWhyPaths,
                 fishbone,
                 faultTree: generatedFta,
                 aiDraft: {
@@ -1098,7 +1259,7 @@ export default function Incidents() {
                     visibleHazards: [ensureSentence(insights.hazardType)],
                     equipmentCondition: insights.equipmentFactors,
                     immediateCauses: [insights.immediateCause],
-                    contributingFactors: [...insights.methodFactors, ...insights.managementFactors],
+                    contributingFactors: [insights.failedControl, insights.underlyingCause, ...insights.methodFactors, ...insights.managementFactors],
                     missingInformation: [
                         'Confirm witness statements, scene evidence, and chronology before final approval.',
                         'Verify that corrective actions address underlying and management-system causes, not only the immediate event.'
@@ -1123,15 +1284,22 @@ export default function Incidents() {
         const mergedImmediateCauses = mergeSpecificList(backendDraft.immediateCauses, contextualInvestigation.aiDraft?.immediateCauses || []);
         const mergedContributingFactors = mergeSpecificList(backendDraft.contributingFactors, contextualInvestigation.aiDraft?.contributingFactors || []);
         const mergedFiveWhys = (contextualInvestigation.fiveWhys?.[0]?.whys || []).map((fallbackWhy, index) => chooseSpecificStatement(backendDraft.fiveWhys?.[index], fallbackWhy));
+        const mergedFiveWhyPaths = [
+            {
+                id: Date.now(),
+                name: 'Incident AI Backend Draft - Primary Path',
+                whys: mergedFiveWhys
+            },
+            ...((contextualInvestigation.fiveWhys || []).slice(1).map((path, index) => ({
+                ...path,
+                id: Date.now() + index + 1
+            })))
+        ];
 
         return {
             investigation: {
                 rootCause: chooseSpecificStatement(backendDraft.rootCause, contextualInvestigation.rootCause || incidentData?.investigation?.rootCause || ''),
-                fiveWhys: [{
-                    id: Date.now(),
-                    name: 'Incident AI Backend Draft',
-                    whys: mergedFiveWhys
-                }],
+                fiveWhys: mergedFiveWhyPaths,
                 fishbone: {
                     man: mergeSpecificList(backendDraft.fishbone?.man, contextualInvestigation.fishbone?.man || []),
                     machine: mergeSpecificList(backendDraft.fishbone?.machine, contextualInvestigation.fishbone?.machine || []),
