@@ -8,6 +8,7 @@ export default [
         ignores: [
             'dist/**',
             'dist-field-portal/**',
+            'backend/dist/**',
             'node_modules/**'
         ]
     },

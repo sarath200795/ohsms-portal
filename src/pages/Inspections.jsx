@@ -11,6 +11,8 @@ import * as XLSX from 'xlsx';
 
 const FREQUENCIES = ['Daily', 'Weekly', 'Monthly', 'Quarterly', 'Bi-Annually', 'Annually'];
 const STATUSES = ['Draft', 'Active', 'Inactive'];
+const QUESTION_TYPES = ['Pass/Fail', 'Text Input', 'Number'];
+const PHOTO_REQUIREMENTS = ['Not Required', 'Optional', 'Mandatory'];
 
 // --- SUB-COMPONENTS ---
 const UserSelect = ({ users, value, onChange, disabled, placeholder }) => (
@@ -19,6 +21,13 @@ const UserSelect = ({ users, value, onChange, disabled, placeholder }) => (
         {users.map(u => <option key={u.id} value={u.name || u.email}>{u.name || u.email} ({u.role || 'User'})</option>)}
     </select>
 );
+
+const fileToBase64 = (file) => new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = (error) => reject(error);
+});
 
 // --- DATE MATH UTILITIES ---
 const parseDateOnly = (dateStr) => {
@@ -131,6 +140,59 @@ const createEmptyTemplate = (siteId = '') => ({
     fields: []
 });
 
+const normalizeQuestionType = (value) => QUESTION_TYPES.includes(value) ? value : 'Pass/Fail';
+const normalizePhotoRequirement = (value) => PHOTO_REQUIREMENTS.includes(value) ? value : 'Not Required';
+const normalizeTemplateField = (field = {}, index = 0) => ({
+    id: field.id || `field-${Date.now()}-${index}`,
+    label: field.label || '',
+    type: normalizeQuestionType(field.type),
+    photoRequirement: normalizePhotoRequirement(field.photoRequirement)
+});
+
+const normalizeTemplateFields = (fields = []) => fields.map((field, index) => normalizeTemplateField(field, index));
+
+const hasAnsweredQuestion = (field, response) => {
+    const answer = response?.answer;
+    if (field.type === 'Pass/Fail') return ['Pass', 'Fail', 'N/A'].includes(answer);
+    return String(answer ?? '').trim() !== '';
+};
+
+const getQuestionPhotoCount = (responses = {}) => Object.values(responses).filter((response) => Boolean(response?.photoEvidence)).length;
+
+const getInspectionFindings = (record) => {
+    if (!record) return [];
+    return Object.values(record.responses || {})
+        .filter((response) => response?.answer === 'Fail' || String(response?.observation || '').trim())
+        .map((response) => ({
+            label: response.label,
+            answer: response.answer || 'N/A',
+            observation: String(response.observation || '').trim(),
+            photoEvidence: response.photoEvidence || null,
+            photoEvidenceName: response.photoEvidenceName || ''
+        }));
+};
+
+const getInspectionPassFailStats = (template, responses) => {
+    const fields = template?.fields || [];
+    const stats = { total: fields.length, answered: 0, pass: 0, fail: 0, na: 0 };
+
+    fields.forEach((field) => {
+        const answer = responses?.[field.id]?.answer;
+        if (answer === 'Pass') {
+            stats.answered += 1;
+            stats.pass += 1;
+        } else if (answer === 'Fail') {
+            stats.answered += 1;
+            stats.fail += 1;
+        } else if (answer === 'N/A') {
+            stats.answered += 1;
+            stats.na += 1;
+        }
+    });
+
+    return stats;
+};
+
 export default function Inspections() {
     const navigate = useNavigate();
     const location = useLocation();
@@ -158,6 +220,9 @@ export default function Inspections() {
     const [executingTask, setExecutingTask] = useState(null);
     const [inspectionForm, setInspectionForm] = useState({});
     const [viewingRecord, setViewingRecord] = useState(null);
+    const [submitDetailsModalOpen, setSubmitDetailsModalOpen] = useState(false);
+    const [additionalFindingsDraft, setAdditionalFindingsDraft] = useState('');
+    const [submittingInspection, setSubmittingInspection] = useState(false);
     const isFieldPortalMode = isFieldPortalHomeContext();
 
     useEffect(() => {
@@ -175,7 +240,11 @@ export default function Inspections() {
         const fetchData = async () => {
             try {
                 const data = await readOrgChildren(rtdb, sess.orgId, ['inspectionTemplates', 'inspectionRecords', 'sites', 'users']);
-                if (data.inspectionTemplates) setTemplates(Object.entries(data.inspectionTemplates).map(([k, v]) => ({ firebaseKey: k, ...v })));
+                if (data.inspectionTemplates) setTemplates(Object.entries(data.inspectionTemplates).map(([k, v]) => ({
+                    firebaseKey: k,
+                    ...v,
+                    fields: normalizeTemplateFields(v.fields || [])
+                })));
                 if (data.inspectionRecords) setRecords(Object.entries(data.inspectionRecords).map(([k, v]) => ({ firebaseKey: k, ...v })));
                 if (data.sites) setSites(normalizeSites(data.sites));
                 if (data.users) setUsers(Object.entries(data.users).map(([k, v]) => ({ id: k, ...v })).filter(u => u.status !== 'Inactive'));
@@ -193,6 +262,30 @@ export default function Inspections() {
         () => filterSitesByRegion(sites, regionFilter),
         [sites, regionFilter]
     );
+
+    const filteredRecords = useMemo(() => records.filter((record) => {
+        if (regionFilter !== 'All' && !matchesRegionFilter(record.siteId, sites, regionFilter)) return false;
+        return siteFilter === 'All' || record.siteId === siteFilter;
+    }), [records, regionFilter, siteFilter, sites]);
+
+    const latestInspectionRecord = useMemo(() => (
+        [...filteredRecords].sort((a, b) => new Date(b.completedAt) - new Date(a.completedAt))[0] || null
+    ), [filteredRecords]);
+
+    const latestInspectionFindings = useMemo(
+        () => getInspectionFindings(latestInspectionRecord),
+        [latestInspectionRecord]
+    );
+
+    const latestRecordByTemplateSite = useMemo(() => {
+        const sortedRecords = [...records].sort((a, b) => new Date(b.completedAt) - new Date(a.completedAt));
+        const map = new Map();
+        sortedRecords.forEach((record) => {
+            const key = `${record.templateId}::${record.siteId}`;
+            if (!map.has(key)) map.set(key, record);
+        });
+        return map;
+    }, [records]);
 
     useEffect(() => {
         if (siteFilter !== 'All' && !filteredVisibleSites.some((site) => site.code === siteFilter)) {
@@ -316,6 +409,7 @@ export default function Inspections() {
         try {
             const payload = {
                 ...editTemplate,
+                fields: normalizeTemplateFields(editTemplate.fields || []),
                 assignedFrom: editTemplate.assignedFrom || '',
                 assignedTo: editTemplate.assignedTo || '',
                 updatedBy: session.name,
@@ -354,19 +448,21 @@ export default function Inspections() {
 
     // --- BULK EXCEL QUESTION IMPORT ---
     const downloadQuestionTemplate = () => {
-        const questionTypes = ['Pass/Fail', 'Text Input', 'Number'];
         const workbook = XLSX.utils.book_new();
         const questionsSheet = XLSX.utils.aoa_to_sheet([
-            ['Question / Check Requirement (Required)', 'Answer Type (Required)'],
-            ['Are fire exits clear and unobstructed?', 'Pass/Fail'],
-            ['Current pressure reading of compressor?', 'Number'],
-            ['General observations of the work area:', 'Text Input']
+            ['Question / Check Requirement (Required)', 'Answer Type (Required)', 'Photo Requirement (Optional)'],
+            ['Are fire exits clear and unobstructed?', 'Pass/Fail', 'Optional'],
+            ['Current pressure reading of compressor?', 'Number', 'Not Required'],
+            ['General observations of the work area:', 'Text Input', 'Mandatory']
         ]);
-        questionsSheet['!cols'] = [{ wch: 60 }, { wch: 25 }];
+        questionsSheet['!cols'] = [{ wch: 60 }, { wch: 25 }, { wch: 24 }];
 
         const allowedValuesSheet = XLSX.utils.aoa_to_sheet([
             ['Allowed Answer Types'],
-            ...questionTypes.map(type => [type])
+            ...QUESTION_TYPES.map(type => [type]),
+            [],
+            ['Allowed Photo Requirement Values'],
+            ...PHOTO_REQUIREMENTS.map((type) => [type])
         ]);
         allowedValuesSheet['!cols'] = [{ wch: 24 }];
 
@@ -399,13 +495,16 @@ export default function Inspections() {
                     const questionText = row[qKey];
                     if (!questionText) return;
 
-                    let qType = row[tKey] || 'Pass/Fail';
-                    if (!['Pass/Fail', 'Text Input', 'Number'].includes(qType)) qType = 'Pass/Fail';
+                    const pKey = keys.find(k => k.toLowerCase().includes('photo'));
+
+                    let qType = normalizeQuestionType(row[tKey] || 'Pass/Fail');
+                    const photoRequirement = normalizePhotoRequirement(row[pKey] || 'Not Required');
 
                     newFields.push({
                         id: `imported-${Date.now()}-${idx}-${Math.random().toString(36).substr(2, 5)}`,
                         label: questionText,
-                        type: qType
+                        type: qType,
+                        photoRequirement
                     });
                 });
 
@@ -426,19 +525,126 @@ export default function Inspections() {
         reader.readAsBinaryString(file);
     };
 
+    const currentTaskLastRecord = useMemo(() => {
+        if (!executingTask) return null;
+        return latestRecordByTemplateSite.get(`${executingTask.templateId}::${executingTask.siteId}`) || null;
+    }, [executingTask, latestRecordByTemplateSite]);
+
+    const currentTaskFindings = useMemo(
+        () => getInspectionFindings(currentTaskLastRecord),
+        [currentTaskLastRecord]
+    );
+
+    const isMultipleChoiceInspection = useMemo(() => (
+        Boolean(executingTask?.template?.fields?.length)
+        && executingTask.template.fields.every((field) => field.type === 'Pass/Fail')
+    ), [executingTask]);
+
+    const inspectionProgress = useMemo(() => {
+        const fields = executingTask?.template?.fields || [];
+        const total = fields.length;
+        let answered = 0;
+        let photoMandatory = 0;
+        let photoSatisfied = 0;
+
+        fields.forEach((field) => {
+            const response = inspectionForm[field.id];
+            if (hasAnsweredQuestion(field, response)) answered += 1;
+            if (field.photoRequirement === 'Mandatory') {
+                photoMandatory += 1;
+                if (response?.photoEvidence) photoSatisfied += 1;
+            }
+        });
+
+        const percent = total > 0 ? Math.round((answered / total) * 100) : 0;
+        return { total, answered, remaining: Math.max(total - answered, 0), percent, photoMandatory, photoSatisfied };
+    }, [executingTask, inspectionForm]);
+
+    const multipleChoiceStats = useMemo(
+        () => getInspectionPassFailStats(executingTask?.template, inspectionForm),
+        [executingTask, inspectionForm]
+    );
+
+    const updateInspectionResponse = (fieldId, patch) => {
+        setInspectionForm((prev) => ({
+            ...prev,
+            [fieldId]: {
+                ...(prev[fieldId] || {}),
+                ...(typeof patch === 'function' ? patch(prev[fieldId] || {}) : patch)
+            }
+        }));
+    };
+
+    const handleQuestionPhotoUpload = async (fieldId, event) => {
+        const file = event.target.files?.[0];
+        if (!file) return;
+
+        const base64 = await fileToBase64(file);
+        updateInspectionResponse(fieldId, {
+            photoEvidence: base64,
+            photoEvidenceName: file.name,
+            observationOpen: true
+        });
+        event.target.value = '';
+    };
+
+    const removeQuestionPhoto = (fieldId) => {
+        updateInspectionResponse(fieldId, {
+            photoEvidence: null,
+            photoEvidenceName: ''
+        });
+    };
+
+    const validateInspectionSubmission = () => {
+        const validationErrors = [];
+        (executingTask?.template?.fields || []).forEach((field, index) => {
+            const response = inspectionForm[field.id];
+            if (!hasAnsweredQuestion(field, response)) {
+                validationErrors.push(`Question ${index + 1} is still unanswered.`);
+            }
+            if (field.photoRequirement === 'Mandatory' && !response?.photoEvidence) {
+                validationErrors.push(`Question ${index + 1} requires a photo upload before submission.`);
+            }
+        });
+        return validationErrors;
+    };
+
+    const requestInspectionSubmit = () => {
+        const validationErrors = validateInspectionSubmission();
+        if (validationErrors.length > 0) {
+            alert(validationErrors.join('\n'));
+            return;
+        }
+        setAdditionalFindingsDraft('');
+        setSubmitDetailsModalOpen(true);
+    };
+
     // --- EXECUTION HANDLERS ---
     const startInspection = (task) => {
         setExecutingTask(task);
         const initForm = {};
         task.template.fields.forEach(f => {
-            initForm[f.id] = { label: f.label, answer: '', observation: '', raiseCapa: false, capaOwner: '', capaDue: '' };
+            initForm[f.id] = {
+                label: f.label,
+                answer: '',
+                observation: '',
+                observationOpen: f.photoRequirement !== 'Not Required',
+                raiseCapa: false,
+                capaOwner: '',
+                capaDue: '',
+                photoEvidence: null,
+                photoEvidenceName: ''
+            };
         });
         setInspectionForm(initForm);
+        setAdditionalFindingsDraft('');
+        setSubmitDetailsModalOpen(false);
         setView('execute');
     };
 
     const submitInspection = async () => {
         try {
+            setSubmittingInspection(true);
             const completedAt = new Date().toISOString();
 
             const generatedCapas = [];
@@ -473,6 +679,7 @@ export default function Inspections() {
                 assignmentStart: executingTask.assignmentStart || '',
                 assignmentEnd: executingTask.assignmentEnd || '',
                 responses: inspectionForm,
+                additionalFindings: additionalFindingsDraft,
                 capa: generatedCapas
             };
 
@@ -495,9 +702,14 @@ export default function Inspections() {
             }
 
             setExecutingTask(null);
+            setInspectionForm({});
+            setSubmitDetailsModalOpen(false);
+            setAdditionalFindingsDraft('');
             setView('calendar');
         } catch (e) {
             alert("Failed to submit inspection: " + e.message);
+        } finally {
+            setSubmittingInspection(false);
         }
     };
 
@@ -555,6 +767,40 @@ export default function Inspections() {
                                         <div className="text-[10px] font-bold uppercase tracking-[0.25em] text-blue-300 mb-2">Best Entry</div>
                                         <div className="font-bold text-white mb-2">Open an assigned inspection from the schedule, complete the questions, and submit the report.</div>
                                         This field workspace is report-only for inspections. Complete the assigned inspection here, then log in to the web portal to verify the submitted report.
+                                    </div>
+                                )}
+                                {latestInspectionRecord && (
+                                    <div className="max-w-6xl mx-auto bg-slate-900/70 border border-cyan-500/30 rounded-2xl p-6 shadow-xl">
+                                        <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-6">
+                                            <div className="flex-1">
+                                                <div className="text-[10px] font-bold uppercase tracking-[0.28em] text-cyan-300 mb-2">Last Inspection Snapshot</div>
+                                                <div className="text-xl font-black text-white">{latestInspectionRecord.templateTitle}</div>
+                                                <div className="text-xs text-slate-400 mt-2">
+                                                    {new Date(latestInspectionRecord.completedAt).toLocaleString()} | Site: <span className="text-white font-bold">{latestInspectionRecord.siteId}</span> | Inspector: <span className="text-white font-bold">{latestInspectionRecord.inspector}</span>
+                                                </div>
+                                                {latestInspectionRecord.additionalFindings && (
+                                                    <div className="mt-4 bg-slate-950/80 border border-cyan-500/20 rounded-xl p-4 text-sm text-slate-200">
+                                                        <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-cyan-300 mb-2">Additional Findings</div>
+                                                        {latestInspectionRecord.additionalFindings}
+                                                    </div>
+                                                )}
+                                            </div>
+                                            <div className="md:w-[320px] bg-slate-950/70 border border-slate-800 rounded-2xl p-4">
+                                                <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-slate-400 mb-3">Last Findings</div>
+                                                <div className="space-y-3">
+                                                    {latestInspectionFindings.slice(0, 4).map((finding, index) => (
+                                                        <div key={`${finding.label}-${index}`} className="border border-slate-800 rounded-xl p-3 bg-slate-900/60">
+                                                            <div className="text-xs font-bold text-white">{finding.label}</div>
+                                                            <div className={`text-[10px] font-bold uppercase tracking-[0.22em] mt-1 ${finding.answer === 'Fail' ? 'text-red-400' : 'text-blue-300'}`}>{finding.answer}</div>
+                                                            {finding.observation && <div className="text-xs text-slate-400 mt-2">{finding.observation}</div>}
+                                                        </div>
+                                                    ))}
+                                                    {latestInspectionFindings.length === 0 && (
+                                                        <div className="text-xs italic text-slate-500">No finding details were recorded in the latest inspection.</div>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        </div>
                                     </div>
                                 )}
                                 <div className="flex justify-between items-end mb-4">
@@ -724,7 +970,7 @@ export default function Inspections() {
                                                         </select>
                                                     </td>
                                                     <td className="p-5 pr-6 text-right flex justify-end gap-2">
-                                                        <button onClick={() => { setEditTemplate({ ...createEmptyTemplate(t.siteId), ...t, assignedFrom: t.assignedFrom || '', assignedTo: t.assignedTo || '', fields: t.fields || [] }); setView('builder'); }} className="bg-slate-800 hover:bg-slate-700 text-white w-9 h-9 rounded-lg flex items-center justify-center transition-colors border border-slate-600"><i className="fas fa-edit"></i></button>
+                                                        <button onClick={() => { setEditTemplate({ ...createEmptyTemplate(t.siteId), ...t, assignedFrom: t.assignedFrom || '', assignedTo: t.assignedTo || '', fields: normalizeTemplateFields(t.fields || []) }); setView('builder'); }} className="bg-slate-800 hover:bg-slate-700 text-white w-9 h-9 rounded-lg flex items-center justify-center transition-colors border border-slate-600"><i className="fas fa-edit"></i></button>
                                                         <button onClick={() => deleteTemplate(t.firebaseKey)} className="bg-red-900/20 hover:bg-red-600 text-red-500 hover:text-white w-9 h-9 rounded-lg flex items-center justify-center transition-colors border border-red-500/30"><i className="fas fa-trash-alt"></i></button>
                                                     </td>
                                                 </tr>
@@ -798,19 +1044,20 @@ export default function Inspections() {
                                                 <input type="file" accept=".xlsx, .xls, .csv" onChange={handleQuestionImport} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" title="Upload Questions" />
                                                 <button type="button" className="text-[9px] bg-emerald-900/30 text-emerald-400 hover:bg-emerald-600 hover:text-white px-3 py-1.5 rounded-lg border border-emerald-500/30 font-bold uppercase transition-colors"><i className="fas fa-upload mr-1"></i> Upload</button>
                                             </div>
-                                            <button type="button" onClick={() => setEditTemplate({ ...editTemplate, fields: [...editTemplate.fields, { id: Date.now().toString(), label: '', type: 'Pass/Fail' }] })} className="text-[9px] bg-blue-900/30 text-blue-400 hover:bg-blue-600 hover:text-white px-3 py-1.5 rounded-lg border border-blue-500/30 font-bold uppercase transition-colors"><i className="fas fa-plus mr-1"></i> Add Manual</button>
+                                            <button type="button" onClick={() => setEditTemplate({ ...editTemplate, fields: [...editTemplate.fields, normalizeTemplateField({ id: Date.now().toString(), label: '', type: 'Pass/Fail', photoRequirement: 'Not Required' })] })} className="text-[9px] bg-blue-900/30 text-blue-400 hover:bg-blue-600 hover:text-white px-3 py-1.5 rounded-lg border border-blue-500/30 font-bold uppercase transition-colors"><i className="fas fa-plus mr-1"></i> Add Manual</button>
                                         </div>
                                     </div>
 
                                     <div className="space-y-3">
                                         {editTemplate.fields.map((field, idx) => (
-                                            <div key={field.id} className="flex gap-3 items-center bg-slate-900 p-3 rounded-xl border border-slate-700 group">
+                                            <div key={field.id} className="grid grid-cols-1 md:grid-cols-[auto,1fr,140px,160px,auto] gap-3 items-center bg-slate-900 p-3 rounded-xl border border-slate-700 group">
                                                 <div className="text-slate-600 font-bold w-6 text-center">{idx + 1}.</div>
                                                 <input value={field.label} onChange={e => { const n = [...editTemplate.fields]; n[idx].label = e.target.value; setEditTemplate({ ...editTemplate, fields: n }); }} placeholder="Enter check requirement (e.g. 'Are fire exits clear?')" className="flex-1 bg-transparent border-b border-slate-600 focus:border-lime-500 outline-none text-sm text-white px-2 py-1" />
-                                                <select value={field.type} onChange={e => { const n = [...editTemplate.fields]; n[idx].type = e.target.value; setEditTemplate({ ...editTemplate, fields: n }); }} className="w-32 bg-slate-950 border border-slate-700 rounded-lg text-xs p-2 text-slate-300 outline-none">
-                                                    <option>Pass/Fail</option>
-                                                    <option>Text Input</option>
-                                                    <option>Number</option>
+                                                <select value={field.type} onChange={e => { const n = [...editTemplate.fields]; n[idx].type = e.target.value; setEditTemplate({ ...editTemplate, fields: n }); }} className="w-full bg-slate-950 border border-slate-700 rounded-lg text-xs p-2 text-slate-300 outline-none">
+                                                    {QUESTION_TYPES.map((type) => <option key={type} value={type}>{type}</option>)}
+                                                </select>
+                                                <select value={field.photoRequirement || 'Not Required'} onChange={e => { const n = [...editTemplate.fields]; n[idx].photoRequirement = e.target.value; setEditTemplate({ ...editTemplate, fields: n }); }} className="w-full bg-slate-950 border border-slate-700 rounded-lg text-xs p-2 text-slate-300 outline-none">
+                                                    {PHOTO_REQUIREMENTS.map((type) => <option key={type} value={type}>{type}</option>)}
                                                 </select>
                                                 <button type="button" onClick={() => { const n = editTemplate.fields.filter((_, i) => i !== idx); setEditTemplate({ ...editTemplate, fields: n }); }} className="w-8 h-8 rounded bg-red-900/20 text-red-500 hover:bg-red-600 hover:text-white transition-colors opacity-0 group-hover:opacity-100 flex items-center justify-center"><i className="fas fa-trash"></i></button>
                                             </div>
@@ -836,40 +1083,130 @@ export default function Inspections() {
                                     {executingTask.template.desc && <p className="mt-4 text-sm text-slate-300 bg-slate-950 p-4 rounded-xl border border-slate-800 italic">{executingTask.template.desc}</p>}
                                 </div>
 
+                                {currentTaskLastRecord && (
+                                    <div className="mb-8 rounded-2xl border border-cyan-500/30 bg-cyan-950/10 p-6 shadow-inner">
+                                        <div className="flex flex-col md:flex-row md:justify-between md:items-start gap-6">
+                                            <div className="flex-1">
+                                                <div className="text-[10px] font-bold uppercase tracking-[0.24em] text-cyan-300 mb-2">Last Inspection Details</div>
+                                                <div className="text-sm text-slate-300">
+                                                    {new Date(currentTaskLastRecord.completedAt).toLocaleString()} | Inspector: <span className="text-white font-bold">{currentTaskLastRecord.inspector}</span>
+                                                </div>
+                                                {currentTaskLastRecord.additionalFindings && (
+                                                    <div className="mt-4 bg-slate-950/70 border border-cyan-500/20 rounded-xl p-4 text-sm text-slate-200">
+                                                        <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-cyan-300 mb-2">Additional Findings</div>
+                                                        {currentTaskLastRecord.additionalFindings}
+                                                    </div>
+                                                )}
+                                            </div>
+                                            <div className="md:w-[320px] bg-slate-950/70 border border-slate-800 rounded-2xl p-4">
+                                                <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-slate-400 mb-3">Previous Findings</div>
+                                                <div className="space-y-3">
+                                                    {currentTaskFindings.slice(0, 4).map((finding, index) => (
+                                                        <div key={`${finding.label}-${index}`} className="rounded-xl border border-slate-800 bg-slate-900/60 p-3">
+                                                            <div className="text-xs font-bold text-white">{finding.label}</div>
+                                                            <div className={`mt-1 text-[10px] font-bold uppercase tracking-[0.2em] ${finding.answer === 'Fail' ? 'text-red-400' : 'text-blue-300'}`}>{finding.answer}</div>
+                                                            {finding.observation && <div className="mt-2 text-xs text-slate-400">{finding.observation}</div>}
+                                                        </div>
+                                                    ))}
+                                                    {currentTaskFindings.length === 0 && (
+                                                        <div className="text-xs italic text-slate-500">No detailed findings were logged in the previous inspection.</div>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {isMultipleChoiceInspection && (
+                                    <div className="mb-8 grid grid-cols-2 md:grid-cols-4 gap-4">
+                                        <div className="rounded-2xl border border-slate-700 bg-slate-950/70 p-4">
+                                            <div className="text-[10px] uppercase tracking-[0.22em] text-slate-500 font-bold">Answered</div>
+                                            <div className="mt-2 text-2xl font-black text-white">{multipleChoiceStats.answered}/{multipleChoiceStats.total}</div>
+                                        </div>
+                                        <div className="rounded-2xl border border-emerald-500/30 bg-emerald-950/10 p-4">
+                                            <div className="text-[10px] uppercase tracking-[0.22em] text-emerald-300 font-bold">Pass</div>
+                                            <div className="mt-2 text-2xl font-black text-emerald-300">{multipleChoiceStats.pass}</div>
+                                        </div>
+                                        <div className="rounded-2xl border border-red-500/30 bg-red-950/10 p-4">
+                                            <div className="text-[10px] uppercase tracking-[0.22em] text-red-300 font-bold">Fail</div>
+                                            <div className="mt-2 text-2xl font-black text-red-300">{multipleChoiceStats.fail}</div>
+                                        </div>
+                                        <div className="rounded-2xl border border-slate-700 bg-slate-950/70 p-4">
+                                            <div className="text-[10px] uppercase tracking-[0.22em] text-slate-500 font-bold">N/A</div>
+                                            <div className="mt-2 text-2xl font-black text-slate-200">{multipleChoiceStats.na}</div>
+                                        </div>
+                                    </div>
+                                )}
+
                                 <div className="space-y-8 mb-10">
                                     {executingTask.template.fields.map((f, idx) => (
                                         <div key={f.id} className="bg-slate-950/50 p-6 rounded-2xl border border-slate-700 shadow-inner">
                                             <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-4 mb-4">
-                                                <h4 className="text-base font-bold text-white flex-1"><span className="text-blue-500 mr-2">{idx + 1}.</span> {f.label}</h4>
+                                                <div className="flex-1">
+                                                    <h4 className="text-base font-bold text-white"><span className="text-blue-500 mr-2">{idx + 1}.</span> {f.label}</h4>
+                                                    {f.photoRequirement !== 'Not Required' && (
+                                                        <div className={`mt-2 inline-flex items-center gap-2 rounded-full px-3 py-1 text-[10px] font-bold uppercase tracking-[0.2em] ${f.photoRequirement === 'Mandatory' ? 'bg-amber-500/15 text-amber-300 border border-amber-500/30' : 'bg-blue-500/15 text-blue-300 border border-blue-500/30'}`}>
+                                                            <i className="fas fa-camera"></i> {f.photoRequirement === 'Mandatory' ? 'Photo Mandatory' : 'Photo Optional'}
+                                                        </div>
+                                                    )}
+                                                </div>
 
                                                 {/* Answer Input based on Type */}
                                                 <div className="flex-shrink-0">
                                                     {f.type === 'Pass/Fail' && (
                                                         <div className="flex bg-slate-900 border border-slate-700 rounded-lg overflow-hidden">
-                                                            <button onClick={() => setInspectionForm({ ...inspectionForm, [f.id]: { ...inspectionForm[f.id], answer: 'Pass' } })} className={`px-6 py-2 text-xs font-bold uppercase tracking-widest transition-colors ${inspectionForm[f.id]?.answer === 'Pass' ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}><i className="fas fa-check mr-1"></i> Pass</button>
+                                                            <button onClick={() => updateInspectionResponse(f.id, { answer: 'Pass' })} className={`px-6 py-2 text-xs font-bold uppercase tracking-widest transition-colors ${inspectionForm[f.id]?.answer === 'Pass' ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}><i className="fas fa-check mr-1"></i> Pass</button>
                                                             <div className="w-px bg-slate-700"></div>
-                                                            <button onClick={() => setInspectionForm({ ...inspectionForm, [f.id]: { ...inspectionForm[f.id], answer: 'Fail' } })} className={`px-6 py-2 text-xs font-bold uppercase tracking-widest transition-colors ${inspectionForm[f.id]?.answer === 'Fail' ? 'bg-red-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}><i className="fas fa-times mr-1"></i> Fail</button>
+                                                            <button onClick={() => updateInspectionResponse(f.id, { answer: 'Fail', observationOpen: true })} className={`px-6 py-2 text-xs font-bold uppercase tracking-widest transition-colors ${inspectionForm[f.id]?.answer === 'Fail' ? 'bg-red-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}><i className="fas fa-times mr-1"></i> Fail</button>
                                                             <div className="w-px bg-slate-700"></div>
-                                                            <button onClick={() => setInspectionForm({ ...inspectionForm, [f.id]: { ...inspectionForm[f.id], answer: 'N/A' } })} className={`px-4 py-2 text-xs font-bold uppercase tracking-widest transition-colors ${inspectionForm[f.id]?.answer === 'N/A' ? 'bg-slate-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}>N/A</button>
+                                                            <button onClick={() => updateInspectionResponse(f.id, { answer: 'N/A' })} className={`px-4 py-2 text-xs font-bold uppercase tracking-widest transition-colors ${inspectionForm[f.id]?.answer === 'N/A' ? 'bg-slate-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}>N/A</button>
                                                         </div>
                                                     )}
                                                     {f.type === 'Text Input' && (
-                                                        <input value={inspectionForm[f.id]?.answer || ''} onChange={e => setInspectionForm({ ...inspectionForm, [f.id]: { ...inspectionForm[f.id], answer: e.target.value } })} placeholder="Enter details..." className="w-64 bg-slate-900 border border-slate-700 rounded-lg p-2 text-sm text-white outline-none focus:border-blue-500" />
+                                                        <input value={inspectionForm[f.id]?.answer || ''} onChange={e => updateInspectionResponse(f.id, { answer: e.target.value })} placeholder="Enter details..." className="w-64 bg-slate-900 border border-slate-700 rounded-lg p-2 text-sm text-white outline-none focus:border-blue-500" />
                                                     )}
                                                     {f.type === 'Number' && (
-                                                        <input type="number" value={inspectionForm[f.id]?.answer || ''} onChange={e => setInspectionForm({ ...inspectionForm, [f.id]: { ...inspectionForm[f.id], answer: e.target.value } })} placeholder="0.00" className="w-32 bg-slate-900 border border-slate-700 rounded-lg p-2 text-sm text-white outline-none focus:border-blue-500 text-center font-mono" />
+                                                        <input type="number" value={inspectionForm[f.id]?.answer || ''} onChange={e => updateInspectionResponse(f.id, { answer: e.target.value })} placeholder="0.00" className="w-32 bg-slate-900 border border-slate-700 rounded-lg p-2 text-sm text-white outline-none focus:border-blue-500 text-center font-mono" />
                                                     )}
                                                 </div>
                                             </div>
 
                                             {/* Observation & CAPA Block */}
-                                            {(inspectionForm[f.id]?.answer === 'Fail' || inspectionForm[f.id]?.observation !== undefined) && (
+                                            {(inspectionForm[f.id]?.answer === 'Fail' || inspectionForm[f.id]?.observationOpen || f.photoRequirement !== 'Not Required') && (
                                                 <div className="mt-4 bg-orange-950/20 border border-orange-500/30 p-4 rounded-xl animate-in fade-in slide-in-from-top-2">
                                                     <label className="text-[10px] uppercase font-bold text-orange-400 block mb-2"><i className="fas fa-exclamation-triangle mr-1"></i> Defect / Observation Notes</label>
-                                                    <textarea value={inspectionForm[f.id]?.observation || ''} onChange={e => setInspectionForm({ ...inspectionForm, [f.id]: { ...inspectionForm[f.id], observation: e.target.value } })} placeholder="Describe the issue found..." rows="2" className="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 text-sm text-white outline-none focus:border-orange-500 resize-none mb-3"></textarea>
+                                                    <textarea value={inspectionForm[f.id]?.observation || ''} onChange={e => updateInspectionResponse(f.id, { observation: e.target.value, observationOpen: true })} placeholder="Describe the issue found..." rows="2" className="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 text-sm text-white outline-none focus:border-orange-500 resize-none mb-3"></textarea>
+
+                                                    {f.photoRequirement !== 'Not Required' && (
+                                                        <div className="mb-4 rounded-xl border border-slate-700 bg-slate-900/80 p-4">
+                                                            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                                                                <div>
+                                                                    <div className="text-[10px] uppercase font-bold tracking-[0.2em] text-slate-400">Photo Evidence</div>
+                                                                    <div className="text-xs text-slate-500 mt-1">
+                                                                        {f.photoRequirement === 'Mandatory' ? 'This question needs a photo before the report can be submitted.' : 'Upload a supporting photo if it helps document the condition.'}
+                                                                    </div>
+                                                                </div>
+                                                                {!inspectionForm[f.id]?.photoEvidence && (
+                                                                    <label className="cursor-pointer inline-flex items-center gap-2 rounded-xl border border-dashed border-blue-500/40 px-4 py-3 text-[11px] font-bold uppercase tracking-[0.22em] text-blue-300 hover:bg-blue-500/10">
+                                                                        <i className="fas fa-camera"></i> Upload Photo
+                                                                        <input type="file" accept="image/*" capture="environment" onChange={(event) => handleQuestionPhotoUpload(f.id, event)} className="hidden" />
+                                                                    </label>
+                                                                )}
+                                                            </div>
+                                                            {inspectionForm[f.id]?.photoEvidence && (
+                                                                <div className="mt-4 flex flex-col md:flex-row md:items-center gap-4">
+                                                                    <img src={inspectionForm[f.id].photoEvidence} alt={`${f.label} evidence`} className="h-28 w-36 rounded-xl border border-slate-700 object-cover" />
+                                                                    <div className="flex-1">
+                                                                        <div className="text-xs font-mono text-slate-400">{inspectionForm[f.id]?.photoEvidenceName || 'Uploaded evidence'}</div>
+                                                                        <button type="button" onClick={() => removeQuestionPhoto(f.id)} className="mt-3 text-[10px] font-bold uppercase tracking-[0.22em] text-red-400 hover:text-red-300">Remove Photo</button>
+                                                                    </div>
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    )}
 
                                                     <label className="flex items-center gap-2 cursor-pointer mb-3">
-                                                        <input type="checkbox" checked={inspectionForm[f.id]?.raiseCapa || false} onChange={e => setInspectionForm({ ...inspectionForm, [f.id]: { ...inspectionForm[f.id], raiseCapa: e.target.checked } })} className="w-4 h-4 accent-orange-500" />
+                                                        <input type="checkbox" checked={inspectionForm[f.id]?.raiseCapa || false} onChange={e => updateInspectionResponse(f.id, { raiseCapa: e.target.checked, observationOpen: true })} className="w-4 h-4 accent-orange-500" />
                                                         <span className="text-xs font-bold text-white">Raise Corrective Action (CAPA)</span>
                                                     </label>
 
@@ -877,19 +1214,19 @@ export default function Inspections() {
                                                         <div className="flex gap-4 p-3 bg-slate-900 rounded-lg border border-slate-700">
                                                             <div className="flex-1">
                                                                 <label className="text-[9px] uppercase font-bold text-slate-500 block mb-1">Assign To</label>
-                                                                <UserSelect users={users} value={inspectionForm[f.id]?.capaOwner || ''} onChange={v => setInspectionForm({ ...inspectionForm, [f.id]: { ...inspectionForm[f.id], capaOwner: v } })} disabled={false} />
+                                                                <UserSelect users={users} value={inspectionForm[f.id]?.capaOwner || ''} onChange={v => updateInspectionResponse(f.id, { capaOwner: v })} disabled={false} />
                                                             </div>
                                                             <div className="w-1/3">
                                                                 <label className="text-[9px] uppercase font-bold text-slate-500 block mb-1">Due Date</label>
-                                                                <input type="date" value={inspectionForm[f.id]?.capaDue || ''} onChange={e => setInspectionForm({ ...inspectionForm, [f.id]: { ...inspectionForm[f.id], capaDue: e.target.value } })} className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-xs text-white outline-none focus:border-orange-500 font-mono" />
+                                                                <input type="date" value={inspectionForm[f.id]?.capaDue || ''} onChange={e => updateInspectionResponse(f.id, { capaDue: e.target.value })} className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-xs text-white outline-none focus:border-orange-500 font-mono" />
                                                             </div>
                                                         </div>
                                                     )}
                                                 </div>
                                             )}
 
-                                            {inspectionForm[f.id]?.answer !== 'Fail' && inspectionForm[f.id]?.observation === undefined && (
-                                                <button onClick={() => setInspectionForm({ ...inspectionForm, [f.id]: { ...inspectionForm[f.id], observation: '' } })} className="text-[10px] text-slate-500 hover:text-orange-400 font-bold uppercase tracking-widest transition-colors"><i className="fas fa-plus mr-1"></i> Add Note</button>
+                                            {inspectionForm[f.id]?.answer !== 'Fail' && !inspectionForm[f.id]?.observationOpen && f.photoRequirement === 'Not Required' && (
+                                                <button onClick={() => updateInspectionResponse(f.id, { observationOpen: true })} className="text-[10px] text-slate-500 hover:text-orange-400 font-bold uppercase tracking-widest transition-colors"><i className="fas fa-plus mr-1"></i> Add Note</button>
                                             )}
                                         </div>
                                     ))}
@@ -897,7 +1234,7 @@ export default function Inspections() {
 
                                 <div className="flex justify-end gap-4 pt-6 border-t border-slate-800">
                                     <button onClick={() => setView('calendar')} className="px-8 py-4 bg-slate-800 text-white font-bold rounded-xl text-xs uppercase tracking-widest hover:bg-slate-700 transition">Discard</button>
-                                    <button onClick={submitInspection} className="px-10 py-4 bg-blue-600 text-white font-black uppercase tracking-widest rounded-xl shadow-lg shadow-blue-600/20 hover:bg-blue-500 transition flex items-center gap-2"><i className="fas fa-check-double text-lg"></i> Sign & Submit Report</button>
+                                    <button onClick={requestInspectionSubmit} className="px-10 py-4 bg-blue-600 text-white font-black uppercase tracking-widest rounded-xl shadow-lg shadow-blue-600/20 hover:bg-blue-500 transition flex items-center gap-2"><i className="fas fa-check-double text-lg"></i> Sign & Submit Report</button>
                                 </div>
                             </div>
                         )}
@@ -953,6 +1290,62 @@ export default function Inspections() {
                     </div>
                 </main>
 
+                {view === 'execute' && executingTask && (
+                    <div className="fixed bottom-4 left-1/2 z-40 w-[min(92vw,860px)] -translate-x-1/2 rounded-2xl border border-blue-500/30 bg-slate-950/95 p-4 shadow-2xl shadow-blue-950/40 backdrop-blur-md print:hidden">
+                        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                            <div className="flex-1">
+                                <div className="flex flex-wrap items-center gap-3 text-[10px] font-bold uppercase tracking-[0.22em] text-slate-400">
+                                    <span>Response Progress</span>
+                                    <span className="text-white">{inspectionProgress.answered}/{inspectionProgress.total} Answered</span>
+                                    {inspectionProgress.photoMandatory > 0 && (
+                                        <span className="text-amber-300">{inspectionProgress.photoSatisfied}/{inspectionProgress.photoMandatory} Mandatory Photos</span>
+                                    )}
+                                </div>
+                                <div className="mt-3 h-3 overflow-hidden rounded-full bg-slate-800">
+                                    <div className="h-full rounded-full bg-gradient-to-r from-blue-500 via-cyan-400 to-emerald-400 transition-all duration-300" style={{ width: `${inspectionProgress.percent}%` }}></div>
+                                </div>
+                            </div>
+                            {isMultipleChoiceInspection && (
+                                <div className="flex items-center gap-2 text-[11px] font-bold">
+                                    <span className="rounded-full bg-emerald-500/15 px-3 py-1 text-emerald-300">{multipleChoiceStats.pass} Pass</span>
+                                    <span className="rounded-full bg-red-500/15 px-3 py-1 text-red-300">{multipleChoiceStats.fail} Fail</span>
+                                    <span className="rounded-full bg-slate-800 px-3 py-1 text-slate-300">{multipleChoiceStats.na} N/A</span>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                )}
+
+                {submitDetailsModalOpen && executingTask && (
+                    <div className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-950/80 p-4 backdrop-blur-md print:hidden">
+                        <div className="w-full max-w-2xl rounded-3xl border border-slate-700 bg-slate-900 p-8 shadow-2xl">
+                            <div className="flex items-center justify-between gap-4 border-b border-slate-800 pb-4">
+                                <div>
+                                    <div className="text-[10px] font-bold uppercase tracking-[0.24em] text-blue-300 mb-2">Final Check</div>
+                                    <h3 className="text-2xl font-black text-white">Add Final Findings Before Submit</h3>
+                                </div>
+                                <button type="button" onClick={() => setSubmitDetailsModalOpen(false)} className="text-slate-500 hover:text-white">
+                                    <i className="fas fa-times text-xl"></i>
+                                </button>
+                            </div>
+                            <p className="mt-5 text-sm text-slate-400">Capture any overall findings, handover details, or follow-up notes from this inspection. These details will be stored with the record and shown in the last inspection summary.</p>
+                            <textarea
+                                rows="6"
+                                value={additionalFindingsDraft}
+                                onChange={(e) => setAdditionalFindingsDraft(e.target.value)}
+                                placeholder="Examples: housekeeping trend noticed across bay 2, minor corrosion beginning on frame, temporary barrier reinstated, follow-up with maintenance supervisor required..."
+                                className="mt-5 w-full rounded-2xl border border-slate-700 bg-slate-950 p-4 text-sm text-white outline-none focus:border-blue-500 resize-none"
+                            />
+                            <div className="mt-6 flex flex-col-reverse gap-3 md:flex-row md:justify-end">
+                                <button type="button" onClick={() => setSubmitDetailsModalOpen(false)} className="rounded-xl bg-slate-800 px-6 py-3 text-xs font-bold uppercase tracking-[0.22em] text-white hover:bg-slate-700">Go Back</button>
+                                <button type="button" disabled={submittingInspection} onClick={submitInspection} className="rounded-xl bg-blue-600 px-8 py-3 text-xs font-black uppercase tracking-[0.22em] text-white shadow-lg shadow-blue-600/20 hover:bg-blue-500 disabled:opacity-50">
+                                    {submittingInspection ? 'Submitting...' : 'Submit Inspection'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
                 {/* --- COMPLETED RECORD PDF VIEW --- */}
                 {view === 'view-record' && viewingRecord && (
                     <div className="absolute inset-0 z-[100] bg-slate-950 overflow-y-auto print:static print:inset-auto print:overflow-visible print:bg-white print:text-black print:h-auto print-content">
@@ -994,7 +1387,18 @@ export default function Inspections() {
                                             {Object.values(viewingRecord.responses || {}).filter(r => r.answer === 'Fail').length} Defects Found
                                         </p>
                                     </div>
+                                    <div>
+                                        <p className="text-gray-500 font-bold uppercase text-[10px] tracking-widest mb-1">Evidence Photos</p>
+                                        <p className="font-bold text-base m-0">{getQuestionPhotoCount(viewingRecord.responses || {})}</p>
+                                    </div>
                                 </div>
+
+                                {viewingRecord.additionalFindings && (
+                                    <div className="mb-10 border-2 border-black bg-gray-50 p-6">
+                                        <h3 className="text-sm font-black uppercase border-b-2 border-black pb-2 mb-4">Additional Findings / Final Notes</h3>
+                                        <div className="text-sm leading-relaxed whitespace-pre-wrap">{viewingRecord.additionalFindings}</div>
+                                    </div>
+                                )}
 
                                 <h3 className="text-sm font-black uppercase border-b-2 border-black pb-2 mb-6">Inspection Findings</h3>
 
@@ -1020,6 +1424,13 @@ export default function Inspections() {
                                                     {data.observation && (
                                                         <div className="mt-3 text-xs bg-gray-100 p-2 border-l-4 border-black italic">
                                                             <strong className="not-italic block mb-1">Notes:</strong> {data.observation}
+                                                        </div>
+                                                    )}
+                                                    {data.photoEvidence && (
+                                                        <div className="mt-3">
+                                                            <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-gray-500 mb-2">Photo Evidence</div>
+                                                            <img src={data.photoEvidence} alt={data.photoEvidenceName || data.label} className="max-h-40 rounded border border-black object-contain bg-white" />
+                                                            {data.photoEvidenceName && <div className="mt-1 text-[10px] text-gray-500 font-mono">{data.photoEvidenceName}</div>}
                                                         </div>
                                                     )}
                                                 </td>
