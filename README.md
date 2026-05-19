@@ -46,6 +46,8 @@ npm run firebase:deploy:field-portal
 
 More detail is available in `FIELD_PORTAL_DEPLOYMENT.md`.
 
+Vercel deployment notes for the main app plus field portal are available in `VERCEL_DEPLOYMENT.md`.
+
 ## Current Security Posture
 
 - Three-role RBAC model: `Global Owner`, `Site Owner`, `User`
