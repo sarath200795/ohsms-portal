@@ -481,6 +481,7 @@ export default function Incidents() {
     const [newCapaOwn, setNewCapaOwn] = useState('');
     const [newCapaDue, setNewCapaDue] = useState('');
     const [newCapaSite, setNewCapaSite] = useState('');
+    const [videoEvidenceFile, setVideoEvidenceFile] = useState(null);
 
     const initialDataState = useMemo(() => createInitialDataState(), []);
     const [data, setData] = useState(() => createInitialDataState());
@@ -492,6 +493,35 @@ export default function Incidents() {
     const defaultSiteFilter = resolveInitialSiteFilter({ session, search: location.search, isGlobalUser });
     const rawSiteFilter = siteFilterOverride || defaultSiteFilter;
     const isFieldPortalMode = isFieldPortalHomeContext();
+
+    const revokeVideoPreviewUrl = (value) => {
+        const previewUrl = String(value || '').trim();
+        if (previewUrl.startsWith('blob:')) {
+            URL.revokeObjectURL(previewUrl);
+        }
+    };
+
+    const clearVideoEvidence = (previewUrl = data.videoEvidence) => {
+        revokeVideoPreviewUrl(previewUrl);
+        setVideoEvidenceFile(null);
+        setData((prev) => ({ ...prev, videoEvidence: null, videoEvidenceName: '' }));
+    };
+
+    const resetTransientEvidence = (nextVideoPreview = null) => {
+        revokeVideoPreviewUrl(data.videoEvidence);
+        if (nextVideoPreview && nextVideoPreview === data.videoEvidence) return;
+        setVideoEvidenceFile(null);
+    };
+
+    const resetIncidentDraft = () => {
+        resetTransientEvidence();
+        setView('repo');
+        setData(createInitialDataState());
+    };
+
+    useEffect(() => () => {
+        revokeVideoPreviewUrl(data.videoEvidence);
+    }, [data.videoEvidence]);
 
     useEffect(() => {
         if (!sessionIsValid) {
@@ -563,6 +593,7 @@ export default function Incidents() {
                 if (autoOpenId && loadedIncidents.length > 0) {
                     const target = loadedIncidents.find((i) => i.firebaseKey === autoOpenId);
                     if (target) {
+                        setVideoEvidenceFile(null);
                         setData(buildEditableIncidentData(initialDataState, target));
                         setView('form');
                         setStep(1);
@@ -984,7 +1015,10 @@ export default function Incidents() {
         try {
             const analysisResult = await runIncidentAiBackendAnalysis({
                 incidentId: currentIncidentId || `incident-${Date.now()}`,
-                incidentData: data,
+                incidentData: {
+                    ...data,
+                    videoEvidenceFile
+                },
                 session,
                 onStatusChange: setAnalysisStatusLabel
             });
@@ -1096,9 +1130,13 @@ export default function Incidents() {
                 timestamp: saveTimestamp,
                 assumeLegacyCompletion: Boolean(data.firebaseKey)
             });
+            const persistedVideoEvidence = String(data.videoEvidence || '').startsWith('data:video/')
+                ? data.videoEvidence
+                : null;
             const payload = JSON.parse(JSON.stringify({
                 ...data,
                 id: incidentId,
+                videoEvidence: persistedVideoEvidence,
                 reporting,
                 capa: capaWithVerificationActions,
                 linkedHazards: data.linkedHazards || [],
@@ -1136,6 +1174,7 @@ export default function Incidents() {
                 } else {
                     alert(data.horizontalDeployment ? 'Horizontal Deployment Updated. Investigation draft saved and actions pushed globally!' : 'Incident investigation draft saved successfully.');
                 }
+                setVideoEvidenceFile(null);
                 setView('repo');
             }
         } catch (e) {
@@ -1159,6 +1198,7 @@ export default function Incidents() {
     };
 
     const handleEdit = (incident) => {
+        resetTransientEvidence();
         setData(buildEditableIncidentData(initialDataState, incident));
         setView('form');
         setStep(1);
@@ -1189,9 +1229,12 @@ export default function Incidents() {
     const handleVideoUpload = async (e) => {
         const file = e.target.files[0];
         if (file) {
-            const base64 = await fileToBase64(file);
-            setData({ ...data, videoEvidence: base64, videoEvidenceName: file.name });
+            revokeVideoPreviewUrl(data.videoEvidence);
+            const previewUrl = URL.createObjectURL(file);
+            setVideoEvidenceFile(file);
+            setData({ ...data, videoEvidence: previewUrl, videoEvidenceName: file.name });
         }
+        e.target.value = '';
     };
 
     const scanHiraDatabase = () => {
@@ -1389,6 +1432,7 @@ export default function Incidents() {
                                 <button
                                     type="button"
                                     onClick={() => {
+                                    resetTransientEvidence();
                                     handleViewChange('form');
                                     setStep(1);
                                         setData({
@@ -1445,6 +1489,7 @@ export default function Incidents() {
                                     handleAddTeamMember={handleAddTeamMember}
                                     handleDescriptionBlur={handleDescriptionBlur}
                                     handleImageUpload={handleImageUpload}
+                                    handleRemoveVideo={clearVideoEvidence}
                                     handleVideoUpload={handleVideoUpload}
                                     initialDataState={initialDataState}
                                     incidentReporting={incidentReporting}
@@ -1455,6 +1500,7 @@ export default function Incidents() {
                                     newCapaDue={newCapaDue}
                                     newCapaOwn={newCapaOwn}
                                     newCapaSite={newCapaSite}
+                                    resetIncidentDraft={resetIncidentDraft}
                                     removeCapa={removeCapa}
                                     removeFiveWhyPath={removeFiveWhyPath}
                                     removeTeamMember={removeTeamMember}

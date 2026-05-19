@@ -10,16 +10,16 @@ export default function IncidentStepInitial({
     data,
     handleDescriptionBlur,
     handleImageUpload,
+    handleRemoveVideo,
     handleVideoUpload,
-    initialDataState,
     incidentReporting,
     investigationRequired,
     isAnalyzing,
     isGlobalUser,
+    resetIncidentDraft,
     saveData,
     saving,
     setData,
-    setView,
     triggerPrint,
     generateSmartInvestigation
 }) {
@@ -170,7 +170,7 @@ export default function IncidentStepInitial({
                             <video src={data.videoEvidence} controls className="max-h-64 rounded-xl border border-slate-700 bg-black" />
                             <div className="flex items-center gap-4">
                                 {data.videoEvidenceName && <div className="text-xs font-mono text-slate-400">{data.videoEvidenceName}</div>}
-                                {canEditForm && <button type="button" onClick={() => setData({ ...data, videoEvidence: null, videoEvidenceName: '' })} className="text-[10px] uppercase tracking-[0.22em] text-red-400 font-bold hover:text-red-300">Remove Video</button>}
+                                {canEditForm && <button type="button" onClick={handleRemoveVideo} className="text-[10px] uppercase tracking-[0.22em] text-red-400 font-bold hover:text-red-300">Remove Video</button>}
                             </div>
                         </div>
                     ) : canEditForm && (
@@ -201,7 +201,7 @@ export default function IncidentStepInitial({
             </div>
 
             <div className="flex justify-end gap-3 mt-8 pt-6 border-t border-slate-800">
-                <button type="button" onClick={() => { setView('repo'); setData(initialDataState); }} className="text-slate-400 hover:text-white px-5 py-2.5 rounded-xl transition-colors font-bold text-sm">Cancel</button>
+                <button type="button" onClick={resetIncidentDraft} className="text-slate-400 hover:text-white px-5 py-2.5 rounded-xl transition-colors font-bold text-sm">Cancel</button>
                 <button type="button" onClick={() => triggerPrint(data, 'initial')} className="bg-slate-800 hover:bg-slate-700 text-white font-bold px-6 py-4 rounded-xl transition shadow text-xs uppercase tracking-widest flex items-center gap-2">
                     <i className="fas fa-print text-lg"></i> Print Initial Report
                 </button>

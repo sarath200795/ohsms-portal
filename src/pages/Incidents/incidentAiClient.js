@@ -58,16 +58,16 @@ const inferExtension = (mimeType, fallbackExtension) => {
     return fallbackExtension;
 };
 
-const buildFileDescriptor = ({ dataUrl, fileName, fallbackBaseName, fallbackMimeType, fallbackExtension }) => {
-    if (!dataUrl && !fileName) return null;
+const buildFileDescriptor = ({ dataUrl, fileBlob, fileName, fallbackBaseName, fallbackMimeType, fallbackExtension }) => {
+    if (!dataUrl && !fileBlob && !fileName) return null;
 
-    const mimeType = parseMimeTypeFromDataUrl(dataUrl, fallbackMimeType);
+    const mimeType = fileBlob?.type || parseMimeTypeFromDataUrl(dataUrl, fallbackMimeType);
     const normalizedFileName = fileName || `${fallbackBaseName}.${inferExtension(mimeType, fallbackExtension)}`;
 
     return {
         fileName: normalizedFileName,
         mimeType,
-        sizeBytes: estimateDataUrlSize(dataUrl)
+        sizeBytes: Number(fileBlob?.size || 0) || estimateDataUrlSize(dataUrl)
     };
 };
 
@@ -145,11 +145,12 @@ const uploadBinaryEvidence = async ({
     uploadUrl,
     descriptor,
     dataUrl,
+    fileBlob,
     session,
     apiBaseUrl
 }) => {
     const formData = new FormData();
-    const blob = await dataUrlToBlob(dataUrl);
+    const blob = fileBlob || await dataUrlToBlob(dataUrl);
     formData.append('file', blob, descriptor.fileName);
     const headers = await buildAuthHeaders(session);
 
@@ -203,9 +204,10 @@ export async function runIncidentAiBackendAnalysis({
     });
     const videoDescriptor = buildFileDescriptor({
         dataUrl: incidentData?.videoEvidence,
+        fileBlob: incidentData?.videoEvidenceFile,
         fileName: incidentData?.videoEvidenceName,
         fallbackBaseName: 'incident-video',
-        fallbackMimeType: 'video/mp4',
+        fallbackMimeType: incidentData?.videoEvidenceFile?.type || 'video/mp4',
         fallbackExtension: 'mp4'
     });
 
@@ -234,11 +236,12 @@ export async function runIncidentAiBackendAnalysis({
         });
     }
 
-    if (videoDescriptor && uploadSession.video && incidentData?.videoEvidence) {
+    if (videoDescriptor && uploadSession.video && (incidentData?.videoEvidenceFile || incidentData?.videoEvidence)) {
         onStatusChange?.('Uploading video evidence');
         await uploadBinaryEvidence({
             uploadUrl: uploadSession.video.uploadUrl,
             descriptor: videoDescriptor,
+            fileBlob: incidentData?.videoEvidenceFile,
             dataUrl: incidentData.videoEvidence,
             session,
             apiBaseUrl
