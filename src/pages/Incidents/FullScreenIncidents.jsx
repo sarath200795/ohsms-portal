@@ -23,6 +23,7 @@ import {
 } from '../../utils/permissions';
 import { canAuthenticateStatus, readStoredSession } from '../../utils/session';
 import { buildRegionOptions, filterSitesByRegion, matchesRegionFilter, normalizeSites } from '../../utils/siteRegions';
+import { runIncidentAiBackendAnalysis } from './incidentAiClient';
 import IncidentBuilder from './components/IncidentBuilder';
 import IncidentHazardEditorModal from './components/IncidentHazardEditorModal';
 import IncidentHazardMatchesModal from './components/IncidentHazardMatchesModal';
@@ -52,6 +53,10 @@ const createInitialDataState = () => ({
     affectedPersonId: '',
     affectedPersonName: '',
     imageEvidence: null,
+    imageEvidenceName: '',
+    videoEvidence: null,
+    videoEvidenceName: '',
+    evidenceObservations: '',
     consultationSummary: '',
     investigationTeam: [],
     investigation: {
@@ -74,6 +79,11 @@ const fileToBase64 = (file) => new Promise((resolve, reject) => {
     reader.onload = () => resolve(reader.result);
     reader.onerror = (error) => reject(error);
 });
+
+const normalizeEvidenceLabel = (value) => String(value || '')
+    .replace(/\.[^/.]+$/, '')
+    .replace(/[_-]+/g, ' ')
+    .trim();
 
 const safeArrayParse = (data) => {
     if (!data) return [];
@@ -446,6 +456,7 @@ export default function Incidents() {
     const [step, setStep] = useState(1);
     const [session] = useState(() => readStoredSession());
     const [isAnalyzing, setIsAnalyzing] = useState(false);
+    const [analysisStatusLabel, setAnalysisStatusLabel] = useState('');
 
     const [incidentsList, setIncidentsList] = useState([]);
     const [riskAssessments, setRiskAssessments] = useState([]);
@@ -470,6 +481,7 @@ export default function Incidents() {
     const [newCapaOwn, setNewCapaOwn] = useState('');
     const [newCapaDue, setNewCapaDue] = useState('');
     const [newCapaSite, setNewCapaSite] = useState('');
+    const [videoEvidenceFile, setVideoEvidenceFile] = useState(null);
 
     const initialDataState = useMemo(() => createInitialDataState(), []);
     const [data, setData] = useState(() => createInitialDataState());
@@ -481,6 +493,35 @@ export default function Incidents() {
     const defaultSiteFilter = resolveInitialSiteFilter({ session, search: location.search, isGlobalUser });
     const rawSiteFilter = siteFilterOverride || defaultSiteFilter;
     const isFieldPortalMode = isFieldPortalHomeContext();
+
+    const revokeVideoPreviewUrl = (value) => {
+        const previewUrl = String(value || '').trim();
+        if (previewUrl.startsWith('blob:')) {
+            URL.revokeObjectURL(previewUrl);
+        }
+    };
+
+    const clearVideoEvidence = (previewUrl = data.videoEvidence) => {
+        revokeVideoPreviewUrl(previewUrl);
+        setVideoEvidenceFile(null);
+        setData((prev) => ({ ...prev, videoEvidence: null, videoEvidenceName: '' }));
+    };
+
+    const resetTransientEvidence = (nextVideoPreview = null) => {
+        revokeVideoPreviewUrl(data.videoEvidence);
+        if (nextVideoPreview && nextVideoPreview === data.videoEvidence) return;
+        setVideoEvidenceFile(null);
+    };
+
+    const resetIncidentDraft = () => {
+        resetTransientEvidence();
+        setView('repo');
+        setData(createInitialDataState());
+    };
+
+    useEffect(() => () => {
+        revokeVideoPreviewUrl(data.videoEvidence);
+    }, [data.videoEvidence]);
 
     useEffect(() => {
         if (!sessionIsValid) {
@@ -552,6 +593,7 @@ export default function Incidents() {
                 if (autoOpenId && loadedIncidents.length > 0) {
                     const target = loadedIncidents.find((i) => i.firebaseKey === autoOpenId);
                     if (target) {
+                        setVideoEvidenceFile(null);
                         setData(buildEditableIncidentData(initialDataState, target));
                         setView('form');
                         setStep(1);
@@ -706,122 +748,291 @@ export default function Incidents() {
         }
     };
 
-    const generateSmartInvestigation = (description) => {
-        if (!description || description.length < 20) {
-            alert('Please provide a detailed sentence explaining what happened, what failed, and why.');
+    const buildSmartInvestigationContext = (incidentData) => ([
+        incidentData?.title,
+        incidentData?.description,
+        incidentData?.equipmentInvolved,
+        incidentData?.evidenceObservations,
+        normalizeEvidenceLabel(incidentData?.imageEvidenceName),
+        normalizeEvidenceLabel(incidentData?.videoEvidenceName)
+    ]
+        .filter(Boolean)
+        .join(' ')
+        .trim());
+
+    const mergeGeneratedCapaActions = (existingCapa = [], generatedCapa = [], siteId) => {
+        const merged = [...existingCapa];
+
+        generatedCapa.forEach((candidate) => {
+            const normalizedAction = String(candidate?.act || '').trim().toLowerCase();
+            if (!normalizedAction) return;
+
+            const alreadyExists = merged.some((existingItem) => String(existingItem?.act || '').trim().toLowerCase() === normalizedAction);
+            if (alreadyExists) return;
+
+            merged.push({
+                ...candidate,
+                siteId: candidate.siteId || siteId,
+                own: candidate.own || '',
+                due: candidate.due || '',
+                status: candidate.status || 'Open'
+            });
+        });
+
+        return merged;
+    };
+
+    const buildFaultTreeFromBackendDraft = (draft) => ({
+        id: Date.now(),
+        label: `Top Event: ${String(draft?.visibleHazards?.[0] || draft?.eventSummary || 'INCIDENT').toUpperCase()}`,
+        type: 'AND',
+        children: [
+            {
+                id: Date.now() + 1,
+                label: draft?.immediateCauses?.[0] || 'Immediate Cause Review Required',
+                type: 'OR',
+                children: [
+                    {
+                        id: Date.now() + 2,
+                        label: draft?.contributingFactors?.[0] || 'Contributing Factor Review Required',
+                        type: 'EVENT'
+                    },
+                    {
+                        id: Date.now() + 3,
+                        label: draft?.visibleHazards?.[0] || 'Visible Hazard Verification Required',
+                        type: 'EVENT'
+                    }
+                ]
+            }
+        ]
+    });
+
+    const buildBackendSmartInvestigationDraft = (analysisResult, incidentData) => ({
+        investigation: {
+            rootCause: analysisResult?.draft?.rootCause || incidentData?.investigation?.rootCause || '',
+            fiveWhys: [{
+                id: Date.now(),
+                name: 'Incident AI Backend Draft',
+                whys: analysisResult?.draft?.fiveWhys || []
+            }],
+            fishbone: {
+                man: analysisResult?.draft?.fishbone?.man || [],
+                machine: analysisResult?.draft?.fishbone?.machine || [],
+                material: analysisResult?.draft?.fishbone?.material || [],
+                method: analysisResult?.draft?.fishbone?.method || [],
+                environment: analysisResult?.draft?.fishbone?.environment || []
+            },
+            faultTree: buildFaultTreeFromBackendDraft(analysisResult?.draft),
+            aiDraft: {
+                provider: analysisResult?.provider || 'openai',
+                visionModel: analysisResult?.visionModel || '',
+                transcriptionModel: analysisResult?.transcriptionModel || '',
+                transcript: analysisResult?.transcript || null,
+                eventSummary: analysisResult?.draft?.eventSummary || '',
+                visibleHazards: analysisResult?.draft?.visibleHazards || [],
+                equipmentCondition: analysisResult?.draft?.equipmentCondition || [],
+                immediateCauses: analysisResult?.draft?.immediateCauses || [],
+                contributingFactors: analysisResult?.draft?.contributingFactors || [],
+                missingInformation: analysisResult?.draft?.missingInformation || [],
+                confidence: analysisResult?.draft?.confidence || 'medium',
+                reviewStatus: analysisResult?.review?.status || 'pending',
+                generatedAt: new Date().toISOString(),
+                source: 'incident-ai-backend'
+            }
+        },
+        capa: (analysisResult?.draft?.capa || []).map((item) => ({
+            act: item.act,
+            priority: item.priority,
+            siteId: incidentData.siteId,
+            own: '',
+            due: '',
+            status: 'Open'
+        }))
+    });
+
+    const buildLocalSmartInvestigationDraft = (incidentData) => {
+        const evidenceContext = buildSmartInvestigationContext(incidentData);
+        const lower = evidenceContext.toLowerCase();
+        let objectInvolved = 'equipment/material';
+        let hazardType = 'generic hazard';
+
+        if (/(forklift|truck|vehicle|flt|crane)/.test(lower)) objectInvolved = 'workplace vehicle';
+        if (/(machine|conveyor|press|pump|motor)/.test(lower)) objectInvolved = 'machinery';
+        if (/(ladder|scaffold|roof|stairs)/.test(lower)) objectInvolved = 'working at height equipment';
+        if (/(chemical|acid|solvent|oil|fluid|water)/.test(lower)) objectInvolved = 'chemical/fluid';
+        if (/(gasket|valve|hose|pipe|wire)/.test(lower)) objectInvolved = 'component/part';
+
+        if (/(slip|trip|fall|puddle)/.test(lower)) hazardType = 'loss of traction/stability';
+        if (/(cut|laceration|amputation|crush|nip|entangle)/.test(lower)) hazardType = 'contact with moving parts';
+        if (/(burn|fire|explosion|spark)/.test(lower)) hazardType = 'uncontrolled thermal energy';
+        if (/(leak|spill|fume|inhale)/.test(lower)) hazardType = 'loss of containment';
+
+        const fishbone = { man: [], machine: [], material: [], method: [], environment: [] };
+
+        if (/(rushing|forgot|ignored|untrained|distracted|tired)/.test(lower)) {
+            fishbone.man.push('Behavioral deviation or lack of task awareness');
+        } else {
+            fishbone.man.push('Task execution error during standard operation');
+        }
+
+        if (/(broken|failed|blew|snapped|missing|bypassed)/.test(lower)) {
+            fishbone.machine.push(`Failure/degradation of ${objectInvolved}`);
+        }
+
+        if (/(complained|weeks|days|reported|maintenance|permit|loto)/.test(lower)) {
+            fishbone.method.push('Breakdown in defect reporting / CAPA escalation');
+            fishbone.method.push('Failure to follow established safe systems of work');
+        } else {
+            fishbone.method.push(`Inadequate risk assessment for task involving ${objectInvolved}`);
+        }
+
+        if (/(wet|dark|noise|weather|rain|cramped)/.test(lower)) {
+            fishbone.environment.push('Adverse environmental conditions impacting safety');
+        }
+        if (incidentData.imageEvidenceName || incidentData.videoEvidenceName) {
+            fishbone.machine.push('Uploaded visual evidence available for control verification');
+        }
+        if (incidentData.evidenceObservations?.trim()) {
+            fishbone.method.push('Evidence observations from the scene were reviewed during the initial analysis');
+        }
+
+        Object.keys(fishbone).forEach((key) => {
+            if (fishbone[key].length === 0) fishbone[key].push('No specific deviations identified in initial narrative');
+        });
+
+        let w1 = `The incident occurred due to a ${hazardType} involving ${objectInvolved}.`;
+        let w2 = `There was a failure in the primary control measure protecting the worker from the ${objectInvolved}.`;
+        let w3 = `The ${objectInvolved} was operating outside of normal/safe parameters.`;
+        let w4 = 'Preventative maintenance, inspections, or pre-use checks failed to identify or correct the deviation.';
+        let w5 = 'Systemic gap in the safety management system regarding hazard identification and operational control.';
+
+        if (/(complained|reported)/.test(lower)) {
+            w4 = `Previous reports regarding the ${objectInvolved} were not actioned or escalated appropriately.`;
+            w5 = 'Breakdown in the safety culture and the Corrective Action (CAPA) tracking process.';
+        }
+
+        if (hazardType === 'loss of traction/stability') {
+            w2 = 'The walking/working surface was contaminated or obstructed.';
+            w3 = 'Failure to immediately identify and isolate the spill/hazard.';
+        }
+
+        const generatedWhys = [
+            `Why 1 (The Event): ${w1}`,
+            `Why 2 (Immediate Cause): ${w2}`,
+            `Why 3 (Contributing Factor): ${w3}`,
+            `Why 4 (Systemic Factor): ${w4}`,
+            `Why 5 (Root Cause): ${w5}`
+        ];
+
+        const generatedFta = {
+            id: 1,
+            label: `Top Event: ${hazardType.toUpperCase()}`,
+            type: 'AND',
+            children: [
+                {
+                    id: 2,
+                    label: `Immediate: ${fishbone.machine[0] !== 'No specific deviations identified in initial narrative' ? fishbone.machine[0] : 'Control Failure'}`,
+                    type: 'OR',
+                    children: [
+                        { id: 4, label: `Condition: ${fishbone.environment[0] !== 'No specific deviations identified in initial narrative' ? 'Adverse Environment' : 'Hazard Present'}`, type: 'EVENT' },
+                        { id: 5, label: `Action: ${fishbone.man[0]}`, type: 'EVENT' }
+                    ]
+                }
+            ]
+        };
+
+        const dynamicCapa = [
+            { act: `Review and update specific Risk Assessment for task involving ${objectInvolved}`, siteId: incidentData.siteId, own: '', due: '', status: 'Open' },
+            { act: `Conduct safety stand-down regarding ${hazardType} hazards`, siteId: incidentData.siteId, own: '', due: '', status: 'Open' }
+        ];
+        if (incidentData.imageEvidenceName || incidentData.videoEvidenceName) {
+            dynamicCapa.push({
+                act: 'Review the uploaded incident evidence pack and confirm visible control failures with the investigation team',
+                siteId: incidentData.siteId,
+                own: '',
+                due: '',
+                status: 'Open'
+            });
+        }
+
+        if (/(broken|failed|leak)/.test(lower)) {
+            dynamicCapa.push({ act: `Audit preventative maintenance schedule for all ${objectInvolved}s`, siteId: incidentData.siteId, own: '', due: '', status: 'Open' });
+        }
+
+        return {
+            investigation: {
+                rootCause: w5,
+                fiveWhys: [{ id: Date.now(), name: 'Inference Engine Analysis', whys: generatedWhys }],
+                fishbone,
+                faultTree: generatedFta,
+                aiDraft: {
+                    provider: 'local-inference-engine',
+                    visionModel: '',
+                    transcriptionModel: '',
+                    transcript: null,
+                    eventSummary: evidenceContext,
+                    visibleHazards: [hazardType],
+                    equipmentCondition: [objectInvolved],
+                    immediateCauses: [w2],
+                    contributingFactors: [w3, w4],
+                    missingInformation: ['Human investigator review is still required'],
+                    confidence: 'medium',
+                    reviewStatus: 'pending',
+                    generatedAt: new Date().toISOString(),
+                    source: 'frontend-fallback'
+                }
+            },
+            capa: dynamicCapa
+        };
+    };
+
+    const applyGeneratedInvestigationDraft = (generatedDraft) => {
+        setData((prev) => ({
+            ...prev,
+            investigation: {
+                ...prev.investigation,
+                ...generatedDraft.investigation
+            },
+            capa: mergeGeneratedCapaActions(prev.capa || [], generatedDraft.capa || [], prev.siteId)
+        }));
+    };
+
+    const generateSmartInvestigation = async () => {
+        if (!data.imageEvidence && !data.videoEvidence) {
+            alert('Please upload at least one incident photo or video first so the smart investigation can use the evidence context.');
+            return;
+        }
+
+        const evidenceContext = buildSmartInvestigationContext(data);
+        if (!evidenceContext || evidenceContext.length < 20) {
+            alert('Please provide a detailed incident narrative or evidence observations so the smart investigation has enough context.');
             return;
         }
 
         setIsAnalyzing(true);
+        setAnalysisStatusLabel('Preparing analysis');
 
-        setTimeout(() => {
-            const lower = description.toLowerCase();
-            let objectInvolved = 'equipment/material';
-            let hazardType = 'generic hazard';
-
-            if (/(forklift|truck|vehicle|flt|crane)/.test(lower)) objectInvolved = 'workplace vehicle';
-            if (/(machine|conveyor|press|pump|motor)/.test(lower)) objectInvolved = 'machinery';
-            if (/(ladder|scaffold|roof|stairs)/.test(lower)) objectInvolved = 'working at height equipment';
-            if (/(chemical|acid|solvent|oil|fluid|water)/.test(lower)) objectInvolved = 'chemical/fluid';
-            if (/(gasket|valve|hose|pipe|wire)/.test(lower)) objectInvolved = 'component/part';
-
-            if (/(slip|trip|fall|puddle)/.test(lower)) hazardType = 'loss of traction/stability';
-            if (/(cut|laceration|amputation|crush|nip|entangle)/.test(lower)) hazardType = 'contact with moving parts';
-            if (/(burn|fire|explosion|spark)/.test(lower)) hazardType = 'uncontrolled thermal energy';
-            if (/(leak|spill|fume|inhale)/.test(lower)) hazardType = 'loss of containment';
-
-            const fishbone = { man: [], machine: [], material: [], method: [], environment: [] };
-
-            if (/(rushing|forgot|ignored|untrained|distracted|tired)/.test(lower)) {
-                fishbone.man.push('Behavioral deviation or lack of task awareness');
-            } else {
-                fishbone.man.push('Task execution error during standard operation');
-            }
-
-            if (/(broken|failed|blew|snapped|missing|bypassed)/.test(lower)) {
-                fishbone.machine.push(`Failure/degradation of ${objectInvolved}`);
-            }
-
-            if (/(complained|weeks|days|reported|maintenance|permit|loto)/.test(lower)) {
-                fishbone.method.push('Breakdown in defect reporting / CAPA escalation');
-                fishbone.method.push('Failure to follow established safe systems of work');
-            } else {
-                fishbone.method.push(`Inadequate risk assessment for task involving ${objectInvolved}`);
-            }
-
-            if (/(wet|dark|noise|weather|rain|cramped)/.test(lower)) {
-                fishbone.environment.push('Adverse environmental conditions impacting safety');
-            }
-
-            Object.keys(fishbone).forEach((key) => {
-                if (fishbone[key].length === 0) fishbone[key].push('No specific deviations identified in initial narrative');
+        try {
+            const analysisResult = await runIncidentAiBackendAnalysis({
+                incidentId: currentIncidentId || `incident-${Date.now()}`,
+                incidentData: {
+                    ...data,
+                    videoEvidenceFile
+                },
+                session,
+                onStatusChange: setAnalysisStatusLabel
             });
 
-            let w1 = `The incident occurred due to a ${hazardType} involving ${objectInvolved}.`;
-            let w2 = `There was a failure in the primary control measure protecting the worker from the ${objectInvolved}.`;
-            let w3 = `The ${objectInvolved} was operating outside of normal/safe parameters.`;
-            let w4 = 'Preventative maintenance, inspections, or pre-use checks failed to identify or correct the deviation.';
-            let w5 = 'Systemic gap in the safety management system regarding hazard identification and operational control.';
-
-            if (/(complained|reported)/.test(lower)) {
-                w4 = `Previous reports regarding the ${objectInvolved} were not actioned or escalated appropriately.`;
-                w5 = 'Breakdown in the safety culture and the Corrective Action (CAPA) tracking process.';
-            }
-
-            if (hazardType === 'loss of traction/stability') {
-                w2 = 'The walking/working surface was contaminated or obstructed.';
-                w3 = 'Failure to immediately identify and isolate the spill/hazard.';
-            }
-
-            const generatedWhys = [
-                `Why 1 (The Event): ${w1}`,
-                `Why 2 (Immediate Cause): ${w2}`,
-                `Why 3 (Contributing Factor): ${w3}`,
-                `Why 4 (Systemic Factor): ${w4}`,
-                `Why 5 (Root Cause): ${w5}`
-            ];
-
-            const generatedFta = {
-                id: 1,
-                label: `Top Event: ${hazardType.toUpperCase()}`,
-                type: 'AND',
-                children: [
-                    {
-                        id: 2,
-                        label: `Immediate: ${fishbone.machine[0] !== 'No specific deviations identified in initial narrative' ? fishbone.machine[0] : 'Control Failure'}`,
-                        type: 'OR',
-                        children: [
-                            { id: 4, label: `Condition: ${fishbone.environment[0] !== 'No specific deviations identified in initial narrative' ? 'Adverse Environment' : 'Hazard Present'}`, type: 'EVENT' },
-                            { id: 5, label: `Action: ${fishbone.man[0]}`, type: 'EVENT' }
-                        ]
-                    }
-                ]
-            };
-
-            const dynamicCapa = [
-                { act: `Review and update specific Risk Assessment for task involving ${objectInvolved}`, siteId: data.siteId, own: '', due: '', status: 'Open' },
-                { act: `Conduct safety stand-down regarding ${hazardType} hazards`, siteId: data.siteId, own: '', due: '', status: 'Open' }
-            ];
-
-            if (/(broken|failed|leak)/.test(lower)) {
-                dynamicCapa.push({ act: `Audit preventative maintenance schedule for all ${objectInvolved}s`, siteId: data.siteId, own: '', due: '', status: 'Open' });
-            }
-
-            setData((prev) => ({
-                ...prev,
-                investigation: {
-                    ...prev.investigation,
-                    rootCause: w5,
-                    fiveWhys: [{ id: Date.now(), name: 'Inference Engine Analysis', whys: generatedWhys }],
-                    fishbone,
-                    faultTree: generatedFta
-                },
-                capa: [...(prev.capa || []), ...dynamicCapa]
-            }));
-
+            applyGeneratedInvestigationDraft(buildBackendSmartInvestigationDraft(analysisResult, data));
+            alert('Incident AI draft generated from the uploaded evidence, transcript context, and incident details. Move to Step 3 to review the Auto-Analysis.');
+        } catch (error) {
+            console.error('Incident AI backend unavailable, using local fallback:', error);
+            applyGeneratedInvestigationDraft(buildLocalSmartInvestigationDraft(data));
+            alert('Incident AI backend was unavailable, so the local smart investigation engine generated the RCA draft instead. You can still review and refine it in Step 3.');
+        } finally {
             setIsAnalyzing(false);
-            alert('Contextual RCA Matrix Generated! Move to Step 3 to review the Auto-Analysis.');
-        }, 1200);
+            setAnalysisStatusLabel('');
+        }
     };
 
     const handleAddTeamMember = (type) => {
@@ -857,6 +1068,10 @@ export default function Incidents() {
         if (!canEditForm) return alert('Security Error: You do not have permission to create or edit incidents for this site.');
         if (!data.siteId || !data.title) {
             alert('Please provide an Incident Title and select a Site.');
+            return;
+        }
+        if (!data.imageEvidence && !data.videoEvidence) {
+            alert('Please upload at least one photo or video before saving the incident report.');
             return;
         }
 
@@ -915,9 +1130,13 @@ export default function Incidents() {
                 timestamp: saveTimestamp,
                 assumeLegacyCompletion: Boolean(data.firebaseKey)
             });
+            const persistedVideoEvidence = String(data.videoEvidence || '').startsWith('data:video/')
+                ? data.videoEvidence
+                : null;
             const payload = JSON.parse(JSON.stringify({
                 ...data,
                 id: incidentId,
+                videoEvidence: persistedVideoEvidence,
                 reporting,
                 capa: capaWithVerificationActions,
                 linkedHazards: data.linkedHazards || [],
@@ -955,6 +1174,7 @@ export default function Incidents() {
                 } else {
                     alert(data.horizontalDeployment ? 'Horizontal Deployment Updated. Investigation draft saved and actions pushed globally!' : 'Incident investigation draft saved successfully.');
                 }
+                setVideoEvidenceFile(null);
                 setView('repo');
             }
         } catch (e) {
@@ -978,6 +1198,7 @@ export default function Incidents() {
     };
 
     const handleEdit = (incident) => {
+        resetTransientEvidence();
         setData(buildEditableIncidentData(initialDataState, incident));
         setView('form');
         setStep(1);
@@ -1001,8 +1222,19 @@ export default function Incidents() {
         const file = e.target.files[0];
         if (file) {
             const base64 = await fileToBase64(file);
-            setData({ ...data, imageEvidence: base64 });
+            setData({ ...data, imageEvidence: base64, imageEvidenceName: file.name });
         }
+    };
+
+    const handleVideoUpload = async (e) => {
+        const file = e.target.files[0];
+        if (file) {
+            revokeVideoPreviewUrl(data.videoEvidence);
+            const previewUrl = URL.createObjectURL(file);
+            setVideoEvidenceFile(file);
+            setData({ ...data, videoEvidence: previewUrl, videoEvidenceName: file.name });
+        }
+        e.target.value = '';
     };
 
     const scanHiraDatabase = () => {
@@ -1200,6 +1432,7 @@ export default function Incidents() {
                                 <button
                                     type="button"
                                     onClick={() => {
+                                    resetTransientEvidence();
                                     handleViewChange('form');
                                     setStep(1);
                                         setData({
@@ -1245,6 +1478,7 @@ export default function Incidents() {
                                     activePersonnelList={activePersonnelList}
                                     addCapa={addCapa}
                                     addFiveWhyPath={addFiveWhyPath}
+                                    analysisStatusLabel={analysisStatusLabel}
                                     allowedSites={allowedSites}
                                     canEditCapa={canEditCapa}
                                     canEditForm={canEditForm}
@@ -1255,6 +1489,8 @@ export default function Incidents() {
                                     handleAddTeamMember={handleAddTeamMember}
                                     handleDescriptionBlur={handleDescriptionBlur}
                                     handleImageUpload={handleImageUpload}
+                                    handleRemoveVideo={clearVideoEvidence}
+                                    handleVideoUpload={handleVideoUpload}
                                     initialDataState={initialDataState}
                                     incidentReporting={incidentReporting}
                                     investigationRequired={investigationRequired}
@@ -1264,6 +1500,7 @@ export default function Incidents() {
                                     newCapaDue={newCapaDue}
                                     newCapaOwn={newCapaOwn}
                                     newCapaSite={newCapaSite}
+                                    resetIncidentDraft={resetIncidentDraft}
                                     removeCapa={removeCapa}
                                     removeFiveWhyPath={removeFiveWhyPath}
                                     removeTeamMember={removeTeamMember}

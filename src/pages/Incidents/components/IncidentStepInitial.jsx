@@ -3,21 +3,23 @@ import { SMART_CATEGORIES, safeArr } from '../utils';
 
 export default function IncidentStepInitial({
     activePersonnelList,
+    analysisStatusLabel,
     allowedSites,
     canEditForm,
     contractors,
     data,
     handleDescriptionBlur,
     handleImageUpload,
-    initialDataState,
+    handleRemoveVideo,
+    handleVideoUpload,
     incidentReporting,
     investigationRequired,
     isAnalyzing,
     isGlobalUser,
+    resetIncidentDraft,
     saveData,
     saving,
     setData,
-    setView,
     triggerPrint,
     generateSmartInvestigation
 }) {
@@ -60,12 +62,12 @@ export default function IncidentStepInitial({
                     <div className="flex justify-end">
                         <button
                             type="button"
-                            onClick={() => generateSmartInvestigation(data.description)}
-                            disabled={isAnalyzing || !data.description || data.description.length < 15}
+                            onClick={() => generateSmartInvestigation()}
+                            disabled={isAnalyzing || (!data.imageEvidence && !data.videoEvidence) || (!(data.description || '').trim() && !(data.evidenceObservations || '').trim())}
                             className="bg-gradient-to-r from-blue-600 to-emerald-600 hover:from-blue-500 hover:to-emerald-500 text-white px-6 py-2.5 rounded-xl font-bold text-xs uppercase tracking-widest shadow-lg transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                             {isAnalyzing ? (
-                                <><i className="fas fa-spinner fa-spin"></i> Processing Context...</>
+                                <><i className="fas fa-spinner fa-spin"></i> {analysisStatusLabel || 'Processing Context...'}</>
                             ) : (
                                 <><i className="fas fa-microchip"></i> Auto-Generate RCA Matrix</>
                             )}
@@ -141,25 +143,65 @@ export default function IncidentStepInitial({
                 )}
             </div>
 
-            <div className="bg-slate-950/50 border border-slate-800 p-6 rounded-xl">
-                <label className="text-[10px] uppercase font-bold text-slate-500 mb-4 block"><i className="fas fa-camera mr-2"></i> Photographic Evidence</label>
-                {data.imageEvidence && (
-                    <div className="relative inline-block group">
-                        <img src={data.imageEvidence} alt="Evidence" className="h-48 rounded-xl border-2 border-slate-700 object-cover shadow-xl" />
-                        {canEditForm && <button type="button" onClick={() => setData({ ...data, imageEvidence: null })} className="absolute -top-3 -right-3 bg-red-500 text-white rounded-xl w-8 h-8 text-sm opacity-0 group-hover:opacity-100 transition-opacity shadow-lg flex items-center justify-center"><i className="fas fa-times"></i></button>}
-                    </div>
-                )}
-                {!data.imageEvidence && canEditForm && (
-                    <label className="cursor-pointer bg-slate-900 border-2 border-dashed border-slate-700 hover:border-red-500 hover:bg-slate-800 transition-colors w-48 h-48 rounded-xl flex flex-col items-center justify-center text-slate-500 hover:text-red-400">
-                        <i className="fas fa-cloud-upload-alt text-3xl mb-2"></i>
-                        <span className="text-xs font-bold uppercase tracking-widest">Upload Photo</span>
-                        <input type="file" accept="image/*" onChange={handleImageUpload} className="hidden" />
-                    </label>
-                )}
+            <div className="bg-slate-950/50 border border-slate-800 p-6 rounded-xl space-y-6">
+                <div>
+                    <label className="text-[10px] uppercase font-bold text-red-300 mb-2 block"><i className="fas fa-photo-film mr-2"></i> Media Evidence *</label>
+                    <p className="text-xs text-slate-400 mb-4">Upload at least one scene photo or supporting video for the initial report. Smart investigation uses the narrative, evidence observations, and uploaded media together.</p>
+                    {data.imageEvidence ? (
+                        <div className="relative inline-block group">
+                            <img src={data.imageEvidence} alt="Evidence" className="h-48 rounded-xl border-2 border-slate-700 object-cover shadow-xl" />
+                            {canEditForm && <button type="button" onClick={() => setData({ ...data, imageEvidence: null, imageEvidenceName: '' })} className="absolute -top-3 -right-3 bg-red-500 text-white rounded-xl w-8 h-8 text-sm opacity-0 group-hover:opacity-100 transition-opacity shadow-lg flex items-center justify-center"><i className="fas fa-times"></i></button>}
+                            {data.imageEvidenceName && <div className="mt-3 text-xs font-mono text-slate-400">{data.imageEvidenceName}</div>}
+                        </div>
+                    ) : canEditForm && (
+                        <label className="cursor-pointer bg-slate-900 border-2 border-dashed border-slate-700 hover:border-red-500 hover:bg-slate-800 transition-colors w-48 h-48 rounded-xl flex flex-col items-center justify-center text-slate-500 hover:text-red-400">
+                            <i className="fas fa-cloud-upload-alt text-3xl mb-2"></i>
+                            <span className="text-xs font-bold uppercase tracking-widest">Upload Photo</span>
+                            <input type="file" accept="image/*" onChange={handleImageUpload} className="hidden" />
+                        </label>
+                    )}
+                </div>
+
+                <div>
+                    <label className="text-[10px] uppercase font-bold text-slate-400 mb-2 block"><i className="fas fa-video mr-2"></i> Video Evidence</label>
+                    <p className="text-xs text-slate-500 mb-4">Upload a supporting clip if it helps explain movement, sequence, equipment condition, or visible failure.</p>
+                    {data.videoEvidence ? (
+                        <div className="space-y-3">
+                            <video src={data.videoEvidence} controls className="max-h-64 rounded-xl border border-slate-700 bg-black" />
+                            <div className="flex items-center gap-4">
+                                {data.videoEvidenceName && <div className="text-xs font-mono text-slate-400">{data.videoEvidenceName}</div>}
+                                {canEditForm && <button type="button" onClick={handleRemoveVideo} className="text-[10px] uppercase tracking-[0.22em] text-red-400 font-bold hover:text-red-300">Remove Video</button>}
+                            </div>
+                        </div>
+                    ) : canEditForm && (
+                        <label className="cursor-pointer inline-flex items-center gap-2 rounded-xl border border-dashed border-slate-700 bg-slate-900 px-4 py-3 text-xs font-bold uppercase tracking-widest text-slate-400 transition-colors hover:border-blue-500 hover:text-blue-300">
+                            <i className="fas fa-film"></i> Upload Video
+                            <input type="file" accept="video/*" onChange={handleVideoUpload} className="hidden" />
+                        </label>
+                    )}
+                </div>
+
+                <div>
+                    <label className="text-[10px] uppercase font-bold text-blue-300 mb-2 block"><i className="fas fa-binoculars mr-2"></i> Evidence Observations For Smart Investigation</label>
+                    <textarea
+                        rows="3"
+                        value={data.evidenceObservations || ''}
+                        onChange={(e) => setData({ ...data, evidenceObservations: e.target.value })}
+                        disabled={!canEditForm}
+                        className="w-full bg-slate-950 border border-slate-700 rounded-xl p-4 text-sm text-white focus:border-blue-500 outline-none shadow-inner resize-none"
+                        placeholder="Describe what is visible in the photo or video: damaged guard, leaked fluid, scorch marks, fallen material, missing barricade, etc."
+                    />
+                </div>
+
+                <div className={`rounded-xl border px-4 py-3 text-xs font-bold uppercase tracking-[0.18em] ${data.imageEvidence || data.videoEvidence ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300' : 'border-amber-500/30 bg-amber-500/10 text-amber-300'}`}>
+                    {data.imageEvidence || data.videoEvidence
+                        ? 'Media evidence attached and ready for report submission'
+                        : 'Upload at least one photo or video to complete the initial report'}
+                </div>
             </div>
 
             <div className="flex justify-end gap-3 mt-8 pt-6 border-t border-slate-800">
-                <button type="button" onClick={() => { setView('repo'); setData(initialDataState); }} className="text-slate-400 hover:text-white px-5 py-2.5 rounded-xl transition-colors font-bold text-sm">Cancel</button>
+                <button type="button" onClick={resetIncidentDraft} className="text-slate-400 hover:text-white px-5 py-2.5 rounded-xl transition-colors font-bold text-sm">Cancel</button>
                 <button type="button" onClick={() => triggerPrint(data, 'initial')} className="bg-slate-800 hover:bg-slate-700 text-white font-bold px-6 py-4 rounded-xl transition shadow text-xs uppercase tracking-widest flex items-center gap-2">
                     <i className="fas fa-print text-lg"></i> Print Initial Report
                 </button>

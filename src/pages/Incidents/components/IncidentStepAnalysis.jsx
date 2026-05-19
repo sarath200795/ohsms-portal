@@ -3,6 +3,7 @@ import { FaultTreeNode, Fishbone } from './IncidentAnalysisWidgets';
 
 export default function IncidentStepAnalysis({
     addFiveWhyPath,
+    analysisStatusLabel,
     canEditForm,
     data,
     generateSmartInvestigation,
@@ -20,13 +21,54 @@ export default function IncidentStepAnalysis({
             <div className="flex justify-between items-center mb-8 border-b border-purple-500/20 pb-4">
                 <h2 className="text-xl font-bold text-purple-400 flex items-center gap-3 uppercase tracking-widest"><i className="fas fa-search-location text-2xl"></i> 3. Root Cause Analysis</h2>
                 {canEditForm && (
-                    <button type="button" onClick={() => generateSmartInvestigation(data.description)} disabled={isAnalyzing || !data.description || data.description.length < 15} className="bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold px-6 py-3 rounded-xl shadow-lg shadow-purple-600/20 flex items-center gap-2 transition-transform active:scale-95 uppercase tracking-widest disabled:opacity-50">
-                        {isAnalyzing ? <><i className="fas fa-spinner fa-spin"></i> Analyzing...</> : <><i className="fas fa-wand-magic-sparkles"></i> AI Auto-Analyze</>}
+                    <button type="button" onClick={() => generateSmartInvestigation()} disabled={isAnalyzing || (!data.imageEvidence && !data.videoEvidence) || (!(data.description || '').trim() && !(data.evidenceObservations || '').trim())} className="bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold px-6 py-3 rounded-xl shadow-lg shadow-purple-600/20 flex items-center gap-2 transition-transform active:scale-95 uppercase tracking-widest disabled:opacity-50">
+                        {isAnalyzing ? <><i className="fas fa-spinner fa-spin"></i> {analysisStatusLabel || 'Analyzing...'}</> : <><i className="fas fa-wand-magic-sparkles"></i> AI Auto-Analyze</>}
                     </button>
                 )}
             </div>
 
             <div className="space-y-12">
+                {data.investigation?.aiDraft && (
+                    <div className="bg-sky-950/30 p-6 rounded-2xl border border-sky-900/60">
+                        <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+                            <h3 className="font-bold text-white uppercase tracking-widest text-xs flex items-center"><i className="fas fa-brain text-sky-400 mr-2"></i> Incident AI Evidence Summary</h3>
+                            <div className="text-[10px] font-bold uppercase tracking-[0.24em] text-sky-300">
+                                {data.investigation.aiDraft.source === 'incident-ai-backend' ? 'Backend Assisted' : 'Local Fallback'}
+                            </div>
+                        </div>
+                        <p className="text-sm text-slate-200 leading-relaxed mb-4">{data.investigation.aiDraft.eventSummary || 'No AI summary available yet.'}</p>
+                        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 text-xs">
+                            <div className="rounded-xl border border-sky-900/40 bg-slate-950/60 p-4">
+                                <div className="text-[10px] font-bold uppercase tracking-[0.24em] text-sky-300 mb-2">Visible Hazards</div>
+                                <ul className="space-y-2 text-slate-300">
+                                    {(data.investigation.aiDraft.visibleHazards || []).map((hazard, index) => <li key={`hazard-${index}`}>{hazard}</li>)}
+                                    {(!data.investigation.aiDraft.visibleHazards || data.investigation.aiDraft.visibleHazards.length === 0) && <li>No visible hazards captured.</li>}
+                                </ul>
+                            </div>
+                            <div className="rounded-xl border border-sky-900/40 bg-slate-950/60 p-4">
+                                <div className="text-[10px] font-bold uppercase tracking-[0.24em] text-sky-300 mb-2">Immediate Causes</div>
+                                <ul className="space-y-2 text-slate-300">
+                                    {(data.investigation.aiDraft.immediateCauses || []).map((cause, index) => <li key={`cause-${index}`}>{cause}</li>)}
+                                    {(!data.investigation.aiDraft.immediateCauses || data.investigation.aiDraft.immediateCauses.length === 0) && <li>No immediate causes captured.</li>}
+                                </ul>
+                            </div>
+                            <div className="rounded-xl border border-sky-900/40 bg-slate-950/60 p-4">
+                                <div className="text-[10px] font-bold uppercase tracking-[0.24em] text-sky-300 mb-2">Missing Information</div>
+                                <ul className="space-y-2 text-slate-300">
+                                    {(data.investigation.aiDraft.missingInformation || []).map((item, index) => <li key={`missing-${index}`}>{item}</li>)}
+                                    {(!data.investigation.aiDraft.missingInformation || data.investigation.aiDraft.missingInformation.length === 0) && <li>No additional gaps flagged.</li>}
+                                </ul>
+                            </div>
+                        </div>
+                        {data.investigation.aiDraft.transcript?.text && (
+                            <div className="mt-4 rounded-xl border border-sky-900/40 bg-slate-950/60 p-4">
+                                <div className="text-[10px] font-bold uppercase tracking-[0.24em] text-sky-300 mb-2">Transcript Context</div>
+                                <p className="text-sm text-slate-300 leading-relaxed">{data.investigation.aiDraft.transcript.text}</p>
+                            </div>
+                        )}
+                    </div>
+                )}
+
                 <div className="bg-slate-950/50 p-6 rounded-2xl border border-slate-800">
                     <h3 className="font-bold text-white mb-4 uppercase tracking-widest text-xs flex items-center"><i className="fas fa-fish text-blue-400 mr-2"></i> Fishbone Diagram</h3>
                     <div className="bg-slate-900 rounded-xl border border-slate-700 p-4 overflow-x-auto">
