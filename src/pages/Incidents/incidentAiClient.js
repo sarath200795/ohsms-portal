@@ -209,8 +209,8 @@ export async function runIncidentAiBackendAnalysis({
         fallbackExtension: 'mp4'
     });
 
-    if (!photoDescriptor) {
-        throw new Error('A photo descriptor is required before Incident AI analysis can start.');
+    if (!photoDescriptor && !videoDescriptor) {
+        throw new Error('A photo or video descriptor is required before Incident AI analysis can start.');
     }
 
     onStatusChange?.('Preparing upload session');
@@ -218,19 +218,21 @@ export async function runIncidentAiBackendAnalysis({
         method: 'POST',
         session,
         body: {
-            photo: photoDescriptor,
+            ...(photoDescriptor ? { photo: photoDescriptor } : {}),
             ...(videoDescriptor ? { video: videoDescriptor } : {})
         }
     });
 
-    onStatusChange?.('Uploading photo evidence');
-    await uploadBinaryEvidence({
-        uploadUrl: uploadSession.photo.uploadUrl,
-        descriptor: photoDescriptor,
-        dataUrl: incidentData?.imageEvidence,
-        session,
-        apiBaseUrl
-    });
+    if (photoDescriptor && uploadSession.photo && incidentData?.imageEvidence) {
+        onStatusChange?.('Uploading photo evidence');
+        await uploadBinaryEvidence({
+            uploadUrl: uploadSession.photo.uploadUrl,
+            descriptor: photoDescriptor,
+            dataUrl: incidentData?.imageEvidence,
+            session,
+            apiBaseUrl
+        });
+    }
 
     if (videoDescriptor && uploadSession.video && incidentData?.videoEvidence) {
         onStatusChange?.('Uploading video evidence');
@@ -249,7 +251,9 @@ export async function runIncidentAiBackendAnalysis({
         session,
         body: {
             uploadSessionId: uploadSession.uploadSessionId,
-            photo: buildConfirmedEvidenceFile(uploadSession.photo, photoDescriptor),
+            ...(photoDescriptor && uploadSession.photo
+                ? { photo: buildConfirmedEvidenceFile(uploadSession.photo, photoDescriptor) }
+                : {}),
             ...(videoDescriptor && uploadSession.video
                 ? { video: buildConfirmedEvidenceFile(uploadSession.video, videoDescriptor) }
                 : {}),

@@ -967,8 +967,8 @@ export default function Incidents() {
     };
 
     const generateSmartInvestigation = async () => {
-        if (!data.imageEvidence) {
-            alert('Please upload the mandatory incident photo first so the smart investigation can use the evidence context.');
+        if (!data.imageEvidence && !data.videoEvidence) {
+            alert('Please upload at least one incident photo or video first so the smart investigation can use the evidence context.');
             return;
         }
 
@@ -1036,8 +1036,8 @@ export default function Incidents() {
             alert('Please provide an Incident Title and select a Site.');
             return;
         }
-        if (!data.imageEvidence) {
-            alert('Please upload the mandatory photographic evidence before saving the incident report.');
+        if (!data.imageEvidence && !data.videoEvidence) {
+            alert('Please upload at least one photo or video before saving the incident report.');
             return;
         }
 

@@ -46,7 +46,7 @@ export interface UploadSessionRecord {
     createdBy: string;
     createdAt: string;
     expiresAt: string;
-    photo: UploadTarget;
+    photo?: UploadTarget;
     video?: UploadTarget;
     uploadedFiles: Partial<Record<'photo' | 'video', UploadedFileRecord>>;
 }
@@ -60,12 +60,12 @@ export interface ConfirmedEvidenceFile {
 export interface IncidentEvidenceRecord {
     incidentId: string;
     orgId: string;
-    photo: ConfirmedEvidenceFile;
+    photo?: ConfirmedEvidenceFile;
     video?: ConfirmedEvidenceFile;
     notes?: string;
     confirmedAt: string;
     uploaded: {
-        photo: UploadedFileRecord;
+        photo?: UploadedFileRecord;
         video?: UploadedFileRecord;
     };
 }

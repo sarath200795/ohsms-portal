@@ -30,12 +30,14 @@ export class IncidentAiMediaService {
         }
     ): Promise<MediaExtractionContext> {
         const warnings: string[] = [];
-        const photoDataUrls = [
-            await this.storageService.readFileAsDataUrl(
-                evidence.uploaded.photo.absolutePath,
-                evidence.uploaded.photo.mimeType
-            )
-        ];
+        const photoDataUrls = evidence.uploaded.photo
+            ? [
+                await this.storageService.readFileAsDataUrl(
+                    evidence.uploaded.photo.absolutePath,
+                    evidence.uploaded.photo.mimeType
+                )
+            ]
+            : [];
 
         const context: MediaExtractionContext = {
             incidentId: evidence.incidentId,

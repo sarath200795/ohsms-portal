@@ -242,3 +242,97 @@ test('incident AI smoke flow completes end to end', async () => {
     assert.equal(persistedResult.status, 'completed');
     assert.ok(persistedResult.draft.rootCause.includes('controls were not sufficiently verified'));
 });
+
+test('incident AI accepts video-only evidence', async () => {
+    const incidentId = 'INC-SMOKE-VIDEO-ONLY';
+    const requestHeaders = {
+        'Content-Type': 'application/json',
+        ...authHeaders
+    };
+
+    const uploadSession = await requestJson(`/incidents/${incidentId}/ai-evidence/upload-session`, {
+        method: 'POST',
+        headers: requestHeaders,
+        body: JSON.stringify({
+            video: {
+                fileName: 'video-only-sequence.mp4',
+                mimeType: 'video/mp4',
+                sizeBytes: 4096
+            }
+        })
+    });
+
+    assert.equal(uploadSession.incidentId, incidentId);
+    assert.equal(uploadSession.photo, undefined);
+    assert.match(uploadSession.video.storagePath, /orgs\/org-smoke\/incidents\/INC-SMOKE-VIDEO-ONLY\/evidence\/video-original\.mp4/);
+
+    const videoUpload = await uploadEvidenceFile({
+        uploadUrl: uploadSession.video.uploadUrl,
+        fileName: 'video-only-sequence.mp4',
+        mimeType: 'video/mp4',
+        content: 'fake-video-only-binary'
+    });
+
+    assert.equal(videoUpload.kind, 'video');
+
+    const confirmEvidence = await requestJson(`/incidents/${incidentId}/ai-evidence/confirm`, {
+        method: 'POST',
+        headers: requestHeaders,
+        body: JSON.stringify({
+            uploadSessionId: uploadSession.uploadSessionId,
+            video: {
+                storagePath: uploadSession.video.storagePath,
+                fileName: 'video-only-sequence.mp4',
+                mimeType: 'video/mp4'
+            },
+            notes: 'The clip shows the sequence of failure and operator response.'
+        })
+    });
+
+    assert.equal(confirmEvidence.evidenceStatus, 'confirmed');
+    assert.equal(confirmEvidence.photoAttached, false);
+    assert.equal(confirmEvidence.videoAttached, true);
+    assert.ok(confirmEvidence.storedEvidence.video.sha256);
+
+    const analysisStart = await requestJson(`/incidents/${incidentId}/ai-analysis`, {
+        method: 'POST',
+        headers: requestHeaders,
+        body: JSON.stringify({
+            includeVideo: true,
+            includeAudioTranscript: true,
+            frameSampleSeconds: 2,
+            maxFrames: 4,
+            analysisLanguage: 'en',
+            incidentContext: {
+                title: 'Video only incident',
+                description: 'The available evidence is a short clip without a separate photo.',
+                equipmentInvolved: 'Panel isolator',
+                smartCategory: 'Electrical Safety',
+                severity: 'Level B',
+                type: 'Near Miss'
+            }
+        })
+    });
+
+    assert.equal(analysisStart.status, 'queued');
+
+    let latestStatus = null;
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+        latestStatus = await requestJson(`/incidents/${incidentId}/ai-analysis/status`, {
+            headers: authHeaders
+        });
+
+        if (latestStatus.status === 'completed') break;
+        await sleep(250);
+    }
+
+    assert.ok(latestStatus, 'expected a status payload');
+    assert.equal(latestStatus.status, 'completed');
+
+    const result = await requestJson(`/incidents/${incidentId}/ai-analysis`, {
+        headers: authHeaders
+    });
+
+    assert.equal(result.status, 'completed');
+    assert.ok(result.draft.visibleHazards.some((item) => item.includes('Stored video evidence')));
+});

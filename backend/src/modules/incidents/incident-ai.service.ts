@@ -30,6 +30,9 @@ export class IncidentAiService {
 
     async createUploadSession(incidentId: string, body: CreateUploadSessionDto, authContext: AuthContext) {
         this.ensureAccess(incidentId, authContext);
+        if (!body.photo && !body.video) {
+            throw new BadRequestException('At least one media file descriptor is required to create an upload session.');
+        }
 
         const uploadSessionId = this.buildId('upl');
         const now = new Date();
@@ -41,7 +44,9 @@ export class IncidentAiService {
             createdBy: authContext.uid,
             createdAt: now.toISOString(),
             expiresAt,
-            photo: this.buildUploadTarget(authContext.orgId, incidentId, uploadSessionId, 'photo', body.photo.fileName, body.photo.mimeType),
+            photo: body.photo
+                ? this.buildUploadTarget(authContext.orgId, incidentId, uploadSessionId, 'photo', body.photo.fileName, body.photo.mimeType)
+                : undefined,
             video: body.video
                 ? this.buildUploadTarget(authContext.orgId, incidentId, uploadSessionId, 'video', body.video.fileName, body.video.mimeType)
                 : undefined,
@@ -109,10 +114,14 @@ export class IncidentAiService {
         this.ensureAccess(incidentId, authContext);
 
         const uploadSession = await this.requireUploadSession(body.uploadSessionId, incidentId, authContext.orgId);
-        const uploadedPhoto = this.requireUploadedFile(uploadSession, 'photo');
+        if (!body.photo && !body.video) {
+            throw new BadRequestException('At least one confirmed media file is required before evidence can be saved.');
+        }
+
+        const uploadedPhoto = body.photo ? this.requireUploadedFile(uploadSession, 'photo') : undefined;
         const uploadedVideo = body.video ? this.requireUploadedFile(uploadSession, 'video') : undefined;
 
-        if (!(await this.storageService.fileExists(body.photo.storagePath))) {
+        if (body.photo && !(await this.storageService.fileExists(body.photo.storagePath))) {
             throw new ConflictException('Photo upload is not available in backend storage yet.');
         }
         if (body.video && !(await this.storageService.fileExists(body.video.storagePath))) {
@@ -137,13 +146,17 @@ export class IncidentAiService {
         return {
             incidentId,
             evidenceStatus: 'confirmed',
-            photoAttached: true,
+            photoAttached: Boolean(body.photo),
             videoAttached: Boolean(body.video),
             storedEvidence: {
-                photo: {
-                    sizeBytes: uploadedPhoto.sizeBytes,
-                    sha256: uploadedPhoto.sha256
-                },
+                ...(uploadedPhoto
+                    ? {
+                        photo: {
+                            sizeBytes: uploadedPhoto.sizeBytes,
+                            sha256: uploadedPhoto.sha256
+                        }
+                    }
+                    : {}),
                 ...(uploadedVideo
                     ? {
                         video: {
@@ -286,8 +299,8 @@ export class IncidentAiService {
 
     private async requireEvidence(orgId: string, incidentId: string) {
         const evidence = await this.stateStore.getEvidenceRecord(this.incidentKey(orgId, incidentId));
-        if (!evidence?.photo) {
-            throw new ConflictException('Confirmed incident evidence is required before AI analysis can start.');
+        if (!evidence?.photo && !evidence?.video) {
+            throw new ConflictException('Confirmed incident photo or video evidence is required before AI analysis can start.');
         }
         return evidence;
     }

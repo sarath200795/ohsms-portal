@@ -21,7 +21,7 @@ export default function IncidentStepAnalysis({
             <div className="flex justify-between items-center mb-8 border-b border-purple-500/20 pb-4">
                 <h2 className="text-xl font-bold text-purple-400 flex items-center gap-3 uppercase tracking-widest"><i className="fas fa-search-location text-2xl"></i> 3. Root Cause Analysis</h2>
                 {canEditForm && (
-                    <button type="button" onClick={() => generateSmartInvestigation()} disabled={isAnalyzing || !data.imageEvidence || (!(data.description || '').trim() && !(data.evidenceObservations || '').trim())} className="bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold px-6 py-3 rounded-xl shadow-lg shadow-purple-600/20 flex items-center gap-2 transition-transform active:scale-95 uppercase tracking-widest disabled:opacity-50">
+                    <button type="button" onClick={() => generateSmartInvestigation()} disabled={isAnalyzing || (!data.imageEvidence && !data.videoEvidence) || (!(data.description || '').trim() && !(data.evidenceObservations || '').trim())} className="bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold px-6 py-3 rounded-xl shadow-lg shadow-purple-600/20 flex items-center gap-2 transition-transform active:scale-95 uppercase tracking-widest disabled:opacity-50">
                         {isAnalyzing ? <><i className="fas fa-spinner fa-spin"></i> {analysisStatusLabel || 'Analyzing...'}</> : <><i className="fas fa-wand-magic-sparkles"></i> AI Auto-Analyze</>}
                     </button>
                 )}

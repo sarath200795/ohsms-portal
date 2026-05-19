@@ -6,9 +6,10 @@ export class ConfirmEvidenceDto {
     @IsString()
     uploadSessionId!: string;
 
+    @IsOptional()
     @ValidateNested()
     @Type(() => ConfirmedEvidenceFileDto)
-    photo!: ConfirmedEvidenceFileDto;
+    photo?: ConfirmedEvidenceFileDto;
 
     @IsOptional()
     @ValidateNested()

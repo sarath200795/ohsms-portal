@@ -91,7 +91,7 @@ export default function IncidentPrintOverlay({ printData }) {
 
             <div className="mb-6 page-break-inside-avoid border border-black p-4">
                 <h2 className="text-sm font-bold mb-3 uppercase bg-gray-200 p-1 border border-gray-400 inline-block">
-                    Photographic Evidence {isInvestigationReport ? '(From Initial Report)' : '(Initial Report)'}
+                    Media Evidence {isInvestigationReport ? '(From Initial Report)' : '(Initial Report)'}
                 </h2>
                 {printData.imageEvidence ? (
                     <div>
@@ -103,9 +103,14 @@ export default function IncidentPrintOverlay({ printData }) {
                             alt={`${reportTitle} evidence`}
                         />
                     </div>
+                ) : printData.videoEvidenceName ? (
+                    <div className="border border-dashed border-gray-400 bg-gray-50 p-4 text-sm text-gray-700">
+                        <p className="mb-2"><strong>Video evidence attached:</strong> <span className="font-mono">{printData.videoEvidenceName}</span></p>
+                        <p className="italic">Video playback is not embedded in the print report, but the uploaded clip is part of the incident evidence package used for smart investigation.</p>
+                    </div>
                 ) : (
                     <div className="border border-dashed border-gray-400 bg-gray-50 p-4 text-sm italic text-gray-600">
-                        No photographic evidence was attached with the initial report.
+                        No media evidence was attached with the initial report.
                     </div>
                 )}
             </div>

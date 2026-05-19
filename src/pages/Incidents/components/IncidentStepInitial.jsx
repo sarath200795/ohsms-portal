@@ -63,7 +63,7 @@ export default function IncidentStepInitial({
                         <button
                             type="button"
                             onClick={() => generateSmartInvestigation()}
-                            disabled={isAnalyzing || !data.imageEvidence || (!(data.description || '').trim() && !(data.evidenceObservations || '').trim())}
+                            disabled={isAnalyzing || (!data.imageEvidence && !data.videoEvidence) || (!(data.description || '').trim() && !(data.evidenceObservations || '').trim())}
                             className="bg-gradient-to-r from-blue-600 to-emerald-600 hover:from-blue-500 hover:to-emerald-500 text-white px-6 py-2.5 rounded-xl font-bold text-xs uppercase tracking-widest shadow-lg transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                             {isAnalyzing ? (
@@ -145,8 +145,8 @@ export default function IncidentStepInitial({
 
             <div className="bg-slate-950/50 border border-slate-800 p-6 rounded-xl space-y-6">
                 <div>
-                    <label className="text-[10px] uppercase font-bold text-red-300 mb-2 block"><i className="fas fa-camera mr-2"></i> Photographic Evidence *</label>
-                    <p className="text-xs text-slate-400 mb-4">A scene photo is mandatory for the initial report. Smart investigation uses the narrative, evidence observations, and uploaded media references together.</p>
+                    <label className="text-[10px] uppercase font-bold text-red-300 mb-2 block"><i className="fas fa-photo-film mr-2"></i> Media Evidence *</label>
+                    <p className="text-xs text-slate-400 mb-4">Upload at least one scene photo or supporting video for the initial report. Smart investigation uses the narrative, evidence observations, and uploaded media together.</p>
                     {data.imageEvidence ? (
                         <div className="relative inline-block group">
                             <img src={data.imageEvidence} alt="Evidence" className="h-48 rounded-xl border-2 border-slate-700 object-cover shadow-xl" />
@@ -163,8 +163,8 @@ export default function IncidentStepInitial({
                 </div>
 
                 <div>
-                    <label className="text-[10px] uppercase font-bold text-slate-400 mb-2 block"><i className="fas fa-video mr-2"></i> Video Evidence (Optional)</label>
-                    <p className="text-xs text-slate-500 mb-4">Upload a short supporting clip if it helps explain movement, sequence, or equipment condition.</p>
+                    <label className="text-[10px] uppercase font-bold text-slate-400 mb-2 block"><i className="fas fa-video mr-2"></i> Video Evidence</label>
+                    <p className="text-xs text-slate-500 mb-4">Upload a supporting clip if it helps explain movement, sequence, equipment condition, or visible failure.</p>
                     {data.videoEvidence ? (
                         <div className="space-y-3">
                             <video src={data.videoEvidence} controls className="max-h-64 rounded-xl border border-slate-700 bg-black" />
@@ -191,6 +191,12 @@ export default function IncidentStepInitial({
                         className="w-full bg-slate-950 border border-slate-700 rounded-xl p-4 text-sm text-white focus:border-blue-500 outline-none shadow-inner resize-none"
                         placeholder="Describe what is visible in the photo or video: damaged guard, leaked fluid, scorch marks, fallen material, missing barricade, etc."
                     />
+                </div>
+
+                <div className={`rounded-xl border px-4 py-3 text-xs font-bold uppercase tracking-[0.18em] ${data.imageEvidence || data.videoEvidence ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300' : 'border-amber-500/30 bg-amber-500/10 text-amber-300'}`}>
+                    {data.imageEvidence || data.videoEvidence
+                        ? 'Media evidence attached and ready for report submission'
+                        : 'Upload at least one photo or video to complete the initial report'}
                 </div>
             </div>
 

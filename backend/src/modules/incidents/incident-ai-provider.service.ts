@@ -102,17 +102,20 @@ export class IncidentAiProviderService {
         const equipment = context.equipmentInvolved?.trim() || 'Equipment under review';
         const hazard = context.smartCategory?.trim() || 'General workplace hazard';
         const severity = context.severity?.trim() || 'Unspecified severity';
-        const photoDescriptor = `${evidence.uploaded.photo.fileName} (${Math.round(evidence.uploaded.photo.sizeBytes / 1024)} KB)`;
+        const photoDescriptor = evidence.uploaded.photo
+            ? `${evidence.uploaded.photo.fileName} (${Math.round(evidence.uploaded.photo.sizeBytes / 1024)} KB)`
+            : '';
         const videoDescriptor = evidence.uploaded.video
             ? `${evidence.uploaded.video.fileName} (${Math.round(evidence.uploaded.video.sizeBytes / 1024)} KB)`
             : '';
+        const evidenceSummary = [photoDescriptor, videoDescriptor].filter(Boolean).join(' and ');
 
         return {
             provider: 'local',
             warnings: [],
             transcript: {
                 text: evidence.notes?.trim()
-                    || `Stored incident evidence includes ${photoDescriptor}${videoDescriptor ? ` and ${videoDescriptor}` : ''}.`,
+                    || `Stored incident evidence includes ${evidenceSummary || 'uploaded media evidence'}.`,
                 segments: [
                     {
                         startMs: 0,
@@ -125,7 +128,7 @@ export class IncidentAiProviderService {
             draft: {
                 eventSummary: summary,
                 visibleHazards: [
-                    `Stored photo evidence available at ${evidence.uploaded.photo.storagePath}`,
+                    ...(evidence.uploaded.photo ? [`Stored photo evidence available at ${evidence.uploaded.photo.storagePath}`] : []),
                     ...(evidence.uploaded.video ? [`Stored video evidence available at ${evidence.uploaded.video.storagePath}`] : []),
                     `Potential ${hazard.toLowerCase()} indicators should be reviewed against saved media`,
                     ...(mediaContext.derivedFrames.length > 0 ? [`${mediaContext.derivedFrames.length} sampled video frames were extracted for review`] : [])
@@ -133,7 +136,12 @@ export class IncidentAiProviderService {
                 equipmentCondition: [
                     `${equipment} identified in incident context`,
                     `Severity context recorded as ${severity}`,
-                    `Photo evidence checksum ${evidence.uploaded.photo.sha256.slice(0, 12)}... captured for traceability`
+                    ...(evidence.uploaded.photo
+                        ? [`Photo evidence checksum ${evidence.uploaded.photo.sha256.slice(0, 12)}... captured for traceability`]
+                        : []),
+                    ...(evidence.uploaded.video
+                        ? [`Video evidence checksum ${evidence.uploaded.video.sha256.slice(0, 12)}... captured for traceability`]
+                        : [])
                 ],
                 immediateCauses: [
                     'Unsafe condition visible or reported in uploaded incident evidence',
@@ -173,7 +181,7 @@ export class IncidentAiProviderService {
                     'Human investigator review is still required',
                     evidence.uploaded.video
                         ? 'Confirm the exact failure point from the stored video sequence'
-                        : 'Add witness statements or video evidence for stronger sequence validation'
+                        : 'Add witness statements or additional media evidence for stronger sequence validation'
                 ]
             }
         };

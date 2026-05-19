@@ -3,9 +3,10 @@ import { IsOptional, ValidateNested } from 'class-validator';
 import { FileDescriptorDto } from './shared.dto';
 
 export class CreateUploadSessionDto {
+    @IsOptional()
     @ValidateNested()
     @Type(() => FileDescriptorDto)
-    photo!: FileDescriptorDto;
+    photo?: FileDescriptorDto;
 
     @IsOptional()
     @ValidateNested()
