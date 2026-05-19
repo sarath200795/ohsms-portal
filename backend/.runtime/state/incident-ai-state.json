@@ -1,0 +1,834 @@
+{
+  "uploadSessions": {
+    "upl_cd80e85c324e": {
+      "uploadSessionId": "upl_cd80e85c324e",
+      "incidentId": "INC-SMOKE-001",
+      "orgId": "org-smoke",
+      "createdBy": "smoke-user",
+      "createdAt": "2026-05-18T09:38:01.320Z",
+      "expiresAt": "2026-05-18T09:53:01.320Z",
+      "photo": {
+        "storagePath": "orgs/org-smoke/incidents/INC-SMOKE-001/evidence/photo-original.jpg",
+        "uploadUrl": "/api/v1/incidents/INC-SMOKE-001/ai-evidence/upload/upl_cd80e85c324e/photo",
+        "headers": {
+          "Content-Type": "image/jpeg"
+        }
+      },
+      "video": {
+        "storagePath": "orgs/org-smoke/incidents/INC-SMOKE-001/evidence/video-original.mp4",
+        "uploadUrl": "/api/v1/incidents/INC-SMOKE-001/ai-evidence/upload/upl_cd80e85c324e/video",
+        "headers": {
+          "Content-Type": "video/mp4"
+        }
+      },
+      "uploadedFiles": {
+        "photo": {
+          "kind": "photo",
+          "storagePath": "orgs/org-smoke/incidents/INC-SMOKE-001/evidence/photo-original.jpg",
+          "absolutePath": "C:\\Users\\Sarath\\ohsms-enterprise\\backend\\.runtime\\storage\\orgs\\org-smoke\\incidents\\INC-SMOKE-001\\evidence\\photo-original.jpg",
+          "fileName": "scene-photo.jpg",
+          "mimeType": "image/jpeg",
+          "sizeBytes": 17,
+          "sha256": "85e0b2385b47c3449416a3dfaeb24a46658edad9d702d62dd91af8118a1b5691",
+          "uploadedAt": "2026-05-18T09:38:01.344Z"
+        },
+        "video": {
+          "kind": "video",
+          "storagePath": "orgs/org-smoke/incidents/INC-SMOKE-001/evidence/video-original.mp4",
+          "absolutePath": "C:\\Users\\Sarath\\ohsms-enterprise\\backend\\.runtime\\storage\\orgs\\org-smoke\\incidents\\INC-SMOKE-001\\evidence\\video-original.mp4",
+          "fileName": "sequence.mp4",
+          "mimeType": "video/mp4",
+          "sizeBytes": 17,
+          "sha256": "7c4b24a2f7dbdf8d32c5848e89a28f712a2c03a66e01de6c20ed671ecde30945",
+          "uploadedAt": "2026-05-18T09:38:01.354Z"
+        }
+      }
+    },
+    "upl_66dfe2faaeda": {
+      "uploadSessionId": "upl_66dfe2faaeda",
+      "incidentId": "INC-SMOKE-001",
+      "orgId": "org-smoke",
+      "createdBy": "smoke-user",
+      "createdAt": "2026-05-19T04:05:30.874Z",
+      "expiresAt": "2026-05-19T04:20:30.874Z",
+      "photo": {
+        "storagePath": "orgs/org-smoke/incidents/INC-SMOKE-001/evidence/photo-original.jpg",
+        "uploadUrl": "/api/v1/incidents/INC-SMOKE-001/ai-evidence/upload/upl_66dfe2faaeda/photo",
+        "headers": {
+          "Content-Type": "image/jpeg"
+        }
+      },
+      "video": {
+        "storagePath": "orgs/org-smoke/incidents/INC-SMOKE-001/evidence/video-original.mp4",
+        "uploadUrl": "/api/v1/incidents/INC-SMOKE-001/ai-evidence/upload/upl_66dfe2faaeda/video",
+        "headers": {
+          "Content-Type": "video/mp4"
+        }
+      },
+      "uploadedFiles": {
+        "photo": {
+          "kind": "photo",
+          "storagePath": "orgs/org-smoke/incidents/INC-SMOKE-001/evidence/photo-original.jpg",
+          "absolutePath": "C:\\Users\\Sarath\\ohsms-enterprise\\backend\\.runtime\\storage\\orgs\\org-smoke\\incidents\\INC-SMOKE-001\\evidence\\photo-original.jpg",
+          "fileName": "scene-photo.jpg",
+          "mimeType": "image/jpeg",
+          "sizeBytes": 17,
+          "sha256": "85e0b2385b47c3449416a3dfaeb24a46658edad9d702d62dd91af8118a1b5691",
+          "uploadedAt": "2026-05-19T04:05:30.890Z"
+        },
+        "video": {
+          "kind": "video",
+          "storagePath": "orgs/org-smoke/incidents/INC-SMOKE-001/evidence/video-original.mp4",
+          "absolutePath": "C:\\Users\\Sarath\\ohsms-enterprise\\backend\\.runtime\\storage\\orgs\\org-smoke\\incidents\\INC-SMOKE-001\\evidence\\video-original.mp4",
+          "fileName": "sequence.mp4",
+          "mimeType": "video/mp4",
+          "sizeBytes": 17,
+          "sha256": "7c4b24a2f7dbdf8d32c5848e89a28f712a2c03a66e01de6c20ed671ecde30945",
+          "uploadedAt": "2026-05-19T04:05:30.897Z"
+        }
+      }
+    },
+    "upl_3c78c2066ee1": {
+      "uploadSessionId": "upl_3c78c2066ee1",
+      "incidentId": "INC-SMOKE-001",
+      "orgId": "org-smoke",
+      "createdBy": "smoke-user",
+      "createdAt": "2026-05-19T04:06:35.199Z",
+      "expiresAt": "2026-05-19T04:21:35.199Z",
+      "photo": {
+        "storagePath": "orgs/org-smoke/incidents/INC-SMOKE-001/evidence/photo-original.jpg",
+        "uploadUrl": "/api/v1/incidents/INC-SMOKE-001/ai-evidence/upload/upl_3c78c2066ee1/photo",
+        "headers": {
+          "Content-Type": "image/jpeg"
+        }
+      },
+      "video": {
+        "storagePath": "orgs/org-smoke/incidents/INC-SMOKE-001/evidence/video-original.mp4",
+        "uploadUrl": "/api/v1/incidents/INC-SMOKE-001/ai-evidence/upload/upl_3c78c2066ee1/video",
+        "headers": {
+          "Content-Type": "video/mp4"
+        }
+      },
+      "uploadedFiles": {
+        "photo": {
+          "kind": "photo",
+          "storagePath": "orgs/org-smoke/incidents/INC-SMOKE-001/evidence/photo-original.jpg",
+          "absolutePath": "C:\\Users\\Sarath\\ohsms-enterprise\\backend\\.runtime\\storage\\orgs\\org-smoke\\incidents\\INC-SMOKE-001\\evidence\\photo-original.jpg",
+          "fileName": "scene-photo.jpg",
+          "mimeType": "image/jpeg",
+          "sizeBytes": 17,
+          "sha256": "85e0b2385b47c3449416a3dfaeb24a46658edad9d702d62dd91af8118a1b5691",
+          "uploadedAt": "2026-05-19T04:06:35.220Z"
+        },
+        "video": {
+          "kind": "video",
+          "storagePath": "orgs/org-smoke/incidents/INC-SMOKE-001/evidence/video-original.mp4",
+          "absolutePath": "C:\\Users\\Sarath\\ohsms-enterprise\\backend\\.runtime\\storage\\orgs\\org-smoke\\incidents\\INC-SMOKE-001\\evidence\\video-original.mp4",
+          "fileName": "sequence.mp4",
+          "mimeType": "video/mp4",
+          "sizeBytes": 17,
+          "sha256": "7c4b24a2f7dbdf8d32c5848e89a28f712a2c03a66e01de6c20ed671ecde30945",
+          "uploadedAt": "2026-05-19T04:06:35.227Z"
+        }
+      }
+    },
+    "upl_f3e2b3c08660": {
+      "uploadSessionId": "upl_f3e2b3c08660",
+      "incidentId": "INC-SMOKE-001",
+      "orgId": "org-smoke",
+      "createdBy": "smoke-user",
+      "createdAt": "2026-05-19T04:23:23.699Z",
+      "expiresAt": "2026-05-19T04:38:23.699Z",
+      "photo": {
+        "storagePath": "orgs/org-smoke/incidents/INC-SMOKE-001/evidence/photo-original.jpg",
+        "uploadUrl": "/api/v1/incidents/INC-SMOKE-001/ai-evidence/upload/upl_f3e2b3c08660/photo",
+        "headers": {
+          "Content-Type": "image/jpeg"
+        }
+      },
+      "video": {
+        "storagePath": "orgs/org-smoke/incidents/INC-SMOKE-001/evidence/video-original.mp4",
+        "uploadUrl": "/api/v1/incidents/INC-SMOKE-001/ai-evidence/upload/upl_f3e2b3c08660/video",
+        "headers": {
+          "Content-Type": "video/mp4"
+        }
+      },
+      "uploadedFiles": {
+        "photo": {
+          "kind": "photo",
+          "storagePath": "orgs/org-smoke/incidents/INC-SMOKE-001/evidence/photo-original.jpg",
+          "absolutePath": "C:\\Users\\Sarath\\ohsms-enterprise\\backend\\.runtime\\storage\\orgs\\org-smoke\\incidents\\INC-SMOKE-001\\evidence\\photo-original.jpg",
+          "fileName": "scene-photo.jpg",
+          "mimeType": "image/jpeg",
+          "sizeBytes": 17,
+          "sha256": "85e0b2385b47c3449416a3dfaeb24a46658edad9d702d62dd91af8118a1b5691",
+          "uploadedAt": "2026-05-19T04:23:23.726Z"
+        },
+        "video": {
+          "kind": "video",
+          "storagePath": "orgs/org-smoke/incidents/INC-SMOKE-001/evidence/video-original.mp4",
+          "absolutePath": "C:\\Users\\Sarath\\ohsms-enterprise\\backend\\.runtime\\storage\\orgs\\org-smoke\\incidents\\INC-SMOKE-001\\evidence\\video-original.mp4",
+          "fileName": "sequence.mp4",
+          "mimeType": "video/mp4",
+          "sizeBytes": 17,
+          "sha256": "7c4b24a2f7dbdf8d32c5848e89a28f712a2c03a66e01de6c20ed671ecde30945",
+          "uploadedAt": "2026-05-19T04:23:23.737Z"
+        }
+      }
+    },
+    "upl_12490aed6080": {
+      "uploadSessionId": "upl_12490aed6080",
+      "incidentId": "INC-SMOKE-001",
+      "orgId": "org-smoke",
+      "createdBy": "smoke-user",
+      "createdAt": "2026-05-19T04:41:04.771Z",
+      "expiresAt": "2026-05-19T04:56:04.771Z",
+      "photo": {
+        "storagePath": "orgs/org-smoke/incidents/INC-SMOKE-001/evidence/photo-original.jpg",
+        "uploadUrl": "/api/v1/incidents/INC-SMOKE-001/ai-evidence/upload/upl_12490aed6080/photo",
+        "headers": {
+          "Content-Type": "image/jpeg"
+        }
+      },
+      "video": {
+        "storagePath": "orgs/org-smoke/incidents/INC-SMOKE-001/evidence/video-original.mp4",
+        "uploadUrl": "/api/v1/incidents/INC-SMOKE-001/ai-evidence/upload/upl_12490aed6080/video",
+        "headers": {
+          "Content-Type": "video/mp4"
+        }
+      },
+      "uploadedFiles": {
+        "photo": {
+          "kind": "photo",
+          "storagePath": "orgs/org-smoke/incidents/INC-SMOKE-001/evidence/photo-original.jpg",
+          "absolutePath": "C:\\Users\\Sarath\\ohsms-enterprise\\backend\\.runtime\\storage\\orgs\\org-smoke\\incidents\\INC-SMOKE-001\\evidence\\photo-original.jpg",
+          "fileName": "scene-photo.jpg",
+          "mimeType": "image/jpeg",
+          "sizeBytes": 17,
+          "sha256": "85e0b2385b47c3449416a3dfaeb24a46658edad9d702d62dd91af8118a1b5691",
+          "uploadedAt": "2026-05-19T04:41:04.795Z"
+        },
+        "video": {
+          "kind": "video",
+          "storagePath": "orgs/org-smoke/incidents/INC-SMOKE-001/evidence/video-original.mp4",
+          "absolutePath": "C:\\Users\\Sarath\\ohsms-enterprise\\backend\\.runtime\\storage\\orgs\\org-smoke\\incidents\\INC-SMOKE-001\\evidence\\video-original.mp4",
+          "fileName": "sequence.mp4",
+          "mimeType": "video/mp4",
+          "sizeBytes": 17,
+          "sha256": "7c4b24a2f7dbdf8d32c5848e89a28f712a2c03a66e01de6c20ed671ecde30945",
+          "uploadedAt": "2026-05-19T04:41:04.804Z"
+        }
+      }
+    },
+    "upl_c34422ed90ac": {
+      "uploadSessionId": "upl_c34422ed90ac",
+      "incidentId": "INC-SMOKE-001",
+      "orgId": "org-smoke",
+      "createdBy": "smoke-user",
+      "createdAt": "2026-05-19T04:42:26.573Z",
+      "expiresAt": "2026-05-19T04:57:26.573Z",
+      "photo": {
+        "storagePath": "orgs/org-smoke/incidents/INC-SMOKE-001/evidence/photo-original.jpg",
+        "uploadUrl": "/api/v1/incidents/INC-SMOKE-001/ai-evidence/upload/upl_c34422ed90ac/photo",
+        "headers": {
+          "Content-Type": "image/jpeg"
+        }
+      },
+      "video": {
+        "storagePath": "orgs/org-smoke/incidents/INC-SMOKE-001/evidence/video-original.mp4",
+        "uploadUrl": "/api/v1/incidents/INC-SMOKE-001/ai-evidence/upload/upl_c34422ed90ac/video",
+        "headers": {
+          "Content-Type": "video/mp4"
+        }
+      },
+      "uploadedFiles": {
+        "photo": {
+          "kind": "photo",
+          "storagePath": "orgs/org-smoke/incidents/INC-SMOKE-001/evidence/photo-original.jpg",
+          "absolutePath": "C:\\Users\\Sarath\\ohsms-enterprise\\backend\\.runtime\\storage\\orgs\\org-smoke\\incidents\\INC-SMOKE-001\\evidence\\photo-original.jpg",
+          "fileName": "scene-photo.jpg",
+          "mimeType": "image/jpeg",
+          "sizeBytes": 17,
+          "sha256": "85e0b2385b47c3449416a3dfaeb24a46658edad9d702d62dd91af8118a1b5691",
+          "uploadedAt": "2026-05-19T04:42:26.608Z"
+        },
+        "video": {
+          "kind": "video",
+          "storagePath": "orgs/org-smoke/incidents/INC-SMOKE-001/evidence/video-original.mp4",
+          "absolutePath": "C:\\Users\\Sarath\\ohsms-enterprise\\backend\\.runtime\\storage\\orgs\\org-smoke\\incidents\\INC-SMOKE-001\\evidence\\video-original.mp4",
+          "fileName": "sequence.mp4",
+          "mimeType": "video/mp4",
+          "sizeBytes": 17,
+          "sha256": "7c4b24a2f7dbdf8d32c5848e89a28f712a2c03a66e01de6c20ed671ecde30945",
+          "uploadedAt": "2026-05-19T04:42:26.622Z"
+        }
+      }
+    },
+    "upl_7c79808d6615": {
+      "uploadSessionId": "upl_7c79808d6615",
+      "incidentId": "INC-SMOKE-001",
+      "orgId": "org-smoke",
+      "createdBy": "smoke-user",
+      "createdAt": "2026-05-19T05:58:33.112Z",
+      "expiresAt": "2026-05-19T06:13:33.112Z",
+      "photo": {
+        "storagePath": "orgs/org-smoke/incidents/INC-SMOKE-001/evidence/photo-original.jpg",
+        "uploadUrl": "/api/v1/incidents/INC-SMOKE-001/ai-evidence/upload/upl_7c79808d6615/photo",
+        "headers": {
+          "Content-Type": "image/jpeg"
+        }
+      },
+      "video": {
+        "storagePath": "orgs/org-smoke/incidents/INC-SMOKE-001/evidence/video-original.mp4",
+        "uploadUrl": "/api/v1/incidents/INC-SMOKE-001/ai-evidence/upload/upl_7c79808d6615/video",
+        "headers": {
+          "Content-Type": "video/mp4"
+        }
+      },
+      "uploadedFiles": {
+        "photo": {
+          "kind": "photo",
+          "storagePath": "orgs/org-smoke/incidents/INC-SMOKE-001/evidence/photo-original.jpg",
+          "absolutePath": "C:\\Users\\Sarath\\ohsms-enterprise\\backend\\.runtime\\storage\\orgs\\org-smoke\\incidents\\INC-SMOKE-001\\evidence\\photo-original.jpg",
+          "fileName": "scene-photo.jpg",
+          "mimeType": "image/jpeg",
+          "sizeBytes": 17,
+          "sha256": "85e0b2385b47c3449416a3dfaeb24a46658edad9d702d62dd91af8118a1b5691",
+          "uploadedAt": "2026-05-19T05:58:33.136Z"
+        },
+        "video": {
+          "kind": "video",
+          "storagePath": "orgs/org-smoke/incidents/INC-SMOKE-001/evidence/video-original.mp4",
+          "absolutePath": "C:\\Users\\Sarath\\ohsms-enterprise\\backend\\.runtime\\storage\\orgs\\org-smoke\\incidents\\INC-SMOKE-001\\evidence\\video-original.mp4",
+          "fileName": "sequence.mp4",
+          "mimeType": "video/mp4",
+          "sizeBytes": 17,
+          "sha256": "7c4b24a2f7dbdf8d32c5848e89a28f712a2c03a66e01de6c20ed671ecde30945",
+          "uploadedAt": "2026-05-19T05:58:33.149Z"
+        }
+      }
+    },
+    "upl_ef81430cbd00": {
+      "uploadSessionId": "upl_ef81430cbd00",
+      "incidentId": "INC-SMOKE-001",
+      "orgId": "org-smoke",
+      "createdBy": "smoke-user",
+      "createdAt": "2026-05-19T06:50:57.545Z",
+      "expiresAt": "2026-05-19T07:05:57.545Z",
+      "photo": {
+        "storagePath": "orgs/org-smoke/incidents/INC-SMOKE-001/evidence/photo-original.jpg",
+        "uploadUrl": "/api/v1/incidents/INC-SMOKE-001/ai-evidence/upload/upl_ef81430cbd00/photo",
+        "headers": {
+          "Content-Type": "image/jpeg"
+        }
+      },
+      "video": {
+        "storagePath": "orgs/org-smoke/incidents/INC-SMOKE-001/evidence/video-original.mp4",
+        "uploadUrl": "/api/v1/incidents/INC-SMOKE-001/ai-evidence/upload/upl_ef81430cbd00/video",
+        "headers": {
+          "Content-Type": "video/mp4"
+        }
+      },
+      "uploadedFiles": {
+        "photo": {
+          "kind": "photo",
+          "storagePath": "orgs/org-smoke/incidents/INC-SMOKE-001/evidence/photo-original.jpg",
+          "absolutePath": "C:\\Users\\Sarath\\ohsms-enterprise\\backend\\.runtime\\storage\\orgs\\org-smoke\\incidents\\INC-SMOKE-001\\evidence\\photo-original.jpg",
+          "fileName": "scene-photo.jpg",
+          "mimeType": "image/jpeg",
+          "sizeBytes": 17,
+          "sha256": "85e0b2385b47c3449416a3dfaeb24a46658edad9d702d62dd91af8118a1b5691",
+          "uploadedAt": "2026-05-19T06:50:57.588Z"
+        },
+        "video": {
+          "kind": "video",
+          "storagePath": "orgs/org-smoke/incidents/INC-SMOKE-001/evidence/video-original.mp4",
+          "absolutePath": "C:\\Users\\Sarath\\ohsms-enterprise\\backend\\.runtime\\storage\\orgs\\org-smoke\\incidents\\INC-SMOKE-001\\evidence\\video-original.mp4",
+          "fileName": "sequence.mp4",
+          "mimeType": "video/mp4",
+          "sizeBytes": 17,
+          "sha256": "7c4b24a2f7dbdf8d32c5848e89a28f712a2c03a66e01de6c20ed671ecde30945",
+          "uploadedAt": "2026-05-19T06:50:57.607Z"
+        }
+      }
+    },
+    "upl_3caa7d6e3959": {
+      "uploadSessionId": "upl_3caa7d6e3959",
+      "incidentId": "INC-SMOKE-VIDEO-ONLY",
+      "orgId": "org-smoke",
+      "createdBy": "smoke-user",
+      "createdAt": "2026-05-19T06:51:02.354Z",
+      "expiresAt": "2026-05-19T07:06:02.354Z",
+      "video": {
+        "storagePath": "orgs/org-smoke/incidents/INC-SMOKE-VIDEO-ONLY/evidence/video-original.mp4",
+        "uploadUrl": "/api/v1/incidents/INC-SMOKE-VIDEO-ONLY/ai-evidence/upload/upl_3caa7d6e3959/video",
+        "headers": {
+          "Content-Type": "video/mp4"
+        }
+      },
+      "uploadedFiles": {
+        "video": {
+          "kind": "video",
+          "storagePath": "orgs/org-smoke/incidents/INC-SMOKE-VIDEO-ONLY/evidence/video-original.mp4",
+          "absolutePath": "C:\\Users\\Sarath\\ohsms-enterprise\\backend\\.runtime\\storage\\orgs\\org-smoke\\incidents\\INC-SMOKE-VIDEO-ONLY\\evidence\\video-original.mp4",
+          "fileName": "video-only-sequence.mp4",
+          "mimeType": "video/mp4",
+          "sizeBytes": 22,
+          "sha256": "f1673d60b9c0a5dfebb8eb1024a11ab026a83a418c2b2f5b7771ec62bdc79725",
+          "uploadedAt": "2026-05-19T06:51:02.379Z"
+        }
+      }
+    },
+    "upl_0da4e230a586": {
+      "uploadSessionId": "upl_0da4e230a586",
+      "incidentId": "INC-SMOKE-001",
+      "orgId": "org-smoke",
+      "createdBy": "smoke-user",
+      "createdAt": "2026-05-19T07:07:26.921Z",
+      "expiresAt": "2026-05-19T07:22:26.921Z",
+      "photo": {
+        "storagePath": "orgs/org-smoke/incidents/INC-SMOKE-001/evidence/photo-original.jpg",
+        "uploadUrl": "/api/v1/incidents/INC-SMOKE-001/ai-evidence/upload/upl_0da4e230a586/photo",
+        "headers": {
+          "Content-Type": "image/jpeg"
+        }
+      },
+      "video": {
+        "storagePath": "orgs/org-smoke/incidents/INC-SMOKE-001/evidence/video-original.mp4",
+        "uploadUrl": "/api/v1/incidents/INC-SMOKE-001/ai-evidence/upload/upl_0da4e230a586/video",
+        "headers": {
+          "Content-Type": "video/mp4"
+        }
+      },
+      "uploadedFiles": {
+        "photo": {
+          "kind": "photo",
+          "storagePath": "orgs/org-smoke/incidents/INC-SMOKE-001/evidence/photo-original.jpg",
+          "absolutePath": "C:\\Users\\Sarath\\ohsms-enterprise\\backend\\.runtime\\storage\\orgs\\org-smoke\\incidents\\INC-SMOKE-001\\evidence\\photo-original.jpg",
+          "fileName": "scene-photo.jpg",
+          "mimeType": "image/jpeg",
+          "sizeBytes": 17,
+          "sha256": "85e0b2385b47c3449416a3dfaeb24a46658edad9d702d62dd91af8118a1b5691",
+          "uploadedAt": "2026-05-19T07:07:26.956Z"
+        },
+        "video": {
+          "kind": "video",
+          "storagePath": "orgs/org-smoke/incidents/INC-SMOKE-001/evidence/video-original.mp4",
+          "absolutePath": "C:\\Users\\Sarath\\ohsms-enterprise\\backend\\.runtime\\storage\\orgs\\org-smoke\\incidents\\INC-SMOKE-001\\evidence\\video-original.mp4",
+          "fileName": "sequence.mp4",
+          "mimeType": "video/mp4",
+          "sizeBytes": 17,
+          "sha256": "7c4b24a2f7dbdf8d32c5848e89a28f712a2c03a66e01de6c20ed671ecde30945",
+          "uploadedAt": "2026-05-19T07:07:26.986Z"
+        }
+      }
+    },
+    "upl_cfd6d81e32ae": {
+      "uploadSessionId": "upl_cfd6d81e32ae",
+      "incidentId": "INC-SMOKE-VIDEO-ONLY",
+      "orgId": "org-smoke",
+      "createdBy": "smoke-user",
+      "createdAt": "2026-05-19T07:07:30.081Z",
+      "expiresAt": "2026-05-19T07:22:30.081Z",
+      "video": {
+        "storagePath": "orgs/org-smoke/incidents/INC-SMOKE-VIDEO-ONLY/evidence/video-original.mp4",
+        "uploadUrl": "/api/v1/incidents/INC-SMOKE-VIDEO-ONLY/ai-evidence/upload/upl_cfd6d81e32ae/video",
+        "headers": {
+          "Content-Type": "video/mp4"
+        }
+      },
+      "uploadedFiles": {
+        "video": {
+          "kind": "video",
+          "storagePath": "orgs/org-smoke/incidents/INC-SMOKE-VIDEO-ONLY/evidence/video-original.mp4",
+          "absolutePath": "C:\\Users\\Sarath\\ohsms-enterprise\\backend\\.runtime\\storage\\orgs\\org-smoke\\incidents\\INC-SMOKE-VIDEO-ONLY\\evidence\\video-original.mp4",
+          "fileName": "video-only-sequence.mp4",
+          "mimeType": "video/mp4",
+          "sizeBytes": 22,
+          "sha256": "f1673d60b9c0a5dfebb8eb1024a11ab026a83a418c2b2f5b7771ec62bdc79725",
+          "uploadedAt": "2026-05-19T07:07:30.098Z"
+        }
+      }
+    },
+    "upl_ac869b3839d6": {
+      "uploadSessionId": "upl_ac869b3839d6",
+      "incidentId": "INC-SMOKE-001",
+      "orgId": "org-smoke",
+      "createdBy": "smoke-user",
+      "createdAt": "2026-05-19T07:10:18.235Z",
+      "expiresAt": "2026-05-19T07:25:18.235Z",
+      "photo": {
+        "storagePath": "orgs/org-smoke/incidents/INC-SMOKE-001/evidence/photo-original.jpg",
+        "uploadUrl": "/api/v1/incidents/INC-SMOKE-001/ai-evidence/upload/upl_ac869b3839d6/photo",
+        "headers": {
+          "Content-Type": "image/jpeg"
+        }
+      },
+      "video": {
+        "storagePath": "orgs/org-smoke/incidents/INC-SMOKE-001/evidence/video-original.mp4",
+        "uploadUrl": "/api/v1/incidents/INC-SMOKE-001/ai-evidence/upload/upl_ac869b3839d6/video",
+        "headers": {
+          "Content-Type": "video/mp4"
+        }
+      },
+      "uploadedFiles": {
+        "photo": {
+          "kind": "photo",
+          "storagePath": "orgs/org-smoke/incidents/INC-SMOKE-001/evidence/photo-original.jpg",
+          "absolutePath": "C:\\Users\\Sarath\\ohsms-enterprise\\backend\\.runtime\\storage\\orgs\\org-smoke\\incidents\\INC-SMOKE-001\\evidence\\photo-original.jpg",
+          "fileName": "scene-photo.jpg",
+          "mimeType": "image/jpeg",
+          "sizeBytes": 17,
+          "sha256": "85e0b2385b47c3449416a3dfaeb24a46658edad9d702d62dd91af8118a1b5691",
+          "uploadedAt": "2026-05-19T07:10:18.303Z"
+        },
+        "video": {
+          "kind": "video",
+          "storagePath": "orgs/org-smoke/incidents/INC-SMOKE-001/evidence/video-original.mp4",
+          "absolutePath": "C:\\Users\\Sarath\\ohsms-enterprise\\backend\\.runtime\\storage\\orgs\\org-smoke\\incidents\\INC-SMOKE-001\\evidence\\video-original.mp4",
+          "fileName": "sequence.mp4",
+          "mimeType": "video/mp4",
+          "sizeBytes": 17,
+          "sha256": "7c4b24a2f7dbdf8d32c5848e89a28f712a2c03a66e01de6c20ed671ecde30945",
+          "uploadedAt": "2026-05-19T07:10:18.330Z"
+        }
+      }
+    },
+    "upl_7e215000fe7a": {
+      "uploadSessionId": "upl_7e215000fe7a",
+      "incidentId": "INC-SMOKE-VIDEO-ONLY",
+      "orgId": "org-smoke",
+      "createdBy": "smoke-user",
+      "createdAt": "2026-05-19T07:10:21.164Z",
+      "expiresAt": "2026-05-19T07:25:21.164Z",
+      "video": {
+        "storagePath": "orgs/org-smoke/incidents/INC-SMOKE-VIDEO-ONLY/evidence/video-original.mp4",
+        "uploadUrl": "/api/v1/incidents/INC-SMOKE-VIDEO-ONLY/ai-evidence/upload/upl_7e215000fe7a/video",
+        "headers": {
+          "Content-Type": "video/mp4"
+        }
+      },
+      "uploadedFiles": {
+        "video": {
+          "kind": "video",
+          "storagePath": "orgs/org-smoke/incidents/INC-SMOKE-VIDEO-ONLY/evidence/video-original.mp4",
+          "absolutePath": "C:\\Users\\Sarath\\ohsms-enterprise\\backend\\.runtime\\storage\\orgs\\org-smoke\\incidents\\INC-SMOKE-VIDEO-ONLY\\evidence\\video-original.mp4",
+          "fileName": "video-only-sequence.mp4",
+          "mimeType": "video/mp4",
+          "sizeBytes": 22,
+          "sha256": "f1673d60b9c0a5dfebb8eb1024a11ab026a83a418c2b2f5b7771ec62bdc79725",
+          "uploadedAt": "2026-05-19T07:10:21.194Z"
+        }
+      }
+    }
+  },
+  "evidenceRecords": {
+    "org-smoke::INC-SMOKE-001": {
+      "incidentId": "INC-SMOKE-001",
+      "orgId": "org-smoke",
+      "photo": {
+        "storagePath": "orgs/org-smoke/incidents/INC-SMOKE-001/evidence/photo-original.jpg",
+        "fileName": "scene-photo.jpg",
+        "mimeType": "image/jpeg"
+      },
+      "video": {
+        "storagePath": "orgs/org-smoke/incidents/INC-SMOKE-001/evidence/video-original.mp4",
+        "fileName": "sequence.mp4",
+        "mimeType": "video/mp4"
+      },
+      "notes": "Worker reported sparks, heat, and a damaged guard near the motor.",
+      "confirmedAt": "2026-05-19T07:10:18.351Z",
+      "uploaded": {
+        "photo": {
+          "kind": "photo",
+          "storagePath": "orgs/org-smoke/incidents/INC-SMOKE-001/evidence/photo-original.jpg",
+          "absolutePath": "C:\\Users\\Sarath\\ohsms-enterprise\\backend\\.runtime\\storage\\orgs\\org-smoke\\incidents\\INC-SMOKE-001\\evidence\\photo-original.jpg",
+          "fileName": "scene-photo.jpg",
+          "mimeType": "image/jpeg",
+          "sizeBytes": 17,
+          "sha256": "85e0b2385b47c3449416a3dfaeb24a46658edad9d702d62dd91af8118a1b5691",
+          "uploadedAt": "2026-05-19T07:10:18.303Z"
+        },
+        "video": {
+          "kind": "video",
+          "storagePath": "orgs/org-smoke/incidents/INC-SMOKE-001/evidence/video-original.mp4",
+          "absolutePath": "C:\\Users\\Sarath\\ohsms-enterprise\\backend\\.runtime\\storage\\orgs\\org-smoke\\incidents\\INC-SMOKE-001\\evidence\\video-original.mp4",
+          "fileName": "sequence.mp4",
+          "mimeType": "video/mp4",
+          "sizeBytes": 17,
+          "sha256": "7c4b24a2f7dbdf8d32c5848e89a28f712a2c03a66e01de6c20ed671ecde30945",
+          "uploadedAt": "2026-05-19T07:10:18.330Z"
+        }
+      }
+    },
+    "org-smoke::INC-SMOKE-VIDEO-ONLY": {
+      "incidentId": "INC-SMOKE-VIDEO-ONLY",
+      "orgId": "org-smoke",
+      "video": {
+        "storagePath": "orgs/org-smoke/incidents/INC-SMOKE-VIDEO-ONLY/evidence/video-original.mp4",
+        "fileName": "video-only-sequence.mp4",
+        "mimeType": "video/mp4"
+      },
+      "notes": "The clip shows the sequence of failure and operator response.",
+      "confirmedAt": "2026-05-19T07:10:21.204Z",
+      "uploaded": {
+        "video": {
+          "kind": "video",
+          "storagePath": "orgs/org-smoke/incidents/INC-SMOKE-VIDEO-ONLY/evidence/video-original.mp4",
+          "absolutePath": "C:\\Users\\Sarath\\ohsms-enterprise\\backend\\.runtime\\storage\\orgs\\org-smoke\\incidents\\INC-SMOKE-VIDEO-ONLY\\evidence\\video-original.mp4",
+          "fileName": "video-only-sequence.mp4",
+          "mimeType": "video/mp4",
+          "sizeBytes": 22,
+          "sha256": "f1673d60b9c0a5dfebb8eb1024a11ab026a83a418c2b2f5b7771ec62bdc79725",
+          "uploadedAt": "2026-05-19T07:10:21.194Z"
+        }
+      }
+    }
+  },
+  "analysisJobs": {
+    "org-smoke::INC-SMOKE-001": {
+      "incidentId": "INC-SMOKE-001",
+      "orgId": "org-smoke",
+      "jobId": "job_e96867b4ff76",
+      "status": "completed",
+      "stage": "completed",
+      "progressPercent": 100,
+      "startedAt": "2026-05-19T07:10:18.364Z",
+      "updatedAt": "2026-05-19T07:10:18.532Z",
+      "requestedBy": "smoke-user",
+      "request": {
+        "includeVideo": true,
+        "includeAudioTranscript": true,
+        "frameSampleSeconds": 2,
+        "maxFrames": 6,
+        "analysisLanguage": "en",
+        "incidentContext": {
+          "title": "Motor guard damage and spark event",
+          "description": "A maintenance technician noticed sparks and stopped the job.",
+          "equipmentInvolved": "Packing line motor",
+          "smartCategory": "Electrical Safety",
+          "severity": "Level C",
+          "type": "First Aid injury"
+        }
+      },
+      "workerId": "worker_ae07a6c9",
+      "completedAt": "2026-05-19T07:10:18.532Z"
+    },
+    "org-smoke::INC-SMOKE-VIDEO-ONLY": {
+      "incidentId": "INC-SMOKE-VIDEO-ONLY",
+      "orgId": "org-smoke",
+      "jobId": "job_79fe2c81cd20",
+      "status": "completed",
+      "stage": "completed",
+      "progressPercent": 100,
+      "startedAt": "2026-05-19T07:10:21.210Z",
+      "updatedAt": "2026-05-19T07:10:21.342Z",
+      "requestedBy": "smoke-user",
+      "request": {
+        "includeVideo": true,
+        "includeAudioTranscript": true,
+        "frameSampleSeconds": 2,
+        "maxFrames": 4,
+        "analysisLanguage": "en",
+        "incidentContext": {
+          "title": "Video only incident",
+          "description": "The available evidence is a short clip without a separate photo.",
+          "equipmentInvolved": "Panel isolator",
+          "smartCategory": "Electrical Safety",
+          "severity": "Level B",
+          "type": "Near Miss"
+        }
+      },
+      "workerId": "worker_595f65bd",
+      "completedAt": "2026-05-19T07:10:21.342Z"
+    }
+  },
+  "analysisResults": {
+    "org-smoke::INC-SMOKE-001": {
+      "incidentId": "INC-SMOKE-001",
+      "status": "completed",
+      "provider": "local",
+      "providersUsed": [
+        "local"
+      ],
+      "transcriptionModel": "local-media-context",
+      "visionModel": "local-evidence-pipeline",
+      "transcript": {
+        "text": "Worker reported sparks, heat, and a damaged guard near the motor.",
+        "segments": [
+          {
+            "startMs": 0,
+            "endMs": 2500,
+            "speaker": "speaker_1",
+            "text": "Worker reported sparks, heat, and a damaged guard near the motor."
+          }
+        ]
+      },
+      "draft": {
+        "eventSummary": "A maintenance technician noticed sparks and stopped the job.",
+        "visibleHazards": [
+          "Stored photo evidence available at orgs/org-smoke/incidents/INC-SMOKE-001/evidence/photo-original.jpg",
+          "Stored video evidence available at orgs/org-smoke/incidents/INC-SMOKE-001/evidence/video-original.mp4",
+          "Potential electrical safety indicators should be reviewed against saved media"
+        ],
+        "equipmentCondition": [
+          "Packing line motor identified in incident context",
+          "Severity context recorded as Level C",
+          "Photo evidence checksum 85e0b2385b47... captured for traceability",
+          "Video evidence checksum 7c4b24a2f7db... captured for traceability"
+        ],
+        "immediateCauses": [
+          "Unsafe condition visible or reported in uploaded incident evidence",
+          "Initial controls were not sufficient to prevent exposure"
+        ],
+        "contributingFactors": [
+          "Stored media should be reviewed during the human investigation meeting",
+          "Work method and scene controls should be reviewed against the persisted evidence files"
+        ],
+        "fiveWhys": [
+          "Why 1: The event occurred because workers were exposed to electrical safety.",
+          "Why 2: Packing line motor or the work area condition was not fully controlled.",
+          "Why 3: The immediate defect or unsafe condition remained present during the task.",
+          "Why 4: Inspection, maintenance, or supervision controls did not prevent the condition.",
+          "Why 5: Hazard control verification was not strong enough before the work continued."
+        ],
+        "fishbone": {
+          "man": [
+            "Human response and situational awareness should be verified from the stored evidence and witness notes"
+          ],
+          "machine": [
+            "Packing line motor condition requires engineering verification"
+          ],
+          "material": [
+            "Material, fluid, or energy source should be confirmed from persisted scene evidence"
+          ],
+          "method": [
+            "Safe work method and isolation controls should be checked against the event sequence"
+          ],
+          "environment": [
+            "Scene layout and exposure path should be reviewed from the stored evidence package"
+          ]
+        },
+        "rootCause": "Initial AI draft suggests that Packing line motor and surrounding work controls were not sufficiently verified before exposure to electrical safety.",
+        "capa": [
+          {
+            "act": "Inspect and verify the condition of Packing line motor before return to service",
+            "priority": "high"
+          },
+          {
+            "act": "Review the stored evidence package with the investigation team and validate the immediate control failures",
+            "priority": "medium"
+          }
+        ],
+        "confidence": "medium",
+        "missingInformation": [
+          "Human investigator review is still required",
+          "Confirm the exact failure point from the stored video sequence"
+        ]
+      },
+      "review": {
+        "status": "pending"
+      },
+      "mediaContext": {
+        "derivedFrameCount": 0,
+        "audioExtracted": false,
+        "warnings": [
+          "Audio extraction skipped: ffmpeg version 6.1.1-essentials_build-www.gyan.dev Copyright (c) 2000-2023 the FFmpeg developers\r\n  built with gcc 12.2.0 (Rev10, Built by MSYS2 project)\r\n  configuration: --enable-gpl --enable-version3 --enable-static --pkg-config=pkgconf --disable-w32threads --disable-autodetect --enable-fontconfig --enable-iconv --enable-gnutls --enable-libxml2 --enable-gmp --enable-bzlib --enable-lzma --enable-zlib --enable-libsrt --enable-libssh --enable-libzmq --enable-avisynth --enable-sdl2 --enable-libwebp --enable-libx264 --enable-libx265 --enable-libxvid --enable-libaom --enable-libopenjpeg --enable-libvpx --enable-mediafoundation --enable-libass --enable-libfreetype --enable-libfribidi --enable-libharfbuzz --enable-libvidstab --enable-libvmaf --enable-libzimg --enable-amf --enable-cuda-llvm --enable-cuvid --enable-ffnvcodec --enable-nvdec --enable-nvenc --enable-dxva2 --enable-d3d11va --enable-libvpl --enable-libgme --enable-libopenmpt --enable-libopencore-amrwb --enable-libmp3lame --enable-libtheora --enable-libvo-amrwbenc --enable-libgsm --enable-libopencore-amrnb --enable-libopus --enable-libspeex --enable-libvorbis --enable-librubberband\r\n  libavutil      58. 29.100 / 58. 29.100\r\n  libavcodec     60. 31.102 / 60. 31.102\r\n  libavformat    60. 16.100 / 60. 16.100\r\n  libavdevice    60.  3.100 / 60.  3.100\r\n  libavfilter     9. 12.100 /  9. 12.100\r\n  libswscale      7.  5.100 /  7.  5.100\r\n  libswresample   4. 12.100 /  4. 12.100\r\n  libpostproc    57.  3.100 / 57.  3.100\r\n[mov,mp4,m4a,3gp,3g2,mj2 @ 0000028d3ba22540] Format mov,mp4,m4a,3gp,3g2,mj2 detected only with low score of 1, misdetection possible!\r\n[mov,mp4,m4a,3gp,3g2,mj2 @ 0000028d3ba22540] moov atom not found\r\n[in#0 @ 0000028d3ba223c0] Error opening input: Invalid data found when processing input\r\nError opening input file C:\\Users\\Sarath\\ohsms-enterprise\\backend\\.runtime\\storage\\orgs\\org-smoke\\incidents\\INC-SMOKE-001\\evidence\\video-original.mp4.\r\nError opening input files: Invalid data found when processing input\r\n",
+          "Frame extraction skipped: ffmpeg version 6.1.1-essentials_build-www.gyan.dev Copyright (c) 2000-2023 the FFmpeg developers\r\n  built with gcc 12.2.0 (Rev10, Built by MSYS2 project)\r\n  configuration: --enable-gpl --enable-version3 --enable-static --pkg-config=pkgconf --disable-w32threads --disable-autodetect --enable-fontconfig --enable-iconv --enable-gnutls --enable-libxml2 --enable-gmp --enable-bzlib --enable-lzma --enable-zlib --enable-libsrt --enable-libssh --enable-libzmq --enable-avisynth --enable-sdl2 --enable-libwebp --enable-libx264 --enable-libx265 --enable-libxvid --enable-libaom --enable-libopenjpeg --enable-libvpx --enable-mediafoundation --enable-libass --enable-libfreetype --enable-libfribidi --enable-libharfbuzz --enable-libvidstab --enable-libvmaf --enable-libzimg --enable-amf --enable-cuda-llvm --enable-cuvid --enable-ffnvcodec --enable-nvdec --enable-nvenc --enable-dxva2 --enable-d3d11va --enable-libvpl --enable-libgme --enable-libopenmpt --enable-libopencore-amrwb --enable-libmp3lame --enable-libtheora --enable-libvo-amrwbenc --enable-libgsm --enable-libopencore-amrnb --enable-libopus --enable-libspeex --enable-libvorbis --enable-librubberband\r\n  libavutil      58. 29.100 / 58. 29.100\r\n  libavcodec     60. 31.102 / 60. 31.102\r\n  libavformat    60. 16.100 / 60. 16.100\r\n  libavdevice    60.  3.100 / 60.  3.100\r\n  libavfilter     9. 12.100 /  9. 12.100\r\n  libswscale      7.  5.100 /  7.  5.100\r\n  libswresample   4. 12.100 /  4. 12.100\r\n  libpostproc    57.  3.100 / 57.  3.100\r\n[mov,mp4,m4a,3gp,3g2,mj2 @ 0000022d706625c0] Format mov,mp4,m4a,3gp,3g2,mj2 detected only with low score of 1, misdetection possible!\r\n[mov,mp4,m4a,3gp,3g2,mj2 @ 0000022d706625c0] moov atom not found\r\n[in#0 @ 0000022d70662440] Error opening input: Invalid data found when processing input\r\nError opening input file C:\\Users\\Sarath\\ohsms-enterprise\\backend\\.runtime\\storage\\orgs\\org-smoke\\incidents\\INC-SMOKE-001\\evidence\\video-original.mp4.\r\nError opening input files: Invalid data found when processing input\r\n"
+        ]
+      }
+    },
+    "org-smoke::INC-SMOKE-VIDEO-ONLY": {
+      "incidentId": "INC-SMOKE-VIDEO-ONLY",
+      "status": "completed",
+      "provider": "local",
+      "providersUsed": [
+        "local"
+      ],
+      "transcriptionModel": "local-media-context",
+      "visionModel": "local-evidence-pipeline",
+      "transcript": {
+        "text": "The clip shows the sequence of failure and operator response.",
+        "segments": [
+          {
+            "startMs": 0,
+            "endMs": 2500,
+            "speaker": "speaker_1",
+            "text": "The clip shows the sequence of failure and operator response."
+          }
+        ]
+      },
+      "draft": {
+        "eventSummary": "The available evidence is a short clip without a separate photo.",
+        "visibleHazards": [
+          "Stored video evidence available at orgs/org-smoke/incidents/INC-SMOKE-VIDEO-ONLY/evidence/video-original.mp4",
+          "Potential electrical safety indicators should be reviewed against saved media"
+        ],
+        "equipmentCondition": [
+          "Panel isolator identified in incident context",
+          "Severity context recorded as Level B",
+          "Video evidence checksum f1673d60b9c0... captured for traceability"
+        ],
+        "immediateCauses": [
+          "Unsafe condition visible or reported in uploaded incident evidence",
+          "Initial controls were not sufficient to prevent exposure"
+        ],
+        "contributingFactors": [
+          "Stored media should be reviewed during the human investigation meeting",
+          "Work method and scene controls should be reviewed against the persisted evidence files"
+        ],
+        "fiveWhys": [
+          "Why 1: The event occurred because workers were exposed to electrical safety.",
+          "Why 2: Panel isolator or the work area condition was not fully controlled.",
+          "Why 3: The immediate defect or unsafe condition remained present during the task.",
+          "Why 4: Inspection, maintenance, or supervision controls did not prevent the condition.",
+          "Why 5: Hazard control verification was not strong enough before the work continued."
+        ],
+        "fishbone": {
+          "man": [
+            "Human response and situational awareness should be verified from the stored evidence and witness notes"
+          ],
+          "machine": [
+            "Panel isolator condition requires engineering verification"
+          ],
+          "material": [
+            "Material, fluid, or energy source should be confirmed from persisted scene evidence"
+          ],
+          "method": [
+            "Safe work method and isolation controls should be checked against the event sequence"
+          ],
+          "environment": [
+            "Scene layout and exposure path should be reviewed from the stored evidence package"
+          ]
+        },
+        "rootCause": "Initial AI draft suggests that Panel isolator and surrounding work controls were not sufficiently verified before exposure to electrical safety.",
+        "capa": [
+          {
+            "act": "Inspect and verify the condition of Panel isolator before return to service",
+            "priority": "high"
+          },
+          {
+            "act": "Review the stored evidence package with the investigation team and validate the immediate control failures",
+            "priority": "medium"
+          }
+        ],
+        "confidence": "medium",
+        "missingInformation": [
+          "Human investigator review is still required",
+          "Confirm the exact failure point from the stored video sequence"
+        ]
+      },
+      "review": {
+        "status": "pending"
+      },
+      "mediaContext": {
+        "derivedFrameCount": 0,
+        "audioExtracted": false,
+        "warnings": [
+          "Audio extraction skipped: ffmpeg version 6.1.1-essentials_build-www.gyan.dev Copyright (c) 2000-2023 the FFmpeg developers\r\n  built with gcc 12.2.0 (Rev10, Built by MSYS2 project)\r\n  configuration: --enable-gpl --enable-version3 --enable-static --pkg-config=pkgconf --disable-w32threads --disable-autodetect --enable-fontconfig --enable-iconv --enable-gnutls --enable-libxml2 --enable-gmp --enable-bzlib --enable-lzma --enable-zlib --enable-libsrt --enable-libssh --enable-libzmq --enable-avisynth --enable-sdl2 --enable-libwebp --enable-libx264 --enable-libx265 --enable-libxvid --enable-libaom --enable-libopenjpeg --enable-libvpx --enable-mediafoundation --enable-libass --enable-libfreetype --enable-libfribidi --enable-libharfbuzz --enable-libvidstab --enable-libvmaf --enable-libzimg --enable-amf --enable-cuda-llvm --enable-cuvid --enable-ffnvcodec --enable-nvdec --enable-nvenc --enable-dxva2 --enable-d3d11va --enable-libvpl --enable-libgme --enable-libopenmpt --enable-libopencore-amrwb --enable-libmp3lame --enable-libtheora --enable-libvo-amrwbenc --enable-libgsm --enable-libopencore-amrnb --enable-libopus --enable-libspeex --enable-libvorbis --enable-librubberband\r\n  libavutil      58. 29.100 / 58. 29.100\r\n  libavcodec     60. 31.102 / 60. 31.102\r\n  libavformat    60. 16.100 / 60. 16.100\r\n  libavdevice    60.  3.100 / 60.  3.100\r\n  libavfilter     9. 12.100 /  9. 12.100\r\n  libswscale      7.  5.100 /  7.  5.100\r\n  libswresample   4. 12.100 /  4. 12.100\r\n  libpostproc    57.  3.100 / 57.  3.100\r\n[mov,mp4,m4a,3gp,3g2,mj2 @ 00000127e8ff2580] Format mov,mp4,m4a,3gp,3g2,mj2 detected only with low score of 1, misdetection possible!\r\n[mov,mp4,m4a,3gp,3g2,mj2 @ 00000127e8ff2580] moov atom not found\r\n[in#0 @ 00000127e8ff23c0] Error opening input: Invalid data found when processing input\r\nError opening input file C:\\Users\\Sarath\\ohsms-enterprise\\backend\\.runtime\\storage\\orgs\\org-smoke\\incidents\\INC-SMOKE-VIDEO-ONLY\\evidence\\video-original.mp4.\r\nError opening input files: Invalid data found when processing input\r\n",
+          "Frame extraction skipped: ffmpeg version 6.1.1-essentials_build-www.gyan.dev Copyright (c) 2000-2023 the FFmpeg developers\r\n  built with gcc 12.2.0 (Rev10, Built by MSYS2 project)\r\n  configuration: --enable-gpl --enable-version3 --enable-static --pkg-config=pkgconf --disable-w32threads --disable-autodetect --enable-fontconfig --enable-iconv --enable-gnutls --enable-libxml2 --enable-gmp --enable-bzlib --enable-lzma --enable-zlib --enable-libsrt --enable-libssh --enable-libzmq --enable-avisynth --enable-sdl2 --enable-libwebp --enable-libx264 --enable-libx265 --enable-libxvid --enable-libaom --enable-libopenjpeg --enable-libvpx --enable-mediafoundation --enable-libass --enable-libfreetype --enable-libfribidi --enable-libharfbuzz --enable-libvidstab --enable-libvmaf --enable-libzimg --enable-amf --enable-cuda-llvm --enable-cuvid --enable-ffnvcodec --enable-nvdec --enable-nvenc --enable-dxva2 --enable-d3d11va --enable-libvpl --enable-libgme --enable-libopenmpt --enable-libopencore-amrwb --enable-libmp3lame --enable-libtheora --enable-libvo-amrwbenc --enable-libgsm --enable-libopencore-amrnb --enable-libopus --enable-libspeex --enable-libvorbis --enable-librubberband\r\n  libavutil      58. 29.100 / 58. 29.100\r\n  libavcodec     60. 31.102 / 60. 31.102\r\n  libavformat    60. 16.100 / 60. 16.100\r\n  libavdevice    60.  3.100 / 60.  3.100\r\n  libavfilter     9. 12.100 /  9. 12.100\r\n  libswscale      7.  5.100 /  7.  5.100\r\n  libswresample   4. 12.100 /  4. 12.100\r\n  libpostproc    57.  3.100 / 57.  3.100\r\n[mov,mp4,m4a,3gp,3g2,mj2 @ 00000202aade25c0] Format mov,mp4,m4a,3gp,3g2,mj2 detected only with low score of 1, misdetection possible!\r\n[mov,mp4,m4a,3gp,3g2,mj2 @ 00000202aade25c0] moov atom not found\r\n[in#0 @ 00000202aade2440] Error opening input: Invalid data found when processing input\r\nError opening input file C:\\Users\\Sarath\\ohsms-enterprise\\backend\\.runtime\\storage\\orgs\\org-smoke\\incidents\\INC-SMOKE-VIDEO-ONLY\\evidence\\video-original.mp4.\r\nError opening input files: Invalid data found when processing input\r\n"
+        ]
+      }
+    }
+  }
+}
