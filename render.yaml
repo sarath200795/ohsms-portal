@@ -1,0 +1,53 @@
+services:
+  - type: web
+    name: ohsms-incident-ai-api
+    runtime: docker
+    dockerContext: ./backend
+    dockerfilePath: ./backend/Dockerfile
+    healthCheckPath: /api/v1/health/ready
+    autoDeploy: false
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: HOST
+        value: 0.0.0.0
+      - key: PORT
+        value: 4010
+      - key: INCIDENT_AI_STATE_PROVIDER
+        value: firebase
+      - key: ALLOW_DEV_AUTH_BYPASS
+        value: false
+      - key: FIREBASE_PROJECT_ID
+        value: ohsms-3894f
+      - key: FIREBASE_DATABASE_URL
+        value: https://ohsms-3894f-default-rtdb.firebaseio.com/
+      - key: INCIDENT_AI_FIREBASE_ROOT
+        value: backend/incidentAi
+      - key: INCIDENT_AI_JOB_POLL_MS
+        value: 10000
+      - key: INCIDENT_AI_JOB_LEASE_MS
+        value: 300000
+      - key: INCIDENT_AI_PROVIDER_ORDER
+        value: webhook,openai,local
+      - key: INCIDENT_AI_OPENAI_MAX_FRAMES
+        value: 4
+      - key: INCIDENT_AI_MAX_UPLOAD_MB
+        value: 100
+      - key: INCIDENT_AI_MAX_FRAMES
+        value: 18
+      - key: INCIDENT_AI_FRAME_SAMPLE_SECONDS
+        value: 2
+      - key: INCIDENT_AI_CORS_ORIGINS
+        value: https://ohsms-3894f.web.app,https://ohsms-3894f.firebaseapp.com
+      - key: FIREBASE_CLIENT_EMAIL
+        sync: false
+      - key: FIREBASE_PRIVATE_KEY
+        sync: false
+      - key: FIREBASE_SERVICE_ACCOUNT_JSON
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: INCIDENT_AI_WEBHOOK_URL
+        sync: false
+      - key: INCIDENT_AI_WEBHOOK_API_KEY
+        sync: false

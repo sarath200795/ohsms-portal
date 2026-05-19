@@ -32,7 +32,12 @@
     "video:record:tutorial-modules": "node scripts/video-guides/render-tutorial-modules.mjs",
     "firebase:deploy": "firebase deploy --only database,hosting:app",
     "firebase:deploy:field-portal": "npm run build:field-portal && firebase deploy --only hosting:fieldportal",
-    "firebase:rules": "firebase deploy --only database"
+    "firebase:rules": "firebase deploy --only database",
+    "backend:build": "npm --prefix backend run build",
+    "backend:lint": "npm --prefix backend run lint",
+    "backend:test:smoke": "npm --prefix backend run test:smoke",
+    "backend:deploy:functions": "firebase deploy --only functions:incidentAiApi",
+    "backend:wire:functions-url": "node scripts/backend/set-incident-ai-url.mjs"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.2.1",

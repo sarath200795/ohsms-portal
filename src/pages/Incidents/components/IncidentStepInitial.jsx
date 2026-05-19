@@ -3,12 +3,14 @@ import { SMART_CATEGORIES, safeArr } from '../utils';
 
 export default function IncidentStepInitial({
     activePersonnelList,
+    analysisStatusLabel,
     allowedSites,
     canEditForm,
     contractors,
     data,
     handleDescriptionBlur,
     handleImageUpload,
+    handleVideoUpload,
     initialDataState,
     incidentReporting,
     investigationRequired,
@@ -60,12 +62,12 @@ export default function IncidentStepInitial({
                     <div className="flex justify-end">
                         <button
                             type="button"
-                            onClick={() => generateSmartInvestigation(data.description)}
-                            disabled={isAnalyzing || !data.description || data.description.length < 15}
+                            onClick={() => generateSmartInvestigation()}
+                            disabled={isAnalyzing || !data.imageEvidence || (!(data.description || '').trim() && !(data.evidenceObservations || '').trim())}
                             className="bg-gradient-to-r from-blue-600 to-emerald-600 hover:from-blue-500 hover:to-emerald-500 text-white px-6 py-2.5 rounded-xl font-bold text-xs uppercase tracking-widest shadow-lg transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                             {isAnalyzing ? (
-                                <><i className="fas fa-spinner fa-spin"></i> Processing Context...</>
+                                <><i className="fas fa-spinner fa-spin"></i> {analysisStatusLabel || 'Processing Context...'}</>
                             ) : (
                                 <><i className="fas fa-microchip"></i> Auto-Generate RCA Matrix</>
                             )}
@@ -141,21 +143,55 @@ export default function IncidentStepInitial({
                 )}
             </div>
 
-            <div className="bg-slate-950/50 border border-slate-800 p-6 rounded-xl">
-                <label className="text-[10px] uppercase font-bold text-slate-500 mb-4 block"><i className="fas fa-camera mr-2"></i> Photographic Evidence</label>
-                {data.imageEvidence && (
-                    <div className="relative inline-block group">
-                        <img src={data.imageEvidence} alt="Evidence" className="h-48 rounded-xl border-2 border-slate-700 object-cover shadow-xl" />
-                        {canEditForm && <button type="button" onClick={() => setData({ ...data, imageEvidence: null })} className="absolute -top-3 -right-3 bg-red-500 text-white rounded-xl w-8 h-8 text-sm opacity-0 group-hover:opacity-100 transition-opacity shadow-lg flex items-center justify-center"><i className="fas fa-times"></i></button>}
-                    </div>
-                )}
-                {!data.imageEvidence && canEditForm && (
-                    <label className="cursor-pointer bg-slate-900 border-2 border-dashed border-slate-700 hover:border-red-500 hover:bg-slate-800 transition-colors w-48 h-48 rounded-xl flex flex-col items-center justify-center text-slate-500 hover:text-red-400">
-                        <i className="fas fa-cloud-upload-alt text-3xl mb-2"></i>
-                        <span className="text-xs font-bold uppercase tracking-widest">Upload Photo</span>
-                        <input type="file" accept="image/*" onChange={handleImageUpload} className="hidden" />
-                    </label>
-                )}
+            <div className="bg-slate-950/50 border border-slate-800 p-6 rounded-xl space-y-6">
+                <div>
+                    <label className="text-[10px] uppercase font-bold text-red-300 mb-2 block"><i className="fas fa-camera mr-2"></i> Photographic Evidence *</label>
+                    <p className="text-xs text-slate-400 mb-4">A scene photo is mandatory for the initial report. Smart investigation uses the narrative, evidence observations, and uploaded media references together.</p>
+                    {data.imageEvidence ? (
+                        <div className="relative inline-block group">
+                            <img src={data.imageEvidence} alt="Evidence" className="h-48 rounded-xl border-2 border-slate-700 object-cover shadow-xl" />
+                            {canEditForm && <button type="button" onClick={() => setData({ ...data, imageEvidence: null, imageEvidenceName: '' })} className="absolute -top-3 -right-3 bg-red-500 text-white rounded-xl w-8 h-8 text-sm opacity-0 group-hover:opacity-100 transition-opacity shadow-lg flex items-center justify-center"><i className="fas fa-times"></i></button>}
+                            {data.imageEvidenceName && <div className="mt-3 text-xs font-mono text-slate-400">{data.imageEvidenceName}</div>}
+                        </div>
+                    ) : canEditForm && (
+                        <label className="cursor-pointer bg-slate-900 border-2 border-dashed border-slate-700 hover:border-red-500 hover:bg-slate-800 transition-colors w-48 h-48 rounded-xl flex flex-col items-center justify-center text-slate-500 hover:text-red-400">
+                            <i className="fas fa-cloud-upload-alt text-3xl mb-2"></i>
+                            <span className="text-xs font-bold uppercase tracking-widest">Upload Photo</span>
+                            <input type="file" accept="image/*" onChange={handleImageUpload} className="hidden" />
+                        </label>
+                    )}
+                </div>
+
+                <div>
+                    <label className="text-[10px] uppercase font-bold text-slate-400 mb-2 block"><i className="fas fa-video mr-2"></i> Video Evidence (Optional)</label>
+                    <p className="text-xs text-slate-500 mb-4">Upload a short supporting clip if it helps explain movement, sequence, or equipment condition.</p>
+                    {data.videoEvidence ? (
+                        <div className="space-y-3">
+                            <video src={data.videoEvidence} controls className="max-h-64 rounded-xl border border-slate-700 bg-black" />
+                            <div className="flex items-center gap-4">
+                                {data.videoEvidenceName && <div className="text-xs font-mono text-slate-400">{data.videoEvidenceName}</div>}
+                                {canEditForm && <button type="button" onClick={() => setData({ ...data, videoEvidence: null, videoEvidenceName: '' })} className="text-[10px] uppercase tracking-[0.22em] text-red-400 font-bold hover:text-red-300">Remove Video</button>}
+                            </div>
+                        </div>
+                    ) : canEditForm && (
+                        <label className="cursor-pointer inline-flex items-center gap-2 rounded-xl border border-dashed border-slate-700 bg-slate-900 px-4 py-3 text-xs font-bold uppercase tracking-widest text-slate-400 transition-colors hover:border-blue-500 hover:text-blue-300">
+                            <i className="fas fa-film"></i> Upload Video
+                            <input type="file" accept="video/*" onChange={handleVideoUpload} className="hidden" />
+                        </label>
+                    )}
+                </div>
+
+                <div>
+                    <label className="text-[10px] uppercase font-bold text-blue-300 mb-2 block"><i className="fas fa-binoculars mr-2"></i> Evidence Observations For Smart Investigation</label>
+                    <textarea
+                        rows="3"
+                        value={data.evidenceObservations || ''}
+                        onChange={(e) => setData({ ...data, evidenceObservations: e.target.value })}
+                        disabled={!canEditForm}
+                        className="w-full bg-slate-950 border border-slate-700 rounded-xl p-4 text-sm text-white focus:border-blue-500 outline-none shadow-inner resize-none"
+                        placeholder="Describe what is visible in the photo or video: damaged guard, leaked fluid, scorch marks, fallen material, missing barricade, etc."
+                    />
+                </div>
             </div>
 
             <div className="flex justify-end gap-3 mt-8 pt-6 border-t border-slate-800">

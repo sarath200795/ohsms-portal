@@ -11,6 +11,57 @@ import * as XLSX from 'xlsx';
 
 const FREQUENCIES = ['Daily', 'Weekly', 'Monthly', 'Quarterly', 'Bi-Annually', 'Annually'];
 const STATUSES = ['Draft', 'Active', 'Inactive'];
+const QUESTION_TYPES = ['Pass/Fail', 'Text Input', 'Number'];
+const PHOTO_REQUIREMENT_OPTIONS = ['Not Required', 'Optional', 'Mandatory'];
+
+const fileToBase64 = (file) => new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = (error) => reject(error);
+});
+
+const createInspectionField = () => ({
+    id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    label: '',
+    type: 'Pass/Fail',
+    photoRequirement: 'Not Required'
+});
+
+const buildQuestionResponseSummary = (responses = {}) => {
+    const summary = { total: 0, answered: 0, pass: 0, fail: 0, na: 0 };
+    Object.values(responses || {}).forEach((response) => {
+        summary.total += 1;
+        const answer = String(response?.answer || '').trim();
+        if (!answer) return;
+        summary.answered += 1;
+        if (answer === 'Pass') summary.pass += 1;
+        if (answer === 'Fail') summary.fail += 1;
+        if (answer === 'N/A') summary.na += 1;
+    });
+    return summary;
+};
+
+const getInspectionFindingSummary = (record) => {
+    const responses = Object.values(record?.responses || {});
+    const baseSummary = buildQuestionResponseSummary(record?.responses || {});
+    return {
+        ...baseSummary,
+        noteHighlights: responses
+            .filter((response) => response?.answer === 'Fail' || String(response?.observation || '').trim())
+            .slice(0, 3)
+            .map((response) => ({
+                label: response.label,
+                answer: response.answer || 'N/A',
+                observation: response.observation || '',
+                hasPhoto: Boolean(response.photoEvidence)
+            })),
+        photoCount: responses.filter((response) => Boolean(response?.photoEvidence)).length,
+        additionalDetails: String(record?.additionalDetails || '').trim()
+    };
+};
+
+const buildTaskRecordKey = (templateId, siteId) => `${templateId || ''}::${siteId || ''}`;
 
 // --- SUB-COMPONENTS ---
 const UserSelect = ({ users, value, onChange, disabled, placeholder }) => (
@@ -157,6 +208,8 @@ export default function Inspections() {
     // Execution & View State
     const [executingTask, setExecutingTask] = useState(null);
     const [inspectionForm, setInspectionForm] = useState({});
+    const [submissionPromptOpen, setSubmissionPromptOpen] = useState(false);
+    const [additionalFindingDetails, setAdditionalFindingDetails] = useState('');
     const [viewingRecord, setViewingRecord] = useState(null);
     const isFieldPortalMode = isFieldPortalHomeContext();
 
@@ -253,6 +306,46 @@ export default function Inspections() {
         });
         return tasks.sort((a, b) => a.dueDate - b.dueDate);
     }, [currentMonth, filteredVisibleSites, records, regionFilter, siteFilter, sites, templates]);
+
+    const filteredHistoryRecords = useMemo(() => {
+        return records
+            .filter((record) => {
+                if (regionFilter !== 'All' && !matchesRegionFilter(record.siteId, sites, regionFilter)) return false;
+                return siteFilter === 'All' || record.siteId === siteFilter;
+            })
+            .sort((a, b) => new Date(b.completedAt) - new Date(a.completedAt));
+    }, [records, regionFilter, siteFilter, sites]);
+
+    const latestRecordByTask = useMemo(() => {
+        const recordMap = new Map();
+        filteredHistoryRecords.forEach((record) => {
+            const key = buildTaskRecordKey(record.templateId, record.siteId);
+            if (!recordMap.has(key)) {
+                recordMap.set(key, record);
+            }
+        });
+        return recordMap;
+    }, [filteredHistoryRecords]);
+
+    const lastInspectionRecord = useMemo(() => {
+        if (!executingTask) return null;
+        return latestRecordByTask.get(buildTaskRecordKey(executingTask.templateId, executingTask.siteId)) || null;
+    }, [executingTask, latestRecordByTask]);
+    const lastInspectionSummary = useMemo(() => getInspectionFindingSummary(lastInspectionRecord), [lastInspectionRecord]);
+    const viewingRecordSummary = useMemo(() => getInspectionFindingSummary(viewingRecord), [viewingRecord]);
+
+    const responseProgress = useMemo(() => {
+        if (!executingTask?.template?.fields?.length) {
+            return { total: 0, answered: 0, percent: 0, pass: 0, fail: 0, na: 0, isChoiceOnly: false };
+        }
+
+        const summary = buildQuestionResponseSummary(inspectionForm);
+        return {
+            ...summary,
+            percent: summary.total > 0 ? Math.round((summary.answered / summary.total) * 100) : 0,
+            isChoiceOnly: executingTask.template.fields.every((field) => field.type === 'Pass/Fail')
+        };
+    }, [executingTask, inspectionForm]);
 
     // --- CALENDAR LOGIC ---
     const daysInMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 0).getDate();
@@ -354,19 +447,21 @@ export default function Inspections() {
 
     // --- BULK EXCEL QUESTION IMPORT ---
     const downloadQuestionTemplate = () => {
-        const questionTypes = ['Pass/Fail', 'Text Input', 'Number'];
         const workbook = XLSX.utils.book_new();
         const questionsSheet = XLSX.utils.aoa_to_sheet([
-            ['Question / Check Requirement (Required)', 'Answer Type (Required)'],
-            ['Are fire exits clear and unobstructed?', 'Pass/Fail'],
-            ['Current pressure reading of compressor?', 'Number'],
-            ['General observations of the work area:', 'Text Input']
+            ['Question / Check Requirement (Required)', 'Answer Type (Required)', 'Photo Requirement (Optional)'],
+            ['Are fire exits clear and unobstructed?', 'Pass/Fail', 'Mandatory'],
+            ['Current pressure reading of compressor?', 'Number', 'Optional'],
+            ['General observations of the work area:', 'Text Input', 'Not Required']
         ]);
-        questionsSheet['!cols'] = [{ wch: 60 }, { wch: 25 }];
+        questionsSheet['!cols'] = [{ wch: 60 }, { wch: 25 }, { wch: 25 }];
 
         const allowedValuesSheet = XLSX.utils.aoa_to_sheet([
             ['Allowed Answer Types'],
-            ...questionTypes.map(type => [type])
+            ...QUESTION_TYPES.map(type => [type]),
+            [],
+            ['Allowed Photo Requirements'],
+            ...PHOTO_REQUIREMENT_OPTIONS.map((requirement) => [requirement])
         ]);
         allowedValuesSheet['!cols'] = [{ wch: 24 }];
 
@@ -395,17 +490,21 @@ export default function Inspections() {
                     const keys = Object.keys(row);
                     const qKey = keys.find(k => k.toLowerCase().includes('question') || k.toLowerCase().includes('requirement'));
                     const tKey = keys.find(k => k.toLowerCase().includes('type'));
+                    const pKey = keys.find(k => k.toLowerCase().includes('photo'));
 
                     const questionText = row[qKey];
                     if (!questionText) return;
 
                     let qType = row[tKey] || 'Pass/Fail';
-                    if (!['Pass/Fail', 'Text Input', 'Number'].includes(qType)) qType = 'Pass/Fail';
+                    if (!QUESTION_TYPES.includes(qType)) qType = 'Pass/Fail';
+                    let photoRequirement = row[pKey] || 'Not Required';
+                    if (!PHOTO_REQUIREMENT_OPTIONS.includes(photoRequirement)) photoRequirement = 'Not Required';
 
                     newFields.push({
                         id: `imported-${Date.now()}-${idx}-${Math.random().toString(36).substr(2, 5)}`,
                         label: questionText,
-                        type: qType
+                        type: qType,
+                        photoRequirement
                     });
                 });
 
@@ -431,10 +530,59 @@ export default function Inspections() {
         setExecutingTask(task);
         const initForm = {};
         task.template.fields.forEach(f => {
-            initForm[f.id] = { label: f.label, answer: '', observation: '', raiseCapa: false, capaOwner: '', capaDue: '' };
+            initForm[f.id] = {
+                label: f.label,
+                answer: '',
+                observation: undefined,
+                raiseCapa: false,
+                capaOwner: '',
+                capaDue: '',
+                photoEvidence: '',
+                photoEvidenceName: ''
+            };
         });
+        setAdditionalFindingDetails('');
+        setSubmissionPromptOpen(false);
         setInspectionForm(initForm);
         setView('execute');
+    };
+
+    const handleQuestionPhotoUpload = async (fieldId, file) => {
+        if (!file) return;
+        const encoded = await fileToBase64(file);
+        setInspectionForm((prev) => ({
+            ...prev,
+            [fieldId]: {
+                ...prev[fieldId],
+                photoEvidence: encoded,
+                photoEvidenceName: file.name
+            }
+        }));
+    };
+
+    const validateInspectionSubmission = () => {
+        for (let index = 0; index < executingTask.template.fields.length; index += 1) {
+            const field = executingTask.template.fields[index];
+            const response = inspectionForm[field.id] || {};
+            if (!String(response.answer || '').trim()) {
+                alert(`Please answer question ${index + 1}: ${field.label}`);
+                return false;
+            }
+            if (field.photoRequirement === 'Mandatory' && !response.photoEvidence) {
+                alert(`Please upload the required photo evidence for question ${index + 1}: ${field.label}`);
+                return false;
+            }
+            if (response.raiseCapa && !String(response.observation || '').trim()) {
+                alert(`Please add defect / observation notes before raising CAPA for question ${index + 1}.`);
+                return false;
+            }
+        }
+        return true;
+    };
+
+    const openSubmissionPrompt = () => {
+        if (!validateInspectionSubmission()) return;
+        setSubmissionPromptOpen(true);
     };
 
     const submitInspection = async () => {
@@ -473,7 +621,9 @@ export default function Inspections() {
                 assignmentStart: executingTask.assignmentStart || '',
                 assignmentEnd: executingTask.assignmentEnd || '',
                 responses: inspectionForm,
-                capa: generatedCapas
+                capa: generatedCapas,
+                additionalDetails: additionalFindingDetails.trim(),
+                responseSummary: buildQuestionResponseSummary(inspectionForm)
             };
 
             const newRecordRef = push(ref(rtdb, `organizations/${session.orgId}/inspectionRecords`));
@@ -494,6 +644,8 @@ export default function Inspections() {
                 alert(isFieldPortalMode ? getFieldPortalVerificationMessage('inspection report') : 'Inspection Completed Successfully!');
             }
 
+            setSubmissionPromptOpen(false);
+            setAdditionalFindingDetails('');
             setExecutingTask(null);
             setView('calendar');
         } catch (e) {
@@ -593,6 +745,50 @@ export default function Inspections() {
                                     </div>
                                     <div className="grid grid-cols-7 auto-rows-fr">
                                         {renderCalendar()}
+                                    </div>
+                                </div>
+
+                                <div className="bg-slate-900/50 rounded-2xl border border-blue-500/20 p-6 shadow-lg">
+                                    <div className="mb-4">
+                                        <h3 className="text-blue-300 font-bold uppercase tracking-widest text-xs flex items-center gap-2"><i className="fas fa-magnifying-glass-chart"></i> Last Inspection Details</h3>
+                                        <p className="text-sm text-slate-400 mt-2">Recent findings captured for this filtered view.</p>
+                                    </div>
+                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                        {filteredHistoryRecords.slice(0, 3).map((record) => {
+                                            const summary = getInspectionFindingSummary(record);
+                                            return (
+                                                <div key={record.firebaseKey} className="rounded-2xl border border-slate-700 bg-slate-950/70 p-4">
+                                                    <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-slate-500 mb-2">{record.siteId}</div>
+                                                    <div className="font-bold text-white text-sm mb-2">{record.templateTitle}</div>
+                                                    <div className="text-[11px] text-slate-400 mb-3">Completed on {new Date(record.completedAt).toLocaleString()}</div>
+                                                    <div className="flex gap-2 flex-wrap mb-3">
+                                                        <span className="px-2 py-1 rounded-lg bg-red-900/30 text-red-300 text-[10px] font-bold border border-red-500/20">{summary.fail} Fail</span>
+                                                        <span className="px-2 py-1 rounded-lg bg-emerald-900/30 text-emerald-300 text-[10px] font-bold border border-emerald-500/20">{summary.pass} Pass</span>
+                                                        <span className="px-2 py-1 rounded-lg bg-slate-800 text-slate-300 text-[10px] font-bold border border-slate-700">{summary.photoCount} Photos</span>
+                                                    </div>
+                                                    <div className="space-y-2 text-xs text-slate-300">
+                                                        {summary.noteHighlights.length > 0 ? summary.noteHighlights.map((item, index) => (
+                                                            <div key={`${record.firebaseKey}-${index}`} className="rounded-xl border border-slate-800 bg-slate-900/70 p-3">
+                                                                <div className="font-bold text-white">{item.label}</div>
+                                                                <div className="text-[10px] uppercase tracking-[0.2em] text-slate-500 mt-1">{item.answer}{item.hasPhoto ? ' • Photo attached' : ''}</div>
+                                                                {item.observation && <div className="mt-2 text-slate-300">{item.observation}</div>}
+                                                            </div>
+                                                        )) : <div className="italic text-slate-500">No notable findings were recorded.</div>}
+                                                        {summary.additionalDetails && (
+                                                            <div className="rounded-xl border border-blue-500/20 bg-blue-950/20 p-3">
+                                                                <div className="text-[10px] uppercase tracking-[0.2em] text-blue-300 font-bold mb-1">Additional Details</div>
+                                                                <div>{summary.additionalDetails}</div>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
+                                        {filteredHistoryRecords.length === 0 && (
+                                            <div className="md:col-span-3 text-sm text-slate-500 italic border border-dashed border-slate-700 rounded-2xl p-6 text-center">
+                                                No previous inspection findings are available for this selection yet.
+                                            </div>
+                                        )}
                                     </div>
                                 </div>
 
@@ -798,7 +994,7 @@ export default function Inspections() {
                                                 <input type="file" accept=".xlsx, .xls, .csv" onChange={handleQuestionImport} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" title="Upload Questions" />
                                                 <button type="button" className="text-[9px] bg-emerald-900/30 text-emerald-400 hover:bg-emerald-600 hover:text-white px-3 py-1.5 rounded-lg border border-emerald-500/30 font-bold uppercase transition-colors"><i className="fas fa-upload mr-1"></i> Upload</button>
                                             </div>
-                                            <button type="button" onClick={() => setEditTemplate({ ...editTemplate, fields: [...editTemplate.fields, { id: Date.now().toString(), label: '', type: 'Pass/Fail' }] })} className="text-[9px] bg-blue-900/30 text-blue-400 hover:bg-blue-600 hover:text-white px-3 py-1.5 rounded-lg border border-blue-500/30 font-bold uppercase transition-colors"><i className="fas fa-plus mr-1"></i> Add Manual</button>
+                                            <button type="button" onClick={() => setEditTemplate({ ...editTemplate, fields: [...editTemplate.fields, createInspectionField()] })} className="text-[9px] bg-blue-900/30 text-blue-400 hover:bg-blue-600 hover:text-white px-3 py-1.5 rounded-lg border border-blue-500/30 font-bold uppercase transition-colors"><i className="fas fa-plus mr-1"></i> Add Manual</button>
                                         </div>
                                     </div>
 
@@ -808,9 +1004,10 @@ export default function Inspections() {
                                                 <div className="text-slate-600 font-bold w-6 text-center">{idx + 1}.</div>
                                                 <input value={field.label} onChange={e => { const n = [...editTemplate.fields]; n[idx].label = e.target.value; setEditTemplate({ ...editTemplate, fields: n }); }} placeholder="Enter check requirement (e.g. 'Are fire exits clear?')" className="flex-1 bg-transparent border-b border-slate-600 focus:border-lime-500 outline-none text-sm text-white px-2 py-1" />
                                                 <select value={field.type} onChange={e => { const n = [...editTemplate.fields]; n[idx].type = e.target.value; setEditTemplate({ ...editTemplate, fields: n }); }} className="w-32 bg-slate-950 border border-slate-700 rounded-lg text-xs p-2 text-slate-300 outline-none">
-                                                    <option>Pass/Fail</option>
-                                                    <option>Text Input</option>
-                                                    <option>Number</option>
+                                                    {QUESTION_TYPES.map((questionType) => <option key={questionType}>{questionType}</option>)}
+                                                </select>
+                                                <select value={field.photoRequirement || 'Not Required'} onChange={e => { const n = [...editTemplate.fields]; n[idx].photoRequirement = e.target.value; setEditTemplate({ ...editTemplate, fields: n }); }} className="w-36 bg-slate-950 border border-slate-700 rounded-lg text-xs p-2 text-slate-300 outline-none">
+                                                    {PHOTO_REQUIREMENT_OPTIONS.map((option) => <option key={option}>{option}</option>)}
                                                 </select>
                                                 <button type="button" onClick={() => { const n = editTemplate.fields.filter((_, i) => i !== idx); setEditTemplate({ ...editTemplate, fields: n }); }} className="w-8 h-8 rounded bg-red-900/20 text-red-500 hover:bg-red-600 hover:text-white transition-colors opacity-0 group-hover:opacity-100 flex items-center justify-center"><i className="fas fa-trash"></i></button>
                                             </div>
@@ -828,78 +1025,203 @@ export default function Inspections() {
 
                         {/* --- EXECUTION VIEW (FILLING THE FORM) --- */}
                         {view === 'execute' && executingTask && (
-                            <div className="max-w-4xl mx-auto bg-slate-900/80 p-6 md:p-10 rounded-3xl border border-blue-500/30 shadow-2xl animate-in slide-in-from-bottom-8 duration-300">
-                                <div className="mb-8 border-b border-slate-800 pb-6 text-center">
-                                    <span className="bg-blue-900/30 text-blue-400 border border-blue-500/30 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest mb-3 inline-block">Active Inspection</span>
-                                    <h2 className="text-3xl font-black text-white mb-2">{executingTask.title}</h2>
-                                    <p className="text-slate-400 text-sm">Site: <strong className="text-white">{executingTask.siteId}</strong> | Frequency: <strong className="text-white">{executingTask.frequency}</strong></p>
-                                    {executingTask.template.desc && <p className="mt-4 text-sm text-slate-300 bg-slate-950 p-4 rounded-xl border border-slate-800 italic">{executingTask.template.desc}</p>}
-                                </div>
+                            <>
+                                <div className="max-w-4xl mx-auto bg-slate-900/80 p-6 md:p-10 rounded-3xl border border-blue-500/30 shadow-2xl animate-in slide-in-from-bottom-8 duration-300 pb-28">
+                                    <div className="mb-8 border-b border-slate-800 pb-6 text-center">
+                                        <span className="bg-blue-900/30 text-blue-400 border border-blue-500/30 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest mb-3 inline-block">Active Inspection</span>
+                                        <h2 className="text-3xl font-black text-white mb-2">{executingTask.title}</h2>
+                                        <p className="text-slate-400 text-sm">Site: <strong className="text-white">{executingTask.siteId}</strong> | Frequency: <strong className="text-white">{executingTask.frequency}</strong></p>
+                                        {executingTask.template.desc && <p className="mt-4 text-sm text-slate-300 bg-slate-950 p-4 rounded-xl border border-slate-800 italic">{executingTask.template.desc}</p>}
+                                    </div>
 
-                                <div className="space-y-8 mb-10">
-                                    {executingTask.template.fields.map((f, idx) => (
-                                        <div key={f.id} className="bg-slate-950/50 p-6 rounded-2xl border border-slate-700 shadow-inner">
-                                            <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-4 mb-4">
-                                                <h4 className="text-base font-bold text-white flex-1"><span className="text-blue-500 mr-2">{idx + 1}.</span> {f.label}</h4>
-
-                                                {/* Answer Input based on Type */}
-                                                <div className="flex-shrink-0">
-                                                    {f.type === 'Pass/Fail' && (
-                                                        <div className="flex bg-slate-900 border border-slate-700 rounded-lg overflow-hidden">
-                                                            <button onClick={() => setInspectionForm({ ...inspectionForm, [f.id]: { ...inspectionForm[f.id], answer: 'Pass' } })} className={`px-6 py-2 text-xs font-bold uppercase tracking-widest transition-colors ${inspectionForm[f.id]?.answer === 'Pass' ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}><i className="fas fa-check mr-1"></i> Pass</button>
-                                                            <div className="w-px bg-slate-700"></div>
-                                                            <button onClick={() => setInspectionForm({ ...inspectionForm, [f.id]: { ...inspectionForm[f.id], answer: 'Fail' } })} className={`px-6 py-2 text-xs font-bold uppercase tracking-widest transition-colors ${inspectionForm[f.id]?.answer === 'Fail' ? 'bg-red-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}><i className="fas fa-times mr-1"></i> Fail</button>
-                                                            <div className="w-px bg-slate-700"></div>
-                                                            <button onClick={() => setInspectionForm({ ...inspectionForm, [f.id]: { ...inspectionForm[f.id], answer: 'N/A' } })} className={`px-4 py-2 text-xs font-bold uppercase tracking-widest transition-colors ${inspectionForm[f.id]?.answer === 'N/A' ? 'bg-slate-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}>N/A</button>
-                                                        </div>
-                                                    )}
-                                                    {f.type === 'Text Input' && (
-                                                        <input value={inspectionForm[f.id]?.answer || ''} onChange={e => setInspectionForm({ ...inspectionForm, [f.id]: { ...inspectionForm[f.id], answer: e.target.value } })} placeholder="Enter details..." className="w-64 bg-slate-900 border border-slate-700 rounded-lg p-2 text-sm text-white outline-none focus:border-blue-500" />
-                                                    )}
-                                                    {f.type === 'Number' && (
-                                                        <input type="number" value={inspectionForm[f.id]?.answer || ''} onChange={e => setInspectionForm({ ...inspectionForm, [f.id]: { ...inspectionForm[f.id], answer: e.target.value } })} placeholder="0.00" className="w-32 bg-slate-900 border border-slate-700 rounded-lg p-2 text-sm text-white outline-none focus:border-blue-500 text-center font-mono" />
-                                                    )}
+                                    {lastInspectionRecord && (
+                                        <div className="mb-8 rounded-2xl border border-blue-500/20 bg-blue-950/20 p-6">
+                                            <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
+                                                <div>
+                                                    <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-blue-300 mb-2">Last Inspection Details</div>
+                                                    <div className="text-white font-bold text-lg">{lastInspectionRecord.templateTitle}</div>
+                                                    <div className="text-sm text-slate-300 mt-2">Completed on {new Date(lastInspectionRecord.completedAt).toLocaleString()} by {lastInspectionRecord.inspector}</div>
+                                                </div>
+                                                <div className="flex gap-2 flex-wrap">
+                                                    <span className="px-3 py-1 rounded-lg bg-red-900/30 text-red-300 text-[10px] font-bold border border-red-500/20">{lastInspectionSummary.fail} Fail</span>
+                                                    <span className="px-3 py-1 rounded-lg bg-emerald-900/30 text-emerald-300 text-[10px] font-bold border border-emerald-500/20">{lastInspectionSummary.pass} Pass</span>
+                                                    <span className="px-3 py-1 rounded-lg bg-slate-900 text-slate-300 text-[10px] font-bold border border-slate-700">{lastInspectionSummary.photoCount} Photos</span>
                                                 </div>
                                             </div>
-
-                                            {/* Observation & CAPA Block */}
-                                            {(inspectionForm[f.id]?.answer === 'Fail' || inspectionForm[f.id]?.observation !== undefined) && (
-                                                <div className="mt-4 bg-orange-950/20 border border-orange-500/30 p-4 rounded-xl animate-in fade-in slide-in-from-top-2">
-                                                    <label className="text-[10px] uppercase font-bold text-orange-400 block mb-2"><i className="fas fa-exclamation-triangle mr-1"></i> Defect / Observation Notes</label>
-                                                    <textarea value={inspectionForm[f.id]?.observation || ''} onChange={e => setInspectionForm({ ...inspectionForm, [f.id]: { ...inspectionForm[f.id], observation: e.target.value } })} placeholder="Describe the issue found..." rows="2" className="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 text-sm text-white outline-none focus:border-orange-500 resize-none mb-3"></textarea>
-
-                                                    <label className="flex items-center gap-2 cursor-pointer mb-3">
-                                                        <input type="checkbox" checked={inspectionForm[f.id]?.raiseCapa || false} onChange={e => setInspectionForm({ ...inspectionForm, [f.id]: { ...inspectionForm[f.id], raiseCapa: e.target.checked } })} className="w-4 h-4 accent-orange-500" />
-                                                        <span className="text-xs font-bold text-white">Raise Corrective Action (CAPA)</span>
-                                                    </label>
-
-                                                    {inspectionForm[f.id]?.raiseCapa && (
-                                                        <div className="flex gap-4 p-3 bg-slate-900 rounded-lg border border-slate-700">
-                                                            <div className="flex-1">
-                                                                <label className="text-[9px] uppercase font-bold text-slate-500 block mb-1">Assign To</label>
-                                                                <UserSelect users={users} value={inspectionForm[f.id]?.capaOwner || ''} onChange={v => setInspectionForm({ ...inspectionForm, [f.id]: { ...inspectionForm[f.id], capaOwner: v } })} disabled={false} />
-                                                            </div>
-                                                            <div className="w-1/3">
-                                                                <label className="text-[9px] uppercase font-bold text-slate-500 block mb-1">Due Date</label>
-                                                                <input type="date" value={inspectionForm[f.id]?.capaDue || ''} onChange={e => setInspectionForm({ ...inspectionForm, [f.id]: { ...inspectionForm[f.id], capaDue: e.target.value } })} className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-xs text-white outline-none focus:border-orange-500 font-mono" />
-                                                            </div>
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            )}
-
-                                            {inspectionForm[f.id]?.answer !== 'Fail' && inspectionForm[f.id]?.observation === undefined && (
-                                                <button onClick={() => setInspectionForm({ ...inspectionForm, [f.id]: { ...inspectionForm[f.id], observation: '' } })} className="text-[10px] text-slate-500 hover:text-orange-400 font-bold uppercase tracking-widest transition-colors"><i className="fas fa-plus mr-1"></i> Add Note</button>
-                                            )}
+                                            <div className="mt-4 space-y-3 text-sm text-slate-200">
+                                                {lastInspectionSummary.noteHighlights.length > 0 ? lastInspectionSummary.noteHighlights.map((item, index) => (
+                                                    <div key={`${lastInspectionRecord.firebaseKey}-${index}`} className="rounded-xl border border-slate-800 bg-slate-950/70 p-4">
+                                                        <div className="font-bold text-white">{item.label}</div>
+                                                        <div className="text-[10px] uppercase tracking-[0.2em] text-slate-500 mt-1">{item.answer}{item.hasPhoto ? ' • Photo attached' : ''}</div>
+                                                        {item.observation && <div className="mt-2 text-slate-300">{item.observation}</div>}
+                                                    </div>
+                                                )) : <div className="italic text-slate-500">No notable findings were recorded in the last inspection.</div>}
+                                                {lastInspectionSummary.additionalDetails && (
+                                                    <div className="rounded-xl border border-blue-500/20 bg-blue-950/20 p-4">
+                                                        <div className="text-[10px] uppercase tracking-[0.22em] text-blue-300 font-bold mb-1">Additional Details</div>
+                                                        <div>{lastInspectionSummary.additionalDetails}</div>
+                                                    </div>
+                                                )}
+                                            </div>
                                         </div>
-                                    ))}
+                                    )}
+
+                                    {responseProgress.isChoiceOnly && (
+                                        <div className="mb-8 grid grid-cols-1 md:grid-cols-4 gap-4">
+                                            <div className="rounded-2xl border border-emerald-500/20 bg-emerald-950/20 p-4">
+                                                <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-emerald-300 mb-1">Pass</div>
+                                                <div className="text-3xl font-black text-white">{responseProgress.pass}</div>
+                                            </div>
+                                            <div className="rounded-2xl border border-red-500/20 bg-red-950/20 p-4">
+                                                <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-red-300 mb-1">Fail</div>
+                                                <div className="text-3xl font-black text-white">{responseProgress.fail}</div>
+                                            </div>
+                                            <div className="rounded-2xl border border-slate-700 bg-slate-950/60 p-4">
+                                                <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-slate-400 mb-1">N/A</div>
+                                                <div className="text-3xl font-black text-white">{responseProgress.na}</div>
+                                            </div>
+                                            <div className="rounded-2xl border border-blue-500/20 bg-blue-950/20 p-4">
+                                                <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-blue-300 mb-1">Completion</div>
+                                                <div className="text-3xl font-black text-white">{responseProgress.percent}%</div>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    <div className="space-y-8 mb-10">
+                                        {executingTask.template.fields.map((f, idx) => (
+                                            <div key={f.id} className="bg-slate-950/50 p-6 rounded-2xl border border-slate-700 shadow-inner">
+                                                <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-4 mb-4">
+                                                    <div className="flex-1">
+                                                        <h4 className="text-base font-bold text-white"><span className="text-blue-500 mr-2">{idx + 1}.</span> {f.label}</h4>
+                                                        {f.photoRequirement && f.photoRequirement !== 'Not Required' && (
+                                                            <div className="mt-2 text-[10px] uppercase tracking-[0.22em] font-bold text-amber-300">
+                                                                Photo Upload: {f.photoRequirement}
+                                                            </div>
+                                                        )}
+                                                    </div>
+
+                                                    <div className="flex-shrink-0">
+                                                        {f.type === 'Pass/Fail' && (
+                                                            <div className="flex bg-slate-900 border border-slate-700 rounded-lg overflow-hidden">
+                                                                <button onClick={() => setInspectionForm({ ...inspectionForm, [f.id]: { ...inspectionForm[f.id], answer: 'Pass' } })} className={`px-6 py-2 text-xs font-bold uppercase tracking-widest transition-colors ${inspectionForm[f.id]?.answer === 'Pass' ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}><i className="fas fa-check mr-1"></i> Pass</button>
+                                                                <div className="w-px bg-slate-700"></div>
+                                                                <button onClick={() => setInspectionForm({ ...inspectionForm, [f.id]: { ...inspectionForm[f.id], answer: 'Fail' } })} className={`px-6 py-2 text-xs font-bold uppercase tracking-widest transition-colors ${inspectionForm[f.id]?.answer === 'Fail' ? 'bg-red-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}><i className="fas fa-times mr-1"></i> Fail</button>
+                                                                <div className="w-px bg-slate-700"></div>
+                                                                <button onClick={() => setInspectionForm({ ...inspectionForm, [f.id]: { ...inspectionForm[f.id], answer: 'N/A' } })} className={`px-4 py-2 text-xs font-bold uppercase tracking-widest transition-colors ${inspectionForm[f.id]?.answer === 'N/A' ? 'bg-slate-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}>N/A</button>
+                                                            </div>
+                                                        )}
+                                                        {f.type === 'Text Input' && (
+                                                            <input value={inspectionForm[f.id]?.answer || ''} onChange={e => setInspectionForm({ ...inspectionForm, [f.id]: { ...inspectionForm[f.id], answer: e.target.value } })} placeholder="Enter details..." className="w-64 bg-slate-900 border border-slate-700 rounded-lg p-2 text-sm text-white outline-none focus:border-blue-500" />
+                                                        )}
+                                                        {f.type === 'Number' && (
+                                                            <input type="number" value={inspectionForm[f.id]?.answer || ''} onChange={e => setInspectionForm({ ...inspectionForm, [f.id]: { ...inspectionForm[f.id], answer: e.target.value } })} placeholder="0.00" className="w-32 bg-slate-900 border border-slate-700 rounded-lg p-2 text-sm text-white outline-none focus:border-blue-500 text-center font-mono" />
+                                                        )}
+                                                    </div>
+                                                </div>
+
+                                                {f.photoRequirement && f.photoRequirement !== 'Not Required' && (
+                                                    <div className="mb-4 rounded-xl border border-slate-800 bg-slate-900/70 p-4">
+                                                        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                                                            <div>
+                                                                <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-slate-400 mb-1">Question Evidence Photo</div>
+                                                                <div className="text-xs text-slate-500">
+                                                                    {f.photoRequirement === 'Mandatory' ? 'A photo must be attached before this inspection can be submitted.' : 'Attach a photo if the visual condition should be retained in the record.'}
+                                                                </div>
+                                                            </div>
+                                                            <label className="cursor-pointer bg-slate-950 border border-dashed border-slate-700 hover:border-blue-500 text-slate-300 px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-widest transition-colors inline-flex items-center gap-2">
+                                                                <i className="fas fa-camera"></i> Upload Photo
+                                                                <input type="file" accept="image/*" onChange={(event) => handleQuestionPhotoUpload(f.id, event.target.files?.[0])} className="hidden" />
+                                                            </label>
+                                                        </div>
+                                                        {inspectionForm[f.id]?.photoEvidence && (
+                                                            <div className="mt-4 flex items-start gap-4">
+                                                                <img src={inspectionForm[f.id]?.photoEvidence} alt={`${f.label} evidence`} className="h-28 w-40 object-cover rounded-xl border border-slate-700" />
+                                                                <div className="flex-1">
+                                                                    <div className="text-sm text-white font-bold">{inspectionForm[f.id]?.photoEvidenceName || 'Evidence photo attached'}</div>
+                                                                    <button type="button" onClick={() => setInspectionForm({ ...inspectionForm, [f.id]: { ...inspectionForm[f.id], photoEvidence: '', photoEvidenceName: '' } })} className="mt-3 text-[10px] uppercase tracking-[0.22em] text-red-400 font-bold hover:text-red-300">Remove Photo</button>
+                                                                </div>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                )}
+
+                                                {(inspectionForm[f.id]?.answer === 'Fail' || inspectionForm[f.id]?.observation !== undefined) && (
+                                                    <div className="mt-4 bg-orange-950/20 border border-orange-500/30 p-4 rounded-xl animate-in fade-in slide-in-from-top-2">
+                                                        <label className="text-[10px] uppercase font-bold text-orange-400 block mb-2"><i className="fas fa-exclamation-triangle mr-1"></i> Defect / Observation Notes</label>
+                                                        <textarea value={inspectionForm[f.id]?.observation || ''} onChange={e => setInspectionForm({ ...inspectionForm, [f.id]: { ...inspectionForm[f.id], observation: e.target.value } })} placeholder="Describe the issue found..." rows="2" className="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 text-sm text-white outline-none focus:border-orange-500 resize-none mb-3"></textarea>
+
+                                                        <label className="flex items-center gap-2 cursor-pointer mb-3">
+                                                            <input type="checkbox" checked={inspectionForm[f.id]?.raiseCapa || false} onChange={e => setInspectionForm({ ...inspectionForm, [f.id]: { ...inspectionForm[f.id], raiseCapa: e.target.checked } })} className="w-4 h-4 accent-orange-500" />
+                                                            <span className="text-xs font-bold text-white">Raise Corrective Action (CAPA)</span>
+                                                        </label>
+
+                                                        {inspectionForm[f.id]?.raiseCapa && (
+                                                            <div className="flex gap-4 p-3 bg-slate-900 rounded-lg border border-slate-700">
+                                                                <div className="flex-1">
+                                                                    <label className="text-[9px] uppercase font-bold text-slate-500 block mb-1">Assign To</label>
+                                                                    <UserSelect users={users} value={inspectionForm[f.id]?.capaOwner || ''} onChange={v => setInspectionForm({ ...inspectionForm, [f.id]: { ...inspectionForm[f.id], capaOwner: v } })} disabled={false} />
+                                                                </div>
+                                                                <div className="w-1/3">
+                                                                    <label className="text-[9px] uppercase font-bold text-slate-500 block mb-1">Due Date</label>
+                                                                    <input type="date" value={inspectionForm[f.id]?.capaDue || ''} onChange={e => setInspectionForm({ ...inspectionForm, [f.id]: { ...inspectionForm[f.id], capaDue: e.target.value } })} className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-xs text-white outline-none focus:border-orange-500 font-mono" />
+                                                                </div>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                )}
+
+                                                {inspectionForm[f.id]?.answer !== 'Fail' && inspectionForm[f.id]?.observation === undefined && (
+                                                    <button onClick={() => setInspectionForm({ ...inspectionForm, [f.id]: { ...inspectionForm[f.id], observation: '' } })} className="text-[10px] text-slate-500 hover:text-orange-400 font-bold uppercase tracking-widest transition-colors"><i className="fas fa-plus mr-1"></i> Add Note</button>
+                                                )}
+                                            </div>
+                                        ))}
+                                    </div>
+
+                                    <div className="flex justify-end gap-4 pt-6 border-t border-slate-800">
+                                        <button onClick={() => { setSubmissionPromptOpen(false); setExecutingTask(null); setView('calendar'); }} className="px-8 py-4 bg-slate-800 text-white font-bold rounded-xl text-xs uppercase tracking-widest hover:bg-slate-700 transition">Discard</button>
+                                        <button onClick={openSubmissionPrompt} className="px-10 py-4 bg-blue-600 text-white font-black uppercase tracking-widest rounded-xl shadow-lg shadow-blue-600/20 hover:bg-blue-500 transition flex items-center gap-2"><i className="fas fa-check-double text-lg"></i> Sign & Submit Report</button>
+                                    </div>
                                 </div>
 
-                                <div className="flex justify-end gap-4 pt-6 border-t border-slate-800">
-                                    <button onClick={() => setView('calendar')} className="px-8 py-4 bg-slate-800 text-white font-bold rounded-xl text-xs uppercase tracking-widest hover:bg-slate-700 transition">Discard</button>
-                                    <button onClick={submitInspection} className="px-10 py-4 bg-blue-600 text-white font-black uppercase tracking-widest rounded-xl shadow-lg shadow-blue-600/20 hover:bg-blue-500 transition flex items-center gap-2"><i className="fas fa-check-double text-lg"></i> Sign & Submit Report</button>
+                                <div className="fixed bottom-4 left-1/2 z-50 w-[calc(100%-2rem)] max-w-4xl -translate-x-1/2 rounded-2xl border border-blue-500/20 bg-slate-950/95 px-5 py-4 shadow-2xl backdrop-blur-md">
+                                    <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                                        <div>
+                                            <div className="text-[10px] font-bold uppercase tracking-[0.25em] text-blue-300 mb-1">Response Progress</div>
+                                            <div className="text-sm text-white font-bold">{responseProgress.answered} of {responseProgress.total} questions answered</div>
+                                        </div>
+                                        {responseProgress.isChoiceOnly && (
+                                            <div className="flex gap-2 flex-wrap text-[10px] font-bold uppercase tracking-[0.18em]">
+                                                <span className="px-3 py-1 rounded-lg bg-emerald-900/30 text-emerald-300 border border-emerald-500/20">Pass {responseProgress.pass}</span>
+                                                <span className="px-3 py-1 rounded-lg bg-red-900/30 text-red-300 border border-red-500/20">Fail {responseProgress.fail}</span>
+                                                <span className="px-3 py-1 rounded-lg bg-slate-800 text-slate-300 border border-slate-700">N/A {responseProgress.na}</span>
+                                            </div>
+                                        )}
+                                    </div>
+                                    <div className="mt-3 h-2 rounded-full bg-slate-800 overflow-hidden">
+                                        <div className="h-full bg-blue-500 transition-all duration-300" style={{ width: `${responseProgress.percent}%` }}></div>
+                                    </div>
                                 </div>
-                            </div>
+
+                                {submissionPromptOpen && (
+                                    <div className="fixed inset-0 z-[100] bg-slate-950/80 flex items-center justify-center p-4 backdrop-blur-md">
+                                        <div className="w-full max-w-2xl rounded-3xl border border-slate-700 bg-slate-900 p-8 shadow-2xl">
+                                            <div className="flex items-start justify-between gap-4 mb-6">
+                                                <div>
+                                                    <div className="text-[10px] font-bold uppercase tracking-[0.25em] text-blue-300 mb-2">Submission Review</div>
+                                                    <h3 className="text-2xl font-bold text-white">Additional Findings / Details</h3>
+                                                    <p className="text-sm text-slate-400 mt-2">Add any overall findings, follow-up notes, or context that should appear with the last inspection details.</p>
+                                                </div>
+                                                <button type="button" onClick={() => setSubmissionPromptOpen(false)} className="text-slate-500 hover:text-white"><i className="fas fa-times text-xl"></i></button>
+                                            </div>
+                                            <textarea value={additionalFindingDetails} onChange={(e) => setAdditionalFindingDetails(e.target.value)} rows="5" placeholder="Example: Minor housekeeping issue repeated near loading area. Supervisor informed and temporary barricade placed." className="w-full rounded-2xl border border-slate-700 bg-slate-950 p-4 text-sm text-white outline-none focus:border-blue-500 resize-none" />
+                                            <div className="mt-6 flex justify-end gap-3">
+                                                <button type="button" onClick={() => setSubmissionPromptOpen(false)} className="px-6 py-3 rounded-xl bg-slate-800 text-white font-bold text-xs uppercase tracking-widest hover:bg-slate-700 transition">Back</button>
+                                                <button type="button" onClick={submitInspection} className="px-8 py-3 rounded-xl bg-blue-600 text-white font-black text-xs uppercase tracking-widest hover:bg-blue-500 transition shadow-lg shadow-blue-600/20">Submit Inspection</button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+                            </>
                         )}
 
                         {/* --- HISTORY VIEW --- */}
@@ -918,10 +1240,7 @@ export default function Inspections() {
                                             <tr><th className="p-4 pl-6">Date</th><th className="p-4">Inspection Type</th><th className="p-4">Site</th><th className="p-4">Inspector</th><th className="p-4 text-center">Score / Issues</th><th className="p-4 pr-6 text-right">Actions</th></tr>
                                         </thead>
                                         <tbody className="divide-y divide-slate-800/50">
-                                {records.filter(r => {
-                                    if (regionFilter !== 'All' && !matchesRegionFilter(r.siteId, sites, regionFilter)) return false;
-                                    return siteFilter === 'All' || r.siteId === siteFilter;
-                                }).sort((a, b) => new Date(b.completedAt) - new Date(a.completedAt)).map(r => {
+                                {filteredHistoryRecords.map(r => {
                                                 const fails = Object.values(r.responses || {}).filter(res => res.answer === 'Fail').length;
                                                 return (
                                                     <tr key={r.firebaseKey} className="hover:bg-slate-800/40 transition-colors">
@@ -941,10 +1260,7 @@ export default function Inspections() {
                                                     </tr>
                                                 )
                                             })}
-                                {records.filter(r => {
-                                    if (regionFilter !== 'All' && !matchesRegionFilter(r.siteId, sites, regionFilter)) return false;
-                                    return siteFilter === 'All' || r.siteId === siteFilter;
-                                }).length === 0 && <tr><td colSpan="6" className="p-8 text-center italic text-slate-500">No inspection history found.</td></tr>}
+                                {filteredHistoryRecords.length === 0 && <tr><td colSpan="6" className="p-8 text-center italic text-slate-500">No inspection history found.</td></tr>}
                                         </tbody>
                                     </table>
                                 </div>
@@ -991,7 +1307,7 @@ export default function Inspections() {
                                     <div>
                                         <p className="text-gray-500 font-bold uppercase text-[10px] tracking-widest mb-1">Result Summary</p>
                                         <p className="font-bold text-base m-0">
-                                            {Object.values(viewingRecord.responses || {}).filter(r => r.answer === 'Fail').length} Defects Found
+                                            {viewingRecordSummary.fail} Defects Found | {viewingRecordSummary.pass} Pass | {viewingRecordSummary.photoCount} Photos
                                         </p>
                                     </div>
                                 </div>
@@ -1022,11 +1338,27 @@ export default function Inspections() {
                                                             <strong className="not-italic block mb-1">Notes:</strong> {data.observation}
                                                         </div>
                                                     )}
+                                                    {data.photoEvidence && (
+                                                        <div className="mt-3">
+                                                            <strong className="block mb-2 text-[11px] uppercase tracking-widest">Evidence Photo</strong>
+                                                            <img src={data.photoEvidence} alt={`${data.label} evidence`} className="max-h-40 border border-black object-contain bg-white mx-auto" />
+                                                            {data.photoEvidenceName && <div className="mt-2 text-[11px] text-center font-mono">{data.photoEvidenceName}</div>}
+                                                        </div>
+                                                    )}
                                                 </td>
                                             </tr>
                                         ))}
                                     </tbody>
                                 </table>
+
+                                {viewingRecord.additionalDetails && (
+                                    <div className="mb-10 page-break-inside-avoid">
+                                        <h3 className="text-sm font-black uppercase border-b-2 border-black pb-2 mb-4">Additional Findings / Details</h3>
+                                        <div className="border border-black p-4 bg-gray-50 text-sm whitespace-pre-wrap leading-relaxed">
+                                            {viewingRecord.additionalDetails}
+                                        </div>
+                                    </div>
+                                )}
 
                                 {/* CAPA Summary */}
                                 {(viewingRecord.capa && viewingRecord.capa.length > 0) && (

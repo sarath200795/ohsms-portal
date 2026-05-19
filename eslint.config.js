@@ -8,7 +8,9 @@ export default [
         ignores: [
             'dist/**',
             'dist-field-portal/**',
-            'node_modules/**'
+            'node_modules/**',
+            'backend/dist/**',
+            'backend/node_modules/**'
         ]
     },
     js.configs.recommended,
