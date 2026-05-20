@@ -37,11 +37,15 @@
     "vercel:build:field-portal": "npm run build:field-portal"
   },
   "dependencies": {
+    "@nestjs/common": "^11.1.9",
     "@tailwindcss/vite": "^4.2.1",
+    "@vercel/blob": "^1.1.1",
+    "@vercel/functions": "^2.2.13",
     "chart.js": "^4.5.1",
     "exceljs": "^4.4.0",
     "file-saver": "^2.0.5",
     "firebase": "^12.9.0",
+    "firebase-admin": "^13.6.0",
     "html5-qrcode": "^2.3.8",
     "jspdf": "^4.2.1",
     "jspdf-autotable": "^5.0.7",

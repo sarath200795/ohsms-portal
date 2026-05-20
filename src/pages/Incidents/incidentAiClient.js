@@ -1,3 +1,4 @@
+import { upload as uploadToBlob } from '@vercel/blob/client';
 import { readStoredSession } from '../../utils/session';
 import { auth } from '../../config/firebase';
 
@@ -8,6 +9,10 @@ const trimTrailingSlash = (value) => String(value || '').replace(/\/+$/, '');
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const getDefaultApiBaseUrl = () => {
+    if (typeof window !== 'undefined' && /(?:^|\.)vercel\.app$/i.test(window.location.hostname || '')) {
+        return `${window.location.origin}/api/v1`;
+    }
+
     const configured = trimTrailingSlash(env.VITE_INCIDENT_AI_API_BASE_URL);
     if (configured) return configured;
     if (env.DEV) return 'http://localhost:4010/api/v1';
@@ -35,6 +40,21 @@ const resolveUploadUrl = (apiBaseUrl, uploadUrl) => {
     if (/^https?:\/\//i.test(String(uploadUrl || ''))) return uploadUrl;
     const apiOrigin = new URL(apiBaseUrl).origin;
     return new URL(uploadUrl, apiOrigin).toString();
+};
+
+const isSameOriginApiBaseUrl = (apiBaseUrl) => {
+    if (typeof window === 'undefined') return false;
+    try {
+        return new URL(apiBaseUrl, window.location.origin).origin === window.location.origin;
+    } catch {
+        return false;
+    }
+};
+
+const canUseVercelBlobClientUpload = (apiBaseUrl) => {
+    if (typeof window === 'undefined') return false;
+    if (env.DEV) return false;
+    return isSameOriginApiBaseUrl(apiBaseUrl) && trimTrailingSlash(apiBaseUrl).startsWith(`${window.location.origin}/api/`);
 };
 
 const dataUrlToBlob = async (dataUrl) => {
@@ -149,18 +169,64 @@ const requestJson = async (url, { method = 'GET', body, session } = {}) => {
 };
 
 const uploadBinaryEvidence = async ({
+    storagePath,
     uploadUrl,
+    blobClientUploadUrl,
+    clientUploadToken,
     descriptor,
     dataUrl,
     fileBlob,
     session,
-    apiBaseUrl
+    apiBaseUrl,
+    incidentId,
+    uploadSessionId,
+    kind,
+    onStatusChange
 }) => {
-    const formData = new FormData();
     const blob = fileBlob || await dataUrlToBlob(dataUrl);
+    const useClientUpload = canUseVercelBlobClientUpload(apiBaseUrl);
+
+    if (useClientUpload) {
+        const uploadedBlob = await uploadToBlob(storagePath, blob, {
+            access: 'private',
+            contentType: descriptor.mimeType,
+            handleUploadUrl: resolveUploadUrl(apiBaseUrl, blobClientUploadUrl),
+            clientPayload: JSON.stringify({
+                incidentId,
+                uploadSessionId,
+                kind,
+                clientUploadToken,
+                fileName: descriptor.fileName,
+                mimeType: descriptor.mimeType,
+                sizeBytes: descriptor.sizeBytes
+            }),
+            multipart: descriptor.mimeType.startsWith('video/') || descriptor.sizeBytes > (4.5 * 1024 * 1024),
+            onUploadProgress: ({ percentage }) => {
+                const rounded = Number.isFinite(percentage) ? Math.round(percentage) : 0;
+                onStatusChange?.(`Uploading ${kind} evidence (${rounded}%)`);
+            }
+        });
+
+        return requestJson(`${apiBaseUrl}/incidents/${encodeURIComponent(incidentId)}/ai-evidence/upload-complete`, {
+            method: 'POST',
+            session,
+            body: {
+                uploadSessionId,
+                kind,
+                pathname: uploadedBlob.pathname,
+                url: uploadedBlob.url,
+                downloadUrl: uploadedBlob.downloadUrl,
+                contentType: uploadedBlob.contentType || descriptor.mimeType,
+                sizeBytes: descriptor.sizeBytes,
+                fileName: descriptor.fileName,
+                etag: uploadedBlob.etag || ''
+            }
+        });
+    }
+
+    const formData = new FormData();
     formData.append('file', blob, descriptor.fileName);
     const headers = await buildAuthHeaders(session);
-
     const response = await fetch(resolveUploadUrl(apiBaseUrl, uploadUrl), {
         method: 'POST',
         headers,
@@ -226,23 +292,37 @@ const runAnalysisFlow = async ({
     if (photoDescriptor && uploadSession.photo && incidentData?.imageEvidence) {
         onStatusChange?.('Uploading photo evidence');
         await uploadBinaryEvidence({
+            storagePath: uploadSession.photo.storagePath,
             uploadUrl: uploadSession.photo.uploadUrl,
+            blobClientUploadUrl: uploadSession.photo.blobClientUploadUrl,
+            clientUploadToken: uploadSession.photo.clientUploadToken,
             descriptor: photoDescriptor,
             dataUrl: incidentData?.imageEvidence,
             session,
-            apiBaseUrl
+            apiBaseUrl,
+            incidentId,
+            uploadSessionId: uploadSession.uploadSessionId,
+            kind: 'photo',
+            onStatusChange
         });
     }
 
     if (videoDescriptor && uploadSession.video && (incidentData?.videoEvidenceFile || incidentData?.videoEvidence)) {
         onStatusChange?.('Uploading video evidence');
         await uploadBinaryEvidence({
+            storagePath: uploadSession.video.storagePath,
             uploadUrl: uploadSession.video.uploadUrl,
+            blobClientUploadUrl: uploadSession.video.blobClientUploadUrl,
+            clientUploadToken: uploadSession.video.clientUploadToken,
             descriptor: videoDescriptor,
             fileBlob: incidentData?.videoEvidenceFile,
             dataUrl: incidentData.videoEvidence,
             session,
-            apiBaseUrl
+            apiBaseUrl,
+            incidentId,
+            uploadSessionId: uploadSession.uploadSessionId,
+            kind: 'video',
+            onStatusChange
         });
     }
 

@@ -1,4 +1,10 @@
 {
+  "functions": {
+    "api/v1.js": {
+      "memory": 2048,
+      "maxDuration": 300
+    }
+  },
   "headers": [
     {
       "source": "/(.*)",
@@ -16,6 +22,7 @@
     }
   ],
   "rewrites": [
+    { "source": "/api/v1/(.*)", "destination": "/api/v1?path=$1" },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
 }

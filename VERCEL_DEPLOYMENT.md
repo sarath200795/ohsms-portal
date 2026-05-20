@@ -5,7 +5,7 @@ This repo can be deployed to Vercel as two separate frontend projects:
 - `Main App`
 - `Field Portal`
 
-The `Incident AI` backend should stay on Render because it depends on server-side media processing and longer-running analysis flows.
+The repo now also includes a first Vercel-native `Incident AI` path under [api/v1.js](C:/Users/Sarath/ohsms-enterprise/api/v1.js) and [server/incident-ai](C:/Users/Sarath/ohsms-enterprise/server/incident-ai). This is the recommended direction if you want to run the incident AI flow on Vercel instead of Render.
 
 ## Recommended Domains
 
@@ -25,7 +25,18 @@ VITE_FIREBASE_STORAGE_BUCKET=
 VITE_FIREBASE_MESSAGING_SENDER_ID=
 VITE_FIREBASE_APP_ID=
 VITE_FIREBASE_APP_CHECK_SITE_KEY=
-VITE_INCIDENT_AI_API_BASE_URL=https://ohsms-incident-ai-api.onrender.com/api/v1
+```
+
+For the `Main App` project, add these server-side variables too so the `/api/v1` function can run:
+
+```bash
+BLOB_READ_WRITE_TOKEN=
+FIREBASE_DATABASE_URL=
+FIREBASE_SERVICE_ACCOUNT_JSON=
+INCIDENT_AI_FIREBASE_ROOT=backend/incidentAi
+ALLOW_DEV_AUTH_BYPASS=false
+OPENAI_API_KEY=
+INCIDENT_AI_WEBHOOK_URL=
 ```
 
 ## Project 1: Main App
@@ -65,13 +76,19 @@ Without this step, login and password-reset flows can fail even if the frontend 
 
 ## Incident AI Backend
 
-Keep the frontend pointed to the Render backend:
+There are now two supported approaches:
 
-```bash
-VITE_INCIDENT_AI_API_BASE_URL=https://ohsms-incident-ai-api.onrender.com/api/v1
-```
+- `Vercel-native`: leave `VITE_INCIDENT_AI_API_BASE_URL` empty and let the frontend use same-origin `/api/v1`
+- `External API`: point `VITE_INCIDENT_AI_API_BASE_URL` at a Render or other hosted backend
 
-Do not move the current backend to Vercel unless the media-processing pipeline is redesigned for that runtime.
+The Vercel-native path already supports:
+- Vercel Functions for incident AI endpoints
+- Vercel Blob storage for uploaded media
+- direct browser-to-Blob uploads for larger video files
+- Firebase-backed durable job state when Firebase Admin credentials are configured
+
+Current limitation:
+- media extraction and provider orchestration still reuse the compiled backend artifacts under [backend/dist](C:/Users/Sarath/ohsms-enterprise/backend/dist), so the next hardening step is replacing those imports with fully source-owned Vercel server modules.
 
 ## Suggested Rollout Order
 
@@ -86,7 +103,8 @@ Do not move the current backend to Vercel unless the media-processing pipeline i
 Main app:
 
 - dashboard opens after login
-- incidents module can upload media and call smart investigation
+- incidents module can upload photo and video evidence and call smart investigation
+- `/api/v1/health/ready` returns ready on the main Vercel domain
 - analytics, inspections, PTW, and LOTO routes open directly
 
 Field portal:

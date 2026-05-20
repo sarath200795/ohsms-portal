@@ -1,0 +1,25 @@
+{
+  "uploadSessions": {
+    "upl_90fbc78611c6": {
+      "uploadSessionId": "upl_90fbc78611c6",
+      "incidentId": "incident-123",
+      "orgId": "demo-org",
+      "createdBy": "tester",
+      "createdAt": "2026-05-20T11:26:48.206Z",
+      "expiresAt": "2026-05-20T11:41:48.206Z",
+      "video": {
+        "storagePath": "orgs/demo-org/incidents/incident-123/evidence/video-original.mp4",
+        "uploadUrl": "https://example.vercel.app/api/v1/incidents/incident-123/ai-evidence/upload/upl_90fbc78611c6/video",
+        "blobClientUploadUrl": "https://example.vercel.app/api/v1/incidents/incident-123/ai-evidence/blob-client-upload",
+        "clientUploadToken": "blob_video_e461e580af3e",
+        "headers": {
+          "Content-Type": "video/mp4"
+        }
+      },
+      "uploadedFiles": {}
+    }
+  },
+  "evidenceRecords": {},
+  "analysisJobs": {},
+  "analysisResults": {}
+}
