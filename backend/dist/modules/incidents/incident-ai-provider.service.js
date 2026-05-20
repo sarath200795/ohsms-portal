@@ -224,6 +224,13 @@ const buildLocalIncidentInference = ({ context, evidence, mediaContext, summary,
         if (statement && !whys.includes(statement))
             whys.push(statement);
     };
+    const whyAnswer = (question, answer) => {
+        const normalizedQuestion = normalizeInvestigationText(question).replace(/[?]+$/, '');
+        const normalizedAnswer = lowerFirst(answer);
+        return normalizedQuestion && normalizedAnswer
+            ? `Why ${normalizedQuestion}? Because ${normalizedAnswer}.`
+            : '';
+    };
     const fiveWhyPaths = [];
     const addPath = (name, whys) => {
         const supportedWhys = whys.filter(Boolean).slice(0, 5);
@@ -232,18 +239,35 @@ const buildLocalIncidentInference = ({ context, evidence, mediaContext, summary,
         }
     };
     const mainWhys = [];
-    pushWhy(mainWhys, `The incident happened because ${lowerFirst(eventOccurrence || immediateCauses[0])}.`, Boolean(eventOccurrence || immediateCauses[0]));
-    pushWhy(mainWhys, `That happened because ${lowerFirst(immediateCauses[0])}.`, Boolean(immediateCauses[0]) && stripSentenceEnd(immediateCauses[0]) !== stripSentenceEnd(eventOccurrence));
-    pushWhy(mainWhys, 'The movement was not controlled because no effective spotter, banksman, or stop point was described for the reversing path.', flags.noSpotter);
-    pushWhy(mainWhys, 'The route did not give enough margin because congestion, weak segregation, or restricted clearance was described in the work area.', flags.congestion);
-    pushWhy(mainWhys, 'The same exposure continued because earlier near misses or concerns were reported but not closed before this event.', flags.priorSignals);
-    pushWhy(mainWhys, 'Those earlier signals did not prevent the incident because the corrective-action process did not convert them into verified controls at the work area.', flags.priorSignals);
+    pushWhy(mainWhys, whyAnswer('did the incident happen', eventOccurrence || immediateCauses[0]), Boolean(eventOccurrence || immediateCauses[0]));
+    pushWhy(mainWhys, whyAnswer(flags.vehicle
+        ? `did ${equipment} enter an uncontrolled route or impact interface`
+        : flags.barrierGap
+            ? 'did the task enter the exposure path without an effective barrier'
+            : flags.environmentGap
+                ? 'did the workplace condition allow the exposure path to remain active'
+                : 'did the immediate exposure occur', flags.noSpotter
+        ? 'the activity proceeded without an effective spotter, banksman, or positive exclusion control for the movement path'
+        : immediateCauses[0]), Boolean(immediateCauses[0] || flags.noSpotter));
+    pushWhy(mainWhys, whyAnswer('was the activity allowed to proceed without the required direct control', flags.noSpotter
+        ? 'the task method did not require or verify a spotter, banksman, stop point, or exclusion zone before movement started'
+        : fishbone.method[0]), Boolean(flags.noSpotter || fishbone.method[0]));
+    pushWhy(mainWhys, whyAnswer(flags.congestion
+        ? 'did the route not give enough clearance and separation'
+        : 'did the task method fail to stop the exposure', flags.congestion
+        ? 'the aisle, route, or work area was congested, restricted, or weakly segregated'
+        : fishbone.environment[0] || fishbone.method[1]), Boolean(flags.congestion || fishbone.environment[0] || fishbone.method[1]));
+    pushWhy(mainWhys, whyAnswer(flags.priorSignals
+        ? 'did earlier near misses or reports fail to prevent this event'
+        : 'did the control weakness remain in place', flags.priorSignals
+        ? 'the earlier concerns were not closed through verified corrective actions before the same exposure recurred'
+        : organizationalFailure), Boolean(flags.priorSignals || organizationalFailure));
     addPath('', mainWhys);
     const controlWhys = [];
-    pushWhy(controlWhys, `The barrier failed because ${lowerFirst(systemicFailure)}.`, Boolean(systemicFailure));
-    pushWhy(controlWhys, `The barrier was weak because the task method did not maintain separation between ${equipment} and the impact or exposure path.`, flags.vehicle || flags.barrierGap || flags.congestion);
-    pushWhy(controlWhys, 'The method was not effective because the procedure, permit, risk assessment, checklist, or supervision control was not verified at the point of work.', flags.procedureGap);
-    pushWhy(controlWhys, `The unsafe equipment condition remained because inspection, maintenance, or pre-use checks did not identify and remove it before the task involving ${equipment}.`, flags.maintenanceGap);
+    pushWhy(controlWhys, whyAnswer('did the control barrier fail', systemicFailure), Boolean(systemicFailure));
+    pushWhy(controlWhys, whyAnswer('was the barrier weak at the workface', `the task method did not maintain separation between ${equipment} and the impact or exposure path`), flags.vehicle || flags.barrierGap || flags.congestion);
+    pushWhy(controlWhys, whyAnswer('was the task method not effective', 'the procedure, permit, risk assessment, checklist, or supervision control was not verified at the point of work'), flags.procedureGap);
+    pushWhy(controlWhys, whyAnswer('did the unsafe equipment condition remain available', `inspection, maintenance, or pre-use checks did not identify and remove it before the task involving ${equipment}`), flags.maintenanceGap);
     addPath('', controlWhys);
     const fiveWhys = fiveWhyPaths.flatMap((path) => path.whys);
     const capa = [
@@ -521,10 +545,10 @@ let IncidentAiProviderService = class IncidentAiProviderService {
                     'Do not copy the incident description sentence verbatim. Rephrase it into investigation conclusions and why-answers.',
                     'Avoid generic wording such as "review required", "control failure", or "human investigator review". Every point must reference the actual task, equipment, media evidence, or event sequence.',
                     'Generate fiveWhyPaths as an array of objects. Use neutral names only, such as "Analysis Path 1" and "Analysis Path 2". Do not use names such as Organizational, Human, Systemic, Man, Method, or Root Cause as path names.',
-                    'For each path, fill whys as a true chain: Why 1 answers why the incident happened; Why 2 answers why the Why 1 answer happened; Why 3 answers why the Why 2 answer happened, and continue only while the description, evidence notes, transcript, or visible media frames support the next answer.',
+                    'For each path, fill whys as a true 5-Why chain. Each why value must be written as a question-and-answer sentence, for example: "Why did the incident happen? Because the forklift entered an uncontrolled reversing path." The next line must ask why that previous answer happened.',
                     'Do not force 5 whys. Stop early when the evidence runs out. Never fill unknown later whys with generic management-system language.',
                     'Do not include path names, cause labels, or "Why 1" text inside the whys values. The UI already displays the path and why number.',
-                    'For fishbone, extract concrete Man, Machine, Material, Method, and Environment factors only from the incident description, evidence notes, transcript, and visible media frames. Leave categories empty if no concrete factor is present.',
+                    'For fishbone, perform 4M extraction from the incident description, evidence notes, transcript, and visible media frames: Man, Machine, Material, and Method. Use Environment only as additional context if explicitly described. Leave categories empty if no concrete factor is present.',
                     'For fault-tree content inside contributingFactors/immediateCauses, use only incident-specific event sequence and control-barrier facts.',
                     'Return valid JSON only with keys:',
                     'eventSummary, visibleHazards, equipmentCondition, immediateCauses, contributingFactors, fiveWhyPaths, fiveWhys, fishbone, rootCause, capa, confidence, missingInformation.',

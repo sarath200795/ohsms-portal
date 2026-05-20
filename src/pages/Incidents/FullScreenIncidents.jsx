@@ -955,6 +955,7 @@ export default function Incidents() {
             || (issueFlags.fireLike ? `An ignition source or uncontrolled thermal condition around ${objectInvolved} led to a fire-related event` : '')
             || (issueFlags.containmentLike ? `Hazardous material or energy escaped from ${objectInvolved} and exposed the area or people nearby` : '')
             || (issueFlags.electricalLike ? `Electrical energy remained accessible during the task and exposed the person to live parts or residual energy` : '')
+            || (issueFlags.vehicle ? `${objectInvolved} entered an uncontrolled movement or impact path` : '')
             || equipmentSentences[0]
             || materialSentences[0]
             || `${objectInvolved} contributed to the ${hazardType} described in "${eventLabel}".`
@@ -992,8 +993,6 @@ export default function Incidents() {
         methodSentences.forEach((sentence) => appendUniqueStatement(methodFactors, sentence));
 
         environmentSentences.forEach((sentence) => appendUniqueStatement(environmentFactors, sentence));
-
-        appendUniqueStatement(methodFactors, failedControl);
 
         if (incidentData.evidenceObservations?.trim()) {
             appendUniqueStatement(methodFactors, `Scene observations recorded by the reporter indicate: ${incidentData.evidenceObservations}`);
@@ -1166,6 +1165,13 @@ export default function Incidents() {
     const buildFiveWhyPathsFromInsights = (insights) => {
         const paths = [];
         const flags = insights.issueFlags || {};
+        const whyAnswer = (question, answer) => {
+            const normalizedQuestion = normalizeInvestigationText(question).replace(/[?]+$/, '');
+            const normalizedAnswer = lowerFirst(answer);
+            return normalizedQuestion && normalizedAnswer
+                ? `Why ${normalizedQuestion}? Because ${normalizedAnswer}.`
+                : '';
+        };
         const pushWhy = (whys, value, supported = true) => {
             if (!supported) return;
             const statement = stripGeneratedWhyLabel(value);
@@ -1179,19 +1185,54 @@ export default function Incidents() {
         };
 
         const mainWhys = [];
-        pushWhy(mainWhys, `The incident happened because ${lowerFirst(insights.eventOccurrence || insights.immediateCause)}.`, Boolean(insights.eventOccurrence || insights.immediateCause));
-        pushWhy(mainWhys, `That happened because ${lowerFirst(insights.immediateCause)}.`, Boolean(insights.immediateCause) && stripSentenceEnd(insights.immediateCause) !== stripSentenceEnd(insights.eventOccurrence));
-        pushWhy(mainWhys, `The movement was not controlled because no effective spotter, banksman, or stop point was described for the reversing path.`, flags.noSpotter);
-        pushWhy(mainWhys, `The route did not give enough margin because congestion, weak segregation, or restricted clearance was described in the work area.`, flags.congestion);
-        pushWhy(mainWhys, `The same exposure continued because earlier near misses or concerns were reported but not closed before this event.`, flags.reportIgnored);
-        pushWhy(mainWhys, `Those earlier signals did not prevent the incident because the corrective-action process did not convert them into verified controls at the work area.`, flags.reportIgnored);
+        pushWhy(mainWhys, whyAnswer('did the incident happen', insights.eventOccurrence || insights.immediateCause), Boolean(insights.eventOccurrence || insights.immediateCause));
+        pushWhy(mainWhys, whyAnswer(
+            flags.vehicle
+                ? `did ${insights.objectInvolved} enter an uncontrolled route or impact interface`
+                : flags.slipLike
+                    ? 'did the walking or working surface create a loss-of-balance event'
+                    : flags.contactLike
+                        ? 'did the person or asset enter the line-of-fire/contact zone'
+                        : flags.fireLike
+                            ? 'did the ignition or heat source develop into a fire event'
+                            : flags.containmentLike
+                                ? 'did the release reach people or the workplace'
+                                : flags.electricalLike
+                                    ? 'was electrical energy available at the point of work'
+                                    : 'did the immediate exposure occur',
+            flags.noSpotter
+                ? 'the activity proceeded without an effective spotter, banksman, or positive exclusion control for the movement path'
+                : insights.immediateCause
+        ), Boolean(insights.immediateCause || flags.noSpotter));
+        pushWhy(mainWhys, whyAnswer(
+            'was the activity allowed to proceed without the required direct control',
+            flags.noSpotter
+                ? 'the task method did not require or verify a spotter, banksman, stop point, or exclusion zone before movement started'
+                : insights.methodFactors?.[0]
+        ), Boolean(flags.noSpotter || insights.methodFactors?.[0]));
+        pushWhy(mainWhys, whyAnswer(
+            flags.congestion
+                ? 'did the route not give enough clearance and separation'
+                : 'did the task method fail to stop the exposure',
+            flags.congestion
+                ? 'the aisle, route, or work area was congested, restricted, or weakly segregated'
+                : insights.methodFactors?.[1] || insights.environmentFactors?.[0]
+        ), Boolean(flags.congestion || insights.methodFactors?.[1] || insights.environmentFactors?.[0]));
+        pushWhy(mainWhys, whyAnswer(
+            flags.reportIgnored
+                ? 'did earlier near misses or reports fail to prevent this event'
+                : 'did the control weakness remain in place',
+            flags.reportIgnored
+                ? 'the earlier concerns were not closed through verified corrective actions before the same exposure recurred'
+                : insights.managementFactors?.[0] || insights.underlyingCause
+        ), Boolean(flags.reportIgnored || insights.managementFactors?.[0] || insights.underlyingCause));
         addPath('', mainWhys);
 
         const controlWhys = [];
-        pushWhy(controlWhys, `The barrier failed because ${lowerFirst(insights.failedControl)}.`, Boolean(insights.failedControl));
-        pushWhy(controlWhys, `The barrier was weak because the task method did not maintain separation between ${insights.objectInvolved} and the impact or exposure path.`, flags.vehicle || flags.barrierGap || flags.congestion);
-        pushWhy(controlWhys, `The method was not effective because the procedure, permit, risk assessment, checklist, or supervision control was not verified at the point of work.`, flags.procedureGap);
-        pushWhy(controlWhys, `The unsafe equipment condition remained because inspection, maintenance, or pre-use checks did not identify and remove it before the task.`, flags.maintenanceGap);
+        pushWhy(controlWhys, whyAnswer('did the control barrier fail', insights.failedControl), Boolean(insights.failedControl));
+        pushWhy(controlWhys, whyAnswer('was the barrier weak at the workface', `the task method did not maintain separation between ${insights.objectInvolved} and the impact or exposure path`), flags.vehicle || flags.barrierGap || flags.congestion);
+        pushWhy(controlWhys, whyAnswer('was the task method not effective', 'the procedure, permit, risk assessment, checklist, or supervision control was not verified at the point of work'), flags.procedureGap);
+        pushWhy(controlWhys, whyAnswer('did the unsafe equipment condition remain available', 'inspection, maintenance, or pre-use checks did not identify and remove it before the task'), flags.maintenanceGap);
         addPath('', controlWhys);
 
         return paths;
@@ -2163,7 +2204,7 @@ export default function Incidents() {
 
                                     <div className="space-y-12">
                                         <div className="bg-slate-950/50 p-6 rounded-2xl border border-slate-800">
-                                            <h3 className="font-bold text-white mb-4 uppercase tracking-widest text-xs flex items-center"><i className="fas fa-fish text-blue-400 mr-2"></i> Fishbone Diagram</h3>
+                                            <h3 className="font-bold text-white mb-4 uppercase tracking-widest text-xs flex items-center"><i className="fas fa-fish text-blue-400 mr-2"></i> 4M Fishbone Analysis</h3>
                                             <div className="bg-slate-900 rounded-xl border border-slate-700 p-4 overflow-x-auto">
                                                 <Fishbone data={data.investigation?.fishbone || { man: [], machine: [], material: [], method: [], environment: [] }} onChange={(fishbone) => setData({ ...data, investigation: { ...data.investigation, fishbone } })} disabled={!canEditForm} />
                                             </div>
@@ -2592,7 +2633,7 @@ export default function Incidents() {
                         </div>
 
                         <div className="mb-6">
-                            <h3 className="text-sm font-bold mb-2 uppercase bg-gray-200 p-1 border border-gray-400 inline-block">3.3 Fishbone Data Extracted</h3>
+                            <h3 className="text-sm font-bold mb-2 uppercase bg-gray-200 p-1 border border-gray-400 inline-block">3.3 4M Fishbone Data Extracted</h3>
                             <table className="w-full text-sm border-collapse border border-black mt-2">
                                 <tbody>
                                     {Object.entries(printData.investigation?.fishbone || {}).map(([k, v]) => {
