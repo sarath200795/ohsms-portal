@@ -2,6 +2,7 @@ import { readStoredSession } from '../../utils/session';
 import { auth } from '../../config/firebase';
 
 const env = typeof import.meta !== 'undefined' ? import.meta.env : {};
+const INCIDENT_AI_PRODUCTION_URL = 'https://ohsms-incident-ai-api.onrender.com/api/v1';
 
 const trimTrailingSlash = (value) => String(value || '').replace(/\/+$/, '');
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -10,6 +11,12 @@ const getDefaultApiBaseUrl = () => {
     const configured = trimTrailingSlash(env.VITE_INCIDENT_AI_API_BASE_URL);
     if (configured) return configured;
     if (env.DEV) return 'http://localhost:4010/api/v1';
+    if (typeof window !== 'undefined' && /(?:^|\.)vercel\.app$/i.test(window.location.hostname || '')) {
+        return INCIDENT_AI_PRODUCTION_URL;
+    }
+    if (typeof window !== 'undefined' && /(?:^|\.)web\.app$/i.test(window.location.hostname || '')) {
+        return INCIDENT_AI_PRODUCTION_URL;
+    }
     return '';
 };
 
@@ -181,40 +188,31 @@ const formatStageLabel = (stage) => {
         .join(' ');
 };
 
-export const getIncidentAiApiBaseUrl = () => getDefaultApiBaseUrl();
-export const isIncidentAiBackendEnabled = () => Boolean(getDefaultApiBaseUrl());
+const pingIncidentAiBackend = async (apiBaseUrl) => {
+    const response = await fetch(`${apiBaseUrl}/health/ready`, {
+        method: 'GET'
+    });
 
-export async function runIncidentAiBackendAnalysis({
+    const payload = await parseJsonSafely(response);
+    if (!response.ok) {
+        const errorMessage = typeof payload === 'string'
+            ? payload
+            : payload?.message || payload?.error || `Incident AI health check failed with status ${response.status}.`;
+        throw new Error(errorMessage);
+    }
+
+    return payload;
+};
+
+const runAnalysisFlow = async ({
+    apiBaseUrl,
     incidentId,
     incidentData,
-    session = readStoredSession(),
-    onStatusChange
-}) {
-    const apiBaseUrl = getDefaultApiBaseUrl();
-    if (!apiBaseUrl) {
-        throw new Error('Incident AI backend URL is not configured.');
-    }
-
-    const photoDescriptor = buildFileDescriptor({
-        dataUrl: incidentData?.imageEvidence,
-        fileName: incidentData?.imageEvidenceName,
-        fallbackBaseName: 'incident-photo',
-        fallbackMimeType: 'image/jpeg',
-        fallbackExtension: 'jpg'
-    });
-    const videoDescriptor = buildFileDescriptor({
-        dataUrl: incidentData?.videoEvidence,
-        fileBlob: incidentData?.videoEvidenceFile,
-        fileName: incidentData?.videoEvidenceName,
-        fallbackBaseName: 'incident-video',
-        fallbackMimeType: incidentData?.videoEvidenceFile?.type || 'video/mp4',
-        fallbackExtension: 'mp4'
-    });
-
-    if (!photoDescriptor && !videoDescriptor) {
-        throw new Error('A photo or video descriptor is required before Incident AI analysis can start.');
-    }
-
+    session,
+    onStatusChange,
+    photoDescriptor,
+    videoDescriptor
+}) => {
     onStatusChange?.('Preparing upload session');
     const uploadSession = await requestJson(`${apiBaseUrl}/incidents/${encodeURIComponent(incidentId)}/ai-evidence/upload-session`, {
         method: 'POST',
@@ -310,4 +308,65 @@ export async function runIncidentAiBackendAnalysis({
     onStatusChange?.('Analysis complete');
 
     return result;
+};
+
+export const getIncidentAiApiBaseUrl = () => getDefaultApiBaseUrl();
+export const isIncidentAiBackendEnabled = () => Boolean(getDefaultApiBaseUrl());
+
+export async function runIncidentAiBackendAnalysis({
+    incidentId,
+    incidentData,
+    session = readStoredSession(),
+    onStatusChange
+}) {
+    const apiBaseUrl = getDefaultApiBaseUrl();
+    if (!apiBaseUrl) {
+        throw new Error('Incident AI backend URL is not configured.');
+    }
+
+    const photoDescriptor = buildFileDescriptor({
+        dataUrl: incidentData?.imageEvidence,
+        fileName: incidentData?.imageEvidenceName,
+        fallbackBaseName: 'incident-photo',
+        fallbackMimeType: 'image/jpeg',
+        fallbackExtension: 'jpg'
+    });
+    const videoDescriptor = buildFileDescriptor({
+        dataUrl: incidentData?.videoEvidence,
+        fileBlob: incidentData?.videoEvidenceFile,
+        fileName: incidentData?.videoEvidenceName,
+        fallbackBaseName: 'incident-video',
+        fallbackMimeType: incidentData?.videoEvidenceFile?.type || 'video/mp4',
+        fallbackExtension: 'mp4'
+    });
+
+    if (!photoDescriptor && !videoDescriptor) {
+        throw new Error('A photo or video descriptor is required before Incident AI analysis can start.');
+    }
+
+    let lastError = null;
+
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+        try {
+            onStatusChange?.(attempt === 0 ? 'Checking Incident AI backend' : 'Retrying Incident AI backend');
+            await pingIncidentAiBackend(apiBaseUrl);
+
+            return await runAnalysisFlow({
+                apiBaseUrl,
+                incidentId,
+                incidentData,
+                session,
+                onStatusChange,
+                photoDescriptor,
+                videoDescriptor
+            });
+        } catch (error) {
+            lastError = error;
+            if (attempt === 0) {
+                await sleep(1500);
+            }
+        }
+    }
+
+    throw new Error(lastError?.message || 'Incident AI backend could not be reached.');
 }

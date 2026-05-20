@@ -1383,7 +1383,8 @@ export default function Incidents() {
         } catch (error) {
             console.error('Incident AI backend unavailable, using local fallback:', error);
             applyGeneratedInvestigationDraft(buildLocalSmartInvestigationDraft(data));
-            alert('Incident AI backend was unavailable, so the local smart investigation engine generated the RCA draft instead. You can still review and refine it in Step 3.');
+            const errorMessage = error?.message ? ` Backend response: ${error.message}` : '';
+            alert(`Incident AI backend could not complete the analysis, so the local smart investigation engine generated the RCA draft instead.${errorMessage} You can still review and refine it in Step 3.`);
         } finally {
             setIsAnalyzing(false);
             setAnalysisStatusLabel('');
