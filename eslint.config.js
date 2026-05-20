@@ -8,6 +8,7 @@ export default [
         ignores: [
             'dist/**',
             'dist-field-portal/**',
+            '.vercel/**',
             'backend/dist/**',
             'node_modules/**'
         ]

@@ -115,7 +115,7 @@ const buildDevAuthHeaders = (session = readStoredSession()) => ({
 });
 
 const buildAuthHeaders = async (session = readStoredSession()) => {
-    const headers = {};
+    const headers = buildDevAuthHeaders(session);
 
     if (session?.orgId) {
         headers['x-ohsms-org-id'] = session.orgId;
@@ -135,10 +135,6 @@ const buildAuthHeaders = async (session = readStoredSession()) => {
         }
     } catch {
         // keep local fallback behavior below when the dev backend is used
-    }
-
-    if (!headers.Authorization && env.DEV) {
-        Object.assign(headers, buildDevAuthHeaders(session));
     }
 
     return headers;
@@ -343,7 +339,7 @@ const runAnalysisFlow = async ({
     });
 
     onStatusChange?.('Starting AI analysis');
-    await requestJson(`${apiBaseUrl}/incidents/${encodeURIComponent(incidentId)}/ai-analysis`, {
+    const startPayload = await requestJson(`${apiBaseUrl}/incidents/${encodeURIComponent(incidentId)}/ai-analysis`, {
         method: 'POST',
         session,
         body: {
@@ -363,6 +359,11 @@ const runAnalysisFlow = async ({
             }
         }
     });
+
+    if (startPayload?.result) {
+        onStatusChange?.('Analysis complete');
+        return startPayload.result;
+    }
 
     let latestStatus = null;
     for (let attempt = 0; attempt < 40; attempt += 1) {

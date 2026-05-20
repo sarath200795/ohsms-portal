@@ -841,7 +841,12 @@ export default function Incidents() {
             'systemic gap in the safety management system',
             'failure in the primary control measure',
             'operating outside of normal/safe parameters',
-            'human investigator review is still required'
+            'human investigator review is still required',
+            'initial ai draft suggests',
+            'potential general workplace hazard indicators',
+            'stored media should be reviewed',
+            'work method and scene controls should be reviewed',
+            'unsafe condition visible or reported in uploaded incident evidence'
         ].some((pattern) => normalized.includes(pattern));
     };
 
@@ -1107,71 +1112,90 @@ export default function Incidents() {
     });
 
     const buildFiveWhyPathsFromInsights = (insights) => {
-        const pathCandidates = [
+        const organizationalFailure = chooseSpecificStatement(
+            insights.managementFactors?.[0],
+            `Organizational controls for planning, supervision, competence assurance, maintenance follow-up, and corrective-action closure did not prevent the work involving ${insights.objectInvolved} from continuing with unresolved risk.`
+        );
+        const organizationalMechanism = chooseSpecificStatement(
+            insights.managementFactors?.[1],
+            insights.methodFactors?.[0] || `The risk assessment, pre-task review, and supervisor verification did not translate the known ${insights.hazardType} exposure into clear controls at the point of work.`
+        );
+        const organizationalAssurance = chooseSpecificStatement(
+            insights.managementFactors?.[2],
+            `Leadership assurance did not test whether the controls for ${insights.hazardType} were actually present, understood, and effective before the task proceeded.`
+        );
+        const organizationalRoot = chooseSpecificStatement(
+            insights.rootCause,
+            `The organization did not operate a reliable control-assurance loop for ${insights.objectInvolved}, so weak controls remained normal work conditions until "${insights.eventLabel}" occurred.`
+        );
+
+        const humanFailure = chooseSpecificStatement(
+            insights.peopleFactors?.[0],
+            `Frontline decisions or actions during "${insights.eventLabel}" placed the person in the exposure path for ${insights.hazardType}.`
+        );
+        const humanMechanism = chooseSpecificStatement(
+            insights.peopleFactors?.[1],
+            insights.methodFactors?.[0] || `The worker did not have enough effective prompts, supervision, task pause-points, or hazard-recognition cues to stop and re-check the job before exposure.`
+        );
+        const humanSystemAllowance = chooseSpecificStatement(
+            insights.managementFactors?.[0],
+            `The work system allowed the unsafe action to become possible because briefing, competence verification, workload control, and stop-work expectations were not strong enough.`
+        );
+        const humanRoot = ensureSentence(
+            `The human failure was enabled by work design and supervision weaknesses; the system did not make the safe action the easiest and most consistently reinforced action for the task involving ${insights.objectInvolved}.`
+        );
+
+        const systemicFailure = chooseSpecificStatement(
+            insights.failedControl,
+            `The critical barrier intended to control ${insights.hazardType} around ${insights.objectInvolved} was missing, ineffective, bypassed, or not verified.`
+        );
+        const systemicMechanism = chooseSpecificStatement(
+            insights.methodFactors?.[0],
+            insights.equipmentFactors?.[0] || insights.environmentFactors?.[0] || `The hazard pathway remained open because equipment condition, workplace condition, or task sequence was not controlled before exposure.`
+        );
+        const systemicGovernance = chooseSpecificStatement(
+            insights.systemicFactor,
+            `The safety management system did not verify that risk assessment controls, inspection routines, competency checks, and escalation routes were working together for this task.`
+        );
+        const systemicRoot = ensureSentence(
+            `The management system failed to verify and sustain the critical controls for ${insights.hazardType}, allowing the immediate hazard, human exposure, and organizational weakness to align.`
+        );
+
+        return [
             {
-                name: 'Path 1 - Immediate Event',
-                why2: insights.immediateCause,
-                why3: insights.failedControl,
-                why4: insights.systemicFactor
+                id: Date.now(),
+                name: 'Organizational Failure',
+                whys: [
+                    `Why 1 (The Event): ${insights.eventSummary}`,
+                    `Why 2 (Organizational Failure): ${organizationalFailure}`,
+                    `Why 3 (How It Failed): ${organizationalMechanism}`,
+                    `Why 4 (Assurance Failure): ${organizationalAssurance}`,
+                    `Why 5 (Organizational Root Cause): ${organizationalRoot}`
+                ]
             },
             {
-                name: 'Path 2 - People Factors',
-                why2: chooseSpecificStatement(insights.peopleFactors?.[0], insights.peopleFactor),
-                why3: chooseSpecificStatement(insights.underlyingCause, insights.failedControl),
-                why4: chooseSpecificStatement(insights.managementFactors?.[0], insights.systemicFactor)
+                id: Date.now() + 1,
+                name: 'Human Failure',
+                whys: [
+                    `Why 1 (The Event): ${insights.eventSummary}`,
+                    `Why 2 (Human Failure): ${humanFailure}`,
+                    `Why 3 (Why The Person Was Exposed): ${humanMechanism}`,
+                    `Why 4 (Why The System Allowed It): ${humanSystemAllowance}`,
+                    `Why 5 (Human-Factors Root Cause): ${humanRoot}`
+                ]
             },
             {
-                name: 'Path 3 - Equipment / Asset Factors',
-                why2: chooseSpecificStatement(insights.equipmentFactors?.[0], insights.equipmentFactor),
-                why3: chooseSpecificStatement(insights.failedControl, insights.methodFactors?.[0] || insights.underlyingCause),
-                why4: chooseSpecificStatement(insights.managementFactors?.[0], insights.systemicFactor)
-            },
-            {
-                name: 'Path 4 - Method / Procedure Factors',
-                why2: chooseSpecificStatement(insights.methodFactors?.[0], insights.underlyingCause),
-                why3: chooseSpecificStatement(insights.failedControl, insights.methodFactors?.[1] || insights.systemicFactor),
-                why4: chooseSpecificStatement(insights.managementFactors?.[0], insights.systemicFactor)
-            },
-            {
-                name: 'Path 5 - Environment / Workplace Factors',
-                why2: chooseSpecificStatement(insights.environmentFactors?.[0], insights.environmentFactor),
-                why3: chooseSpecificStatement(insights.failedControl, insights.methodFactors?.[0] || insights.underlyingCause),
-                why4: chooseSpecificStatement(insights.managementFactors?.[0], insights.systemicFactor)
-            },
-            {
-                name: 'Path 6 - Material / Energy Factors',
-                why2: chooseSpecificStatement(insights.materialFactors?.[0], insights.materialFactor),
-                why3: chooseSpecificStatement(insights.failedControl, insights.methodFactors?.[0] || insights.underlyingCause),
-                why4: chooseSpecificStatement(insights.managementFactors?.[0], insights.systemicFactor)
+                id: Date.now() + 2,
+                name: 'Systemic Failure',
+                whys: [
+                    `Why 1 (The Event): ${insights.eventSummary}`,
+                    `Why 2 (Systemic Failure): ${systemicFailure}`,
+                    `Why 3 (Barrier / Control Breakdown): ${systemicMechanism}`,
+                    `Why 4 (Management System Failure): ${systemicGovernance}`,
+                    `Why 5 (Systemic Root Cause): ${systemicRoot}`
+                ]
             }
         ];
-
-        const seenWhy2 = new Set();
-
-        return pathCandidates
-            .map((candidate, index) => {
-                const why2 = ensureSentence(candidate.why2);
-                const why3 = ensureSentence(candidate.why3);
-                const why4 = ensureSentence(candidate.why4);
-
-                if (!why2 || !why3 || !why4) return null;
-                if (seenWhy2.has(why2)) return null;
-
-                seenWhy2.add(why2);
-
-                return {
-                    id: Date.now() + index,
-                    name: candidate.name,
-                    whys: [
-                        `Why 1 (The Event): ${insights.eventSummary}`,
-                        `Why 2 (Factor): ${why2}`,
-                        `Why 3 (Failed Control): ${why3}`,
-                        `Why 4 (Systemic Factor): ${why4}`,
-                        `Why 5 (Root Cause): ${insights.rootCause}`
-                    ]
-                };
-            })
-            .filter(Boolean);
     };
 
     const buildLocalSmartInvestigationDraft = (incidentData) => {
@@ -1200,13 +1224,30 @@ export default function Incidents() {
             children: [
                 {
                     id: 2,
-                    label: `Immediate Cause: ${cleanTreeLabel(insights.immediateCause)}`,
+                    label: `Organizational Failure: ${cleanTreeLabel(insights.managementFactors?.[0] || insights.systemicFactor)}`,
                     type: 'OR',
                     children: [
-                        { id: 4, label: `Condition: ${cleanTreeLabel(insights.environmentFactor)}`, type: 'EVENT' },
-                        { id: 5, label: `Failed Barrier: ${cleanTreeLabel(insights.failedControl)}`, type: 'EVENT' },
-                        { id: 6, label: `People / Method: ${cleanTreeLabel(chooseSpecificStatement(insights.underlyingCause, insights.peopleFactors?.[0] || insights.methodFactors?.[0] || insights.peopleFactor))}`, type: 'EVENT' },
-                        { id: 7, label: `Management / Control: ${cleanTreeLabel(insights.managementFactors?.[0] || insights.systemicFactor)}`, type: 'EVENT' }
+                        { id: 3, label: `Planning / Supervision: ${cleanTreeLabel(insights.methodFactors?.[0] || insights.underlyingCause)}`, type: 'EVENT' },
+                        { id: 4, label: `Assurance Gap: ${cleanTreeLabel(insights.managementFactors?.[1] || insights.rootCause)}`, type: 'EVENT' }
+                    ]
+                },
+                {
+                    id: 5,
+                    label: `Human Failure: ${cleanTreeLabel(insights.peopleFactors?.[0] || insights.peopleFactor)}`,
+                    type: 'OR',
+                    children: [
+                        { id: 6, label: `Exposure Path: ${cleanTreeLabel(insights.immediateCause)}`, type: 'EVENT' },
+                        { id: 7, label: `Task Execution Factor: ${cleanTreeLabel(insights.peopleFactors?.[1] || insights.methodFactors?.[0] || insights.underlyingCause)}`, type: 'EVENT' }
+                    ]
+                },
+                {
+                    id: 8,
+                    label: `Systemic Failure: ${cleanTreeLabel(insights.failedControl)}`,
+                    type: 'AND',
+                    children: [
+                        { id: 9, label: `Barrier / Control Breakdown: ${cleanTreeLabel(insights.failedControl)}`, type: 'EVENT' },
+                        { id: 10, label: `Equipment / Environment Condition: ${cleanTreeLabel(insights.equipmentFactors?.[0] || insights.environmentFactors?.[0] || insights.objectInvolved)}`, type: 'EVENT' },
+                        { id: 11, label: `Management System Weakness: ${cleanTreeLabel(insights.systemicFactor)}`, type: 'EVENT' }
                     ]
                 }
             ]
@@ -1283,18 +1324,20 @@ export default function Incidents() {
         const mergedEquipmentCondition = mergeSpecificList(backendDraft.equipmentCondition, contextualInvestigation.aiDraft?.equipmentCondition || []);
         const mergedImmediateCauses = mergeSpecificList(backendDraft.immediateCauses, contextualInvestigation.aiDraft?.immediateCauses || []);
         const mergedContributingFactors = mergeSpecificList(backendDraft.contributingFactors, contextualInvestigation.aiDraft?.contributingFactors || []);
-        const mergedFiveWhys = (contextualInvestigation.fiveWhys?.[0]?.whys || []).map((fallbackWhy, index) => chooseSpecificStatement(backendDraft.fiveWhys?.[index], fallbackWhy));
-        const mergedFiveWhyPaths = [
-            {
-                id: Date.now(),
-                name: 'Incident AI Backend Draft - Primary Path',
-                whys: mergedFiveWhys
-            },
-            ...((contextualInvestigation.fiveWhys || []).slice(1).map((path, index) => ({
-                ...path,
-                id: Date.now() + index + 1
-            })))
-        ];
+        const getBackendWhyForPath = (pathName, whyIndex) => {
+            const backendWhys = Array.isArray(backendDraft.fiveWhys) ? backendDraft.fiveWhys : [];
+            const normalizedPath = normalizeInvestigationText(pathName).toLowerCase();
+            const pathMatches = backendWhys.filter((why) => normalizeInvestigationText(why).toLowerCase().includes(normalizedPath));
+            return pathMatches[whyIndex] || '';
+        };
+
+        const mergedFiveWhyPaths = (contextualInvestigation.fiveWhys || []).map((path, index) => ({
+            ...path,
+            id: Date.now() + index,
+            whys: path.whys.map((fallbackWhy, whyIndex) => (
+                chooseSpecificStatement(getBackendWhyForPath(path.name, whyIndex), fallbackWhy)
+            ))
+        }));
 
         return {
             investigation: {
@@ -1307,7 +1350,7 @@ export default function Incidents() {
                     method: mergeSpecificList(backendDraft.fishbone?.method, contextualInvestigation.fishbone?.method || []),
                     environment: mergeSpecificList(backendDraft.fishbone?.environment, contextualInvestigation.fishbone?.environment || [])
                 },
-                faultTree: buildFaultTreeFromBackendDraft({
+                faultTree: contextualInvestigation.faultTree || buildFaultTreeFromBackendDraft({
                     eventSummary: chooseSpecificStatement(backendDraft.eventSummary, contextualInvestigation.aiDraft?.eventSummary || ''),
                     visibleHazards: mergedVisibleHazards,
                     immediateCauses: mergedImmediateCauses,

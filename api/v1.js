@@ -1,5 +1,4 @@
 import { handleUpload } from '@vercel/blob/client';
-import { waitUntil } from '@vercel/functions';
 import { getIncidentAiRuntime, resolveAuthContext } from '../server/incident-ai/runtime.js';
 
 const json = (payload, status = 200, extraHeaders = {}) => new Response(JSON.stringify(payload), {
@@ -67,6 +66,23 @@ const parseJsonBody = async (request) => {
     } catch {
         return {};
     }
+};
+
+const runAnalysisToCompletion = async (runtime, payload, authContext) => {
+    await runtime.workerService.runJob(payload.incidentKey);
+
+    const status = await runtime.incidentService.getAnalysisStatus(payload.incidentId, authContext);
+    if (status.status !== 'completed') {
+        throw new Error(status.failureMessage || 'Incident AI analysis did not complete.');
+    }
+
+    const result = await runtime.incidentService.getAnalysisResult(payload.incidentId, authContext);
+    return {
+        incidentId: payload.incidentId,
+        jobId: payload.jobId,
+        status: status.status,
+        result
+    };
 };
 
 const routeRequest = async (request) => {
@@ -153,24 +169,14 @@ const routeRequest = async (request) => {
     if (request.method === 'POST' && retryMatch) {
         const body = await request.json();
         const payload = await runtime.incidentService.retryAnalysis(retryMatch[1], body, authContext);
-        waitUntil(runtime.workerService.runJob(payload.incidentKey));
-        return json({
-            incidentId: payload.incidentId,
-            jobId: payload.jobId,
-            status: payload.status
-        });
+        return json(await runAnalysisToCompletion(runtime, payload, authContext));
     }
 
     const analysisMatch = relativePath.match(/^\/incidents\/([^/]+)\/ai-analysis$/);
     if (request.method === 'POST' && analysisMatch) {
         const body = await request.json();
         const payload = await runtime.incidentService.startAnalysis(analysisMatch[1], body, authContext);
-        waitUntil(runtime.workerService.runJob(payload.incidentKey));
-        return json({
-            incidentId: payload.incidentId,
-            jobId: payload.jobId,
-            status: payload.status
-        });
+        return json(await runAnalysisToCompletion(runtime, payload, authContext));
     }
 
     if (request.method === 'GET' && analysisMatch) {

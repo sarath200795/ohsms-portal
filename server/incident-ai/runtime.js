@@ -31,6 +31,9 @@ const resolveAuthContext = async (request, authService, mockAuthService) => {
     const token = authService.extractBearerToken(headers);
 
     if (token) {
+        if (!authService.isFirebaseAuthConfigured() && authService.isDevBypassEnabled()) {
+            return mockAuthService.resolveAuthContext(headers);
+        }
         return authService.resolveVerifiedAuthContext(headers);
     }
 

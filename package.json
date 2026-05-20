@@ -39,7 +39,7 @@
   "dependencies": {
     "@nestjs/common": "^11.1.9",
     "@tailwindcss/vite": "^4.2.1",
-    "@vercel/blob": "^1.1.1",
+    "@vercel/blob": "^2.4.0",
     "@vercel/functions": "^2.2.13",
     "chart.js": "^4.5.1",
     "exceljs": "^4.4.0",
