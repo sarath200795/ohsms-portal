@@ -80,7 +80,14 @@ const buildLocalIncidentInference = ({ context, evidence, mediaContext, summary,
         context.immediateAction,
         evidence.notes
     ].map((item) => normalizeInvestigationText(item)).filter(Boolean).join('. ');
+    const factorText = [
+        context.description,
+        context.immediateAction,
+        evidence.notes
+    ].map((item) => normalizeInvestigationText(item)).filter(Boolean).join('. ');
     const sentences = splitInvestigationSentences(sourceText || summary);
+    const factorSentences = splitInvestigationSentences(factorText || sourceText || summary);
+    const detectedHazard = detectHazardType(sourceText || summary, hazard);
     const eventSummary = ensureSentence(context.title || sentences[0] || summary);
     const hasVideoEvidence = Boolean(evidence.uploaded.video);
     const hasPhotoEvidence = Boolean(evidence.uploaded.photo);
@@ -114,7 +121,7 @@ const buildLocalIncidentInference = ({ context, evidence, mediaContext, summary,
     };
     const immediateCauses = [];
     if (flags.vehicle) {
-        appendUniqueStatement(immediateCauses, `${equipment} entered an uncontrolled movement or impact path and created a ${hazard} exposure.`);
+        appendUniqueStatement(immediateCauses, `${equipment} entered an uncontrolled movement or impact path and created a ${detectedHazard} exposure.`);
     }
     if (flags.noSpotter) {
         appendUniqueStatement(immediateCauses, 'The activity proceeded without an effective spotter, banksman, or positive exclusion control for the movement path.');
@@ -170,36 +177,44 @@ const buildLocalIncidentInference = ({ context, evidence, mediaContext, summary,
         appendUniqueStatement(contributingFactors, 'The surrounding work environment increased exposure through layout, access, visibility, housekeeping, or surface condition weaknesses.');
     }
     const rootCause = ensureSentence(`Most likely root cause: ${stripSentenceEnd(organizationalFailure)}; ${stripSentenceEnd(systemicFailure)}. This enabled the human-performance failure: ${stripSentenceEnd(humanFailure)}. Immediate event: ${stripSentenceEnd(immediateCauses[0])}`);
+    const materialFactors = [];
+    if (/(pallet rack|storage rack|rack\b)/i.test(factorText)) {
+        appendUniqueStatement(materialFactors, 'The pallet or storage rack was the impacted asset/material interface.');
+    }
+    if (/(pallet|load|package|container|box|drum|cylinder)/i.test(factorText)) {
+        appendUniqueStatement(materialFactors, 'The pallet, load, package, or container was part of the exposure path.');
+    }
+    if (/(oil|fluid|chemical|acid|solvent|gas|dust|smoke|spill|leak|vapou?r|fume)/i.test(factorText)) {
+        appendUniqueStatement(materialFactors, 'Released or exposed material was part of the incident exposure path.');
+    }
+    if (/(debris|waste|scrap|loose material)/i.test(factorText)) {
+        appendUniqueStatement(materialFactors, 'Loose debris, waste, or scrap material contributed to the workplace hazard.');
+    }
+    if (materialFactors.length === 0 && /(pallet|rack|load|material|debris|oil|chemical|spill|leak|gas|fluid)/i.test(factorText)) {
+        factorSentences
+            .filter((sentence) => /(pallet|rack|load|material|debris|oil|chemical|spill|leak|gas|fluid)/i.test(sentence))
+            .slice(0, 3)
+            .forEach((sentence) => appendUniqueStatement(materialFactors, sentence));
+    }
     const fishbone = {
         man: [
-            humanFailure,
-            flags.trainingGap
-                ? 'Competency, briefing, or hazard-awareness verification was weak for the task.'
-                : 'Human-factor controls did not make the safe action the easiest and most consistently reinforced action.'
+            ...(flags.noSpotter ? ['No effective spotter or banksman was described for the movement path.'] : []),
+            ...(flags.humanAction ? ['The report indicates a worker action, shortcut, lapse, or task-execution deviation.'] : []),
+            ...(flags.trainingGap ? ['Training, competency, briefing, or awareness is mentioned as a possible gap.'] : [])
         ],
         machine: [
-            flags.vehicle
-                ? `${equipment} movement, visibility, warning devices, route separation, and impact controls require verification.`
-                : `${equipment} condition and safety-critical controls require engineering verification.`,
-            flags.maintenanceGap
-                ? 'Pre-use inspection or maintenance assurance did not detect or close the unsafe condition.'
-                : `Severity context recorded as ${severity}.`
+            ...(flags.vehicle ? [`${equipment} movement was part of the incident sequence.`] : []),
+            ...(flags.maintenanceGap ? [`Inspection, maintenance, or pre-use checks are linked to ${equipment}.`] : [])
         ],
-        material: [
-            `${hazard} was the energy, material, or exposure pathway involved in the event.`,
-            'Evidence records should be used to confirm any load, material, fluid, energy source, or object involved.'
-        ],
+        material: materialFactors,
         method: [
-            organizationalFailure,
-            flags.procedureGap
-                ? 'Procedure, PTW, LOTO, risk-assessment, checklist, or supervision controls were not effectively verified before the work.'
-                : 'Task planning and control verification did not stop the event pathway before exposure.'
+            ...(flags.noSpotter ? ['The movement method did not include an effective spotter, banksman, or stop point.'] : []),
+            ...(flags.procedureGap ? ['The procedure, permit, risk assessment, checklist, or supervision control was not verified at the point of work.'] : []),
+            ...(flags.priorSignals ? ['Earlier reports or near misses were not converted into verified controls before the event.'] : [])
         ],
         environment: [
-            systemicFailure,
-            flags.congestion
-                ? 'Congestion or route restriction increased the exposure and should be corrected through traffic-layout controls.'
-                : 'Workplace layout, access, visibility, housekeeping, and local conditions should be verified against the event sequence.'
+            ...(flags.congestion ? ['Congestion, restricted clearance, pedestrian interface, or weak segregation was described in the area.'] : []),
+            ...(flags.environmentGap ? ['The workplace condition contributed through layout, access, visibility, housekeeping, or floor/surface condition.'] : [])
         ]
     };
     const pushWhy = (whys, value, supported = true) => {
@@ -213,29 +228,23 @@ const buildLocalIncidentInference = ({ context, evidence, mediaContext, summary,
     const addPath = (name, whys) => {
         const supportedWhys = whys.filter(Boolean).slice(0, 5);
         if (supportedWhys.length > 0) {
-            fiveWhyPaths.push({ name, whys: supportedWhys });
+            fiveWhyPaths.push({ name: name || `Analysis Path ${fiveWhyPaths.length + 1}`, whys: supportedWhys });
         }
     };
-    const organizationalWhys = [];
-    pushWhy(organizationalWhys, `The event developed because ${lowerFirst(eventOccurrence)}.`, Boolean(eventOccurrence));
-    pushWhy(organizationalWhys, 'The same exposure remained possible because earlier warnings, reports, or near misses were not closed before the task continued.', flags.priorSignals);
-    pushWhy(organizationalWhys, 'The issue was not removed because the corrective-action process did not convert the earlier signal into verified controls at the work area.', flags.priorSignals);
-    pushWhy(organizationalWhys, 'The work was allowed to proceed because the required procedure, permit, risk assessment, checklist, or supervision control was not verified at the point of work.', flags.procedureGap);
-    pushWhy(organizationalWhys, `The unsafe condition remained available because inspection, maintenance, or pre-use checks did not find and remove the defect before the task involving ${equipment}.`, flags.maintenanceGap);
-    pushWhy(organizationalWhys, 'The person was exposed because competency, induction, or task briefing did not confirm the hazard controls before the work started.', flags.trainingGap);
-    addPath('Organizational Failure', organizationalWhys);
-    const humanWhys = [];
-    pushWhy(humanWhys, `The person or asset entered the exposure path because ${lowerFirst(immediateCauses[0])}.`, Boolean(immediateCauses[0]));
-    pushWhy(humanWhys, 'The reversing or movement activity relied on individual judgement because no effective spotter, banksman, or stop point was described for the movement path.', flags.noSpotter);
-    pushWhy(humanWhys, 'The unsafe action continued because the worker or team did not have a clear pause point, warning cue, or separation control before the event.', flags.humanAction || flags.noSpotter);
-    pushWhy(humanWhys, 'The task execution was affected by rushing, distraction, fatigue, shortcutting, or bypassed safe actions described in the report.', flags.humanAction);
-    addPath('Human Failure', humanWhys);
-    const systemicWhys = [];
-    pushWhy(systemicWhys, `The control barrier did not stop the event because ${lowerFirst(systemicFailure)}.`, Boolean(systemicFailure));
-    pushWhy(systemicWhys, 'Traffic separation was weak because congestion, restricted clearance, pedestrian interface, or route layout reduced the margin for safe movement.', flags.vehicle && flags.congestion);
-    pushWhy(systemicWhys, 'The physical protection did not prevent exposure because guarding, barriers, barricading, isolation, PPE, or exclusion controls were absent, bypassed, or ineffective.', flags.barrierGap);
-    pushWhy(systemicWhys, 'The workplace condition contributed because floor condition, lighting, access, congestion, visibility, or housekeeping increased the exposure.', flags.environmentGap);
-    addPath('Systemic Failure', systemicWhys);
+    const mainWhys = [];
+    pushWhy(mainWhys, `The incident happened because ${lowerFirst(eventOccurrence || immediateCauses[0])}.`, Boolean(eventOccurrence || immediateCauses[0]));
+    pushWhy(mainWhys, `That happened because ${lowerFirst(immediateCauses[0])}.`, Boolean(immediateCauses[0]) && stripSentenceEnd(immediateCauses[0]) !== stripSentenceEnd(eventOccurrence));
+    pushWhy(mainWhys, 'The movement was not controlled because no effective spotter, banksman, or stop point was described for the reversing path.', flags.noSpotter);
+    pushWhy(mainWhys, 'The route did not give enough margin because congestion, weak segregation, or restricted clearance was described in the work area.', flags.congestion);
+    pushWhy(mainWhys, 'The same exposure continued because earlier near misses or concerns were reported but not closed before this event.', flags.priorSignals);
+    pushWhy(mainWhys, 'Those earlier signals did not prevent the incident because the corrective-action process did not convert them into verified controls at the work area.', flags.priorSignals);
+    addPath('', mainWhys);
+    const controlWhys = [];
+    pushWhy(controlWhys, `The barrier failed because ${lowerFirst(systemicFailure)}.`, Boolean(systemicFailure));
+    pushWhy(controlWhys, `The barrier was weak because the task method did not maintain separation between ${equipment} and the impact or exposure path.`, flags.vehicle || flags.barrierGap || flags.congestion);
+    pushWhy(controlWhys, 'The method was not effective because the procedure, permit, risk assessment, checklist, or supervision control was not verified at the point of work.', flags.procedureGap);
+    pushWhy(controlWhys, `The unsafe equipment condition remained because inspection, maintenance, or pre-use checks did not identify and remove it before the task involving ${equipment}.`, flags.maintenanceGap);
+    addPath('', controlWhys);
     const fiveWhys = fiveWhyPaths.flatMap((path) => path.whys);
     const capa = [
         {
@@ -511,10 +520,12 @@ let IncidentAiProviderService = class IncidentAiProviderService {
                     'Use the uploaded photo and sampled video frames as evidence. If video frames show sequence, position, missing controls, congestion, equipment state, or unsafe acts, reflect those observations in the RCA.',
                     'Do not copy the incident description sentence verbatim. Rephrase it into investigation conclusions and why-answers.',
                     'Avoid generic wording such as "review required", "control failure", or "human investigator review". Every point must reference the actual task, equipment, media evidence, or event sequence.',
-                    'Generate fiveWhyPaths as an array of objects: [{ "name": "Organizational Failure", "whys": [...] }, { "name": "Human Failure", "whys": [...] }, { "name": "Systemic Failure", "whys": [...] }].',
-                    'Only fill whys that are supported by the incident description, evidence notes, transcript, or visible media frames. Do not force 5 whys. Leave unknown later whys out instead of inventing them.',
+                    'Generate fiveWhyPaths as an array of objects. Use neutral names only, such as "Analysis Path 1" and "Analysis Path 2". Do not use names such as Organizational, Human, Systemic, Man, Method, or Root Cause as path names.',
+                    'For each path, fill whys as a true chain: Why 1 answers why the incident happened; Why 2 answers why the Why 1 answer happened; Why 3 answers why the Why 2 answer happened, and continue only while the description, evidence notes, transcript, or visible media frames support the next answer.',
+                    'Do not force 5 whys. Stop early when the evidence runs out. Never fill unknown later whys with generic management-system language.',
                     'Do not include path names, cause labels, or "Why 1" text inside the whys values. The UI already displays the path and why number.',
-                    'Each why-answer should explain why the previous event happened, not repeat the incident description.',
+                    'For fishbone, extract concrete Man, Machine, Material, Method, and Environment factors only from the incident description, evidence notes, transcript, and visible media frames. Leave categories empty if no concrete factor is present.',
+                    'For fault-tree content inside contributingFactors/immediateCauses, use only incident-specific event sequence and control-barrier facts.',
                     'Return valid JSON only with keys:',
                     'eventSummary, visibleHazards, equipmentCondition, immediateCauses, contributingFactors, fiveWhyPaths, fiveWhys, fishbone, rootCause, capa, confidence, missingInformation.',
                     `Incident title: ${request.incidentContext?.title || ''}`,
@@ -673,10 +684,16 @@ let IncidentAiProviderService = class IncidentAiProviderService {
     normalizeFiveWhyPaths(value) {
         if (!Array.isArray(value))
             return [];
-        return value.map((path, index) => ({
-            name: String(path?.name || `Analysis Path ${index + 1}`).trim(),
-            whys: this.ensureStringArray(path?.whys)
-        })).filter((path) => path.name && path.whys.length > 0);
+        return value.map((path, index) => {
+            const rawName = String(path?.name || '').trim();
+            const name = /(organizational|human|systemic|man|method|machine|material|environment|root cause)/i.test(rawName)
+                ? `Analysis Path ${index + 1}`
+                : (rawName || `Analysis Path ${index + 1}`);
+            return {
+                name,
+                whys: this.ensureStringArray(path?.whys)
+            };
+        }).filter((path) => path.name && path.whys.length > 0);
     }
     extractJsonPayload(text) {
         const trimmed = String(text || '').trim();
