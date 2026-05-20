@@ -17,6 +17,10 @@ const ensureSentence = (value) => {
     return /[.!?]$/.test(text) ? text : `${text}.`;
 };
 const stripSentenceEnd = (value) => normalizeInvestigationText(value).replace(/[.!?]+$/, '');
+const lowerFirst = (value) => {
+    const normalized = stripSentenceEnd(value);
+    return normalized ? `${normalized.charAt(0).toLowerCase()}${normalized.slice(1)}` : '';
+};
 const splitInvestigationSentences = (value) => normalizeInvestigationText(value)
     .split(/(?<=[.!?])\s+|\n+|;\s+/)
     .map((item) => normalizeInvestigationText(item))
@@ -78,6 +82,20 @@ const buildLocalIncidentInference = ({ context, evidence, mediaContext, summary,
     ].map((item) => normalizeInvestigationText(item)).filter(Boolean).join('. ');
     const sentences = splitInvestigationSentences(sourceText || summary);
     const eventSummary = ensureSentence(context.title || sentences[0] || summary);
+    const hasVideoEvidence = Boolean(evidence.uploaded.video);
+    const hasPhotoEvidence = Boolean(evidence.uploaded.photo);
+    const mediaEvidenceType = hasVideoEvidence && hasPhotoEvidence
+        ? 'uploaded video and photo evidence'
+        : hasVideoEvidence
+            ? 'uploaded video evidence'
+            : hasPhotoEvidence
+                ? 'uploaded photo evidence'
+                : 'reported incident details';
+    const evidenceAnchor = ensureSentence(hasVideoEvidence
+        ? `${mediaContext.derivedFrames.length || 'The'} sampled video frame context should be used to confirm the movement sequence, worker position, control points, and visible barriers around ${equipment}`
+        : hasPhotoEvidence
+            ? `The uploaded photo should be used to confirm scene layout, equipment condition, and visible controls around ${equipment}`
+            : `The report narrative should be checked against witness evidence, scene layout, and control records for ${equipment}`);
     const directCause = extractClauseByPattern(sourceText, [
         /(?:because|due to|caused by|after|following)\s+([^.!?]+)/i,
         /(?:when|while)\s+([^.!?]+)/i
@@ -105,6 +123,13 @@ const buildLocalIncidentInference = ({ context, evidence, mediaContext, summary,
         appendUniqueStatement(immediateCauses, directCause);
     }
     appendUniqueStatement(immediateCauses, immediateCauses[0] || `${equipment} was involved in the immediate exposure described in the incident report.`);
+    const eventOccurrence = ensureSentence(flags.vehicle
+        ? `${equipment} movement entered an uncontrolled route or impact interface`
+        : flags.barrierGap
+            ? `${equipment} or the task entered an exposure path without an effective barrier`
+            : flags.environmentGap
+                ? `The work environment allowed the exposure path to remain active`
+                : `${equipment} and the surrounding task conditions aligned to create the event pathway`);
     const organizationalFailure = ensureSentence(flags.priorSignals
         ? 'Prior warning signs, near misses, or reported concerns were not converted into timely corrective action, supervision focus, and control verification'
         : flags.trainingGap
@@ -124,6 +149,13 @@ const buildLocalIncidentInference = ({ context, evidence, mediaContext, summary,
             : flags.environmentGap
                 ? 'Workplace layout, access, visibility, or housekeeping controls were not maintained at a level that prevented the exposure pathway'
                 : 'The safety management system did not convert hazard identification into verified, sustained, and auditable controls');
+    const organizationalRootCause = ensureSentence(flags.priorSignals
+        ? 'near-miss learning and corrective-action governance did not force closure of a known repeat exposure before the event recurred'
+        : flags.trainingGap
+            ? 'competency assurance did not prove that people could recognize and control this hazard before starting the task'
+            : flags.procedureGap
+                ? 'the control-of-work process did not translate the documented safe method into verified controls at the workface'
+                : 'control assurance did not prove that the critical safeguards for the task were present and effective');
     const contributingFactors = [];
     appendUniqueStatement(contributingFactors, organizationalFailure);
     appendUniqueStatement(contributingFactors, humanFailure);
@@ -171,21 +203,21 @@ const buildLocalIncidentInference = ({ context, evidence, mediaContext, summary,
         ]
     };
     const fiveWhys = [
-        `Organizational Failure - Why 1: ${eventSummary}`,
-        `Organizational Failure - Why 2: ${organizationalFailure}`,
-        `Organizational Failure - Why 3: Corrective-action, supervision, or assurance checks did not identify and close the weakness before exposure.`,
-        `Organizational Failure - Why 4: The management system relied on routine task execution instead of verified critical-control confirmation.`,
-        `Organizational Failure - Why 5: ${rootCause}`,
-        `Human Failure - Why 1: ${eventSummary}`,
-        `Human Failure - Why 2: ${humanFailure}`,
-        `Human Failure - Why 3: The work design allowed individual judgement or task pressure to replace a verified safe method.`,
-        `Human Failure - Why 4: Supervision, briefing, and stop-work controls did not interrupt the unsafe pathway.`,
-        `Human Failure - Why 5: Human performance was not supported by robust controls, clear barriers, and active verification.`,
-        `Systemic Failure - Why 1: ${eventSummary}`,
-        `Systemic Failure - Why 2: ${systemicFailure}`,
-        `Systemic Failure - Why 3: The barrier intended to prevent the event was absent, weak, bypassed, or not checked.`,
-        `Systemic Failure - Why 4: Audit, inspection, near-miss learning, or risk-assessment review did not detect the repeatable failure mode.`,
-        `Systemic Failure - Why 5: The system did not consistently identify, verify, and sustain the critical controls needed for this task.`
+        ensureSentence(`The event occurred after ${lowerFirst(eventOccurrence)}, which should have triggered stronger planning or stop-work control`),
+        ensureSentence(`The exposure remained possible because ${lowerFirst(organizationalFailure)}`),
+        ensureSentence(`That weakness was not corrected before the task because corrective-action, supervision, or assurance checks did not close the known exposure before work continued`),
+        ensureSentence(`The ${mediaEvidenceType} should be checked to verify whether the planned controls were actually present and supervised at the time`),
+        ensureSentence(`The underlying organizational weakness is that ${lowerFirst(organizationalRootCause)}`),
+        ensureSentence(`A person became exposed because ${lowerFirst(immediateCauses[0])}`),
+        ensureSentence(`The safe response did not happen reliably because ${lowerFirst(humanFailure)}`),
+        ensureSentence(`The worker or team did not have enough effective prompts, separation, or pause-points to interrupt the developing event`),
+        ensureSentence(`The work system allowed this behaviour because supervision, briefing, and stop-work triggers were not strong enough for the actual task conditions`),
+        ensureSentence(`Human performance was not supported by robust controls, clear barriers, and active verification around ${equipment}`),
+        ensureSentence(`The incident pathway developed because ${lowerFirst(systemicFailure)}`),
+        ensureSentence(`The barrier did not stop the event because ${lowerFirst(flags.congestion ? 'route congestion or restricted clearance reduced the margin for safe movement' : 'the control was not verified against the actual work condition')}`),
+        ensureSentence(`The weakness remained active because inspections, risk assessment, training, or CAPA did not verify the control against the actual work condition`),
+        ensureSentence(`${stripSentenceEnd(evidenceAnchor)} before final approval of the investigation`),
+        ensureSentence(`The system did not consistently identify, verify, and sustain the critical controls needed for ${equipment} and ${hazard}`)
     ];
     const capa = [
         {
@@ -456,6 +488,12 @@ let IncidentAiProviderService = class IncidentAiProviderService {
                 type: 'input_text',
                 text: [
                     'You are generating a draft incident investigation JSON.',
+                    'Use the uploaded photo and sampled video frames as evidence. If video frames show sequence, position, missing controls, congestion, equipment state, or unsafe acts, reflect those observations in the RCA.',
+                    'Do not copy the incident description sentence verbatim. Rephrase it into investigation conclusions and why-answers.',
+                    'Avoid generic wording such as "review required", "control failure", or "human investigator review". Every point must reference the actual task, equipment, media evidence, or event sequence.',
+                    'fiveWhys must contain exactly 15 plain strings in this fixed order: first 5 organizational answers, next 5 human-performance answers, final 5 systemic/control answers.',
+                    'Do not include path names, cause names, labels, or "Why 1" text inside the fiveWhys values. The UI already displays the path and why number.',
+                    'Each why-answer should explain why the previous event happened, not repeat the incident description.',
                     'Return valid JSON only with keys:',
                     'eventSummary, visibleHazards, equipmentCondition, immediateCauses, contributingFactors, fiveWhys, fishbone, rootCause, capa, confidence, missingInformation.',
                     `Incident title: ${request.incidentContext?.title || ''}`,

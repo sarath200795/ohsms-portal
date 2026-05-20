@@ -770,6 +770,19 @@ export default function Incidents() {
         return /[.!?]$/.test(normalized) ? normalized : `${normalized}.`;
     };
 
+    const stripSentenceEnd = (value) => normalizeInvestigationText(value).replace(/[.!?]+$/, '');
+
+    const lowerFirst = (value) => {
+        const normalized = stripSentenceEnd(value);
+        return normalized ? `${normalized.charAt(0).toLowerCase()}${normalized.slice(1)}` : '';
+    };
+
+    const stripGeneratedWhyLabel = (value) => ensureSentence(
+        normalizeInvestigationText(value)
+            .replace(/^(?:organizational|human|systemic)\s+failure\s*-\s*why\s*\d+\s*:\s*/i, '')
+            .replace(/^why\s*\d+(?:\s*\([^)]*\))?\s*:\s*/i, '')
+    );
+
     const cleanTreeLabel = (value, fallback = 'Investigation Review Required') => {
         const normalized = normalizeInvestigationText(value).replace(/[.!?]+$/, '');
         return normalized || fallback;
@@ -919,6 +932,15 @@ export default function Incidents() {
         const managementFactors = [];
 
         const eventSummary = ensureSentence(incidentData?.title || sentences[0] || `An incident involving ${objectInvolved} was reported.`);
+        const hasVideoEvidence = Boolean(incidentData?.videoEvidenceName || incidentData?.videoEvidence || incidentData?.videoEvidenceFile);
+        const hasPhotoEvidence = Boolean(incidentData?.imageEvidenceName || incidentData?.imageEvidence);
+        const mediaEvidenceType = hasVideoEvidence && hasPhotoEvidence
+            ? 'uploaded video and photo evidence'
+            : hasVideoEvidence
+                ? 'uploaded video evidence'
+                : hasPhotoEvidence
+                    ? 'uploaded photo evidence'
+                    : 'reported incident details';
 
         const immediateCause = ensureSentence(
             directCause
@@ -1038,12 +1060,31 @@ export default function Incidents() {
                 : `The organization did not adequately identify, verify, and sustain the critical controls needed to manage ${objectInvolved} and the ${hazardType} involved in "${eventLabel}".`
         );
 
+        const eventOccurrence = ensureSentence(
+            issueFlags.contactLike ? `${objectInvolved} entered a line-of-fire or contact zone and created the injury or damage pathway` :
+            issueFlags.fireLike ? `An ignition or heat source aligned with combustible material and allowed the fire event to develop` :
+            issueFlags.containmentLike ? `A release pathway opened and allowed hazardous material or energy to reach people or the workplace` :
+            issueFlags.electricalLike ? `Electrical energy remained available at the point of work and created the exposure` :
+            issueFlags.slipLike ? `A walking or working surface condition created a loss-of-balance pathway` :
+            `${objectInvolved} and the surrounding task conditions aligned to create the event pathway`
+        );
+        const evidenceAnchor = ensureSentence(
+            hasVideoEvidence
+                ? `The uploaded video should be used to confirm the order of movement, worker position, control points, and visible barriers around ${objectInvolved}`
+                : hasPhotoEvidence
+                    ? `The uploaded photo should be used to confirm scene layout, equipment condition, and visible controls around ${objectInvolved}`
+                    : `The report narrative should be checked against witness evidence, scene layout, and control records for ${objectInvolved}`
+        );
+
         return {
             context,
             eventLabel,
             eventSummary,
             objectInvolved,
             hazardType,
+            mediaEvidenceType,
+            eventOccurrence,
+            evidenceAnchor,
             immediateCause,
             failedControl,
             underlyingCause,
@@ -1166,33 +1207,33 @@ export default function Incidents() {
                 id: Date.now(),
                 name: 'Organizational Failure',
                 whys: [
-                    `Why 1 (The Event): ${insights.eventSummary}`,
-                    `Why 2 (Organizational Failure): ${organizationalFailure}`,
-                    `Why 3 (How It Failed): ${organizationalMechanism}`,
-                    `Why 4 (Assurance Failure): ${organizationalAssurance}`,
-                    `Why 5 (Organizational Root Cause): ${organizationalRoot}`
+                    ensureSentence(`The event occurred after ${lowerFirst(insights.eventOccurrence)}, which should have triggered stronger planning or stop-work control`),
+                    ensureSentence(`The exposure remained possible because ${lowerFirst(organizationalFailure)}`),
+                    ensureSentence(`That weakness was not corrected before the task because ${lowerFirst(organizationalMechanism)}`),
+                    ensureSentence(`The ${insights.mediaEvidenceType} should be checked against the assurance question: ${lowerFirst(organizationalAssurance)}`),
+                    ensureSentence(`The underlying organizational weakness is that ${lowerFirst(organizationalRoot)}`)
                 ]
             },
             {
                 id: Date.now() + 1,
                 name: 'Human Failure',
                 whys: [
-                    `Why 1 (The Event): ${insights.eventSummary}`,
-                    `Why 2 (Human Failure): ${humanFailure}`,
-                    `Why 3 (Why The Person Was Exposed): ${humanMechanism}`,
-                    `Why 4 (Why The System Allowed It): ${humanSystemAllowance}`,
-                    `Why 5 (Human-Factors Root Cause): ${humanRoot}`
+                    ensureSentence(`A person became exposed because ${lowerFirst(insights.immediateCause)}`),
+                    ensureSentence(`The safe response did not happen reliably because ${lowerFirst(humanFailure)}`),
+                    ensureSentence(`The worker or team did not have enough effective prompts, separation, or pause-points because ${lowerFirst(humanMechanism)}`),
+                    ensureSentence(`The work system allowed this behaviour because ${lowerFirst(humanSystemAllowance)}`),
+                    ensureSentence(`The human-performance root is that ${lowerFirst(humanRoot)}`)
                 ]
             },
             {
                 id: Date.now() + 2,
                 name: 'Systemic Failure',
                 whys: [
-                    `Why 1 (The Event): ${insights.eventSummary}`,
-                    `Why 2 (Systemic Failure): ${systemicFailure}`,
-                    `Why 3 (Barrier / Control Breakdown): ${systemicMechanism}`,
-                    `Why 4 (Management System Failure): ${systemicGovernance}`,
-                    `Why 5 (Systemic Root Cause): ${systemicRoot}`
+                    ensureSentence(`The incident pathway developed because ${lowerFirst(systemicFailure)}`),
+                    ensureSentence(`The barrier did not stop the event because ${lowerFirst(systemicMechanism)}`),
+                    ensureSentence(`The weakness remained active because ${lowerFirst(systemicGovernance)}`),
+                    ensureSentence(`${stripSentenceEnd(insights.evidenceAnchor)} before final approval of the investigation`),
+                    ensureSentence(`The systemic root is that ${lowerFirst(systemicRoot)}`)
                 ]
             }
         ];
@@ -1328,14 +1369,22 @@ export default function Incidents() {
             const backendWhys = Array.isArray(backendDraft.fiveWhys) ? backendDraft.fiveWhys : [];
             const normalizedPath = normalizeInvestigationText(pathName).toLowerCase();
             const pathMatches = backendWhys.filter((why) => normalizeInvestigationText(why).toLowerCase().includes(normalizedPath));
-            return pathMatches[whyIndex] || '';
+            if (pathMatches[whyIndex]) return stripGeneratedWhyLabel(pathMatches[whyIndex]);
+
+            const pathOffsets = {
+                'organizational failure': 0,
+                'human failure': 5,
+                'systemic failure': 10
+            };
+            const offset = pathOffsets[normalizedPath];
+            return stripGeneratedWhyLabel(Number.isFinite(offset) ? backendWhys[offset + whyIndex] : '');
         };
 
         const mergedFiveWhyPaths = (contextualInvestigation.fiveWhys || []).map((path, index) => ({
             ...path,
             id: Date.now() + index,
             whys: path.whys.map((fallbackWhy, whyIndex) => (
-                chooseSpecificStatement(getBackendWhyForPath(path.name, whyIndex), fallbackWhy)
+                stripGeneratedWhyLabel(chooseSpecificStatement(getBackendWhyForPath(path.name, whyIndex), fallbackWhy))
             ))
         }));
 
