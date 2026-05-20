@@ -202,23 +202,41 @@ const buildLocalIncidentInference = ({ context, evidence, mediaContext, summary,
                 : 'Workplace layout, access, visibility, housekeeping, and local conditions should be verified against the event sequence.'
         ]
     };
-    const fiveWhys = [
-        ensureSentence(`The event occurred after ${lowerFirst(eventOccurrence)}, which should have triggered stronger planning or stop-work control`),
-        ensureSentence(`The exposure remained possible because ${lowerFirst(organizationalFailure)}`),
-        ensureSentence(`That weakness was not corrected before the task because corrective-action, supervision, or assurance checks did not close the known exposure before work continued`),
-        ensureSentence(`The ${mediaEvidenceType} should be checked to verify whether the planned controls were actually present and supervised at the time`),
-        ensureSentence(`The underlying organizational weakness is that ${lowerFirst(organizationalRootCause)}`),
-        ensureSentence(`A person became exposed because ${lowerFirst(immediateCauses[0])}`),
-        ensureSentence(`The safe response did not happen reliably because ${lowerFirst(humanFailure)}`),
-        ensureSentence(`The worker or team did not have enough effective prompts, separation, or pause-points to interrupt the developing event`),
-        ensureSentence(`The work system allowed this behaviour because supervision, briefing, and stop-work triggers were not strong enough for the actual task conditions`),
-        ensureSentence(`Human performance was not supported by robust controls, clear barriers, and active verification around ${equipment}`),
-        ensureSentence(`The incident pathway developed because ${lowerFirst(systemicFailure)}`),
-        ensureSentence(`The barrier did not stop the event because ${lowerFirst(flags.congestion ? 'route congestion or restricted clearance reduced the margin for safe movement' : 'the control was not verified against the actual work condition')}`),
-        ensureSentence(`The weakness remained active because inspections, risk assessment, training, or CAPA did not verify the control against the actual work condition`),
-        ensureSentence(`${stripSentenceEnd(evidenceAnchor)} before final approval of the investigation`),
-        ensureSentence(`The system did not consistently identify, verify, and sustain the critical controls needed for ${equipment} and ${hazard}`)
-    ];
+    const pushWhy = (whys, value, supported = true) => {
+        if (!supported)
+            return;
+        const statement = ensureSentence(value);
+        if (statement && !whys.includes(statement))
+            whys.push(statement);
+    };
+    const fiveWhyPaths = [];
+    const addPath = (name, whys) => {
+        const supportedWhys = whys.filter(Boolean).slice(0, 5);
+        if (supportedWhys.length > 0) {
+            fiveWhyPaths.push({ name, whys: supportedWhys });
+        }
+    };
+    const organizationalWhys = [];
+    pushWhy(organizationalWhys, `The event developed because ${lowerFirst(eventOccurrence)}.`, Boolean(eventOccurrence));
+    pushWhy(organizationalWhys, 'The same exposure remained possible because earlier warnings, reports, or near misses were not closed before the task continued.', flags.priorSignals);
+    pushWhy(organizationalWhys, 'The issue was not removed because the corrective-action process did not convert the earlier signal into verified controls at the work area.', flags.priorSignals);
+    pushWhy(organizationalWhys, 'The work was allowed to proceed because the required procedure, permit, risk assessment, checklist, or supervision control was not verified at the point of work.', flags.procedureGap);
+    pushWhy(organizationalWhys, `The unsafe condition remained available because inspection, maintenance, or pre-use checks did not find and remove the defect before the task involving ${equipment}.`, flags.maintenanceGap);
+    pushWhy(organizationalWhys, 'The person was exposed because competency, induction, or task briefing did not confirm the hazard controls before the work started.', flags.trainingGap);
+    addPath('Organizational Failure', organizationalWhys);
+    const humanWhys = [];
+    pushWhy(humanWhys, `The person or asset entered the exposure path because ${lowerFirst(immediateCauses[0])}.`, Boolean(immediateCauses[0]));
+    pushWhy(humanWhys, 'The reversing or movement activity relied on individual judgement because no effective spotter, banksman, or stop point was described for the movement path.', flags.noSpotter);
+    pushWhy(humanWhys, 'The unsafe action continued because the worker or team did not have a clear pause point, warning cue, or separation control before the event.', flags.humanAction || flags.noSpotter);
+    pushWhy(humanWhys, 'The task execution was affected by rushing, distraction, fatigue, shortcutting, or bypassed safe actions described in the report.', flags.humanAction);
+    addPath('Human Failure', humanWhys);
+    const systemicWhys = [];
+    pushWhy(systemicWhys, `The control barrier did not stop the event because ${lowerFirst(systemicFailure)}.`, Boolean(systemicFailure));
+    pushWhy(systemicWhys, 'Traffic separation was weak because congestion, restricted clearance, pedestrian interface, or route layout reduced the margin for safe movement.', flags.vehicle && flags.congestion);
+    pushWhy(systemicWhys, 'The physical protection did not prevent exposure because guarding, barriers, barricading, isolation, PPE, or exclusion controls were absent, bypassed, or ineffective.', flags.barrierGap);
+    pushWhy(systemicWhys, 'The workplace condition contributed because floor condition, lighting, access, congestion, visibility, or housekeeping increased the exposure.', flags.environmentGap);
+    addPath('Systemic Failure', systemicWhys);
+    const fiveWhys = fiveWhyPaths.flatMap((path) => path.whys);
     const capa = [
         {
             act: flags.vehicle
@@ -246,6 +264,7 @@ const buildLocalIncidentInference = ({ context, evidence, mediaContext, summary,
         ],
         immediateCauses,
         contributingFactors,
+        fiveWhyPaths,
         fiveWhys,
         fishbone,
         rootCause,
@@ -370,6 +389,7 @@ let IncidentAiProviderService = class IncidentAiProviderService {
                 ],
                 immediateCauses: localInference.immediateCauses,
                 contributingFactors: localInference.contributingFactors,
+                fiveWhyPaths: localInference.fiveWhyPaths,
                 fiveWhys: localInference.fiveWhys,
                 fishbone: localInference.fishbone,
                 rootCause: localInference.rootCause,
@@ -491,11 +511,12 @@ let IncidentAiProviderService = class IncidentAiProviderService {
                     'Use the uploaded photo and sampled video frames as evidence. If video frames show sequence, position, missing controls, congestion, equipment state, or unsafe acts, reflect those observations in the RCA.',
                     'Do not copy the incident description sentence verbatim. Rephrase it into investigation conclusions and why-answers.',
                     'Avoid generic wording such as "review required", "control failure", or "human investigator review". Every point must reference the actual task, equipment, media evidence, or event sequence.',
-                    'fiveWhys must contain exactly 15 plain strings in this fixed order: first 5 organizational answers, next 5 human-performance answers, final 5 systemic/control answers.',
-                    'Do not include path names, cause names, labels, or "Why 1" text inside the fiveWhys values. The UI already displays the path and why number.',
+                    'Generate fiveWhyPaths as an array of objects: [{ "name": "Organizational Failure", "whys": [...] }, { "name": "Human Failure", "whys": [...] }, { "name": "Systemic Failure", "whys": [...] }].',
+                    'Only fill whys that are supported by the incident description, evidence notes, transcript, or visible media frames. Do not force 5 whys. Leave unknown later whys out instead of inventing them.',
+                    'Do not include path names, cause labels, or "Why 1" text inside the whys values. The UI already displays the path and why number.',
                     'Each why-answer should explain why the previous event happened, not repeat the incident description.',
                     'Return valid JSON only with keys:',
-                    'eventSummary, visibleHazards, equipmentCondition, immediateCauses, contributingFactors, fiveWhys, fishbone, rootCause, capa, confidence, missingInformation.',
+                    'eventSummary, visibleHazards, equipmentCondition, immediateCauses, contributingFactors, fiveWhyPaths, fiveWhys, fishbone, rootCause, capa, confidence, missingInformation.',
                     `Incident title: ${request.incidentContext?.title || ''}`,
                     `Description: ${request.incidentContext?.description || ''}`,
                     `Equipment involved: ${request.incidentContext?.equipmentInvolved || ''}`,
@@ -566,6 +587,7 @@ let IncidentAiProviderService = class IncidentAiProviderService {
             equipmentCondition: this.mergeStringArrays(drafts.map((draft) => draft.equipmentCondition)),
             immediateCauses: this.mergeStringArrays(drafts.map((draft) => draft.immediateCauses)),
             contributingFactors: this.mergeStringArrays(drafts.map((draft) => draft.contributingFactors)),
+            fiveWhyPaths: this.pickFiveWhyPaths(drafts),
             fiveWhys: this.mergeStringArrays(drafts.map((draft) => draft.fiveWhys)),
             fishbone: {
                 man: this.mergeStringArrays(drafts.map((draft) => draft.fishbone?.man || [])),
@@ -583,6 +605,10 @@ let IncidentAiProviderService = class IncidentAiProviderService {
     pickString(drafts, key) {
         const found = drafts.find((draft) => typeof draft[key] === 'string' && String(draft[key]).trim());
         return found?.[key] || '';
+    }
+    pickFiveWhyPaths(drafts) {
+        const found = drafts.find((draft) => Array.isArray(draft.fiveWhyPaths) && draft.fiveWhyPaths.length > 0);
+        return found?.fiveWhyPaths || [];
     }
     mergeStringArrays(collections) {
         const merged = new Set();
@@ -619,6 +645,7 @@ let IncidentAiProviderService = class IncidentAiProviderService {
             equipmentCondition: this.ensureStringArray(draft.equipmentCondition),
             immediateCauses: this.ensureStringArray(draft.immediateCauses),
             contributingFactors: this.ensureStringArray(draft.contributingFactors),
+            fiveWhyPaths: this.normalizeFiveWhyPaths(draft.fiveWhyPaths),
             fiveWhys: this.ensureStringArray(draft.fiveWhys),
             fishbone: {
                 man: this.ensureStringArray(draft.fishbone?.man),
@@ -643,6 +670,14 @@ let IncidentAiProviderService = class IncidentAiProviderService {
             ? value.map((item) => String(item || '').trim()).filter(Boolean)
             : [];
     }
+    normalizeFiveWhyPaths(value) {
+        if (!Array.isArray(value))
+            return [];
+        return value.map((path, index) => ({
+            name: String(path?.name || `Analysis Path ${index + 1}`).trim(),
+            whys: this.ensureStringArray(path?.whys)
+        })).filter((path) => path.name && path.whys.length > 0);
+    }
     extractJsonPayload(text) {
         const trimmed = String(text || '').trim();
         if (!trimmed)
@@ -666,6 +701,7 @@ let IncidentAiProviderService = class IncidentAiProviderService {
             equipmentCondition: [],
             immediateCauses: [],
             contributingFactors: [],
+            fiveWhyPaths: [],
             fiveWhys: [],
             fishbone: {
                 man: [],

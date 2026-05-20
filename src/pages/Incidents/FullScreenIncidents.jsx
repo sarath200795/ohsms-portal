@@ -915,7 +915,10 @@ export default function Incidents() {
             barrierGap: /(guard|barrier|barricade|interlock|alarm|sensor|shield|cover|extinguisher|detector|isolation|lockout|tagout|ppe)/i.test(context),
             environmentGap: /(wet|dark|poor lighting|lighting|housekeeping|congested|cramped|weather|rain|heat|cold|noise|floor|surface|access|visibility)/i.test(context),
             designGap: /(design|layout|location|access|clearance|blind spot|ergonomic|reach|line of fire)/i.test(context),
-            humanAction: /(rushing|hurry|fatigue|tired|distracted|shortcut|ignored|forgot|bypassed|did not|without authorization|without ppe|without gloves|without guard)/i.test(context)
+            humanAction: /(rushing|hurry|fatigue|tired|distracted|shortcut|ignored|forgot|bypassed|did not|without authorization|without ppe|without gloves|without guard)/i.test(context),
+            vehicle: /(forklift|truck|vehicle|flt|traffic|reverse|reversing|struck|collision|impact|pallet rack)/i.test(context),
+            noSpotter: /(without (?:a )?(spotter|banksman)|no spotter|without banksman|unsupervised)/i.test(context),
+            congestion: /(congested|blocked|restricted|narrow|clearance|traffic|pedestrian|walkway|aisle|blind spot)/i.test(context)
         };
 
         const peopleSentences = findAllSentencesByPattern(sentences, /(operator|worker|employee|contractor|rushing|untrained|distracted|tired|fatigue|ignored|forgot|bypassed|without|did not|failed to wear|manual handling|lifting)/i);
@@ -1061,6 +1064,7 @@ export default function Incidents() {
         );
 
         const eventOccurrence = ensureSentence(
+            issueFlags.vehicle ? `${objectInvolved} movement entered an uncontrolled route or impact interface` :
             issueFlags.contactLike ? `${objectInvolved} entered a line-of-fire or contact zone and created the injury or damage pathway` :
             issueFlags.fireLike ? `An ignition or heat source aligned with combustible material and allowed the fire event to develop` :
             issueFlags.containmentLike ? `A release pathway opened and allowed hazardous material or energy to reach people or the workplace` :
@@ -1153,90 +1157,45 @@ export default function Incidents() {
     });
 
     const buildFiveWhyPathsFromInsights = (insights) => {
-        const organizationalFailure = chooseSpecificStatement(
-            insights.managementFactors?.[0],
-            `Organizational controls for planning, supervision, competence assurance, maintenance follow-up, and corrective-action closure did not prevent the work involving ${insights.objectInvolved} from continuing with unresolved risk.`
-        );
-        const organizationalMechanism = chooseSpecificStatement(
-            insights.managementFactors?.[1],
-            insights.methodFactors?.[0] || `The risk assessment, pre-task review, and supervisor verification did not translate the known ${insights.hazardType} exposure into clear controls at the point of work.`
-        );
-        const organizationalAssurance = chooseSpecificStatement(
-            insights.managementFactors?.[2],
-            `Leadership assurance did not test whether the controls for ${insights.hazardType} were actually present, understood, and effective before the task proceeded.`
-        );
-        const organizationalRoot = chooseSpecificStatement(
-            insights.rootCause,
-            `The organization did not operate a reliable control-assurance loop for ${insights.objectInvolved}, so weak controls remained normal work conditions until "${insights.eventLabel}" occurred.`
-        );
-
-        const humanFailure = chooseSpecificStatement(
-            insights.peopleFactors?.[0],
-            `Frontline decisions or actions during "${insights.eventLabel}" placed the person in the exposure path for ${insights.hazardType}.`
-        );
-        const humanMechanism = chooseSpecificStatement(
-            insights.peopleFactors?.[1],
-            insights.methodFactors?.[0] || `The worker did not have enough effective prompts, supervision, task pause-points, or hazard-recognition cues to stop and re-check the job before exposure.`
-        );
-        const humanSystemAllowance = chooseSpecificStatement(
-            insights.managementFactors?.[0],
-            `The work system allowed the unsafe action to become possible because briefing, competence verification, workload control, and stop-work expectations were not strong enough.`
-        );
-        const humanRoot = ensureSentence(
-            `The human failure was enabled by work design and supervision weaknesses; the system did not make the safe action the easiest and most consistently reinforced action for the task involving ${insights.objectInvolved}.`
-        );
-
-        const systemicFailure = chooseSpecificStatement(
-            insights.failedControl,
-            `The critical barrier intended to control ${insights.hazardType} around ${insights.objectInvolved} was missing, ineffective, bypassed, or not verified.`
-        );
-        const systemicMechanism = chooseSpecificStatement(
-            insights.methodFactors?.[0],
-            insights.equipmentFactors?.[0] || insights.environmentFactors?.[0] || `The hazard pathway remained open because equipment condition, workplace condition, or task sequence was not controlled before exposure.`
-        );
-        const systemicGovernance = chooseSpecificStatement(
-            insights.systemicFactor,
-            `The safety management system did not verify that risk assessment controls, inspection routines, competency checks, and escalation routes were working together for this task.`
-        );
-        const systemicRoot = ensureSentence(
-            `The management system failed to verify and sustain the critical controls for ${insights.hazardType}, allowing the immediate hazard, human exposure, and organizational weakness to align.`
-        );
-
-        return [
-            {
-                id: Date.now(),
-                name: 'Organizational Failure',
-                whys: [
-                    ensureSentence(`The event occurred after ${lowerFirst(insights.eventOccurrence)}, which should have triggered stronger planning or stop-work control`),
-                    ensureSentence(`The exposure remained possible because ${lowerFirst(organizationalFailure)}`),
-                    ensureSentence(`That weakness was not corrected before the task because ${lowerFirst(organizationalMechanism)}`),
-                    ensureSentence(`The ${insights.mediaEvidenceType} should be checked against the assurance question: ${lowerFirst(organizationalAssurance)}`),
-                    ensureSentence(`The underlying organizational weakness is that ${lowerFirst(organizationalRoot)}`)
-                ]
-            },
-            {
-                id: Date.now() + 1,
-                name: 'Human Failure',
-                whys: [
-                    ensureSentence(`A person became exposed because ${lowerFirst(insights.immediateCause)}`),
-                    ensureSentence(`The safe response did not happen reliably because ${lowerFirst(humanFailure)}`),
-                    ensureSentence(`The worker or team did not have enough effective prompts, separation, or pause-points because ${lowerFirst(humanMechanism)}`),
-                    ensureSentence(`The work system allowed this behaviour because ${lowerFirst(humanSystemAllowance)}`),
-                    ensureSentence(`The human-performance root is that ${lowerFirst(humanRoot)}`)
-                ]
-            },
-            {
-                id: Date.now() + 2,
-                name: 'Systemic Failure',
-                whys: [
-                    ensureSentence(`The incident pathway developed because ${lowerFirst(systemicFailure)}`),
-                    ensureSentence(`The barrier did not stop the event because ${lowerFirst(systemicMechanism)}`),
-                    ensureSentence(`The weakness remained active because ${lowerFirst(systemicGovernance)}`),
-                    ensureSentence(`${stripSentenceEnd(insights.evidenceAnchor)} before final approval of the investigation`),
-                    ensureSentence(`The systemic root is that ${lowerFirst(systemicRoot)}`)
-                ]
+        const paths = [];
+        const flags = insights.issueFlags || {};
+        const pushWhy = (whys, value, supported = true) => {
+            if (!supported) return;
+            const statement = stripGeneratedWhyLabel(value);
+            if (statement && !isGenericInvestigationStatement(statement) && !whys.includes(statement)) whys.push(statement);
+        };
+        const addPath = (name, whys) => {
+            const supportedWhys = whys.filter(Boolean);
+            if (supportedWhys.length > 0) {
+                paths.push({ id: Date.now() + paths.length, name, whys: supportedWhys.slice(0, 5) });
             }
-        ];
+        };
+
+        const organizationalWhys = [];
+        pushWhy(organizationalWhys, `The event developed because ${lowerFirst(insights.eventOccurrence)}.`, Boolean(insights.eventOccurrence));
+        pushWhy(organizationalWhys, `The same exposure remained possible because earlier warnings, reports, or near misses were not closed before the task continued.`, flags.reportIgnored);
+        pushWhy(organizationalWhys, `The issue was not removed because the corrective-action process did not convert the earlier signal into verified controls at the work area.`, flags.reportIgnored);
+        pushWhy(organizationalWhys, `The work was allowed to proceed because the required procedure, permit, risk assessment, checklist, or supervision control was not verified at the point of work.`, flags.procedureGap);
+        pushWhy(organizationalWhys, `The unsafe condition remained available because inspection, maintenance, or pre-use checks did not find and remove the defect before the task.`, flags.maintenanceGap);
+        pushWhy(organizationalWhys, `The person was exposed because competency, induction, or task briefing did not confirm the hazard controls before the work started.`, flags.trainingGap);
+        addPath('Organizational Failure', organizationalWhys);
+
+        const humanWhys = [];
+        pushWhy(humanWhys, `The person or asset entered the exposure path because ${lowerFirst(insights.immediateCause)}.`, Boolean(insights.immediateCause));
+        pushWhy(humanWhys, `The reversing or movement activity relied on individual judgement because no effective spotter, banksman, or stop point was described for the movement path.`, flags.noSpotter);
+        pushWhy(humanWhys, `The unsafe action continued because the worker or team did not have a clear pause point, warning cue, or separation control before the event.`, flags.humanAction || flags.noSpotter);
+        pushWhy(humanWhys, `The task execution was affected by rushing, distraction, fatigue, shortcutting, or bypassed safe actions described in the report.`, flags.humanAction);
+        addPath('Human Failure', humanWhys);
+
+        const systemicWhys = [];
+        pushWhy(systemicWhys, `The control barrier did not stop the event because ${lowerFirst(insights.failedControl)}.`, Boolean(insights.failedControl));
+        pushWhy(systemicWhys, `Traffic separation was weak because congestion, restricted clearance, pedestrian interface, or route layout reduced the margin for safe movement.`, flags.vehicle && flags.congestion);
+        pushWhy(systemicWhys, `The physical protection did not prevent exposure because guarding, barriers, barricading, isolation, PPE, or exclusion controls were absent, bypassed, or ineffective.`, flags.barrierGap);
+        pushWhy(systemicWhys, `The workplace condition contributed because floor condition, lighting, access, congestion, visibility, or housekeeping increased the exposure.`, flags.environmentGap);
+        pushWhy(systemicWhys, `The layout or design allowed the exposure because access, clearance, blind spots, equipment position, or line-of-fire conditions were not eliminated.`, flags.designGap);
+        addPath('Systemic Failure', systemicWhys);
+
+        return paths;
     };
 
     const buildLocalSmartInvestigationDraft = (incidentData) => {
@@ -1365,6 +1324,16 @@ export default function Incidents() {
         const mergedEquipmentCondition = mergeSpecificList(backendDraft.equipmentCondition, contextualInvestigation.aiDraft?.equipmentCondition || []);
         const mergedImmediateCauses = mergeSpecificList(backendDraft.immediateCauses, contextualInvestigation.aiDraft?.immediateCauses || []);
         const mergedContributingFactors = mergeSpecificList(backendDraft.contributingFactors, contextualInvestigation.aiDraft?.contributingFactors || []);
+        const normalizeBackendFiveWhyPaths = (paths) => {
+            if (!Array.isArray(paths)) return [];
+            return paths.map((path, index) => ({
+                id: Date.now() + index,
+                name: normalizeInvestigationText(path?.name || `Analysis Path ${index + 1}`),
+                whys: (Array.isArray(path?.whys) ? path.whys : [])
+                    .map((why) => stripGeneratedWhyLabel(why))
+                    .filter(Boolean)
+            })).filter((path) => path.name && path.whys.length > 0);
+        };
         const getBackendWhyForPath = (pathName, whyIndex) => {
             const backendWhys = Array.isArray(backendDraft.fiveWhys) ? backendDraft.fiveWhys : [];
             const normalizedPath = normalizeInvestigationText(pathName).toLowerCase();
@@ -1380,13 +1349,16 @@ export default function Incidents() {
             return stripGeneratedWhyLabel(Number.isFinite(offset) ? backendWhys[offset + whyIndex] : '');
         };
 
-        const mergedFiveWhyPaths = (contextualInvestigation.fiveWhys || []).map((path, index) => ({
-            ...path,
-            id: Date.now() + index,
-            whys: path.whys.map((fallbackWhy, whyIndex) => (
-                stripGeneratedWhyLabel(chooseSpecificStatement(getBackendWhyForPath(path.name, whyIndex), fallbackWhy))
-            ))
-        }));
+        const backendFiveWhyPaths = normalizeBackendFiveWhyPaths(backendDraft.fiveWhyPaths);
+        const mergedFiveWhyPaths = backendFiveWhyPaths.length > 0
+            ? backendFiveWhyPaths
+            : (contextualInvestigation.fiveWhys || []).map((path, index) => ({
+                ...path,
+                id: Date.now() + index,
+                whys: path.whys
+                    .map((fallbackWhy, whyIndex) => stripGeneratedWhyLabel(getBackendWhyForPath(path.name, whyIndex) || fallbackWhy))
+                    .filter(Boolean)
+            })).filter((path) => path.whys.length > 0);
 
         return {
             investigation: {
