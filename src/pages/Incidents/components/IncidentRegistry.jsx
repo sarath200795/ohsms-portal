@@ -143,7 +143,7 @@ export default function IncidentRegistry({
                                         {incident.affectedPersonName ? (
                                             <div className="text-[10px] font-bold uppercase tracking-widest flex gap-2">
                                                 <span>{incident.affectedPersonName}</span>
-                                                {incident.affectedPersonType === 'Contractor' ? <span className="text-indigo-400">(EXT)</span> : <span className="text-emerald-400">(INT)</span>}
+                                                {['Contractor', 'External Non-Employee'].includes(incident.affectedPersonType) ? <span className="text-indigo-400">(EXT)</span> : <span className="text-emerald-400">(INT)</span>}
                                             </div>
                                         ) : <span className="text-slate-500 italic text-xs">No Person Injured</span>}
                                         {total > 0 && (

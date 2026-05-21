@@ -115,12 +115,12 @@ export default function IncidentPrintOverlay({ printData }) {
                 )}
             </div>
 
-            {(printData.evidenceObservations || printData.videoEvidenceName) && (
+            {(printData.investigation?.aiDraft?.mediaAnalysisReport || printData.evidenceObservations || printData.videoEvidenceName) && (
                 <div className="mb-6 border border-black p-4 bg-gray-50">
-                    <h2 className="text-sm font-bold mb-3 uppercase bg-gray-200 p-1 border border-gray-400 inline-block">Evidence Notes & Supporting Media</h2>
-                    {printData.evidenceObservations && (
-                        <div className="text-sm whitespace-pre-wrap leading-relaxed mb-3">{printData.evidenceObservations}</div>
-                    )}
+                    <h2 className="text-sm font-bold mb-3 uppercase bg-gray-200 p-1 border border-gray-400 inline-block">Video / Photo Analysis Report</h2>
+                    <div className="text-sm whitespace-pre-wrap leading-relaxed mb-3">
+                        {printData.investigation?.aiDraft?.mediaAnalysisReport || printData.evidenceObservations || 'Media was attached but no written media observations were recorded.'}
+                    </div>
                     {printData.videoEvidenceName && (
                         <div className="text-sm">
                             <strong>Video Evidence Attached:</strong> <span className="font-mono">{printData.videoEvidenceName}</span>
@@ -186,7 +186,7 @@ export default function IncidentPrintOverlay({ printData }) {
                         </div>
 
                         <div className="mb-6">
-                            <h3 className="text-sm font-bold mb-2 uppercase bg-gray-200 p-1 border border-gray-400 inline-block">3.3 Fishbone Data Extracted</h3>
+                            <h3 className="text-sm font-bold mb-2 uppercase bg-gray-200 p-1 border border-gray-400 inline-block">3.3 4M Fishbone Data Extracted</h3>
                             <table className="w-full text-sm border-collapse border border-black mt-2">
                                 <tbody>
                                     {Object.entries(printData.investigation?.fishbone || {}).map(([key, value]) => {

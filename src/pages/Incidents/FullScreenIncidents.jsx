@@ -409,7 +409,7 @@ const IncidentRepository = ({ incidents, onEdit, onPrint, onDelete, permissions,
                                         {inc.affectedPersonName ? (
                                             <div className="text-[10px] font-bold uppercase tracking-widest flex gap-2">
                                                 <span>{inc.affectedPersonName}</span>
-                                                {inc.affectedPersonType === 'Contractor' ? <span className="text-indigo-400">(EXT)</span> : <span className="text-emerald-400">(INT)</span>}
+                                                {['Contractor', 'External Non-Employee'].includes(inc.affectedPersonType) ? <span className="text-indigo-400">(EXT)</span> : <span className="text-emerald-400">(INT)</span>}
                                             </div>
                                         ) : <span className="text-slate-500 italic text-xs">No Person Injured</span>}
                                         {total > 0 && (
@@ -782,6 +782,7 @@ export default function Incidents() {
         normalizeInvestigationText(value)
             .replace(/^(?:organizational|human|systemic)\s+failure\s*-\s*why\s*\d+\s*:\s*/i, '')
             .replace(/^why\s*\d+(?:\s*\([^)]*\))?\s*:\s*/i, '')
+            .replace(/^why\s+[^?]+\?\s*because\s*/i, '')
     );
 
     const cleanTreeLabel = (value, fallback = 'Investigation Review Required') => {
@@ -821,6 +822,7 @@ export default function Incidents() {
     const detectObjectInvolved = (incidentData, context) => {
         const equipmentLabel = normalizeInvestigationText(incidentData?.equipmentInvolved);
         if (equipmentLabel) return equipmentLabel;
+        if (/(barbell|dumbbell|weight plate|kettlebell|rack|gym equipment|storage box|jump box)/i.test(context)) return 'barbell rack or gym equipment';
         if (/(forklift|truck|vehicle|flt|crane)/i.test(context)) return 'workplace vehicle';
         if (/(machine|conveyor|press|pump|motor|guard|blade|tool)/i.test(context)) return 'machinery';
         if (/(ladder|scaffold|roof|stairs)/i.test(context)) return 'working at height equipment';
@@ -831,6 +833,7 @@ export default function Incidents() {
 
     const detectHazardType = (context) => {
         if (/(slip|trip|fall|puddle|slippery)/i.test(context)) return 'loss of traction or stability';
+        if (/(barbell|dumbbell|weight|rack|box|topple|fell|fall|collapsed)/i.test(context)) return 'falling or toppling heavy equipment';
         if (/(cut|laceration|amputation|crush|nip|entangle|caught)/i.test(context)) return 'contact with moving or sharp parts';
         if (/(burn|fire|explosion|spark|smoke)/i.test(context)) return 'thermal or fire event';
         if (/(leak|spill|fume|inhale|chemical|gas)/i.test(context)) return 'loss of containment';
@@ -921,14 +924,22 @@ export default function Incidents() {
             humanAction: /(rushing|hurry|fatigue|tired|distracted|shortcut|ignored|forgot|bypassed|did not|without authorization|without ppe|without gloves|without guard)/i.test(context),
             vehicle: /(forklift|truck|vehicle|flt|traffic|reverse|reversing|struck|collision|impact|pallet rack)/i.test(context),
             noSpotter: /(without (?:a )?(spotter|banksman)|no spotter|without banksman|unsupervised)/i.test(context),
-            congestion: /(congested|blocked|restricted|narrow|clearance|traffic|pedestrian|walkway|aisle|blind spot)/i.test(context)
+            congestion: /(congested|blocked|restricted|narrow|clearance|traffic|pedestrian|walkway|aisle|blind spot)/i.test(context),
+            gymWeightRack: /(barbell|dumbbell|weight plate|kettlebell|rack of barbell|barbell rack|barbell box|gym equipment)/i.test(context),
+            rackTopple: /(topple|toppled|fell|fall|collapsed|rack.*fell|box.*fell|fell on|fell onto)/i.test(context),
+            steppedOnBox: /(stepp?ed on|stood on|standing on).*(box|rack)|(?:box|rack).*(stepp?ed on|stood on|standing on)/i.test(context),
+            topRemoval: /(take out|remove|removing|pull|lift).*(barbell|dumbbell|weight).*(top|upper)|(?:top|upper).*(barbell|dumbbell|weight)/i.test(context),
+            olderPerson: /(over\s*55|55\s*years|older|old member|elderly|senior)/i.test(context),
+            heavyMetalWeight: /(heavy|metal|barbell|dumbbell|weight plate|loaded)/i.test(context),
+            peopleSeatedNearby: /(sitting|seated|sitting in that area|another member|nearby member|people sitting|member who was sitting)/i.test(context),
+            wrongEquipmentUse: /(storage box|wrong equipment|instead of|jump box|box jumps|not the box used)/i.test(context)
         };
 
-        const peopleSentences = findAllSentencesByPattern(factorSentences, /(operator|worker|employee|contractor|spotter|banksman|rushing|untrained|distracted|tired|fatigue|ignored|forgot|bypassed|without|did not|failed to wear|manual handling|lifting)/i);
-        const equipmentSentences = findAllSentencesByPattern(factorSentences, /(machine|equipment|forklift|vehicle|ladder|scaffold|valve|hose|pipe|wire|panel|motor|guard|tool|blade|pump|gasket|cable|switch|extinguisher|rack)/i);
-        const materialSentences = findAllSentencesByPattern(factorSentences, /(oil|fluid|chemical|acid|solvent|gas|dust|smoke|spark|fire|debris|material|load|pallet|rack|spill|leak|vapour|fume)/i);
-        const environmentSentences = findAllSentencesByPattern(factorSentences, /(wet|dark|noise|weather|rain|heat|cold|floor|surface|lighting|housekeeping|congested|slippery|cramped|access|visibility|segregation|clearance|aisle|route)/i);
-        const methodSentences = findAllSentencesByPattern(factorSentences, /(inspection|maintenance|permit|loto|training|risk assessment|procedure|supervision|reported|complained|check|guard|barricade|ppe|briefing|method statement|spotter|banksman|segregation|near miss|near-miss|closed)/i);
+        const peopleSentences = findAllSentencesByPattern(factorSentences, /(operator|worker|employee|contractor|member|person|spotter|banksman|rushing|untrained|distracted|tired|fatigue|ignored|forgot|bypassed|without|did not|failed to wear|manual handling|lifting|older|elderly|senior|55)/i);
+        const equipmentSentences = findAllSentencesByPattern(factorSentences, /(machine|equipment|forklift|vehicle|ladder|scaffold|valve|hose|pipe|wire|panel|motor|guard|tool|blade|pump|gasket|cable|switch|extinguisher|rack|barbell|dumbbell|weight|storage box|jump box|lift|load indicator)/i);
+        const materialSentences = findAllSentencesByPattern(factorSentences, /(oil|fluid|chemical|acid|solvent|gas|dust|smoke|spark|fire|debris|material|metal|load|pallet|rack|spill|leak|vapour|fume|barbell|dumbbell|weight)/i);
+        const environmentSentences = findAllSentencesByPattern(factorSentences, /(wet|dark|noise|weather|rain|heat|cold|floor|surface|lighting|housekeeping|congested|slippery|cramped|access|visibility|segregation|clearance|aisle|route|sitting|seated|nearby|area)/i);
+        const methodSentences = findAllSentencesByPattern(factorSentences, /(inspection|maintenance|permit|loto|training|risk assessment|procedure|supervision|reported|complained|check|guard|barricade|ppe|briefing|method statement|spotter|banksman|segregation|near miss|near-miss|closed|stepp?ed on|stood on|standing on|take out|remove|top|bottom|storage box|jump box)/i);
 
         const peopleFactors = [];
         const equipmentFactors = [];
@@ -949,7 +960,8 @@ export default function Incidents() {
                     : 'reported incident details';
 
         const immediateCause = ensureSentence(
-            directCause
+            (issueFlags.gymWeightRack && issueFlags.rackTopple ? `The barbell rack or box toppled while a barbell was being removed and struck people in the area` : '')
+            || directCause
             || (issueFlags.slipLike ? `The person lost traction or stability after being exposed to an uncorrected walking or working surface hazard around ${objectInvolved}` : '')
             || (issueFlags.contactLike ? `The person came into contact with moving, sharp, or uncontrolled parts of ${objectInvolved}` : '')
             || (issueFlags.fireLike ? `An ignition source or uncontrolled thermal condition around ${objectInvolved} led to a fire-related event` : '')
@@ -962,6 +974,7 @@ export default function Incidents() {
         );
 
         const failedControl = ensureSentence(
+            issueFlags.gymWeightRack ? `Barbell storage and retrieval controls did not prevent stepping on the box, pulling weights from the top, or people sitting inside the fall zone.` :
             issueFlags.slipLike ? `The work area hazard was not identified, isolated, cleaned, or barricaded before the task continued.` :
             issueFlags.contactLike ? `Machine guarding, separation distance, or isolation controls did not keep people clear of the danger zone.` :
             issueFlags.fireLike ? `Fire prevention and ignition-source controls did not contain combustible material or stop the escalation pathway.` :
@@ -970,14 +983,27 @@ export default function Incidents() {
             `The primary barrier intended to control ${hazardType} around ${objectInvolved} was absent, weak, or not verified before the event.`
         );
 
-        peopleSentences.forEach((sentence) => appendUniqueStatement(peopleFactors, sentence));
+        if (issueFlags.gymWeightRack && issueFlags.olderPerson) {
+            appendUniqueStatement(peopleFactors, 'The affected member was over 55 years old and may not have had the strength or stability needed to safely remove a heavy barbell from the top.');
+        }
+        if (issueFlags.gymWeightRack && issueFlags.steppedOnBox) {
+            appendUniqueStatement(peopleFactors, 'The member stepped on the barbell box while trying to remove the barbell.');
+        }
 
-        equipmentSentences.forEach((sentence) => appendUniqueStatement(equipmentFactors, sentence));
+        if (issueFlags.gymWeightRack) {
+            appendUniqueStatement(equipmentFactors, 'The heavy barbell rack or box can topple when weight is pulled from the top or handled improperly.');
+        }
+        if (issueFlags.wrongEquipmentUse) {
+            appendUniqueStatement(equipmentFactors, 'A storage box or non-task box was used as exercise/support equipment instead of the intended equipment.');
+        }
 
-        if (/(pallet rack|storage rack|rack\b)/i.test(factorContext)) {
+        if (!issueFlags.gymWeightRack && /(pallet rack|storage rack|rack\b)/i.test(factorContext)) {
             appendUniqueStatement(materialFactors, 'The pallet or storage rack was the impacted asset/material interface.');
         }
-        if (/(pallet|load|package|container|box|drum|cylinder)/i.test(factorContext)) {
+        if (issueFlags.gymWeightRack && /(barbell|dumbbell|weight)/i.test(factorContext)) {
+            appendUniqueStatement(materialFactors, 'The barbell was metal and heavy, increasing the impact force and injury potential.');
+        }
+        if (!issueFlags.gymWeightRack && /(pallet|load|package|container|box|drum|cylinder)/i.test(factorContext)) {
             appendUniqueStatement(materialFactors, 'The pallet, load, package, or container was part of the exposure path.');
         }
         if (/(oil|fluid|chemical|acid|solvent|gas|dust|smoke|spill|leak|vapou?r|fume)/i.test(factorContext)) {
@@ -986,13 +1012,25 @@ export default function Incidents() {
         if (/(debris|waste|scrap|loose material)/i.test(factorContext)) {
             appendUniqueStatement(materialFactors, 'Loose debris, waste, or scrap material contributed to the workplace hazard.');
         }
-        if (materialFactors.length === 0) {
-            materialSentences.forEach((sentence) => appendUniqueStatement(materialFactors, sentence));
+        if (issueFlags.gymWeightRack && issueFlags.steppedOnBox) {
+            appendUniqueStatement(methodFactors, 'The member stepped on the barbell box to access the weight.');
+        }
+        if (issueFlags.gymWeightRack && issueFlags.topRemoval) {
+            appendUniqueStatement(methodFactors, 'The barbell was pulled from the top instead of being removed from a lower or safer retrieval position.');
+        }
+        if (issueFlags.wrongEquipmentUse) {
+            appendUniqueStatement(methodFactors, 'The storage box was used for the exercise instead of the intended jump box or approved equipment.');
         }
 
-        methodSentences.forEach((sentence) => appendUniqueStatement(methodFactors, sentence));
+        if (issueFlags.gymWeightRack && issueFlags.peopleSeatedNearby) {
+            appendUniqueStatement(environmentFactors, 'People were sitting or positioned inside the fall/impact zone of the barbell rack.');
+        }
 
-        environmentSentences.forEach((sentence) => appendUniqueStatement(environmentFactors, sentence));
+        if (peopleFactors.length === 0) peopleSentences.forEach((sentence) => appendUniqueStatement(peopleFactors, sentence));
+        if (equipmentFactors.length === 0) equipmentSentences.forEach((sentence) => appendUniqueStatement(equipmentFactors, sentence));
+        if (materialFactors.length === 0) materialSentences.forEach((sentence) => appendUniqueStatement(materialFactors, sentence));
+        if (methodFactors.length === 0) methodSentences.forEach((sentence) => appendUniqueStatement(methodFactors, sentence));
+        if (environmentFactors.length === 0) environmentSentences.forEach((sentence) => appendUniqueStatement(environmentFactors, sentence));
 
         if (incidentData.evidenceObservations?.trim()) {
             appendUniqueStatement(methodFactors, `Scene observations recorded by the reporter indicate: ${incidentData.evidenceObservations}`);
@@ -1064,12 +1102,15 @@ export default function Incidents() {
             || `The task controls, worker preparation, and verification steps around ${objectInvolved} were not strong enough to stop the incident pathway once the hazard was present.`
         );
         const rootCause = ensureSentence(
-            issueFlags.trainingGap || issueFlags.procedureGap || issueFlags.maintenanceGap || issueFlags.reportIgnored
+            issueFlags.gymWeightRack
+                ? `The barbell storage setup and gym-floor control method did not prevent unsafe retrieval from the top, stepping on the box, or member seating within the fall zone.`
+                : issueFlags.trainingGap || issueFlags.procedureGap || issueFlags.maintenanceGap || issueFlags.reportIgnored
                 ? `The organization did not consistently manage competence, work planning, equipment assurance, and corrective-action closure for ${objectInvolved}, allowing the conditions behind "${eventLabel}" to remain in place.`
                 : `The organization did not adequately identify, verify, and sustain the critical controls needed to manage ${objectInvolved} and the ${hazardType} involved in "${eventLabel}".`
         );
 
         const eventOccurrence = ensureSentence(
+            issueFlags.gymWeightRack && issueFlags.rackTopple ? `The barbell rack or box toppled onto the member and another nearby person` :
             issueFlags.vehicle ? `${objectInvolved} movement entered an uncontrolled route or impact interface` :
             issueFlags.contactLike ? `${objectInvolved} entered a line-of-fire or contact zone and created the injury or damage pathway` :
             issueFlags.fireLike ? `An ignition or heat source aligned with combustible material and allowed the fire event to develop` :
@@ -1165,13 +1206,7 @@ export default function Incidents() {
     const buildFiveWhyPathsFromInsights = (insights) => {
         const paths = [];
         const flags = insights.issueFlags || {};
-        const whyAnswer = (question, answer) => {
-            const normalizedQuestion = normalizeInvestigationText(question).replace(/[?]+$/, '');
-            const normalizedAnswer = lowerFirst(answer);
-            return normalizedQuestion && normalizedAnswer
-                ? `Why ${normalizedQuestion}? Because ${normalizedAnswer}.`
-                : '';
-        };
+        const answerOnly = (answer) => ensureSentence(answer);
         const pushWhy = (whys, value, supported = true) => {
             if (!supported) return;
             const statement = stripGeneratedWhyLabel(value);
@@ -1185,62 +1220,86 @@ export default function Incidents() {
         };
 
         const mainWhys = [];
-        pushWhy(mainWhys, whyAnswer('did the incident happen', insights.eventOccurrence || insights.immediateCause), Boolean(insights.eventOccurrence || insights.immediateCause));
-        pushWhy(mainWhys, whyAnswer(
-            flags.vehicle
-                ? `did ${insights.objectInvolved} enter an uncontrolled route or impact interface`
-                : flags.slipLike
-                    ? 'did the walking or working surface create a loss-of-balance event'
-                    : flags.contactLike
-                        ? 'did the person or asset enter the line-of-fire/contact zone'
-                        : flags.fireLike
-                            ? 'did the ignition or heat source develop into a fire event'
-                            : flags.containmentLike
-                                ? 'did the release reach people or the workplace'
-                                : flags.electricalLike
-                                    ? 'was electrical energy available at the point of work'
-                                    : 'did the immediate exposure occur',
-            flags.noSpotter
-                ? 'the activity proceeded without an effective spotter, banksman, or positive exclusion control for the movement path'
+        if (flags.gymWeightRack) {
+            pushWhy(mainWhys, answerOnly(insights.eventOccurrence || 'The barbell rack or box toppled during barbell removal and struck people in the area.'));
+            pushWhy(mainWhys, answerOnly(flags.steppedOnBox
+                ? 'The member stepped on the barbell box and tried to remove a barbell from the top.'
                 : insights.immediateCause
+            ));
+            pushWhy(mainWhys, answerOnly(flags.topRemoval
+                ? 'Pulling a heavy barbell from the top while standing on the box shifted the load and made the rack or box unstable.'
+                : 'The retrieval method created an unstable load path for the barbell rack or box.'
+            ));
+            pushWhy(mainWhys, answerOnly('The storage/retrieval method did not prevent members from stepping on the box or taking barbells from the top instead of a safer lower position.'));
+            pushWhy(mainWhys, answerOnly(flags.peopleSeatedNearby
+                ? 'The exercise/storage area allowed people to sit within the fall or struck-by zone of heavy barbell storage.'
+                : 'The gym-floor controls did not sufficiently separate members from the heavy-equipment fall zone.'
+            ));
+            addPath('', mainWhys);
+            return paths;
+        }
+
+        pushWhy(mainWhys, answerOnly(insights.eventOccurrence || insights.immediateCause), Boolean(insights.eventOccurrence || insights.immediateCause));
+        pushWhy(mainWhys, answerOnly(flags.noSpotter
+            ? 'The activity proceeded without an effective spotter, banksman, or positive exclusion control for the movement path.'
+            : insights.immediateCause
         ), Boolean(insights.immediateCause || flags.noSpotter));
-        pushWhy(mainWhys, whyAnswer(
-            'was the activity allowed to proceed without the required direct control',
-            flags.noSpotter
-                ? 'the task method did not require or verify a spotter, banksman, stop point, or exclusion zone before movement started'
-                : insights.methodFactors?.[0]
+        pushWhy(mainWhys, answerOnly(flags.noSpotter
+            ? 'The task method did not require or verify a spotter, banksman, stop point, or exclusion zone before movement started.'
+            : insights.methodFactors?.[0]
         ), Boolean(flags.noSpotter || insights.methodFactors?.[0]));
-        pushWhy(mainWhys, whyAnswer(
-            flags.congestion
-                ? 'did the route not give enough clearance and separation'
-                : 'did the task method fail to stop the exposure',
-            flags.congestion
-                ? 'the aisle, route, or work area was congested, restricted, or weakly segregated'
-                : insights.methodFactors?.[1] || insights.environmentFactors?.[0]
+        pushWhy(mainWhys, answerOnly(flags.congestion
+            ? 'The aisle, route, or work area was congested, restricted, or weakly segregated.'
+            : insights.methodFactors?.[1] || insights.environmentFactors?.[0]
         ), Boolean(flags.congestion || insights.methodFactors?.[1] || insights.environmentFactors?.[0]));
-        pushWhy(mainWhys, whyAnswer(
-            flags.reportIgnored
-                ? 'did earlier near misses or reports fail to prevent this event'
-                : 'did the control weakness remain in place',
-            flags.reportIgnored
-                ? 'the earlier concerns were not closed through verified corrective actions before the same exposure recurred'
-                : insights.managementFactors?.[0] || insights.underlyingCause
+        pushWhy(mainWhys, answerOnly(flags.reportIgnored
+            ? 'Earlier concerns were not closed through verified corrective actions before the same exposure recurred.'
+            : insights.managementFactors?.[0] || insights.underlyingCause
         ), Boolean(flags.reportIgnored || insights.managementFactors?.[0] || insights.underlyingCause));
         addPath('', mainWhys);
 
         const controlWhys = [];
-        pushWhy(controlWhys, whyAnswer('did the control barrier fail', insights.failedControl), Boolean(insights.failedControl));
-        pushWhy(controlWhys, whyAnswer('was the barrier weak at the workface', `the task method did not maintain separation between ${insights.objectInvolved} and the impact or exposure path`), flags.vehicle || flags.barrierGap || flags.congestion);
-        pushWhy(controlWhys, whyAnswer('was the task method not effective', 'the procedure, permit, risk assessment, checklist, or supervision control was not verified at the point of work'), flags.procedureGap);
-        pushWhy(controlWhys, whyAnswer('did the unsafe equipment condition remain available', 'inspection, maintenance, or pre-use checks did not identify and remove it before the task'), flags.maintenanceGap);
+        pushWhy(controlWhys, answerOnly(insights.failedControl), Boolean(insights.failedControl));
+        pushWhy(controlWhys, answerOnly(`The task method did not maintain separation between ${insights.objectInvolved} and the impact or exposure path.`), flags.vehicle || flags.barrierGap || flags.congestion);
+        pushWhy(controlWhys, answerOnly('The procedure, permit, risk assessment, checklist, or supervision control was not verified at the point of work.'), flags.procedureGap);
+        pushWhy(controlWhys, answerOnly('Inspection, maintenance, or pre-use checks did not identify and remove the unsafe condition before the task.'), flags.maintenanceGap);
         addPath('', controlWhys);
 
         return paths;
     };
 
+    const buildMediaAnalysisReport = (incidentData, insights) => {
+        const mediaType = incidentData.videoEvidenceName || incidentData.videoEvidence
+            ? 'video'
+            : (incidentData.imageEvidenceName || incidentData.imageEvidence ? 'photo' : 'reported scene');
+        const observations = normalizeInvestigationText(incidentData.evidenceObservations);
+        const sequence = [
+            insights.eventOccurrence,
+            insights.immediateCause,
+            insights.methodFactors?.[0],
+            insights.equipmentFactors?.[0],
+            insights.environmentFactors?.[0]
+        ]
+            .filter(Boolean)
+            .map((item) => lowerFirst(item))
+            .filter((item, index, list) => item && list.indexOf(item) === index)
+            .slice(0, 4);
+
+        if (observations) {
+            sequence.unshift(`The reporter/media observation notes state: ${observations}`);
+        }
+
+        if (sequence.length === 0) {
+            return `The uploaded ${mediaType} should be reviewed to confirm the movement sequence, equipment position, people in the exposure zone, and visible controls.`;
+        }
+
+        return ensureSentence(`The ${mediaType} analysis indicates that ${sequence.join('; ')}`);
+    };
+
     const buildLocalSmartInvestigationDraft = (incidentData) => {
         const insights = buildContextualIncidentInsights(incidentData);
         const generatedWhyPaths = buildFiveWhyPathsFromInsights(insights);
+        const mediaAnalysisReport = buildMediaAnalysisReport(incidentData, insights);
 
         const fishbone = {
             man: [...(insights.peopleFactors || [insights.peopleFactor])],
@@ -1332,6 +1391,7 @@ export default function Incidents() {
                     visionModel: '',
                     transcriptionModel: '',
                     transcript: null,
+                    mediaAnalysisReport,
                     eventSummary: insights.eventSummary,
                     visibleHazards: [ensureSentence(insights.hazardType)],
                     equipmentCondition: insights.equipmentFactors,
@@ -1418,6 +1478,7 @@ export default function Incidents() {
                     visionModel: analysisResult?.visionModel || '',
                     transcriptionModel: analysisResult?.transcriptionModel || '',
                     transcript: analysisResult?.transcript || null,
+                    mediaAnalysisReport: chooseSpecificStatement(backendDraft.mediaAnalysisReport, contextualInvestigation.aiDraft?.mediaAnalysisReport || ''),
                     eventSummary: chooseSpecificStatement(backendDraft.eventSummary, contextualInvestigation.aiDraft?.eventSummary || ''),
                     visibleHazards: mergedVisibleHazards,
                     equipmentCondition: mergedEquipmentCondition,
@@ -1528,6 +1589,10 @@ export default function Incidents() {
         }
         if (!data.imageEvidence && !data.videoEvidence) {
             alert('Please upload at least one photo or video before saving the incident report.');
+            return;
+        }
+        if (data.affectedPersonType === 'External Non-Employee' && !String(data.affectedPersonName || '').trim()) {
+            alert('Please enter the external non-employee name in the affected personnel section.');
             return;
         }
 
@@ -2053,7 +2118,10 @@ export default function Incidents() {
                                                     <input type="radio" name="pType" value="Internal" checked={data.affectedPersonType === 'Internal'} onChange={() => setData({ ...data, affectedPersonType: 'Internal', contractorId: '', affectedPersonId: '', affectedPersonName: '' })} disabled={!canEditForm} className="accent-indigo-500 w-4 h-4" /> Internal Staff
                                                 </label>
                                                 <label className="flex items-center gap-2 cursor-pointer text-sm font-bold text-slate-300">
-                                                    <input type="radio" name="pType" value="Contractor" checked={data.affectedPersonType === 'Contractor'} onChange={() => setData({ ...data, affectedPersonType: 'Contractor', affectedPersonId: '', affectedPersonName: '' })} disabled={!canEditForm} className="accent-indigo-500 w-4 h-4" /> Contractor / External
+                                                    <input type="radio" name="pType" value="Contractor" checked={data.affectedPersonType === 'Contractor'} onChange={() => setData({ ...data, affectedPersonType: 'Contractor', affectedPersonId: '', affectedPersonName: '' })} disabled={!canEditForm} className="accent-indigo-500 w-4 h-4" /> Contractor
+                                                </label>
+                                                <label className="flex items-center gap-2 cursor-pointer text-sm font-bold text-slate-300">
+                                                    <input type="radio" name="pType" value="External Non-Employee" checked={data.affectedPersonType === 'External Non-Employee'} onChange={() => setData({ ...data, affectedPersonType: 'External Non-Employee', contractorId: '', affectedPersonId: 'external-non-employee', affectedPersonName: '' })} disabled={!canEditForm} className="accent-indigo-500 w-4 h-4" /> External Non-Employee
                                                 </label>
                                                 <label className="flex items-center gap-2 cursor-pointer text-sm font-bold text-slate-300">
                                                     <input type="radio" name="pType" value="None" checked={data.affectedPersonType === 'None'} onChange={() => setData({ ...data, affectedPersonType: 'None', contractorId: '', affectedPersonId: '', affectedPersonName: '' })} disabled={!canEditForm} className="accent-indigo-500 w-4 h-4" /> None (Property/Env)
@@ -2070,7 +2138,14 @@ export default function Incidents() {
                                                 </div>
                                             )}
 
-                                            {data.affectedPersonType !== 'None' && (
+                                            {data.affectedPersonType === 'External Non-Employee' && (
+                                                <div>
+                                                    <label className="text-[10px] uppercase font-bold text-indigo-300 block mb-2">External Person Name</label>
+                                                    <input value={data.affectedPersonName || ''} onChange={(e) => setData({ ...data, affectedPersonId: 'external-non-employee', affectedPersonName: e.target.value })} disabled={!canEditForm} className="w-full bg-slate-900 border border-indigo-500/50 rounded-xl p-3 text-white outline-none focus:border-indigo-400 font-bold" placeholder="Enter member / visitor / non-employee name" />
+                                                </div>
+                                            )}
+
+                                            {(data.affectedPersonType === 'Internal' || data.affectedPersonType === 'Contractor') && (
                                                 <div>
                                                     <label className="text-[10px] uppercase font-bold text-indigo-300 block mb-2">Select Individual Worker</label>
                                                     <select

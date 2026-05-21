@@ -31,12 +31,12 @@ export default function IncidentStepAnalysis({
                 {data.investigation?.aiDraft && (
                     <div className="bg-sky-950/30 p-6 rounded-2xl border border-sky-900/60">
                         <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
-                            <h3 className="font-bold text-white uppercase tracking-widest text-xs flex items-center"><i className="fas fa-brain text-sky-400 mr-2"></i> Incident AI Evidence Summary</h3>
+                            <h3 className="font-bold text-white uppercase tracking-widest text-xs flex items-center"><i className="fas fa-video text-sky-400 mr-2"></i> Video / Photo Analysis Report</h3>
                             <div className="text-[10px] font-bold uppercase tracking-[0.24em] text-sky-300">
                                 {data.investigation.aiDraft.source === 'incident-ai-backend' ? 'Backend Assisted' : 'Local Fallback'}
                             </div>
                         </div>
-                        <p className="text-sm text-slate-200 leading-relaxed mb-4">{data.investigation.aiDraft.eventSummary || 'No AI summary available yet.'}</p>
+                        <p className="text-sm text-slate-200 leading-relaxed mb-4">{data.investigation.aiDraft.mediaAnalysisReport || data.investigation.aiDraft.eventSummary || 'No media analysis report available yet.'}</p>
                         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 text-xs">
                             <div className="rounded-xl border border-sky-900/40 bg-slate-950/60 p-4">
                                 <div className="text-[10px] font-bold uppercase tracking-[0.24em] text-sky-300 mb-2">Visible Hazards</div>
@@ -70,7 +70,7 @@ export default function IncidentStepAnalysis({
                 )}
 
                 <div className="bg-slate-950/50 p-6 rounded-2xl border border-slate-800">
-                    <h3 className="font-bold text-white mb-4 uppercase tracking-widest text-xs flex items-center"><i className="fas fa-fish text-blue-400 mr-2"></i> Fishbone Diagram</h3>
+                    <h3 className="font-bold text-white mb-4 uppercase tracking-widest text-xs flex items-center"><i className="fas fa-fish text-blue-400 mr-2"></i> 4M Fishbone Analysis</h3>
                     <div className="bg-slate-900 rounded-xl border border-slate-700 p-4 overflow-x-auto">
                         <Fishbone data={data.investigation?.fishbone || { man: [], machine: [], material: [], method: [], environment: [] }} onChange={(fishbone) => setData({ ...data, investigation: { ...data.investigation, fishbone } })} disabled={!canEditForm} />
                     </div>

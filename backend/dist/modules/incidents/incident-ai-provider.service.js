@@ -43,6 +43,8 @@ const detectObjectInvolved = (context, fallback) => {
     const configured = normalizeInvestigationText(fallback);
     if (configured)
         return configured;
+    if (/(barbell|dumbbell|weight plate|kettlebell|rack|gym equipment|storage box|jump box)/i.test(context))
+        return 'barbell rack or gym equipment';
     if (/(forklift|truck|vehicle|flt|crane|tugger|loader)/i.test(context))
         return 'workplace vehicle';
     if (/(machine|conveyor|press|pump|motor|guard|blade|tool)/i.test(context))
@@ -59,6 +61,8 @@ const detectHazardType = (context, fallback) => {
     const configured = normalizeInvestigationText(fallback);
     if (configured && !/general workplace hazard/i.test(configured))
         return configured;
+    if (/(barbell|dumbbell|weight|rack|box|topple|fell|fall|collapsed)/i.test(context))
+        return 'falling or toppling heavy equipment';
     if (/(forklift|truck|vehicle|flt|traffic|reverse|reversing|struck|collision|impact)/i.test(context))
         return 'vehicle movement / traffic interface';
     if (/(slip|trip|fall|puddle|slippery|uneven|wet floor)/i.test(context))
@@ -117,9 +121,20 @@ const buildLocalIncidentInference = ({ context, evidence, mediaContext, summary,
         maintenanceGap: /(inspection|maintenance|pre-use|pre use|service|repair|broken|failed|snapped|damaged|defective)/i.test(sourceText),
         barrierGap: /(guard|barrier|barricade|interlock|alarm|sensor|shield|cover|isolation|lockout|tagout|ppe|segregation|exclusion)/i.test(sourceText),
         environmentGap: /(wet|dark|poor lighting|lighting|housekeeping|congested|cramped|weather|rain|floor|surface|access|visibility|layout)/i.test(sourceText),
-        humanAction: /(rushing|hurry|fatigue|tired|distracted|shortcut|ignored|forgot|bypassed|did not|without authorization|without ppe)/i.test(sourceText)
+        humanAction: /(rushing|hurry|fatigue|tired|distracted|shortcut|ignored|forgot|bypassed|did not|without authorization|without ppe)/i.test(sourceText),
+        gymWeightRack: /(barbell|dumbbell|weight plate|kettlebell|rack of barbell|barbell rack|barbell box|gym equipment)/i.test(sourceText),
+        rackTopple: /(topple|toppled|fell|fall|collapsed|rack.*fell|box.*fell|fell on|fell onto)/i.test(sourceText),
+        steppedOnBox: /(stepp?ed on|stood on|standing on).*(box|rack)|(?:box|rack).*(stepp?ed on|stood on|standing on)/i.test(sourceText),
+        topRemoval: /(take out|remove|removing|pull|lift).*(barbell|dumbbell|weight).*(top|upper)|(?:top|upper).*(barbell|dumbbell|weight)/i.test(sourceText),
+        olderPerson: /(over\s*55|55\s*years|older|old member|elderly|senior)/i.test(sourceText),
+        heavyMetalWeight: /(heavy|metal|barbell|dumbbell|weight plate|loaded)/i.test(sourceText),
+        peopleSeatedNearby: /(sitting|seated|sitting in that area|another member|nearby member|people sitting|member who was sitting)/i.test(sourceText),
+        wrongEquipmentUse: /(storage box|wrong equipment|instead of|jump box|box jumps|not the box used)/i.test(sourceText)
     };
     const immediateCauses = [];
+    if (flags.gymWeightRack && flags.rackTopple) {
+        appendUniqueStatement(immediateCauses, 'The barbell rack or box toppled while a barbell was being removed and struck people in the area.');
+    }
     if (flags.vehicle) {
         appendUniqueStatement(immediateCauses, `${equipment} entered an uncontrolled movement or impact path and created a ${detectedHazard} exposure.`);
     }
@@ -130,26 +145,34 @@ const buildLocalIncidentInference = ({ context, evidence, mediaContext, summary,
         appendUniqueStatement(immediateCauses, directCause);
     }
     appendUniqueStatement(immediateCauses, immediateCauses[0] || `${equipment} was involved in the immediate exposure described in the incident report.`);
-    const eventOccurrence = ensureSentence(flags.vehicle
+    const eventOccurrence = ensureSentence(flags.gymWeightRack && flags.rackTopple
+        ? 'The barbell rack or box toppled onto the member and another nearby person'
+        : flags.vehicle
         ? `${equipment} movement entered an uncontrolled route or impact interface`
         : flags.barrierGap
             ? `${equipment} or the task entered an exposure path without an effective barrier`
             : flags.environmentGap
                 ? `The work environment allowed the exposure path to remain active`
                 : `${equipment} and the surrounding task conditions aligned to create the event pathway`);
-    const organizationalFailure = ensureSentence(flags.priorSignals
+    const organizationalFailure = ensureSentence(flags.gymWeightRack
+        ? 'The barbell storage and retrieval controls did not prevent unsafe removal from the top, stepping on the box, or people sitting in the fall zone'
+        : flags.priorSignals
         ? 'Prior warning signs, near misses, or reported concerns were not converted into timely corrective action, supervision focus, and control verification'
         : flags.trainingGap
             ? 'Competency, induction, and task briefing controls did not verify that workers understood the hazard and the required safe method before exposure'
             : flags.procedureGap
                 ? 'Planning and control-of-work arrangements did not verify that the correct procedure, permit, risk assessment, or supervision control was active before the task'
                 : 'Management controls for planning, supervision, competence assurance, and corrective-action closure did not give enough assurance before the work continued');
-    const humanFailure = ensureSentence(flags.noSpotter
+    const humanFailure = ensureSentence(flags.gymWeightRack && flags.olderPerson
+        ? 'The member was over 55 years old and may not have had the strength or stability required to safely remove a heavy barbell from the top'
+        : flags.noSpotter
         ? 'The team relied on individual judgement during movement instead of using a defined spotter, exclusion zone, or stop-work trigger'
         : flags.humanAction
             ? 'The task was completed with a behavioural deviation, distraction, shortcut, or lapse that the work system did not prevent or detect'
             : 'People were exposed because the work system allowed the task to proceed without a clear and verified safe interface between the worker, equipment, and hazard');
-    const systemicFailure = ensureSentence(flags.vehicle
+    const systemicFailure = ensureSentence(flags.gymWeightRack
+        ? 'The gym-floor layout and equipment storage method allowed heavy equipment handling while another person was within the fall or struck-by zone'
+        : flags.vehicle
         ? 'The traffic-management system did not reliably control vehicle-pedestrian/equipment interaction, reversing activity, route congestion, and exclusion-zone integrity'
         : flags.barrierGap
             ? 'Critical-control verification did not confirm that barriers, isolation, guarding, or PPE were effective before exposure'
@@ -178,10 +201,13 @@ const buildLocalIncidentInference = ({ context, evidence, mediaContext, summary,
     }
     const rootCause = ensureSentence(`Most likely root cause: ${stripSentenceEnd(organizationalFailure)}; ${stripSentenceEnd(systemicFailure)}. This enabled the human-performance failure: ${stripSentenceEnd(humanFailure)}. Immediate event: ${stripSentenceEnd(immediateCauses[0])}`);
     const materialFactors = [];
-    if (/(pallet rack|storage rack|rack\b)/i.test(factorText)) {
+    if (!flags.gymWeightRack && /(pallet rack|storage rack|rack\b)/i.test(factorText)) {
         appendUniqueStatement(materialFactors, 'The pallet or storage rack was the impacted asset/material interface.');
     }
-    if (/(pallet|load|package|container|box|drum|cylinder)/i.test(factorText)) {
+    if (flags.gymWeightRack && /(barbell|dumbbell|weight)/i.test(factorText)) {
+        appendUniqueStatement(materialFactors, 'The barbell was metal and heavy, increasing the impact force and injury potential.');
+    }
+    if (!flags.gymWeightRack && /(pallet|load|package|container|box|drum|cylinder)/i.test(factorText)) {
         appendUniqueStatement(materialFactors, 'The pallet, load, package, or container was part of the exposure path.');
     }
     if (/(oil|fluid|chemical|acid|solvent|gas|dust|smoke|spill|leak|vapou?r|fume)/i.test(factorText)) {
@@ -198,21 +224,29 @@ const buildLocalIncidentInference = ({ context, evidence, mediaContext, summary,
     }
     const fishbone = {
         man: [
+            ...(flags.gymWeightRack && flags.olderPerson ? ['The affected member was over 55 years old and may not have had the strength or stability needed to safely remove a heavy barbell from the top.'] : []),
+            ...(flags.gymWeightRack && flags.steppedOnBox ? ['The member stepped on the barbell box while trying to remove the barbell.'] : []),
             ...(flags.noSpotter ? ['No effective spotter or banksman was described for the movement path.'] : []),
             ...(flags.humanAction ? ['The report indicates a worker action, shortcut, lapse, or task-execution deviation.'] : []),
             ...(flags.trainingGap ? ['Training, competency, briefing, or awareness is mentioned as a possible gap.'] : [])
         ],
         machine: [
+            ...(flags.gymWeightRack ? ['The heavy barbell rack or box can topple when weight is pulled from the top or handled improperly.'] : []),
+            ...(flags.wrongEquipmentUse ? ['A storage box or non-task box was used as exercise/support equipment instead of the intended equipment.'] : []),
             ...(flags.vehicle ? [`${equipment} movement was part of the incident sequence.`] : []),
             ...(flags.maintenanceGap ? [`Inspection, maintenance, or pre-use checks are linked to ${equipment}.`] : [])
         ],
         material: materialFactors,
         method: [
+            ...(flags.gymWeightRack && flags.steppedOnBox ? ['The member stepped on the barbell box to access the weight.'] : []),
+            ...(flags.gymWeightRack && flags.topRemoval ? ['The barbell was pulled from the top instead of being removed from a lower or safer retrieval position.'] : []),
+            ...(flags.wrongEquipmentUse ? ['The storage box was used for the exercise instead of the intended jump box or approved equipment.'] : []),
             ...(flags.noSpotter ? ['The movement method did not include an effective spotter, banksman, or stop point.'] : []),
             ...(flags.procedureGap ? ['The procedure, permit, risk assessment, checklist, or supervision control was not verified at the point of work.'] : []),
             ...(flags.priorSignals ? ['Earlier reports or near misses were not converted into verified controls before the event.'] : [])
         ],
         environment: [
+            ...(flags.gymWeightRack && flags.peopleSeatedNearby ? ['People were sitting or positioned inside the fall/impact zone of the barbell rack.'] : []),
             ...(flags.congestion ? ['Congestion, restricted clearance, pedestrian interface, or weak segregation was described in the area.'] : []),
             ...(flags.environmentGap ? ['The workplace condition contributed through layout, access, visibility, housekeeping, or floor/surface condition.'] : [])
         ]
@@ -224,13 +258,7 @@ const buildLocalIncidentInference = ({ context, evidence, mediaContext, summary,
         if (statement && !whys.includes(statement))
             whys.push(statement);
     };
-    const whyAnswer = (question, answer) => {
-        const normalizedQuestion = normalizeInvestigationText(question).replace(/[?]+$/, '');
-        const normalizedAnswer = lowerFirst(answer);
-        return normalizedQuestion && normalizedAnswer
-            ? `Why ${normalizedQuestion}? Because ${normalizedAnswer}.`
-            : '';
-    };
+    const answerOnly = (answer) => ensureSentence(answer);
     const fiveWhyPaths = [];
     const addPath = (name, whys) => {
         const supportedWhys = whys.filter(Boolean).slice(0, 5);
@@ -239,35 +267,84 @@ const buildLocalIncidentInference = ({ context, evidence, mediaContext, summary,
         }
     };
     const mainWhys = [];
-    pushWhy(mainWhys, whyAnswer('did the incident happen', eventOccurrence || immediateCauses[0]), Boolean(eventOccurrence || immediateCauses[0]));
-    pushWhy(mainWhys, whyAnswer(flags.vehicle
-        ? `did ${equipment} enter an uncontrolled route or impact interface`
-        : flags.barrierGap
-            ? 'did the task enter the exposure path without an effective barrier'
-            : flags.environmentGap
-                ? 'did the workplace condition allow the exposure path to remain active'
-                : 'did the immediate exposure occur', flags.noSpotter
-        ? 'the activity proceeded without an effective spotter, banksman, or positive exclusion control for the movement path'
+    if (flags.gymWeightRack) {
+        pushWhy(mainWhys, answerOnly(eventOccurrence || 'The barbell rack or box toppled during barbell removal and struck people in the area.'));
+        pushWhy(mainWhys, answerOnly(flags.steppedOnBox
+            ? 'The member stepped on the barbell box and tried to remove a barbell from the top.'
+            : immediateCauses[0]));
+        pushWhy(mainWhys, answerOnly(flags.topRemoval
+            ? 'Pulling a heavy barbell from the top while standing on the box shifted the load and made the rack or box unstable.'
+            : 'The retrieval method created an unstable load path for the barbell rack or box.'));
+        pushWhy(mainWhys, answerOnly('The storage/retrieval method did not prevent members from stepping on the box or taking barbells from the top instead of a safer lower position.'));
+        pushWhy(mainWhys, answerOnly(flags.peopleSeatedNearby
+            ? 'The exercise/storage area allowed people to sit within the fall or struck-by zone of heavy barbell storage.'
+            : 'The gym-floor controls did not sufficiently separate members from the heavy-equipment fall zone.'));
+        addPath('', mainWhys);
+        const fiveWhys = fiveWhyPaths.flatMap((path) => path.whys);
+        const mediaSubject = mediaEvidenceType === 'reported incident details' ? 'reported incident details indicate' : `${mediaEvidenceType} indicates`;
+        const mediaAnalysisReport = ensureSentence(`The ${mediaSubject} that ${[
+            eventOccurrence,
+            immediateCauses[0],
+            fishbone.method[0],
+            fishbone.machine[0],
+            fishbone.environment[0]
+        ].filter(Boolean).map(lowerFirst).slice(0, 5).join('; ')}`);
+        const capa = [
+            {
+                act: 'Reconfigure barbell storage so heavy barbells cannot be removed from the top and the rack/box cannot topple during member use',
+                priority: 'high'
+            },
+            {
+                act: 'Create and communicate a safe barbell retrieval method, including signage and floor-trainer intervention for unsafe use',
+                priority: 'high'
+            },
+            {
+                act: 'Keep seating and waiting areas outside the barbell rack fall/impact zone',
+                priority: 'medium'
+            }
+        ];
+        return {
+            eventSummary,
+            mediaAnalysisReport,
+            visibleHazards: contributingFactors.slice(0, 4),
+            equipmentCondition: [
+                `${equipment} identified as the equipment or activity under review.`,
+                `Severity context recorded as ${severity}.`
+            ],
+            immediateCauses,
+            contributingFactors,
+            fiveWhyPaths,
+            fiveWhys,
+            fishbone,
+            rootCause,
+            capa,
+            missingInformation: [
+                mediaContext.derivedFrames.length > 0
+                    ? 'Review sampled video frames against the generated RCA before final sign-off.'
+                    : 'Confirm scene evidence, witness statement, and exact task sequence during investigator review.',
+                'Verify whether equipment layout, member supervision, signage, and seating arrangements allow recurrence of the same failure mode.'
+            ]
+        };
+    }
+    pushWhy(mainWhys, answerOnly(eventOccurrence || immediateCauses[0]), Boolean(eventOccurrence || immediateCauses[0]));
+    pushWhy(mainWhys, answerOnly(flags.noSpotter
+        ? 'The activity proceeded without an effective spotter, banksman, or positive exclusion control for the movement path.'
         : immediateCauses[0]), Boolean(immediateCauses[0] || flags.noSpotter));
-    pushWhy(mainWhys, whyAnswer('was the activity allowed to proceed without the required direct control', flags.noSpotter
-        ? 'the task method did not require or verify a spotter, banksman, stop point, or exclusion zone before movement started'
+    pushWhy(mainWhys, answerOnly(flags.noSpotter
+        ? 'The task method did not require or verify a spotter, banksman, stop point, or exclusion zone before movement started.'
         : fishbone.method[0]), Boolean(flags.noSpotter || fishbone.method[0]));
-    pushWhy(mainWhys, whyAnswer(flags.congestion
-        ? 'did the route not give enough clearance and separation'
-        : 'did the task method fail to stop the exposure', flags.congestion
-        ? 'the aisle, route, or work area was congested, restricted, or weakly segregated'
+    pushWhy(mainWhys, answerOnly(flags.congestion
+        ? 'The aisle, route, or work area was congested, restricted, or weakly segregated.'
         : fishbone.environment[0] || fishbone.method[1]), Boolean(flags.congestion || fishbone.environment[0] || fishbone.method[1]));
-    pushWhy(mainWhys, whyAnswer(flags.priorSignals
-        ? 'did earlier near misses or reports fail to prevent this event'
-        : 'did the control weakness remain in place', flags.priorSignals
-        ? 'the earlier concerns were not closed through verified corrective actions before the same exposure recurred'
+    pushWhy(mainWhys, answerOnly(flags.priorSignals
+        ? 'Earlier concerns were not closed through verified corrective actions before the same exposure recurred.'
         : organizationalFailure), Boolean(flags.priorSignals || organizationalFailure));
     addPath('', mainWhys);
     const controlWhys = [];
-    pushWhy(controlWhys, whyAnswer('did the control barrier fail', systemicFailure), Boolean(systemicFailure));
-    pushWhy(controlWhys, whyAnswer('was the barrier weak at the workface', `the task method did not maintain separation between ${equipment} and the impact or exposure path`), flags.vehicle || flags.barrierGap || flags.congestion);
-    pushWhy(controlWhys, whyAnswer('was the task method not effective', 'the procedure, permit, risk assessment, checklist, or supervision control was not verified at the point of work'), flags.procedureGap);
-    pushWhy(controlWhys, whyAnswer('did the unsafe equipment condition remain available', `inspection, maintenance, or pre-use checks did not identify and remove it before the task involving ${equipment}`), flags.maintenanceGap);
+    pushWhy(controlWhys, answerOnly(systemicFailure), Boolean(systemicFailure));
+    pushWhy(controlWhys, answerOnly(`The task method did not maintain separation between ${equipment} and the impact or exposure path.`), flags.vehicle || flags.barrierGap || flags.congestion);
+    pushWhy(controlWhys, answerOnly('The procedure, permit, risk assessment, checklist, or supervision control was not verified at the point of work.'), flags.procedureGap);
+    pushWhy(controlWhys, answerOnly(`Inspection, maintenance, or pre-use checks did not identify and remove the unsafe condition before the task involving ${equipment}.`), flags.maintenanceGap);
     addPath('', controlWhys);
     const fiveWhys = fiveWhyPaths.flatMap((path) => path.whys);
     const capa = [
@@ -288,8 +365,17 @@ const buildLocalIncidentInference = ({ context, evidence, mediaContext, summary,
             priority: 'medium'
         }
     ];
+    const mediaSubject = mediaEvidenceType === 'reported incident details' ? 'reported incident details indicate' : `${mediaEvidenceType} indicates`;
+    const mediaAnalysisReport = ensureSentence(`The ${mediaSubject} that ${[
+        eventOccurrence,
+        immediateCauses[0],
+        fishbone.method[0],
+        fishbone.machine[0],
+        fishbone.environment[0]
+    ].filter(Boolean).map(lowerFirst).slice(0, 5).join('; ')}`);
     return {
         eventSummary,
+        mediaAnalysisReport,
         visibleHazards: contributingFactors.slice(0, 4),
         equipmentCondition: [
             `${equipment} identified as the equipment or activity under review.`,
@@ -405,6 +491,7 @@ let IncidentAiProviderService = class IncidentAiProviderService {
             },
             draft: {
                 eventSummary: localInference.eventSummary,
+                mediaAnalysisReport: localInference.mediaAnalysisReport,
                 visibleHazards: [
                     ...localInference.visibleHazards,
                     ...(evidence.uploaded.photo ? [`Stored photo evidence available at ${evidence.uploaded.photo.storagePath}`] : []),
@@ -545,13 +632,14 @@ let IncidentAiProviderService = class IncidentAiProviderService {
                     'Do not copy the incident description sentence verbatim. Rephrase it into investigation conclusions and why-answers.',
                     'Avoid generic wording such as "review required", "control failure", or "human investigator review". Every point must reference the actual task, equipment, media evidence, or event sequence.',
                     'Generate fiveWhyPaths as an array of objects. Use neutral names only, such as "Analysis Path 1" and "Analysis Path 2". Do not use names such as Organizational, Human, Systemic, Man, Method, or Root Cause as path names.',
-                    'For each path, fill whys as a true 5-Why chain. Each why value must be written as a question-and-answer sentence, for example: "Why did the incident happen? Because the forklift entered an uncontrolled reversing path." The next line must ask why that previous answer happened.',
+                    'For each path, fill whys as a true 5-Why chain, but each why value must contain only the answer. Do not include the question text. Example values: "The member was injured while performing box jumps.", then "The box broke during the jump.", then "The box was a storage box, not a jump box."',
                     'Do not force 5 whys. Stop early when the evidence runs out. Never fill unknown later whys with generic management-system language.',
-                    'Do not include path names, cause labels, or "Why 1" text inside the whys values. The UI already displays the path and why number.',
+                    'Do not include path names, cause labels, "Why 1", or "Why did..." question text inside the whys values. The UI already displays the why number.',
                     'For fishbone, perform 4M extraction from the incident description, evidence notes, transcript, and visible media frames: Man, Machine, Material, and Method. Use Environment only as additional context if explicitly described. Leave categories empty if no concrete factor is present.',
+                    'Create mediaAnalysisReport as a plain-language description of what is happening in the uploaded video/photo or evidence notes. This replaces any generic evidence summary.',
                     'For fault-tree content inside contributingFactors/immediateCauses, use only incident-specific event sequence and control-barrier facts.',
                     'Return valid JSON only with keys:',
-                    'eventSummary, visibleHazards, equipmentCondition, immediateCauses, contributingFactors, fiveWhyPaths, fiveWhys, fishbone, rootCause, capa, confidence, missingInformation.',
+                    'eventSummary, mediaAnalysisReport, visibleHazards, equipmentCondition, immediateCauses, contributingFactors, fiveWhyPaths, fiveWhys, fishbone, rootCause, capa, confidence, missingInformation.',
                     `Incident title: ${request.incidentContext?.title || ''}`,
                     `Description: ${request.incidentContext?.description || ''}`,
                     `Equipment involved: ${request.incidentContext?.equipmentInvolved || ''}`,
@@ -618,6 +706,7 @@ let IncidentAiProviderService = class IncidentAiProviderService {
         const drafts = outputs.map((output) => output.draft);
         return {
             eventSummary: this.pickString(drafts, 'eventSummary'),
+            mediaAnalysisReport: this.pickString(drafts, 'mediaAnalysisReport'),
             visibleHazards: this.mergeStringArrays(drafts.map((draft) => draft.visibleHazards)),
             equipmentCondition: this.mergeStringArrays(drafts.map((draft) => draft.equipmentCondition)),
             immediateCauses: this.mergeStringArrays(drafts.map((draft) => draft.immediateCauses)),
@@ -676,6 +765,7 @@ let IncidentAiProviderService = class IncidentAiProviderService {
         const draft = (raw && typeof raw === 'object') ? raw : {};
         return {
             eventSummary: String(draft.eventSummary || ''),
+            mediaAnalysisReport: String(draft.mediaAnalysisReport || ''),
             visibleHazards: this.ensureStringArray(draft.visibleHazards),
             equipmentCondition: this.ensureStringArray(draft.equipmentCondition),
             immediateCauses: this.ensureStringArray(draft.immediateCauses),
@@ -715,7 +805,7 @@ let IncidentAiProviderService = class IncidentAiProviderService {
                 : (rawName || `Analysis Path ${index + 1}`);
             return {
                 name,
-                whys: this.ensureStringArray(path?.whys)
+                whys: this.ensureStringArray(path?.whys).map((why) => ensureSentence(normalizeInvestigationText(why).replace(/^why\s+[^?]+\?\s*because\s*/i, '')))
             };
         }).filter((path) => path.name && path.whys.length > 0);
     }
@@ -738,6 +828,7 @@ let IncidentAiProviderService = class IncidentAiProviderService {
     emptyDraft() {
         return {
             eventSummary: '',
+            mediaAnalysisReport: '',
             visibleHazards: [],
             equipmentCondition: [],
             immediateCauses: [],

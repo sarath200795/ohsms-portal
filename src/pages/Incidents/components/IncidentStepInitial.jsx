@@ -84,7 +84,10 @@ export default function IncidentStepInitial({
                             <input type="radio" name="pType" value="Internal" checked={data.affectedPersonType === 'Internal'} onChange={() => setData({ ...data, affectedPersonType: 'Internal', contractorId: '', affectedPersonId: '', affectedPersonName: '' })} disabled={!canEditForm} className="accent-indigo-500 w-4 h-4" /> Internal Staff
                         </label>
                         <label className="flex items-center gap-2 cursor-pointer text-sm font-bold text-slate-300">
-                            <input type="radio" name="pType" value="Contractor" checked={data.affectedPersonType === 'Contractor'} onChange={() => setData({ ...data, affectedPersonType: 'Contractor', affectedPersonId: '', affectedPersonName: '' })} disabled={!canEditForm} className="accent-indigo-500 w-4 h-4" /> Contractor / External
+                            <input type="radio" name="pType" value="Contractor" checked={data.affectedPersonType === 'Contractor'} onChange={() => setData({ ...data, affectedPersonType: 'Contractor', affectedPersonId: '', affectedPersonName: '' })} disabled={!canEditForm} className="accent-indigo-500 w-4 h-4" /> Contractor
+                        </label>
+                        <label className="flex items-center gap-2 cursor-pointer text-sm font-bold text-slate-300">
+                            <input type="radio" name="pType" value="External Non-Employee" checked={data.affectedPersonType === 'External Non-Employee'} onChange={() => setData({ ...data, affectedPersonType: 'External Non-Employee', contractorId: '', affectedPersonId: 'external-non-employee', affectedPersonName: '' })} disabled={!canEditForm} className="accent-indigo-500 w-4 h-4" /> External Non-Employee
                         </label>
                         <label className="flex items-center gap-2 cursor-pointer text-sm font-bold text-slate-300">
                             <input type="radio" name="pType" value="None" checked={data.affectedPersonType === 'None'} onChange={() => setData({ ...data, affectedPersonType: 'None', contractorId: '', affectedPersonId: '', affectedPersonName: '' })} disabled={!canEditForm} className="accent-indigo-500 w-4 h-4" /> None (Property/Env)
@@ -101,7 +104,21 @@ export default function IncidentStepInitial({
                         </div>
                     )}
 
-                    {data.affectedPersonType !== 'None' && (
+                    {data.affectedPersonType === 'External Non-Employee' && (
+                        <div>
+                            <label className="text-[10px] uppercase font-bold text-indigo-300 block mb-2">External Person Name</label>
+                            <input
+                                value={data.affectedPersonName || ''}
+                                onChange={(e) => setData({ ...data, affectedPersonId: 'external-non-employee', affectedPersonName: e.target.value })}
+                                disabled={!canEditForm}
+                                className="w-full bg-slate-900 border border-indigo-500/50 rounded-xl p-3 text-white outline-none focus:border-indigo-400 font-bold"
+                                placeholder="Enter member / visitor / non-employee name"
+                            />
+                            <p className="text-[10px] text-slate-500 mt-2 italic">Use this for gym members, visitors, customers, or other external non-employees who are not in the contractor register.</p>
+                        </div>
+                    )}
+
+                    {(data.affectedPersonType === 'Internal' || data.affectedPersonType === 'Contractor') && (
                         <div>
                             <label className="text-[10px] uppercase font-bold text-indigo-300 block mb-2">Select Individual Worker</label>
                             <select
