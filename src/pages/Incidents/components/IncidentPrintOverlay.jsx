@@ -1,19 +1,167 @@
 import React from 'react';
 
-function renderPrintFaultTree(node) {
-    if (!node) return null;
+/* ── Visual: 5-Why chain ─────────────────────────────────────────── */
+function PrintFiveWhyChain({ path, pathIndex }) {
+    const validWhys = (path.whys || []).filter(Boolean);
+    if (validWhys.length === 0) return null;
     return (
-        <li key={node.id} style={{ marginBottom: '4px' }}>
-            <strong>{node.label}</strong> <span style={{ fontSize: '10px', color: '#555' }}>[{node.type}]</span>
-            {node.children && node.children.length > 0 && (
-                <ul style={{ listStyleType: 'circle', paddingLeft: '20px', marginTop: '4px' }}>
-                    {node.children.map((child) => renderPrintFaultTree(child))}
-                </ul>
-            )}
-        </li>
+        <div style={{ marginBottom: 14, border: '1px solid #bbb', borderRadius: 8, padding: 14, background: '#f9f9f9', pageBreakInside: 'avoid' }}>
+            <div style={{ fontSize: 10, fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10, color: '#333', borderBottom: '1px solid #ddd', paddingBottom: 6 }}>
+                {path.name || `Analysis Path ${pathIndex + 1}`}
+            </div>
+            <div style={{ display: 'flex', alignItems: 'flex-start', flexWrap: 'wrap', gap: 0 }}>
+                {validWhys.map((why, i) => {
+                    const isLast = i === validWhys.length - 1;
+                    return (
+                        <React.Fragment key={i}>
+                            <div style={{
+                                border: `2px solid ${isLast ? '#111' : '#666'}`,
+                                borderRadius: 6,
+                                padding: '7px 10px',
+                                minWidth: 90,
+                                maxWidth: 160,
+                                background: isLast ? '#1a1a1a' : '#fff',
+                                color: isLast ? '#fff' : '#111',
+                            }}>
+                                <div style={{ fontSize: 8, fontWeight: 'bold', color: isLast ? '#aaa' : '#888', marginBottom: 3, letterSpacing: '0.1em' }}>WHY {i + 1}</div>
+                                <div style={{ fontSize: 9.5, lineHeight: 1.4 }}>{why}</div>
+                            </div>
+                            {!isLast && (
+                                <div style={{ display: 'flex', alignItems: 'center', padding: '0 5px', fontSize: 16, color: '#555', alignSelf: 'center' }}>→</div>
+                            )}
+                        </React.Fragment>
+                    );
+                })}
+                <div style={{ display: 'flex', alignItems: 'center', padding: '0 5px', fontSize: 16, color: '#c00', alignSelf: 'center' }}>→</div>
+                <div style={{ border: '2px solid #c00', borderRadius: 6, padding: '7px 10px', background: '#c00', color: '#fff', fontSize: 8, fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '0.1em', alignSelf: 'center' }}>
+                    ROOT<br />CAUSE
+                </div>
+            </div>
+        </div>
     );
 }
 
+/* ── Visual: Fishbone SVG ────────────────────────────────────────── */
+function PrintFishboneSVG({ fishbone = {} }) {
+    const W = 760, H = 400, spineY = 200;
+    const spineX1 = 50, spineX2 = 648;
+
+    const topCats = [
+        { key: 'man', label: 'Man', spineX: 190 },
+        { key: 'machine', label: 'Machine', spineX: 370 },
+        { key: 'material', label: 'Material', spineX: 550 },
+    ];
+    const bottomCats = [
+        { key: 'method', label: 'Method', spineX: 270 },
+        { key: 'environment', label: 'Environment', spineX: 460 },
+    ];
+    const topLabelY = 38, bottomLabelY = 362;
+
+    const renderRib = (key, label, spineX, isTop) => {
+        const labelY = isTop ? topLabelY : bottomLabelY;
+        const labelX = spineX - 28;
+        const items = (fishbone[key] || []).filter(Boolean).slice(0, 7);
+
+        const boneNodes = items.map((item, i) => {
+            const t = (i + 1) / (items.length + 1);
+            const bx = spineX + (labelX - spineX) * t;
+            const by = spineY + (labelY - spineY) * t;
+            return { bx, by, item };
+        });
+
+        return (
+            <g key={key}>
+                <line x1={spineX} y1={spineY} x2={labelX} y2={labelY}
+                    stroke="#444" strokeWidth="2" />
+                <rect x={labelX - 36} y={isTop ? labelY - 14 : labelY - 4}
+                    width="72" height="18" rx="3" fill="#222" />
+                <text x={labelX} y={isTop ? labelY - 1 : labelY + 9}
+                    textAnchor="middle" fill="white" fontSize="8.5" fontWeight="bold">
+                    {label.toUpperCase()}
+                </text>
+                {boneNodes.map(({ bx, by, item }, i) => (
+                    <g key={i}>
+                        <line x1={bx} y1={by} x2={bx + 42} y2={by}
+                            stroke="#777" strokeWidth="1" />
+                        <text x={bx + 44} y={by + 3} fontSize="7.5" fill="#222">
+                            {item.length > 24 ? item.slice(0, 23) + '…' : item}
+                        </text>
+                    </g>
+                ))}
+            </g>
+        );
+    };
+
+    const allEmpty = [...topCats, ...bottomCats].every(({ key }) =>
+        !(fishbone[key] || []).some(Boolean)
+    );
+
+    return (
+        <div style={{ border: '1px solid #ddd', borderRadius: 6, padding: 4, background: '#fafafa' }}>
+            <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: 'auto', fontFamily: 'Arial, sans-serif' }}>
+                <defs>
+                    <marker id="fb-arr" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+                        <polygon points="0 0, 8 3, 0 6" fill="#111" />
+                    </marker>
+                </defs>
+                {/* Spine */}
+                <line x1={spineX1} y1={spineY} x2={spineX2} y2={spineY}
+                    stroke="#111" strokeWidth="3" markerEnd="url(#fb-arr)" />
+                {/* Incident head */}
+                <rect x={spineX2 + 2} y={spineY - 24} width="106" height="48" rx="5" fill="#111" />
+                <text x={spineX2 + 55} y={spineY - 6} textAnchor="middle" fill="white" fontSize="9" fontWeight="bold">INCIDENT</text>
+                <text x={spineX2 + 55} y={spineY + 8} textAnchor="middle" fill="#aaa" fontSize="7">EVENT</text>
+                {/* Ribs */}
+                {topCats.map(({ key, label, spineX }) => renderRib(key, label, spineX, true))}
+                {bottomCats.map(({ key, label, spineX }) => renderRib(key, label, spineX, false))}
+                {allEmpty && (
+                    <text x={W / 2} y={spineY + 4} textAnchor="middle" fontSize="11" fill="#aaa">
+                        No fishbone factors recorded.
+                    </text>
+                )}
+            </svg>
+        </div>
+    );
+}
+
+/* ── Visual: Fault Tree (indented boxes) ─────────────────────────── */
+function PrintFaultTreeBox({ node, depth = 0 }) {
+    if (!node) return null;
+    const TYPE_COLOR = { AND: '#7c3aed', OR: '#ea580c', ROOT: '#16a34a', EVENT: '#1d4ed8' };
+    const c = TYPE_COLOR[node.type] || TYPE_COLOR.EVENT;
+    const isRoot = depth === 0;
+    const hasChildren = node.children && node.children.length > 0;
+
+    return (
+        <div style={{ marginLeft: isRoot ? 0 : 20, marginTop: isRoot ? 0 : 5, position: 'relative' }}>
+            {!isRoot && (
+                <span style={{ position: 'absolute', left: -18, top: 6, color: '#999', fontSize: 11, userSelect: 'none' }}>└─</span>
+            )}
+            <div style={{
+                display: 'inline-flex', alignItems: 'center', gap: 5,
+                border: `1.5px solid ${c}`, borderRadius: 5,
+                padding: '4px 9px', fontSize: 9,
+                background: isRoot ? '#111' : '#fff',
+                color: isRoot ? '#fff' : '#111',
+                maxWidth: 320,
+            }}>
+                <span style={{ fontSize: 7.5, fontWeight: 'bold', color: isRoot ? '#ccc' : c, border: `1px solid ${c}`, borderRadius: 3, padding: '1px 4px', flexShrink: 0 }}>
+                    {node.type || 'EVENT'}
+                </span>
+                <span style={{ lineHeight: 1.3 }}>{node.label}</span>
+            </div>
+            {hasChildren && (
+                <div style={{ marginLeft: 10, borderLeft: '1px dashed #ccc', paddingLeft: 6, marginTop: 3 }}>
+                    {node.children.map((child, i) => (
+                        <PrintFaultTreeBox key={child.id || i} node={child} depth={depth + 1} />
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+}
+
+/* ── Main print overlay ──────────────────────────────────────────── */
 export default function IncidentPrintOverlay({ printData }) {
     if (!printData) return null;
 
@@ -169,46 +317,50 @@ export default function IncidentPrintOverlay({ printData }) {
                             </div>
                         </div>
 
+                        {/* 3.2 5-Why — graphical chain */}
                         <div className="mb-6">
-                            <h3 className="text-sm font-bold mb-2 uppercase bg-gray-200 p-1 border border-gray-400 inline-block">3.2 The 5-Whys Logic Paths</h3>
-                            {printData.investigation?.fiveWhys?.map((path, index) => {
-                                const validWhys = path.whys.filter(Boolean);
+                            <h3 className="text-sm font-bold mb-3 uppercase bg-gray-200 p-1 border border-gray-400 inline-block">3.2 5-Whys Logic Paths</h3>
+                            {(printData.investigation?.fiveWhys || []).map((path, index) => {
+                                const validWhys = (path.whys || []).filter(Boolean);
                                 if (validWhys.length === 0) return null;
-                                return (
-                                    <div key={index} className="border border-gray-400 p-4 mb-4">
-                                        <strong className="underline text-sm uppercase">{path.name}</strong>
-                                        <ol className="list-decimal ml-6 mt-2 text-sm space-y-1">
-                                            {validWhys.map((why, whyIndex) => <li key={whyIndex}>{why}</li>)}
-                                        </ol>
-                                    </div>
-                                );
+                                return <PrintFiveWhyChain key={index} path={path} pathIndex={index} />;
                             })}
+                            {!(printData.investigation?.fiveWhys || []).some(p => (p.whys || []).some(Boolean)) && (
+                                <p className="text-sm text-gray-500 italic">No 5-Why data recorded.</p>
+                            )}
                         </div>
 
+                        {/* 3.3 Fishbone — SVG diagram */}
                         <div className="mb-6">
-                            <h3 className="text-sm font-bold mb-2 uppercase bg-gray-200 p-1 border border-gray-400 inline-block">3.3 4M Fishbone Data Extracted</h3>
-                            <table className="w-full text-sm border-collapse border border-black mt-2">
-                                <tbody>
-                                    {Object.entries(printData.investigation?.fishbone || {}).map(([key, value]) => {
-                                        const valid = value.filter(Boolean);
-                                        if (valid.length === 0) return null;
-                                        return (
-                                            <tr key={key}>
-                                                <td className="border border-black p-2 w-1/4 font-bold uppercase bg-gray-50">{key}</td>
-                                                <td className="border border-black p-2">{valid.join('; ')}</td>
-                                            </tr>
-                                        );
-                                    })}
-                                </tbody>
-                            </table>
+                            <h3 className="text-sm font-bold mb-3 uppercase bg-gray-200 p-1 border border-gray-400 inline-block">3.3 4M Fishbone Analysis</h3>
+                            <PrintFishboneSVG fishbone={printData.investigation?.fishbone || {}} />
+                            {/* Compact legend table below diagram */}
+                            {Object.entries(printData.investigation?.fishbone || {}).some(([, v]) => (v || []).some(Boolean)) && (
+                                <table className="w-full text-xs border-collapse border border-gray-300 mt-3">
+                                    <tbody>
+                                        {Object.entries(printData.investigation?.fishbone || {}).map(([key, value]) => {
+                                            const valid = (value || []).filter(Boolean);
+                                            if (valid.length === 0) return null;
+                                            return (
+                                                <tr key={key}>
+                                                    <td className="border border-gray-300 p-1.5 w-[15%] font-bold uppercase bg-gray-50 text-xs">{key}</td>
+                                                    <td className="border border-gray-300 p-1.5 text-xs">{valid.join(' · ')}</td>
+                                                </tr>
+                                            );
+                                        })}
+                                    </tbody>
+                                </table>
+                            )}
                         </div>
 
+                        {/* 3.4 Fault Tree — visual boxes */}
                         <div className="mb-6">
-                            <h3 className="text-sm font-bold mb-2 uppercase bg-gray-200 p-1 border border-gray-400 inline-block">3.4 Fault Tree Analysis</h3>
-                            <div className="border border-black p-4 bg-gray-50 text-sm">
-                                <ul className="list-none p-0 m-0">
-                                    {printData.investigation?.faultTree ? renderPrintFaultTree(printData.investigation.faultTree) : <li>No fault tree data generated.</li>}
-                                </ul>
+                            <h3 className="text-sm font-bold mb-3 uppercase bg-gray-200 p-1 border border-gray-400 inline-block">3.4 Fault Tree Analysis</h3>
+                            <div className="border border-gray-300 p-4 bg-gray-50 overflow-x-auto">
+                                {printData.investigation?.faultTree
+                                    ? <PrintFaultTreeBox node={printData.investigation.faultTree} />
+                                    : <p className="text-sm text-gray-500 italic">No fault tree data generated.</p>
+                                }
                             </div>
                         </div>
                     </div>

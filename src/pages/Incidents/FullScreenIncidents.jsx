@@ -80,6 +80,23 @@ const fileToBase64 = (file) => new Promise((resolve, reject) => {
     reader.onerror = (error) => reject(error);
 });
 
+const compressImage = (file, maxDim = 1600, quality = 0.82) =>
+    new Promise((resolve) => {
+        const img = new Image();
+        const url = URL.createObjectURL(file);
+        img.onload = () => {
+            URL.revokeObjectURL(url);
+            const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+            const canvas = document.createElement('canvas');
+            canvas.width = Math.round(img.width * scale);
+            canvas.height = Math.round(img.height * scale);
+            canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+            resolve(canvas.toDataURL('image/jpeg', quality));
+        };
+        img.onerror = () => { URL.revokeObjectURL(url); fileToBase64(file).then(resolve); };
+        img.src = url;
+    });
+
 const normalizeEvidenceLabel = (value) => String(value || '')
     .replace(/\.[^/.]+$/, '')
     .replace(/[_-]+/g, ' ')
@@ -1741,9 +1758,19 @@ export default function Incidents() {
 
     const handleImageUpload = async (e) => {
         const file = e.target.files[0];
-        if (file) {
-            const base64 = await fileToBase64(file);
-            setData({ ...data, imageEvidence: base64, imageEvidenceName: file.name });
+        if (!file) return;
+        const base64 = await compressImage(file);
+        const next = { ...data, imageEvidence: base64, imageEvidenceName: file.name };
+        setData(next);
+        if (data.firebaseKey && session?.orgId) {
+            try {
+                await update(ref(rtdb, `organizations/${session.orgId}/incidents/${data.firebaseKey}`), {
+                    imageEvidence: base64,
+                    imageEvidenceName: file.name,
+                });
+            } catch (err) {
+                console.error('[IncidentImage] auto-save failed', err);
+            }
         }
     };
 

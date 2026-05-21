@@ -68,7 +68,7 @@ export default function IncidentStepCapa({
                 <div className="overflow-hidden rounded-xl border border-slate-700 shadow-lg bg-slate-900">
                     <table className="w-full text-left text-sm text-slate-300">
                         <thead className="bg-slate-950 text-[10px] uppercase tracking-widest font-bold text-slate-500 border-b border-slate-800">
-                            <tr><th className="p-5 w-1/3">Action Details</th><th className="p-5">Site</th><th className="p-5">Owner</th><th className="p-5 w-24">Due Date</th><th className="p-5 w-32">Status</th><th className="p-5 w-12"></th></tr>
+                            <tr><th className="p-5">Action Details</th><th className="p-5">Site</th><th className="p-5">Owner</th><th className="p-5 w-24">Due Date</th><th className="p-5 w-32">Status</th><th className="p-5 w-12"></th></tr>
                         </thead>
                         <tbody className="divide-y divide-slate-800">
                             {(data.capa || []).map((capaItem, index) => (
@@ -79,7 +79,7 @@ export default function IncidentStepCapa({
                                                 Verification Follow-Up
                                             </div>
                                         )}
-                                        <input className="w-full bg-transparent border-b border-transparent hover:border-slate-600 focus:border-orange-500 text-xs py-1 outline-none text-white font-medium" value={capaItem.act} onChange={(e) => { const next = [...data.capa]; next[index].act = e.target.value; setData({ ...data, capa: next }); }} disabled={!canEditCapa(capaItem)} />
+                                        <textarea rows={3} className="w-full bg-transparent border-b border-transparent hover:border-slate-600 focus:border-orange-500 text-xs py-1 outline-none text-white font-medium resize-none leading-snug" value={capaItem.act} onChange={(e) => { const next = [...data.capa]; next[index].act = e.target.value; setData({ ...data, capa: next }); }} disabled={!canEditCapa(capaItem)} />
                                     </td>
                                     <td className="p-5 text-[10px] font-bold uppercase tracking-widest text-slate-400">
                                         {data.horizontalDeployment ? <span className="bg-blue-900/30 text-blue-400 px-2 py-1 rounded border border-blue-500/30">All Sites</span> : (capaItem.siteId || data.siteId)}
