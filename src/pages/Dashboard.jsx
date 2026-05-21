@@ -8,6 +8,8 @@ import { clearFieldModuleHomeContext } from './FieldApp/portalAuth';
 import { useAppTransition } from '../hooks/useAppTransition';
 import { hasAccessibleModule, isGlobalOwnerRole } from '../utils/permissions';
 import { readStoredSession, writeStoredSession } from '../utils/session';
+import { useReminders } from '../hooks/useReminders';
+import NeedsAttentionPanel from '../components/NeedsAttentionPanel';
 
 const getDayGreeting = () => {
     const hour = new Date().getHours();
@@ -38,22 +40,71 @@ const ALL_MODULES = [
     { id: 'Sites', label: 'Sites', icon: 'fa-building-shield', color: 'text-slate-300', path: '/sites' }
 ];
 
-const NavCard = ({ module, actions = [], onClick }) => {
+const MODULE_TINT = {
+    'text-purple-400':  'rgba(168,85,247,0.13)',
+    'text-amber-300':   'rgba(253,230,138,0.10)',
+    'text-cyan-300':    'rgba(103,232,249,0.10)',
+    'text-orange-400':  'rgba(251,146,60,0.13)',
+    'text-red-400':     'rgba(248,113,113,0.11)',
+    'text-teal-400':    'rgba(45,212,191,0.10)',
+    'text-emerald-400': 'rgba(52,211,153,0.10)',
+    'text-cyan-400':    'rgba(34,211,238,0.10)',
+    'text-yellow-400':  'rgba(250,204,21,0.10)',
+    'text-blue-400':    'rgba(96,165,250,0.10)',
+    'text-pink-400':    'rgba(244,114,182,0.10)',
+    'text-fuchsia-400': 'rgba(232,121,249,0.10)',
+    'text-indigo-400':  'rgba(129,140,248,0.10)',
+    'text-rose-400':    'rgba(251,113,133,0.10)',
+    'text-lime-400':    'rgba(163,230,53,0.10)',
+    'text-slate-300':   'rgba(148,163,184,0.07)',
+};
+
+const MODULE_GLOW = {
+    'text-purple-400':  'rgba(168,85,247,0.45)',
+    'text-amber-300':   'rgba(253,230,138,0.45)',
+    'text-cyan-300':    'rgba(103,232,249,0.45)',
+    'text-orange-400':  'rgba(251,146,60,0.50)',
+    'text-red-400':     'rgba(248,113,113,0.45)',
+    'text-teal-400':    'rgba(45,212,191,0.45)',
+    'text-emerald-400': 'rgba(52,211,153,0.45)',
+    'text-cyan-400':    'rgba(34,211,238,0.45)',
+    'text-yellow-400':  'rgba(250,204,21,0.45)',
+    'text-blue-400':    'rgba(96,165,250,0.45)',
+    'text-pink-400':    'rgba(244,114,182,0.45)',
+    'text-fuchsia-400': 'rgba(232,121,249,0.45)',
+    'text-indigo-400':  'rgba(129,140,248,0.45)',
+    'text-rose-400':    'rgba(251,113,133,0.45)',
+    'text-lime-400':    'rgba(163,230,53,0.45)',
+    'text-slate-300':   'rgba(148,163,184,0.30)',
+};
+
+const NavCard = ({ module, actions = [], onClick, index = 0 }) => {
     const topActions = actions.slice(0, 3);
     const extraCount = actions.length - 3;
+    const tint = MODULE_TINT[module.color] || 'rgba(70,215,255,0.08)';
+    const glow = MODULE_GLOW[module.color] || 'rgba(70,215,255,0.35)';
 
     return (
         <button
             type="button"
             onClick={onClick}
-            className="command-panel myth-hover group relative flex min-h-[15rem] w-full flex-col overflow-hidden rounded-[1.9rem] p-6 text-left"
+            className="command-panel myth-hover group attention-item relative flex min-h-[15rem] w-full flex-col overflow-hidden rounded-[1.9rem] p-6 text-left"
+            style={{ animationDelay: `${index * 55}ms`, '--icon-glow-color': glow }}
         >
             <div className="myth-card-glow"></div>
+
+            {/* Module color radial tint — top-left corner */}
+            <div
+                aria-hidden="true"
+                className="pointer-events-none absolute left-0 top-0 h-40 w-52 transition-opacity duration-300 group-hover:opacity-100"
+                style={{ background: `radial-gradient(circle at 12% 12%, ${tint}, transparent 68%)`, opacity: 0.7 }}
+            />
+
             <div className="absolute inset-x-6 top-0 h-px bg-gradient-to-r from-transparent via-[rgba(242,201,120,0.35)] to-transparent"></div>
 
             <div className="relative z-10 flex items-start justify-between gap-4">
                 <div className="flex items-start gap-4">
-                    <div className={`myth-icon-frame flex h-14 w-14 items-center justify-center rounded-[1.25rem] text-2xl transition-transform duration-300 group-hover:scale-110 ${module.color}`}>
+                    <div className={`myth-icon-frame flex h-14 w-14 items-center justify-center rounded-[1.25rem] text-2xl transition-all duration-300 group-hover:scale-110 ${module.color}`}>
                         <i className={`fas ${module.icon}`}></i>
                     </div>
                     <div>
@@ -98,7 +149,7 @@ const NavCard = ({ module, actions = [], onClick }) => {
                         <span className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[var(--myth-muted)]">
                             No queued tasks
                         </span>
-                        <span className="flex h-10 w-10 items-center justify-center rounded-full border border-[rgba(242,201,120,0.14)] bg-[rgba(10,8,6,0.72)] text-[var(--myth-gold)] transition-transform group-hover:translate-x-1">
+                        <span className="flex h-10 w-10 items-center justify-center rounded-full border border-[rgba(242,201,120,0.14)] bg-[rgba(10,8,6,0.72)] text-[var(--myth-gold)] transition-all duration-300 group-hover:translate-x-1 group-hover:border-[rgba(242,201,120,0.3)]">
                             <i className="fas fa-arrow-right"></i>
                         </span>
                     </div>
@@ -128,6 +179,7 @@ export default function Dashboard() {
     // --- PHASE 2 TARGETED FETCHING STATE ---
     const [localOrgData, setLocalOrgData] = useState(null);
     const [localLoading, setLocalLoading] = useState(true);
+    const { items: reminderItems, summary: reminderSummary, loading: remindersLoading } = useReminders();
     const passwordChangeRequired = Boolean(session?.mustChangePassword);
 
     useEffect(() => {
@@ -384,8 +436,8 @@ export default function Dashboard() {
 
             {/* FLOATING ACTION BUTTON */}
             <div className="fixed bottom-8 right-8 z-50 flex flex-col items-end gap-3">
-                <div className={`origin-bottom transition-all duration-300 ${isFabOpen ? 'mb-2 scale-100 opacity-100' : 'pointer-events-none h-0 scale-0 opacity-0'}`}>
-                    <div className="flex flex-col items-end gap-3">
+                {isFabOpen && (
+                    <div className="flex flex-col items-end gap-3 mb-2">
                     {visibleModules.find(m => m.id === 'Incidents') && (
                         <button onClick={() => {
                             setIsFabOpen(false);
@@ -393,9 +445,9 @@ export default function Dashboard() {
                                 label: 'Opening Incidents',
                                 action: () => navigate('/incidents?site=' + (selectedSite === 'GLOBAL' ? 'All' : selectedSite))
                             });
-                        }} className="flex items-center gap-3">
+                        }} className="fab-item-enter flex items-center gap-3" style={{ animationDelay: '0ms' }}>
                             <span className="myth-surface-soft rounded-2xl px-4 py-2 text-xs font-bold uppercase tracking-[0.18em] text-[var(--myth-ink)]">Report Incident</span>
-                            <div className="myth-button myth-button-primary flex h-12 w-12 items-center justify-center rounded-full text-lg"><i className="fas fa-triangle-exclamation"></i></div>
+                            <div className="myth-button myth-button-primary flex h-12 w-12 items-center justify-center rounded-full text-lg shadow-[0_0_18px_rgba(247,146,51,0.5)]"><i className="fas fa-triangle-exclamation"></i></div>
                         </button>
                     )}
                     {visibleModules.find(m => m.id === 'Inspections') && (
@@ -405,9 +457,9 @@ export default function Dashboard() {
                                 label: 'Opening Inspections',
                                 action: () => navigate('/inspections?site=' + (selectedSite === 'GLOBAL' ? 'All' : selectedSite))
                             });
-                        }} className="flex items-center gap-3">
+                        }} className="fab-item-enter flex items-center gap-3" style={{ animationDelay: '55ms' }}>
                             <span className="myth-surface-soft rounded-2xl px-4 py-2 text-xs font-bold uppercase tracking-[0.18em] text-[var(--myth-ink)]">Start Inspection</span>
-                            <div className="myth-button myth-button-cyan flex h-12 w-12 items-center justify-center rounded-full text-lg"><i className="fas fa-search-location"></i></div>
+                            <div className="myth-button myth-button-cyan flex h-12 w-12 items-center justify-center rounded-full text-lg shadow-[0_0_18px_rgba(70,215,255,0.45)]"><i className="fas fa-search-location"></i></div>
                         </button>
                     )}
                     {visibleModules.find(m => m.id === 'OHS Tools') && (
@@ -417,7 +469,7 @@ export default function Dashboard() {
                                 label: 'Opening OHS Tools',
                                 action: () => navigate('/ohs-tools?site=' + (selectedSite === 'GLOBAL' ? 'All' : selectedSite))
                             });
-                        }} className="flex items-center gap-3">
+                        }} className="fab-item-enter flex items-center gap-3" style={{ animationDelay: '110ms' }}>
                             <span className="myth-surface-soft rounded-2xl px-4 py-2 text-xs font-bold uppercase tracking-[0.18em] text-[var(--myth-ink)]">Safety Tools</span>
                             <div className="myth-outline-button flex h-12 w-12 items-center justify-center rounded-full text-lg text-[var(--myth-gold)]"><i className="fas fa-toolbox"></i></div>
                         </button>
@@ -429,17 +481,17 @@ export default function Dashboard() {
                                 label: 'Opening CAPA Manager',
                                 action: () => navigate('/capa?site=' + (selectedSite === 'GLOBAL' ? 'All' : selectedSite))
                             });
-                        }} className="flex items-center gap-3">
+                        }} className="fab-item-enter flex items-center gap-3" style={{ animationDelay: '165ms' }}>
                             <span className="myth-surface-soft rounded-2xl px-4 py-2 text-xs font-bold uppercase tracking-[0.18em] text-[var(--myth-ink)]">Action Register</span>
                             <div className="myth-outline-button flex h-12 w-12 items-center justify-center rounded-full text-lg text-[var(--myth-cyan)]"><i className="fas fa-list-check"></i></div>
                         </button>
                     )}
                     </div>
-                </div>
+                )}
 
                 <button
                     onClick={() => setIsFabOpen(!isFabOpen)}
-                    className={`myth-button myth-button-primary flex h-14 w-14 items-center justify-center rounded-full text-xl ${isFabOpen ? 'rotate-45' : ''}`}>
+                    className={`myth-button myth-button-primary flex h-14 w-14 items-center justify-center rounded-full text-xl transition-all duration-300 shadow-[0_0_24px_rgba(247,146,51,0.55)] ${isFabOpen ? 'rotate-45 scale-110' : 'scale-100'}`}>
                     <i className={`fas ${isFabOpen ? 'fa-plus' : 'fa-bolt'}`}></i>
                 </button>
             </div>
@@ -507,7 +559,8 @@ export default function Dashboard() {
                                 </p>
 
                                 <div className="mt-6 flex flex-wrap gap-3">
-                                    <div className="myth-surface-soft rounded-2xl px-4 py-3 text-sm">
+                                    <div className="myth-surface-soft flex items-center gap-2.5 rounded-2xl px-4 py-3 text-sm">
+                                        <span className="live-pulse" aria-hidden="true" />
                                         <span className="text-[var(--myth-muted)]">Shift Status:</span>{' '}
                                         <strong className="text-white">{greeting} operations check active</strong>
                                     </div>
@@ -559,13 +612,32 @@ export default function Dashboard() {
                             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-1">
                                 <div className="myth-stat-card p-5">
                                     <p className="myth-kicker relative z-10">Modules Unlocked</p>
-                                    <div className="relative z-10 mt-3 text-5xl font-black text-white">{visibleModules.length}</div>
-                                    <p className="relative z-10 mt-2 text-sm text-[var(--myth-muted)]">Mission systems available in your command stack.</p>
+                                    <div className="relative z-10 mt-3 text-5xl font-black text-white stat-number-pop">{visibleModules.length}</div>
+                                    <div className="relative z-10 myth-stat-bar">
+                                        <div
+                                            className="myth-stat-bar-fill"
+                                            style={{ width: `${Math.round((visibleModules.length / ALL_MODULES.length) * 100)}%` }}
+                                        />
+                                    </div>
+                                    <p className="relative z-10 mt-2 text-xs text-[var(--myth-muted)]">{visibleModules.length} of {ALL_MODULES.length} systems active</p>
                                 </div>
                                 <div className="myth-stat-card p-5">
                                     <p className="myth-kicker relative z-10">Action Queue</p>
-                                    <div className="relative z-10 mt-3 text-5xl font-black text-white">{myActions.length}</div>
-                                    <p className="relative z-10 mt-2 text-sm text-[var(--myth-muted)]">Items awaiting approval, CAPA closure, or direct response.</p>
+                                    <div className={`relative z-10 mt-3 text-5xl font-black stat-number-pop ${myActions.length > 0 ? 'text-[var(--myth-ember)]' : 'text-white'}`}>{myActions.length}</div>
+                                    <div className="relative z-10 myth-stat-bar">
+                                        <div
+                                            className="myth-stat-bar-fill"
+                                            style={{
+                                                width: `${Math.min((myActions.length / 10) * 100, 100)}%`,
+                                                background: myActions.length > 0
+                                                    ? 'linear-gradient(90deg, #f79233, #ef4444)'
+                                                    : 'linear-gradient(90deg, var(--myth-cyan), var(--myth-ember))'
+                                            }}
+                                        />
+                                    </div>
+                                    <p className="relative z-10 mt-2 text-xs text-[var(--myth-muted)]">
+                                        {myActions.length === 0 ? 'All clear — inbox zero' : 'Approval, CAPA, or response pending'}
+                                    </p>
                                 </div>
                             </div>
                         </div>
@@ -594,6 +666,14 @@ export default function Dashboard() {
                             </div>
                         </div>
 
+                        <div className="mb-6">
+                            <NeedsAttentionPanel
+                                items={reminderItems}
+                                summary={reminderSummary}
+                                loading={remindersLoading}
+                            />
+                        </div>
+
                         {visibleModules.length === 0 ? (
                             <div className="command-panel rounded-[2rem] p-10 text-center">
                                 <div className="myth-icon-frame mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-full text-3xl text-[var(--myth-muted)]">
@@ -610,9 +690,9 @@ export default function Dashboard() {
                             </div>
                         ) : (
                             <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-3">
-                                {visibleModules.map(mod => {
+                                {visibleModules.map((mod, idx) => {
                                     const modActions = myActions.filter(a => a.module === mod.id);
-                                    return <NavCard key={mod.id} module={mod} actions={modActions} onClick={() => handleNavigation(mod)} />;
+                                    return <NavCard key={mod.id} module={mod} actions={modActions} onClick={() => handleNavigation(mod)} index={idx} />;
                                 })}
                             </div>
                         )}

@@ -743,6 +743,140 @@ table tbody tr:hover {
   border-color: rgba(103, 119, 137, 0.16) !important;
 }
 
+/* =========================================
+   ENHANCED ANIMATIONS & MICRO-INTERACTIONS
+========================================= */
+
+@keyframes slideInUp {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slideInRight {
+  from { opacity: 0; transform: translateX(52px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes fadeScaleIn {
+  from { opacity: 0; transform: scale(0.84) translateY(8px); }
+  60%  { transform: scale(1.03) translateY(-2px); }
+  to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+@keyframes breatheOverdue {
+  0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.5); transform: scale(1); }
+  50%       { opacity: 0.8; box-shadow: 0 0 0 5px rgba(239, 68, 68, 0); transform: scale(0.9); }
+}
+
+@keyframes breatheDueSoon {
+  0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.5); }
+  50%       { opacity: 0.8; box-shadow: 0 0 0 5px rgba(245, 158, 11, 0); }
+}
+
+@keyframes shimmerScan {
+  0%   { left: -40%; }
+  100% { left: 110%; }
+}
+
+@keyframes numberPop {
+  0%  { transform: scale(0.92); opacity: 0.7; }
+  60% { transform: scale(1.06); }
+  100%{ transform: scale(1);    opacity: 1; }
+}
+
+/* Attention panel items stagger in */
+.attention-item {
+  animation: slideInUp 0.32s ease both;
+}
+
+/* Severity dot pulse animations */
+.sev-dot-overdue {
+  animation: breatheOverdue 1.8s ease-in-out infinite;
+}
+
+.sev-dot-due-soon {
+  animation: breatheDueSoon 2.4s ease-in-out infinite;
+}
+
+/* Toast slide-in from right */
+.toast-enter {
+  animation: slideInRight 0.38s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+.toast-success-enter {
+  animation: fadeScaleIn 0.44s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+/* Stat number pop on mount */
+.stat-number-pop {
+  animation: numberPop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+/* Stat progress bar */
+.myth-stat-bar {
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(103, 119, 137, 0.18);
+  overflow: hidden;
+  margin-top: 14px;
+}
+
+.myth-stat-bar-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--myth-cyan), var(--myth-ember));
+  transition: width 0.9s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* FAB sub-items stagger */
+.fab-item-enter {
+  animation: slideInRight 0.28s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+/* Hero banner animated shimmer scan */
+.hero-banner::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 38%;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(70, 215, 255, 0.04),
+    transparent
+  );
+  pointer-events: none;
+  animation: shimmerScan 7s linear infinite;
+}
+
+/* Module icon glow on card hover */
+.group:hover .myth-icon-frame {
+  box-shadow: 0 0 22px var(--icon-glow-color, rgba(70, 215, 255, 0.35)),
+              inset 0 1px 0 rgba(255, 255, 255, 0.07);
+}
+
+/* NeedsAttention item colored left strip */
+.attention-strip {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  border-radius: 999px 0 0 999px;
+}
+
+/* Live pulse indicator dot */
+.live-pulse {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #4ade80;
+  box-shadow: 0 0 0 0 rgba(74, 222, 128, 0.7);
+  animation: breatheDueSoon 1.8s ease-in-out infinite;
+}
+
 @keyframes ambientFloat {
   0% {
     transform: translate3d(0, 0, 0) rotate(0deg) scale(1);
