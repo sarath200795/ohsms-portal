@@ -12,6 +12,7 @@ import {
     isGlobalScopeUserRecord
 } from '../utils/permissions';
 import { readStoredSession } from '../utils/session';
+import { safeDocumentHref } from '../utils/security';
 
 // --- UTILITIES ---
 const fileToBase64 = (file) => new Promise((resolve, reject) => {
@@ -628,7 +629,7 @@ export default function Capa() {
 
                                                             {act.closureEvidence && (
                                                                 <div className="mb-3 mt-2">
-                                                                    <a href={act.closureEvidence} target="_blank" rel="noreferrer" className="text-[10px] bg-emerald-900/30 text-emerald-400 px-3 py-1.5 rounded border border-emerald-500/30 hover:bg-emerald-600 hover:text-white transition-colors inline-flex items-center gap-2 shadow-sm font-bold tracking-widest uppercase">
+                                                                    <a href={safeDocumentHref(act.closureEvidence)} target="_blank" rel="noreferrer" className="text-[10px] bg-emerald-900/30 text-emerald-400 px-3 py-1.5 rounded border border-emerald-500/30 hover:bg-emerald-600 hover:text-white transition-colors inline-flex items-center gap-2 shadow-sm font-bold tracking-widest uppercase">
                                                                         <i className="fas fa-file-invoice"></i> View Attachment
                                                                     </a>
                                                                 </div>

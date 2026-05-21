@@ -31,7 +31,13 @@ const USER_MANAGER_ROLES = [GLOBAL_OWNER_ROLE, SITE_OWNER_ROLE];
 const PROVISIONING_APP_NAME = 'ohsms-user-provisioning';
 
 const normalizeJoinCode = (value) => value.toUpperCase().trim().replace(/[^A-Z0-9-]/g, '');
-const generateJoinCode = () => `JOIN-${Math.random().toString(36).slice(2, 8).toUpperCase()}-${Date.now().toString(36).slice(-4).toUpperCase()}`;
+const generateJoinCode = () => {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    const bytes = new Uint8Array(6);
+    crypto.getRandomValues(bytes);
+    const rand = Array.from(bytes, b => chars[b % 36]).join('');
+    return `JOIN-${rand}-${Date.now().toString(36).slice(-4).toUpperCase()}`;
+};
 
 const safeArr = (val) => {
     if (!val) return [];

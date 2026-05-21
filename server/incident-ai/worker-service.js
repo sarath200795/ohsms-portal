@@ -27,18 +27,24 @@ export class VercelIncidentAiWorkerService {
 
     async runJob(incidentKey) {
         if (this.activeJobs.has(incidentKey)) {
+            console.log('[IncidentAI] job already active, skipping duplicate run', { incidentKey, workerId: this.workerId });
             return;
         }
 
         this.activeJobs.add(incidentKey);
+        const startedAt = Date.now();
+        console.log('[IncidentAI] job started', { incidentKey, workerId: this.workerId });
+
         try {
             const claimedJob = await this.stateStore.claimAnalysisJob(incidentKey, this.workerId, this.leaseMs);
             if (!claimedJob) {
+                console.log('[IncidentAI] job not claimable (already claimed or missing)', { incidentKey, workerId: this.workerId });
                 return;
             }
 
             const evidence = await this.stateStore.getEvidenceRecord(incidentKey);
             if (!evidence) {
+                console.error('[IncidentAI] no evidence record found for claimed job', { incidentKey, workerId: this.workerId });
                 return;
             }
 
@@ -82,7 +88,10 @@ export class VercelIncidentAiWorkerService {
                 failureMessage: undefined,
                 leaseExpiresAt: undefined
             });
+
+            console.log('[IncidentAI] job completed', { incidentKey, workerId: this.workerId, durationMs: Date.now() - startedAt });
         } catch (error) {
+            const durationMs = Date.now() - startedAt;
             const job = await this.stateStore.getAnalysisJob(incidentKey);
             if (job) {
                 await this.updateJob(incidentKey, job, {
@@ -93,7 +102,7 @@ export class VercelIncidentAiWorkerService {
                 });
                 await this.stateStore.deleteAnalysisResult(incidentKey);
             }
-            console.error('Incident AI analysis job failed:', error);
+            console.error('[IncidentAI] job failed', { incidentKey, workerId: this.workerId, durationMs, stage: job?.stage, error: this.normalizeError(error) });
         } finally {
             this.activeJobs.delete(incidentKey);
         }

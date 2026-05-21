@@ -8,6 +8,43 @@ const sanitizeStoragePath = (value) => String(value || '')
     .replace(/^[/\\]+/, '')
     .replace(/\.\./g, '');
 
+// SSRF guard: the worker fetches blob URLs that can originate from client-supplied
+// input (registerUploadedBlob's `url`). Only allow Vercel Blob hosts (or an explicit
+// operator allowlist) so an attacker cannot point evidence at internal/metadata
+// endpoints (e.g. http://169.254.169.254) and have the server fetch them.
+const DEFAULT_BLOB_HOST_SUFFIX = '.blob.vercel-storage.com';
+
+const getAllowedBlobHostSuffixes = () => {
+    const configured = String(process.env.INCIDENT_AI_ALLOWED_BLOB_HOSTS || '')
+        .split(',')
+        .map((entry) => entry.trim().toLowerCase())
+        .filter(Boolean);
+    return configured.length > 0 ? configured : [DEFAULT_BLOB_HOST_SUFFIX];
+};
+
+const assertFetchableBlobUrl = (rawUrl) => {
+    let parsed;
+    try {
+        parsed = new URL(String(rawUrl || '').trim());
+    } catch {
+        throw new Error('Blob URL is not a valid absolute URL.');
+    }
+
+    if (parsed.protocol !== 'https:') {
+        throw new Error('Blob URL must use https.');
+    }
+
+    const host = parsed.hostname.toLowerCase();
+    const allowed = getAllowedBlobHostSuffixes().some(
+        (suffix) => host === suffix.replace(/^\./, '') || host.endsWith(suffix)
+    );
+    if (!allowed) {
+        throw new Error(`Blob host ${host} is not an allowed storage host.`);
+    }
+
+    return parsed.toString();
+};
+
 const ensureDirectory = async (filePath) => {
     await fs.mkdir(path.dirname(filePath), { recursive: true });
 };
@@ -105,7 +142,9 @@ export class VercelBlobIncidentAiStorageService {
             throw new Error(`Blob URL is missing for storage path ${fileRecord?.storagePath || 'unknown'}.`);
         }
 
-        const response = await fetch(blobUrl, {
+        const safeBlobUrl = assertFetchableBlobUrl(blobUrl);
+
+        const response = await fetch(safeBlobUrl, {
             headers: this.blobToken ? {
                 Authorization: `Bearer ${this.blobToken}`
             } : undefined

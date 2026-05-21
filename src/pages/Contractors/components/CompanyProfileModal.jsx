@@ -1,6 +1,7 @@
 import React from 'react';
 import { buildCompanyIncidentEntries } from '../../../utils/contractorIncidents';
 import { safeArr } from '../../../utils/helpers';
+import { safeDocumentHref } from '../../../utils/security';
 
 export default function CompanyProfileModal({
     activeVendor,
@@ -126,7 +127,7 @@ export default function CompanyProfileModal({
                                     <div key={doc.id} className={`p-3 rounded-xl border shadow-sm ${isExpired ? 'bg-red-950/20 border-red-500/30' : 'bg-slate-900 border-slate-700'}`}>
                                         <div className="flex justify-between items-start mb-2">
                                             <div className="text-xs font-bold text-white leading-tight">{doc.name} {doc.isMandatory && <span className="text-[8px] bg-red-900 text-red-300 px-1 ml-1 rounded">REQ</span>}</div>
-                                            {doc.file ? <a href={doc.file} target="_blank" rel="noreferrer" className="text-[9px] bg-blue-900/30 text-blue-400 px-2 py-1 rounded border border-blue-500/30 uppercase font-bold"><i className="fas fa-eye"></i> View</a> : canEdit ? (
+                                            {doc.file ? <a href={safeDocumentHref(doc.file)} target="_blank" rel="noreferrer" className="text-[9px] bg-blue-900/30 text-blue-400 px-2 py-1 rounded border border-blue-500/30 uppercase font-bold"><i className="fas fa-eye"></i> View</a> : canEdit ? (
                                                 <div className="relative overflow-hidden w-20">
                                                     <input type="file" onChange={(event) => onHandleDocUpload(doc.id, event.target.files[0])} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" />
                                                     <div className="w-full bg-slate-800 border border-slate-600 text-slate-300 text-[9px] p-1 text-center rounded uppercase font-bold cursor-pointer">Upload</div>

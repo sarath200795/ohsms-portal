@@ -39,6 +39,8 @@ const FieldPortal = lazyWithRetry(() => import('./pages/FieldPortal'), 'field-po
 
 const VendorPortal = lazyWithRetry(() => import('./pages/VendorPortal'), 'vendor-portal');
 
+const NotFound = lazyWithRetry(() => import('./pages/NotFound'), 'not-found');
+
 const ProtectedRoute = ({ children }) => {
     let session = readStoredSession();
     const fieldPortalSession = readStoredSession(FIELD_PORTAL_SESSION_KEY);
@@ -113,14 +115,14 @@ export default function App() {
                             <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
                             <Route path="/activity-calendar" element={<ProtectedRoute><ActivityCalendar /></ProtectedRoute>} />
                             <Route path="/tutorials" element={<ProtectedRoute><Tutorials /></ProtectedRoute>} />
-                            <Route path="/Analytics" element={<ProtectedRoute><Analytics /></ProtectedRoute>} />
+                            <Route path="/analytics" element={<ProtectedRoute><Analytics /></ProtectedRoute>} />
                             <Route path="/users" element={<ProtectedRoute><Users /></ProtectedRoute>} />
                             <Route path="/sites" element={<ProtectedRoute><Sites /></ProtectedRoute>} />
                             <Route path="/incidents" element={<ProtectedRoute><Incidents /></ProtectedRoute>} />
                             <Route path="/risk" element={<ProtectedRoute><Risk /></ProtectedRoute>} />
                             <Route path="/consultation" element={<ProtectedRoute><Consultation /></ProtectedRoute>} />
                             <Route path="/audit" element={<ProtectedRoute><Audit /></ProtectedRoute>} />
-                            <Route path="/Standards" element={<ProtectedRoute><Standards /></ProtectedRoute>} />
+                            <Route path="/standards" element={<ProtectedRoute><Standards /></ProtectedRoute>} />
                             <Route path="/capa" element={<ProtectedRoute><Capa /></ProtectedRoute>} />
                             <Route path="/training" element={<ProtectedRoute><Training /></ProtectedRoute>} />
                             <Route path="/improvement" element={<ProtectedRoute><Improvement /></ProtectedRoute>} />
@@ -131,7 +133,7 @@ export default function App() {
                             <Route path="/inspections" element={<ProtectedRoute><Inspections /></ProtectedRoute>} />
                             <Route path="/field-app" element={<ProtectedRoute><FieldApp /></ProtectedRoute>} />
 
-                            <Route path="*" element={<Navigate to="/" replace />} />
+                            <Route path="*" element={<NotFound />} />
                         </Routes>
                     </Suspense>
                 </AppExperienceShell>

@@ -1,0 +1,19 @@
+{
+  "name": "ISO 45001 Enterprise Hub",
+  "short_name": "EHS Hub",
+  "description": "Enterprise ISO 45001 safety platform for incidents, inspections, permits, emergency workflows, CAPA, training, contractors, and field operations.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#06090d",
+  "theme_color": "#06090d",
+  "icons": [
+    {
+      "src": "/we-ehs-logo.jpg",
+      "sizes": "500x500",
+      "type": "image/jpeg",
+      "purpose": "any"
+    }
+  ]
+}

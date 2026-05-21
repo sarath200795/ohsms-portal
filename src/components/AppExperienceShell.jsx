@@ -13,6 +13,14 @@ const STICKERS = [
     { src: '/safety-sticker-shield.svg', alt: 'Safety shield sticker', className: 'ambient-sticker ambient-sticker--shield' }
 ];
 
+// Users who opt out of motion (OS setting) get instant navigation with no
+// transition overlay, instead of waiting on the animation timers.
+const prefersReducedMotion = () => (
+    typeof window !== 'undefined'
+    && typeof window.matchMedia === 'function'
+    && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+);
+
 export default function AppExperienceShell({ children }) {
     const location = useLocation();
     const navigate = useNavigate();
@@ -77,6 +85,21 @@ export default function AppExperienceShell({ children }) {
     };
 
     const playTransition = ({ label, action, leadMs = 110, tailMs = 220 } = {}) => {
+        if (prefersReducedMotion()) {
+            // No overlay, no artificial delay — run the navigation immediately.
+            clearTransitionTimers();
+            skipNextRouteEffectRef.current = true;
+            if (typeof action === 'function') {
+                try {
+                    action();
+                } catch (error) {
+                    console.error('Route transition action failed:', error);
+                    skipNextRouteEffectRef.current = false;
+                }
+            }
+            return;
+        }
+
         clearTransitionTimers();
         skipNextRouteEffectRef.current = true;
         setOverlayLabel(label || transitionLabel);
@@ -139,6 +162,7 @@ export default function AppExperienceShell({ children }) {
     });
 
     const triggerPassiveRouteTransition = useEffectEvent((label) => {
+        if (prefersReducedMotion()) return;
         clearTransitionTimers();
         setOverlayLabel(label);
         setOverlayVisible(true);

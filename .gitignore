@@ -23,4 +23,13 @@ dist-ssr
 *.sln
 *.sw?
 .vercel
-.env*.local
+
+# Environment files: never commit real secrets. Only .env.example is tracked.
+.env
+.env.*
+!.env.example
+backend/.env
+backend/.env.*
+**/.env
+**/.env.*
+!**/.env.example

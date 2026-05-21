@@ -1,5 +1,6 @@
 import React from 'react';
 import { safeArr } from '../../../utils/helpers';
+import { safeDocumentHref } from '../../../utils/security';
 
 export default function WorkerProfileModal({
     activeWorker,
@@ -38,7 +39,7 @@ export default function WorkerProfileModal({
                             <div className="flex flex-wrap gap-2">
                                 {activeWorker.medDoc ? (
                                     <div className="flex items-center gap-1">
-                                        <a href={activeWorker.medDoc} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 bg-emerald-900/30 text-emerald-400 border border-emerald-500/30 px-3 py-1.5 rounded-l-lg text-[10px] font-bold uppercase tracking-widest hover:bg-emerald-600 hover:text-white transition-colors"><i className="fas fa-file-medical"></i> Med Fitness</a>
+                                        <a href={safeDocumentHref(activeWorker.medDoc)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 bg-emerald-900/30 text-emerald-400 border border-emerald-500/30 px-3 py-1.5 rounded-l-lg text-[10px] font-bold uppercase tracking-widest hover:bg-emerald-600 hover:text-white transition-colors"><i className="fas fa-file-medical"></i> Med Fitness</a>
                                         {canEdit && <div className="relative overflow-hidden bg-slate-800 border border-slate-600 text-slate-400 hover:text-white cursor-pointer rounded-r-lg px-2 py-1.5 transition-colors" title="Update Doc"><input type="file" onChange={(event) => onHandleWorkerCoreDocUpload('med', event.target.files[0])} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" /><i className="fas fa-upload text-[10px]"></i></div>}
                                     </div>
                                 ) : canEdit ? (
@@ -50,7 +51,7 @@ export default function WorkerProfileModal({
 
                                 {activeWorker.compDoc ? (
                                     <div className="flex items-center gap-1">
-                                        <a href={activeWorker.compDoc} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 bg-blue-900/30 text-blue-400 border border-blue-500/30 px-3 py-1.5 rounded-l-lg text-[10px] font-bold uppercase tracking-widest hover:bg-blue-600 hover:text-white transition-colors"><i className="fas fa-certificate"></i> Competence</a>
+                                        <a href={safeDocumentHref(activeWorker.compDoc)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 bg-blue-900/30 text-blue-400 border border-blue-500/30 px-3 py-1.5 rounded-l-lg text-[10px] font-bold uppercase tracking-widest hover:bg-blue-600 hover:text-white transition-colors"><i className="fas fa-certificate"></i> Competence</a>
                                         {canEdit && <div className="relative overflow-hidden bg-slate-800 border border-slate-600 text-slate-400 hover:text-white cursor-pointer rounded-r-lg px-2 py-1.5 transition-colors" title="Update Doc"><input type="file" onChange={(event) => onHandleWorkerCoreDocUpload('comp', event.target.files[0])} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" /><i className="fas fa-upload text-[10px]"></i></div>}
                                     </div>
                                 ) : canEdit ? (
@@ -88,7 +89,7 @@ export default function WorkerProfileModal({
                                 {safeArr(activeWorker.additionalDocs).map((doc) => (
                                     <div key={doc.id} className="p-3 rounded-xl border border-slate-700 bg-slate-900 shadow-sm flex justify-between items-center">
                                         <div className="text-xs font-bold text-white">{doc.name}</div>
-                                        {doc.file ? <a href={doc.file} target="_blank" rel="noreferrer" className="text-[9px] bg-blue-900/30 text-blue-400 px-2 py-1 rounded border border-blue-500/30 uppercase font-bold"><i className="fas fa-eye"></i> View</a> : canEdit ? (
+                                        {doc.file ? <a href={safeDocumentHref(doc.file)} target="_blank" rel="noreferrer" className="text-[9px] bg-blue-900/30 text-blue-400 px-2 py-1 rounded border border-blue-500/30 uppercase font-bold"><i className="fas fa-eye"></i> View</a> : canEdit ? (
                                             <div className="relative overflow-hidden w-20">
                                                 <input type="file" onChange={(event) => onUploadAdditionalWorkerDoc(doc.id, event.target.files[0])} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" />
                                                 <div className="w-full bg-slate-800 border border-slate-600 text-slate-300 text-[9px] p-1 text-center rounded uppercase font-bold cursor-pointer">Upload</div>

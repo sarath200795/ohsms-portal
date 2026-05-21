@@ -9,7 +9,9 @@
     "build:field-portal": "vite build --config vite.field-portal.config.js",
     "build:all": "npm run build && npm run build:field-portal",
     "test:phase1": "node --test --test-isolation=none tests/permissions.test.mjs tests/user-access.test.mjs",
-    "test:platform": "node --test --test-isolation=none tests/permissions.test.mjs tests/user-access.test.mjs tests/contractor-incidents.test.mjs tests/incidents-utils.test.mjs tests/database-rules.test.mjs tests/field-qr.test.mjs tests/vendor-portal-email.test.mjs",
+    "test:platform": "node --test --test-isolation=none tests/permissions.test.mjs tests/user-access.test.mjs tests/contractor-incidents.test.mjs tests/incidents-utils.test.mjs tests/database-rules.test.mjs tests/field-qr.test.mjs tests/vendor-portal-email.test.mjs tests/reminders.test.mjs",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
     "lint": "eslint src/App.jsx src/FieldPortalApp.jsx src/main.jsx src/fieldPortalMain.jsx src/components src/hooks src/utils src/pages/Audit.jsx src/pages/Incidents/FullScreenIncidents.jsx src/pages/Contractors/components/CompanyProfileModal.jsx src/pages/FieldApp/components/FieldQrScannerModal.jsx tests --report-unused-disable-directives --max-warnings 0",
     "lint:full": "eslint . --report-unused-disable-directives",
     "preview": "vite preview",
@@ -56,7 +58,7 @@
     "react-chartjs-2": "^5.3.1",
     "react-dom": "^19.2.0",
     "react-router-dom": "^7.13.1",
-    "xlsx": "^0.18.5",
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
     "zustand": "^5.0.11"
   },
   "devDependencies": {

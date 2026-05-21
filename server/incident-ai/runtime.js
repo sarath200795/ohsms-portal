@@ -26,18 +26,28 @@ const headersToObject = (request) => {
     return output;
 };
 
+// The standalone backend and Firebase Function entry points call
+// validateBackendRuntimeConfig() at boot, which refuses to start when
+// ALLOW_DEV_AUTH_BYPASS is true in production. The Vercel serverless entry
+// (api/v1.js -> getIncidentAiRuntime) does NOT run that validation, so we must
+// independently refuse the bypass in production here. Otherwise the mock auth
+// service would hand any unauthenticated caller a "Global Owner" context (and
+// honor attacker-controlled x-dev-auth-* headers to impersonate any org).
+const isProductionRuntime = () => String(process.env.NODE_ENV || '').trim().toLowerCase() === 'production';
+
 const resolveAuthContext = async (request, authService, mockAuthService) => {
     const headers = headersToObject(request);
     const token = authService.extractBearerToken(headers);
+    const devBypassAllowed = authService.isDevBypassEnabled() && !isProductionRuntime();
 
     if (token) {
-        if (!authService.isFirebaseAuthConfigured() && authService.isDevBypassEnabled()) {
+        if (!authService.isFirebaseAuthConfigured() && devBypassAllowed) {
             return mockAuthService.resolveAuthContext(headers);
         }
         return authService.resolveVerifiedAuthContext(headers);
     }
 
-    if (authService.isDevBypassEnabled()) {
+    if (devBypassAllowed) {
         return mockAuthService.resolveAuthContext(headers);
     }
 

@@ -201,9 +201,14 @@ export default {
             return await routeRequest(request);
         } catch (error) {
             console.error('Incident AI Vercel API error:', error);
-            return json({
-                error: error?.message || 'Incident AI request failed.'
-            }, getErrorStatus(error));
+            const status = getErrorStatus(error);
+            // Expected client errors (4xx) carry safe, actionable messages.
+            // Unexpected server errors (5xx) may contain internal details
+            // (URLs, stack hints) — return a generic message to the caller.
+            const safeMessage = status >= 500
+                ? 'Incident AI request failed.'
+                : (error?.message || 'Incident AI request failed.');
+            return json({ error: safeMessage }, status);
         }
     }
 };
