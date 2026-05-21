@@ -413,7 +413,7 @@ export default function Dashboard() {
 
     if (localLoading) {
         return (
-            <div className="myth-shell flex h-screen flex-col items-center justify-center bg-[#080705] px-6 text-[var(--myth-ink)]">
+            <div className="myth-shell flex h-screen flex-col items-center justify-center bg-[#031218] px-6 text-[var(--myth-ink)]">
                 <div className="command-panel flex items-center gap-4 rounded-[1.8rem] px-8 py-6">
                     <div className="h-12 w-12 animate-spin rounded-full border-4 border-[rgba(242,201,120,0.12)] border-t-[var(--myth-ember)]"></div>
                     <div>
@@ -432,7 +432,7 @@ export default function Dashboard() {
     const greeting = getDayGreeting();
 
     return (
-        <div className="myth-shell relative flex h-screen flex-col overflow-hidden bg-[#080705] text-white">
+        <div className="myth-shell relative flex h-screen flex-col overflow-hidden bg-[#031218] text-white">
 
             {/* FLOATING ACTION BUTTON */}
             <div className="fixed bottom-8 right-8 z-50 flex flex-col items-end gap-3">

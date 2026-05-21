@@ -3,19 +3,19 @@
 
 :root {
   color-scheme: dark;
-  --myth-bg: #06090d;
-  --myth-surface: #0e141b;
-  --myth-surface-strong: #0b1117;
-  --myth-border: rgba(103, 119, 137, 0.26);
+  --myth-bg: #031218;
+  --myth-surface: #071e2a;
+  --myth-surface-strong: #091f2d;
+  --myth-border: rgba(70, 215, 255, 0.18);
   --myth-border-strong: rgba(247, 146, 51, 0.48);
   --myth-ink: #edf4ff;
-  --myth-muted: #8b96a5;
+  --myth-muted: #8bbac8;
   --myth-ember: #f79233;
   --myth-gold: #ffb84d;
-  --myth-bronze: #4c5663;
-  --myth-ash: #10151a;
+  --myth-bronze: #2a4a5a;
+  --myth-ash: #071520;
   --myth-cyan: #46d7ff;
-  --myth-shadow: 0 24px 54px -28px rgba(0, 0, 0, 0.86);
+  --myth-shadow: 0 24px 54px -28px rgba(0, 30, 50, 0.9);
 }
 
 html,
@@ -33,9 +33,10 @@ body {
   color: var(--myth-ink);
   font-family: "Rajdhani", sans-serif;
   background:
-    radial-gradient(circle at 15% 12%, rgba(70, 215, 255, 0.12), transparent 18%),
+    radial-gradient(circle at 15% 12%, rgba(70, 215, 255, 0.22), transparent 22%),
     radial-gradient(circle at 82% 10%, rgba(247, 146, 51, 0.12), transparent 22%),
-    linear-gradient(180deg, #0a0d11 0%, #0b1117 45%, #06090d 100%);
+    radial-gradient(circle at 50% 90%, rgba(0, 180, 220, 0.10), transparent 30%),
+    linear-gradient(180deg, #041520 0%, #031218 45%, #020d14 100%);
   letter-spacing: 0.02em;
   position: relative;
 }
@@ -615,7 +616,7 @@ h4,
 }
 
 ::-webkit-scrollbar-track {
-  background: #0b1117;
+  background: #071e2a;
 }
 
 ::-webkit-scrollbar-thumb {
@@ -695,7 +696,7 @@ table tbody tr:hover {
 }
 
 .bg-slate-950 {
-  background-color: rgba(9, 13, 18, 1) !important;
+  background-color: rgba(4, 18, 26, 1) !important;
 }
 
 .bg-slate-900\/40,
@@ -712,12 +713,12 @@ table tbody tr:hover {
 }
 
 .bg-slate-900\/40 {
-  background-color: rgba(14, 19, 25, 0.94) !important;
+  background-color: rgba(7, 30, 42, 0.94) !important;
 }
 
 .bg-slate-900\/50,
 .bg-slate-900\/60 {
-  background-color: rgba(14, 19, 25, 0.96) !important;
+  background-color: rgba(7, 30, 42, 0.96) !important;
 }
 
 .bg-slate-900\/80,
@@ -726,7 +727,7 @@ table tbody tr:hover {
 .bg-slate-950\/70,
 .bg-slate-950\/80,
 .bg-slate-950\/90 {
-  background-color: rgba(10, 14, 18, 0.98) !important;
+  background-color: rgba(4, 18, 26, 0.98) !important;
 }
 
 .backdrop-blur-sm,
