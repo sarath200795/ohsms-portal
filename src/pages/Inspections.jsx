@@ -8,6 +8,7 @@ import { canEditCreateForRole, isGlobalOwnerRole } from '../utils/permissions';
 import { readStoredSession } from '../utils/session';
 import { buildRegionOptions, filterSitesByRegion, matchesRegionFilter, normalizeSites } from '../utils/siteRegions';
 import * as XLSX from 'xlsx';
+import { notifyInspectionSubmitted } from '../utils/reportNotificationEmail';
 
 const FREQUENCIES = ['Daily', 'Weekly', 'Monthly', 'Quarterly', 'Bi-Annually', 'Annually'];
 const STATUSES = ['Draft', 'Active', 'Inactive'];
@@ -686,6 +687,13 @@ export default function Inspections() {
             const newRecordRef = push(ref(rtdb, `organizations/${session.orgId}/inspectionRecords`));
             await update(newRecordRef, recordPayload);
             setRecords(prev => [...prev, { firebaseKey: newRecordRef.key, ...recordPayload }]);
+
+            // Fire-and-forget email notification to all org members
+            notifyInspectionSubmitted(
+                { ...recordPayload, firebaseKey: newRecordRef.key, templateName: executingTask.title },
+                users,
+                session.name || session.email || 'Unknown'
+            );
 
             // Clear any deferrals so the next cycle resets to normal
             await update(ref(rtdb, `organizations/${session.orgId}/inspectionTemplates/${executingTask.templateId}`), { deferredTo: null });

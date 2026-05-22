@@ -13,6 +13,7 @@ import {
 } from '../utils/permissions';
 import { readStoredSession } from '../utils/session';
 import { safeDocumentHref } from '../utils/security';
+import { notifyCapaUpdated } from '../utils/reportNotificationEmail';
 
 // --- UTILITIES ---
 const fileToBase64 = (file) => new Promise((resolve, reject) => {
@@ -373,6 +374,11 @@ export default function Capa() {
 
         try {
             await update(ref(rtdb, action.dbPath), payload);
+            notifyCapaUpdated(
+                { ...action, status: newStatus },
+                users,
+                session.name || session.email || 'Unknown'
+            );
             fetchActions(session.orgId); // Re-fetch to guarantee sync
         } catch {
             alert("Failed to update database.");

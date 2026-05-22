@@ -10,6 +10,7 @@ import {
     isSiteOwnerRole
 } from '../utils/permissions';
 import { canAuthenticateStatus, readStoredSession } from '../utils/session';
+import { notifyAuditSaved } from '../utils/reportNotificationEmail';
 
 const fileToBase64 = (file) => new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -107,7 +108,13 @@ const AuditScheduler = ({ setView, session }) => {
         if (!plan.siteId || !plan.startDate || !plan.leadAuditor) return alert("Please fill in Site, Lead Auditor and Dates.");
         const payload = { ...plan, matrix: rows, createdAt: new Date().toISOString(), createdBy: session.user, status: 'Planned' };
         try {
-            await push(ref(rtdb, `organizations/${session.orgId}/auditPlans`), payload);
+            const newRef = await push(ref(rtdb, `organizations/${session.orgId}/auditPlans`), payload);
+            notifyAuditSaved(
+                { ...payload, firebaseKey: newRef.key, title: `Audit Plan — ${plan.siteId || 'All Sites'}` },
+                allUsers,
+                'Audit Plan Saved',
+                session.user || session.email || 'Unknown'
+            );
             alert("Audit Plan Saved Successfully!");
             setView('hub');
         } catch (e) {
@@ -450,7 +457,13 @@ const AuditorWorkplace = ({ setView, session }) => {
         const payload = { docId: docId || '', taskDetails: cleanTask, findings: cleanFindings, status: 'Reported', auditDate: new Date().toISOString(), auditor: session.user || '', siteId: cleanTask.siteId || 'GEN' };
 
         try {
-            await push(ref(rtdb, `organizations/${session.orgId}/auditFindings`), payload);
+            const newRef = await push(ref(rtdb, `organizations/${session.orgId}/auditFindings`), payload);
+            notifyAuditSaved(
+                { ...payload, firebaseKey: newRef.key, title: cleanTask.title || cleanTask.activity || 'Audit Findings' },
+                allUsers,
+                'Audit Report Submitted to Auditee',
+                session.user || session.email || 'Unknown'
+            );
             alert("Audit Saved & Sent to Auditee.");
             setView('hub');
         } catch (e) { alert("Error saving: " + e.message); }
@@ -859,6 +872,12 @@ const AuditeeWorkplace = ({ setView, session }) => {
         const updatedRecord = { ...selectedAudit, status: 'Submitted for Verification', submissionDate: new Date().toISOString() };
         try {
             await update(ref(rtdb, `organizations/${session.orgId}/auditFindings/${selectedAudit.firebaseKey}`), updatedRecord);
+            notifyAuditSaved(
+                { ...updatedRecord, title: updatedRecord.taskDetails?.title || updatedRecord.taskDetails?.activity || 'Audit' },
+                users,
+                'Audit Response Submitted for Verification',
+                session.user || session.email || 'Unknown'
+            );
             alert("Audit Response Submitted Successfully!");
             setMyAudits(myAudits.map(a => a.firebaseKey === selectedAudit.firebaseKey ? updatedRecord : a));
             setSelectedAudit(updatedRecord);

@@ -29,6 +29,7 @@ import IncidentHazardEditorModal from './components/IncidentHazardEditorModal';
 import IncidentHazardMatchesModal from './components/IncidentHazardMatchesModal';
 import IncidentPrintOverlay from './components/IncidentPrintOverlay';
 import IncidentRegistry from './components/IncidentRegistry';
+import { notifyIncidentSaved } from '../../utils/reportNotificationEmail';
 
 const SMART_CATEGORIES = [
     'Fire & Explosion', 'COSHH / Chemical Exposure', 'Asbestos',
@@ -1677,6 +1678,14 @@ export default function Incidents() {
 
             const refreshedIncidents = await readOrgChild(rtdb, session.orgId, 'incidents');
             setIncidentsList(refreshedIncidents ? Object.entries(refreshedIncidents).map(([k, v]) => ({ firebaseKey: k, ...v })) : []);
+            // Fire-and-forget email notification to all org members
+            notifyIncidentSaved(
+                { ...data, id: currentIncidentId || data.id },
+                users,
+                saveStage,
+                session.name || session.email || 'Unknown'
+            );
+
             if (isFieldPortalMode) {
                 const subject = saveStage === 'investigation-final'
                     ? 'incident investigation report'
