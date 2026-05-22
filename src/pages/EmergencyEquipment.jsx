@@ -9,6 +9,7 @@ import { readStoredSession } from '../utils/session';
 import { buildRegionOptions, filterSitesByRegion, matchesRegionFilter, normalizeSites } from '../utils/siteRegions';
 import { QRCodeSVG } from 'qrcode.react';
 import * as XLSX from 'xlsx';
+import { notifyEquipmentUpdated } from '../utils/reportNotificationEmail';
 
 const TYPES = ['Fire Extinguisher', 'First Aid Kit', 'AED / Defibrillator', 'Eye Wash Station', 'Spill Kit', 'Stretcher', 'Wheel Chair', 'Evacuation Chair'];
 const STATUSES = ['Active', 'Needs Inspection', 'Out of Service', 'Missing'];
@@ -355,6 +356,7 @@ export default function EmergencyEquipment() {
     const [isPublic, setIsPublic] = useState(false);
     const [equipment, setEquipment] = useState([]);
     const [sites, setSites] = useState([]);
+    const [users, setUsers] = useState([]);
     const [loading, setLoading] = useState(true);
     const [importing, setImporting] = useState(false);
 
@@ -420,7 +422,7 @@ export default function EmergencyEquipment() {
 
         const fetchData = async () => {
             try {
-                const data = await readOrgChildren(rtdb, sess.orgId, ['emergencyEquipment', 'sites']);
+                const data = await readOrgChildren(rtdb, sess.orgId, ['emergencyEquipment', 'sites', 'users']);
                 let loadedEq = [];
                 if (data.emergencyEquipment) {
                     loadedEq = Object.entries(data.emergencyEquipment).map(([k, v]) => ({ firebaseKey: k, ...v }));
@@ -429,6 +431,9 @@ export default function EmergencyEquipment() {
 
                 if (data.sites) {
                     setSites(normalizeSites(data.sites));
+                }
+                if (data.users) {
+                    setUsers(Object.entries(data.users).map(([k, v]) => ({ id: k, ...v })).filter(u => u.status !== 'Inactive'));
                 }
 
                 if (scanId) {
@@ -654,6 +659,12 @@ export default function EmergencyEquipment() {
             } else {
                 await push(ref(rtdb, `organizations/${session.orgId}/emergencyEquipment`), payload);
             }
+            notifyEquipmentUpdated(
+                payload,
+                users,
+                formData.firebaseKey ? 'Equipment Record Updated' : 'Equipment Record Created',
+                session.name || session.email || 'Unknown'
+            );
             setView('list');
         } catch (e) { alert("Save failed: " + e.message); }
     };
@@ -720,6 +731,12 @@ export default function EmergencyEquipment() {
                     : item
             )));
             setInspectData(prev => (prev ? { ...prev, ...payload, nextDate: nextInspection } : prev));
+            notifyEquipmentUpdated(
+                { ...inspectData, ...payload },
+                users,
+                'Equipment Inspection Logged',
+                session.name || session.email || 'Unknown'
+            );
             alert(isFieldPortalMode ? getFieldPortalVerificationMessage('emergency equipment inspection report') : 'Inspection logged successfully.');
             setInspectData(null);
             setView('list');

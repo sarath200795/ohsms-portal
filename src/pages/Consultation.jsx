@@ -14,6 +14,7 @@ import {
     isSiteOwnerRole
 } from '../utils/permissions';
 import { canAuthenticateStatus, readStoredSession } from '../utils/session';
+import { notifyMeetingSaved } from '../utils/reportNotificationEmail';
 
 const MEETING_TYPES = [
     "HSE Committee Meeting",
@@ -390,6 +391,8 @@ export default function Consultation() {
             } else {
                 await push(ref(rtdb, `organizations/${session.orgId}/consultations`), payload);
             }
+            // Fire-and-forget email to all org members
+            notifyMeetingSaved(payload, users, session.name || session.email || 'Unknown');
             alert("Record saved successfully!");
 
             const refreshedMeetings = await readOrgChild(rtdb, session.orgId, 'consultations');

@@ -152,6 +152,53 @@ export const notifyAuditSaved = (audit, users, actionLabel, triggeredBy) => {
     });
 };
 
+export const notifyMockDrillSubmitted = (drill, users, triggeredBy) => {
+    sendReportNotification({
+        recipients: users,
+        reportType: drill.eventType || 'Mock Drill / Emergency',
+        reportTitle: drill.scenario || drill.title || drill.eventType || 'Emergency Event',
+        reportId: drill.docId || drill.firebaseKey,
+        siteId: drill.siteId,
+        severity: `Score: ${drill.score ?? 'N/A'}%`,
+        actionLabel: 'Drill / Emergency Report Submitted',
+        triggeredBy,
+        reportDate: drill.timestamp || new Date().toISOString(),
+    });
+};
+
+export const notifyEquipmentUpdated = (equipment, users, actionLabel, triggeredBy) => {
+    const expiryInfo = equipment.expiryDate
+        ? `Expiry: ${equipment.expiryDate}`
+        : equipment.nextInspection
+            ? `Next Inspection: ${equipment.nextInspection}`
+            : '';
+    sendReportNotification({
+        recipients: users,
+        reportType: 'Emergency Equipment',
+        reportTitle: `${equipment.type || 'Equipment'} — ${equipment.location || equipment.assetId || ''}`.trim(),
+        reportId: equipment.assetId || equipment.firebaseKey,
+        siteId: equipment.siteId,
+        severity: expiryInfo || equipment.status || '',
+        actionLabel,
+        triggeredBy,
+        reportDate: equipment.lastUpdated || new Date().toISOString(),
+    });
+};
+
+export const notifyMeetingSaved = (meeting, users, triggeredBy) => {
+    sendReportNotification({
+        recipients: users,
+        reportType: 'Committee / Consultation Meeting',
+        reportTitle: meeting.subject || meeting.title || 'Meeting Record',
+        reportId: meeting.docId || meeting.firebaseKey,
+        siteId: meeting.siteId,
+        severity: meeting.meetingType || '',
+        actionLabel: meeting.firebaseKey ? 'Meeting Record Updated' : 'Meeting Record Created',
+        triggeredBy,
+        reportDate: meeting.date || meeting.timestamp || new Date().toISOString(),
+    });
+};
+
 export const notifyCapaUpdated = (action, users, triggeredBy) => {
     sendReportNotification({
         recipients: users,

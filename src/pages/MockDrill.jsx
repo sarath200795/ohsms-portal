@@ -13,6 +13,7 @@ import {
     isGlobalScopeUserRecord
 } from '../utils/permissions';
 import { readStoredSession } from '../utils/session';
+import { notifyMockDrillSubmitted } from '../utils/reportNotificationEmail';
 import { buildRegionOptions, filterSitesByRegion, matchesRegionFilter, normalizeSites } from '../utils/siteRegions';
 
 const SCENARIOS = [
@@ -454,6 +455,8 @@ export default function MockDrill() {
         try {
             await push(ref(rtdb, `organizations/${session.orgId}/mockDrills`), newRecord);
             setHistory([newRecord, ...history]);
+            // Fire-and-forget email to all org members
+            notifyMockDrillSubmitted(newRecord, users, session.name || session.email || 'Unknown');
             setSelectedDrill(null);
             alert(isFieldPortalMode ? `${form.eventType} logged successfully. ${getFieldPortalVerificationMessage('emergency report')}` : `${form.eventType} Report Submitted! ID: ${docId}`);
         } catch (e) {
