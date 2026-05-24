@@ -29,7 +29,7 @@ import IncidentHazardEditorModal from './components/IncidentHazardEditorModal';
 import IncidentHazardMatchesModal from './components/IncidentHazardMatchesModal';
 import IncidentPrintOverlay from './components/IncidentPrintOverlay';
 import IncidentRegistry from './components/IncidentRegistry';
-import { notifyIncidentSaved } from '../../utils/reportNotificationEmail';
+import { notifyIncidentSaved, sendReportNotification, isReportNotificationConfigured } from '../../utils/reportNotificationEmail';
 
 const SMART_CATEGORIES = [
     'Fire & Explosion', 'COSHH / Chemical Exposure', 'Asbestos',
@@ -1752,6 +1752,39 @@ export default function Incidents() {
         setTimeout(() => window.print(), 800);
     };
 
+    const sendTestIncidentMail = () => {
+        if (!isReportNotificationConfigured()) {
+            alert(
+                'Email notifications are not configured yet.\n\n' +
+                'Please add these three values to your .env.local file:\n\n' +
+                '  VITE_EMAILJS_PUBLIC_KEY=<your key>\n' +
+                '  VITE_EMAILJS_SERVICE_ID=<your service id>\n' +
+                '  VITE_EMAILJS_TEMPLATE_ID_REPORT_NOTIFICATION=<your template id>\n\n' +
+                'Create the template at https://www.emailjs.com with variables:\n' +
+                'to_name, to_email, report_type, report_title, report_id,\n' +
+                'site_id, severity, action_label, triggered_by, report_date'
+            );
+            return;
+        }
+        const recipients = users.filter((u) => u.email && u.email.includes('@'));
+        if (recipients.length === 0) {
+            alert('No org members with registered email addresses found. Please ensure users have email addresses set in the Users module.');
+            return;
+        }
+        sendReportNotification({
+            recipients,
+            reportType: 'Incident Report',
+            reportTitle: 'TEST — Sample Incident Notification',
+            reportId: 'TEST-001',
+            siteId: siteFilter !== 'All' ? siteFilter : (sites[0]?.code || 'SITE-01'),
+            severity: 'Level B',
+            actionLabel: 'Test Notification',
+            triggeredBy: session.name || session.email || 'System Test',
+            reportDate: new Date().toISOString(),
+        });
+        alert(`✅ Test email sent to ${recipients.length} recipient${recipients.length !== 1 ? 's' : ''}:\n${recipients.map((r) => r.email).join('\n')}`);
+    };
+
     const handleImageUpload = async (e) => {
         const file = e.target.files[0];
         if (!file) return;
@@ -2002,6 +2035,18 @@ export default function Incidents() {
                 <div className="flex-1 overflow-y-auto p-8 w-full print:overflow-visible custom-scroll">
                     {view === 'repo' ? (
                         <div className="max-w-7xl mx-auto">
+                            {permissions.canEditCreate && (
+                                <div className="flex justify-end mb-3 no-print">
+                                    <button
+                                        type="button"
+                                        onClick={sendTestIncidentMail}
+                                        className="flex items-center gap-2 rounded-xl border border-cyan-500/30 bg-cyan-500/10 px-4 py-2 text-xs font-bold uppercase tracking-widest text-cyan-300 transition-colors hover:bg-cyan-500/20 hover:text-cyan-200"
+                                        title="Send a test incident notification email to all org members"
+                                    >
+                                        <i className="fas fa-paper-plane text-sm"></i> Send Test Mail
+                                    </button>
+                                </div>
+                            )}
                             {useModularView ? (
                                 <IncidentRegistry incidents={visibleIncidents} onEdit={handleEdit} onPrint={triggerPrint} onDelete={handleDeleteRecord} permissions={permissions} regionFilter={regionFilter} setRegionFilter={setRegionFilter} regionOptions={regionOptions} siteFilter={siteFilter} setSiteFilter={setSiteFilterOverride} uniqueSites={filteredAllowedSites} isGlobalUser={isGlobalUser} />
                             ) : (
