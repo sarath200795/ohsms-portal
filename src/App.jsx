@@ -38,7 +38,8 @@ const FieldPortal = lazyWithRetry(() => import('./pages/FieldPortal'), 'field-po
 
 const VendorPortal = lazyWithRetry(() => import('./pages/VendorPortal'), 'vendor-portal');
 
-const NotFound = lazyWithRetry(() => import('./pages/NotFound'), 'not-found');
+const NotFound      = lazyWithRetry(() => import('./pages/NotFound'),      'not-found');
+const DatabaseSetup = lazyWithRetry(() => import('./pages/DatabaseSetup'), 'database-setup');
 
 const ProtectedRoute = ({ children }) => {
     let session = readStoredSession();
@@ -103,6 +104,9 @@ export default function App() {
                         )}
                     >
                         <Routes>
+                            {/* Database configuration wizard — accessible without login */}
+                            <Route path="/setup" element={<DatabaseSetup />} />
+
                             <Route path="/" element={<Login />} />
                             <Route path="/vendor-portal" element={<VendorPortal />} />
                             <Route path="/field-portal" element={<FieldPortal />} />

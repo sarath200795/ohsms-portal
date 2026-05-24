@@ -29,8 +29,12 @@ import firebaseAdapter from './adapters/firebase.js';
 import restAdapter    from './adapters/rest.js';
 
 // ─── adapter selection ────────────────────────────────────────────────────────
+// Priority: localStorage (set by /setup page) → VITE_DB_ADAPTER env var → 'firebase'
+const _runtimeAdapter = (() => {
+    try { return localStorage.getItem('ohsms_db_adapter'); } catch { return null; }
+})();
 
-const ADAPTER_KEY = import.meta.env.VITE_DB_ADAPTER || 'firebase';
+const ADAPTER_KEY = _runtimeAdapter || import.meta.env.VITE_DB_ADAPTER || 'firebase';
 
 const ADAPTERS = {
     firebase: firebaseAdapter,

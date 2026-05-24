@@ -18,9 +18,23 @@
  * that returns an event-stream with `data: <json>\n\n` events.
  */
 
-const BASE_URL = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '');
-const SSE_ENABLED = import.meta.env.VITE_API_SSE === 'true';
-const POLL_INTERVAL_MS = Number(import.meta.env.VITE_API_POLL_MS || 5000);
+// ── Runtime config override ──────────────────────────────────────────────────
+// The /setup page stores REST config in localStorage so the adapter can be
+// switched at runtime (on page reload) without a new build.
+// Priority: localStorage → VITE_ env vars → empty string
+const _ls = (() => {
+    try {
+        return {
+            url:     localStorage.getItem('ohsms_rest_base_url') || null,
+            sse:     localStorage.getItem('ohsms_rest_sse')      || null,
+            pollMs:  localStorage.getItem('ohsms_rest_poll_ms')  || null,
+        };
+    } catch { return {}; }
+})();
+
+const BASE_URL         = (_ls.url     || import.meta.env.VITE_API_BASE_URL  || '').replace(/\/$/, '');
+const SSE_ENABLED      = (_ls.sse     || import.meta.env.VITE_API_SSE       || 'false') === 'true';
+const POLL_INTERVAL_MS = Number(_ls.pollMs || import.meta.env.VITE_API_POLL_MS || 5000);
 
 // ─── JWT token store ──────────────────────────────────────────────────────────
 // The auth adapter writes the token here; this adapter reads it for every request.

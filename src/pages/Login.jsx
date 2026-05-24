@@ -115,6 +115,11 @@ export default function Login() {
     const [regEmail, setRegEmail] = useState('');
     const [regPassword, setRegPassword] = useState('');
 
+    // Database choice shown in Create Workspace step
+    const [dbChoice, setDbChoice] = useState(() => {
+        try { return localStorage.getItem('ohsms_db_adapter') || 'firebase'; } catch { return 'firebase'; }
+    });
+
     const isRegistering = authMode !== 'login';
     const isJoinMode = authMode === 'join';
     const isCreateMode = authMode === 'create';
@@ -473,6 +478,54 @@ export default function Login() {
                                         : 'This creates a new organization and assigns you as the first Global Owner.'}
                                 </p>
                             </div>
+
+                            {/* ── Database choice (Create Workspace only) ── */}
+                            {isCreateMode && (
+                                <div className="rounded-xl border border-gray-700/50 bg-black/20 p-3 space-y-2.5">
+                                    <p className="legendary-title text-[10px] text-[var(--myth-cyan)]">🗄️ Database Connection</p>
+                                    <div className="grid grid-cols-2 gap-2">
+                                        <button type="button" onClick={() => setDbChoice('firebase')}
+                                            className={`rounded-lg border p-2 text-left transition-all ${dbChoice === 'firebase' ? 'border-orange-500/50 bg-orange-950/30' : 'border-gray-700 hover:border-gray-600'}`}>
+                                            <p className="text-base leading-none mb-1">🔥</p>
+                                            <p className="text-[11px] font-black text-white">Firebase</p>
+                                            <p className="text-[9px] text-gray-500 mt-0.5">Google managed, free tier</p>
+                                        </button>
+                                        <button type="button" onClick={() => setDbChoice('rest')}
+                                            className={`rounded-lg border p-2 text-left transition-all ${dbChoice === 'rest' ? 'border-cyan-500/50 bg-cyan-950/30' : 'border-gray-700 hover:border-gray-600'}`}>
+                                            <p className="text-base leading-none mb-1">🖥️</p>
+                                            <p className="text-[11px] font-black text-white">Own Database</p>
+                                            <p className="text-[9px] text-gray-500 mt-0.5">PostgreSQL, MongoDB, MySQL…</p>
+                                        </button>
+                                    </div>
+
+                                    {dbChoice === 'firebase' && (
+                                        <div className="rounded-lg border border-orange-500/20 bg-orange-950/15 p-2.5 space-y-1">
+                                            <p className="text-[10px] font-bold text-orange-400">🔥 Firebase Quick Setup</p>
+                                            <p className="text-[10px] text-gray-400">1. Go to <a href="https://console.firebase.google.com" target="_blank" rel="noreferrer" className="text-orange-300 underline">console.firebase.google.com</a> — create a project</p>
+                                            <p className="text-[10px] text-gray-400">2. Enable Realtime Database + Email/Password Auth</p>
+                                            <p className="text-[10px] text-gray-400">3. Copy your config and enter it in the setup wizard</p>
+                                            <a href="/setup" target="_blank" rel="noreferrer"
+                                                className="inline-block mt-1 text-[10px] font-bold text-cyan-400 hover:text-cyan-300 transition-colors">
+                                                → Open Database Setup Wizard ↗
+                                            </a>
+                                        </div>
+                                    )}
+
+                                    {dbChoice === 'rest' && (
+                                        <div className="rounded-lg border border-cyan-500/20 bg-cyan-950/15 p-2.5 space-y-1">
+                                            <p className="text-[10px] font-bold text-cyan-400">🖥️ Own Database Setup</p>
+                                            <p className="text-[10px] text-gray-400">1. Set up a REST API backend (Node.js, Python, PHP, etc.)</p>
+                                            <p className="text-[10px] text-gray-400">2. Implement the OHSMS API contract (GET/POST/PATCH/DELETE /{'{path}'})</p>
+                                            <p className="text-[10px] text-gray-400">3. Enter your API URL in the setup wizard</p>
+                                            <p className="text-[10px] text-gray-400">💡 Easiest start: <a href="https://supabase.com" target="_blank" rel="noreferrer" className="text-cyan-300 underline">Supabase</a> (free PostgreSQL + REST API)</p>
+                                            <a href="/setup" target="_blank" rel="noreferrer"
+                                                className="inline-block mt-1 text-[10px] font-bold text-cyan-400 hover:text-cyan-300 transition-colors">
+                                                → Full Setup Guide &amp; API Contract ↗
+                                            </a>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
                             <div>
                                 <label className="legendary-title mb-1.5 block text-[10px] text-[var(--myth-cyan)]">{isJoinMode ? 'Workspace Join Code' : 'Organization Name'}</label>
                                 {isJoinMode ? (
@@ -505,9 +558,15 @@ export default function Login() {
                     )}
 
                     <div className="command-divider mt-5"></div>
-                    <p className="mt-3 text-center text-[10px] uppercase tracking-[0.24em] text-[var(--myth-muted)]">
-                        Powered by WE EHS Safety Tool
-                    </p>
+                    <div className="mt-3 flex items-center justify-between">
+                        <p className="text-[10px] uppercase tracking-[0.24em] text-[var(--myth-muted)]">
+                            Powered by WE EHS Safety Tool
+                        </p>
+                        <a href="/setup"
+                            className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-[0.14em] text-gray-600 hover:text-cyan-400 transition-colors">
+                            🗄️ Configure Database
+                        </a>
+                    </div>
                 </section>
             </div>
         </div>
