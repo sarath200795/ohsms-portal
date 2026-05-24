@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { ref, update } from 'firebase/database';
-import { rtdb } from '../config/firebase';
+import { dbUpdate } from '../services/db/index.js';
 import * as XLSX from 'xlsx';
 import { readOrgChildren } from '../utils/orgData';
 import {
@@ -87,7 +86,7 @@ export default function Capa() {
     const fetchActions = async (orgId) => {
         setLoading(true);
         try {
-            const data = await readOrgChildren(rtdb, orgId, [
+            const data = await readOrgChildren(null, orgId, [
                 'sites',
                 'users',
                 'incidents',
@@ -373,7 +372,7 @@ export default function Capa() {
         }
 
         try {
-            await update(ref(rtdb, action.dbPath), payload);
+            await dbUpdate(action.dbPath, payload);
             notifyCapaUpdated(
                 { ...action, status: newStatus },
                 users,
@@ -389,7 +388,7 @@ export default function Capa() {
         if (!permissions.canEditCreate) return alert("Security Error: You do not have permission to reassign actions.");
         setActions(prev => prev.map(a => a.uid === action.uid ? { ...a, owner: newOwner } : a));
         try {
-            await update(ref(rtdb, action.dbPath), { owner: newOwner, own: newOwner });
+            await dbUpdate(action.dbPath, { owner: newOwner, own: newOwner });
         } catch {
             alert("Failed to update owner.");
             fetchActions(session.orgId);

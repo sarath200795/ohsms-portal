@@ -1,6 +1,22 @@
-import { equalTo, get, orderByChild, query, ref } from 'firebase/database';
+/**
+ * orgData — organisation-scoped data helpers
+ *
+ * These helpers are the single source of truth for READING organisation data.
+ * They route through the database service (dbGet / dbQuery) which in turn
+ * uses whichever adapter is configured by VITE_DB_ADAPTER.
+ *
+ * The legacy `db` / `rtdb` first argument is accepted but IGNORED — the
+ * active database adapter is resolved at module initialisation time.  This
+ * keeps all existing call sites working without touching every page component.
+ */
+
+import { dbGet, dbQuery } from '../services/db/index.js';
 import { isGlobalOwnerRole } from './permissions.js';
 import { readStoredSession } from './session';
+
+// ─── site-scoped collections ─────────────────────────────────────────────────
+// Records in these collections are filtered by siteId when the user is
+// assigned to a specific site (not GLOBAL).
 
 const SITE_SCOPED_COLLECTIONS = new Set([
     'riskAssessments',
@@ -22,11 +38,13 @@ const SITE_SCOPED_COLLECTIONS = new Set([
     'illnessRecords'
 ]);
 
-const mergeSnapshots = (snapshots) => {
+// ─── helpers ─────────────────────────────────────────────────────────────────
+
+const mergeRecords = (results) => {
     const merged = {};
-    snapshots.forEach((snap) => {
-        if (!snap.exists()) return;
-        Object.entries(snap.val() || {}).forEach(([key, value]) => {
+    results.forEach((rec) => {
+        if (!rec || typeof rec !== 'object') return;
+        Object.entries(rec).forEach(([key, value]) => {
             merged[key] = value;
         });
     });
@@ -46,30 +64,49 @@ const getScopedQuerySites = (session, childName) => {
     return scopedSites;
 };
 
-export const readOrgChild = async (db, orgId, childName, options = {}) => {
+// ─── public API ──────────────────────────────────────────────────────────────
+
+/**
+ * Read one named child of an organisation node, applying site-scoping where
+ * applicable.
+ *
+ * @param {*}      _db        Ignored — kept for backward compatibility.
+ * @param {string} orgId
+ * @param {string} childName  e.g. "incidents", "users", "sites"
+ * @param {object} [options]
+ * @param {object} [options.session]  Override for the current session (optional).
+ * @returns {Promise<Record<string,any>|null>}
+ */
+export const readOrgChild = async (_db, orgId, childName, options = {}) => {
     const session = options.session || readStoredSession();
+    const basePath = `organizations/${orgId}/${childName}`;
 
     if (SITE_SCOPED_COLLECTIONS.has(childName)) {
         const scopedSites = getScopedQuerySites(session, childName);
         if (scopedSites.length > 0) {
-            const snapshots = await Promise.all(
-                scopedSites.map((siteId) =>
-                    get(query(ref(db, `organizations/${orgId}/${childName}`), orderByChild('siteId'), equalTo(siteId)))
-                )
+            const results = await Promise.all(
+                scopedSites.map((siteId) => dbQuery(basePath, 'siteId', siteId))
             );
-            return mergeSnapshots(snapshots);
+            return mergeRecords(results);
         }
     }
 
-    const snap = await get(ref(db, `organizations/${orgId}/${childName}`));
-    return snap.exists() ? snap.val() : null;
+    return dbGet(basePath);
 };
 
-export const readOrgChildren = async (db, orgId, childNames = [], options = {}) => {
-    const uniqueChildren = [...new Set(childNames.filter(Boolean))];
+/**
+ * Read multiple named children of an organisation node in parallel.
+ *
+ * @param {*}        _db       Ignored — kept for backward compatibility.
+ * @param {string}   orgId
+ * @param {string[]} childNames
+ * @param {object}   [options]
+ * @returns {Promise<Record<string, Record<string,any>|null>>}
+ */
+export const readOrgChildren = async (_db, orgId, childNames = [], options = {}) => {
+    const unique = [...new Set(childNames.filter(Boolean))];
     const entries = await Promise.all(
-        uniqueChildren.map(async (childName) => [childName, await readOrgChild(db, orgId, childName, options)])
+        unique.map(async (name) => [name, await readOrgChild(null, orgId, name, options)])
     );
-
     return Object.fromEntries(entries);
 };

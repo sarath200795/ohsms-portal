@@ -1,17 +1,22 @@
+/**
+ * useDbData — hook to fetch multiple organisation collections in parallel.
+ *
+ * Previously named useFirebaseData; renamed to reflect the database-agnostic
+ * architecture, but the old name is also exported for backward compatibility.
+ *
+ * @param {string}   orgId
+ * @param {string[]} tables  e.g. ['ptwRecords', 'sites']
+ */
+
 import { useEffect, useMemo, useState } from 'react';
-import { ref, get } from 'firebase/database';
-import { rtdb } from '../config/firebase';
+import { dbGet } from '../services/db/index.js';
 import { safeArrayParse } from '../utils/helpers';
 
-/**
- * Custom hook to fetch targeted Firebase data in parallel.
- * @param {string} orgId - The organization ID.
- * @param {Array<string>} tables - Array of table names to fetch (e.g., ['ptwRecords', 'sites']).
- */
-export function useFirebaseData(orgId, tables = []) {
-    const [data, setData] = useState({});
+export function useDbData(orgId, tables = []) {
+    const [data, setData]       = useState({});
     const [loading, setLoading] = useState(true);
-    const [error, setError] = useState(null);
+    const [error, setError]     = useState(null);
+
     const tablesKey = useMemo(
         () => JSON.stringify(Array.isArray(tables) ? tables : []),
         [tables]
@@ -31,22 +36,22 @@ export function useFirebaseData(orgId, tables = []) {
             setLoading(true);
             setError(null);
             try {
-                const orgRef = `organizations/${orgId}`;
-                
-                // Create an array of Firebase get() promises based on requested tables
-                const promises = requestedTables.map(table => get(ref(rtdb, `${orgRef}/${table}`)));
-                const snapshots = await Promise.all(promises);
+                const promises = requestedTables.map((table) =>
+                    dbGet(`organizations/${orgId}/${table}`)
+                );
+                const results = await Promise.all(promises);
 
                 const resultData = {};
-                
-                // Map the results back to their table names
-                snapshots.forEach((snap, index) => {
+                results.forEach((value, index) => {
                     const tableName = requestedTables[index];
-                    if (snap.exists()) {
-                        // Keep Sites as an object for mapping, parse everything else as safe arrays
-                        resultData[tableName] = tableName === 'sites' 
-                            ? Object.keys(snap.val()).map(k => ({ code: snap.val()[k].code || k, name: snap.val()[k].name || k }))
-                            : safeArrayParse(snap.val());
+                    if (value !== null && value !== undefined) {
+                        resultData[tableName] =
+                            tableName === 'sites'
+                                ? Object.keys(value).map((k) => ({
+                                      code: value[k].code || k,
+                                      name: value[k].name || k,
+                                  }))
+                                : safeArrayParse(value);
                     } else {
                         resultData[tableName] = [];
                     }
@@ -54,7 +59,7 @@ export function useFirebaseData(orgId, tables = []) {
 
                 setData(resultData);
             } catch (err) {
-                console.error("Firebase Fetch Error:", err);
+                console.error('[useDbData] fetch error:', err);
                 setError(err);
             } finally {
                 setLoading(false);
@@ -66,3 +71,6 @@ export function useFirebaseData(orgId, tables = []) {
 
     return { data, loading, error };
 }
+
+// ─── backward-compat alias ────────────────────────────────────────────────────
+export const useFirebaseData = useDbData;

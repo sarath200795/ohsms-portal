@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ref, get, update, push, remove } from 'firebase/database';
-import { rtdb } from '../config/firebase';
+import { dbGet, dbUpdate, dbPush, dbRemove } from '../services/db/index.js';
 import { isGlobalOwnerRole } from '../utils/permissions';
 import { readStoredSession } from '../utils/session';
 import { normalizeSites, SITE_REGION_OPTIONS } from '../utils/siteRegions';
@@ -31,9 +30,9 @@ export default function Sites() {
 
         const fetchSites = async () => {
             try {
-                const snap = await get(ref(rtdb, `organizations/${sess.orgId}/sites`));
-                if (snap.exists()) {
-                    setSites(normalizeSites(snap.val()));
+                const snap = await dbGet(`organizations/${sess.orgId}/sites`);
+                if (snap !== null) {
+                    setSites(normalizeSites(snap));
                 }
             } catch (e) {
                 console.error("Failed to fetch sites:", e);
@@ -78,13 +77,12 @@ export default function Sites() {
 
             if (formData.firebaseKey) {
                 // Update
-                await update(ref(rtdb, `organizations/${session.orgId}/sites/${formData.firebaseKey}`), payload);
+                await dbUpdate(`organizations/${session.orgId}/sites/${formData.firebaseKey}`, payload);
                 setSites(sites.map(s => s.firebaseKey === formData.firebaseKey ? { ...s, ...payload } : s));
             } else {
                 // Create
-                const newRef = push(ref(rtdb, `organizations/${session.orgId}/sites`));
-                await update(newRef, payload);
-                setSites([...sites, { firebaseKey: newRef.key, ...payload }].sort((a, b) => a.code.localeCompare(b.code)));
+                const newId = await dbPush(`organizations/${session.orgId}/sites`, payload);
+                setSites([...sites, { firebaseKey: newId, ...payload }].sort((a, b) => a.code.localeCompare(b.code)));
             }
 
             setIsModalOpen(false);
@@ -97,7 +95,7 @@ export default function Sites() {
     const handleDelete = async (firebaseKey, code) => {
         if (!window.confirm(`WARNING: Are you sure you want to delete Site [${code}]? This may break records assigned to this site.`)) return;
         try {
-            await remove(ref(rtdb, `organizations/${session.orgId}/sites/${firebaseKey}`));
+            await dbRemove(`organizations/${session.orgId}/sites/${firebaseKey}`);
             setSites(sites.filter(s => s.firebaseKey !== firebaseKey));
             alert("Site deleted successfully.");
         } catch {

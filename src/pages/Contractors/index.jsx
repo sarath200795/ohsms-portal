@@ -2,8 +2,8 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { initializeApp } from 'firebase/app';
 import { createUserWithEmailAndPassword, getAuth, sendPasswordResetEmail, signInWithEmailAndPassword, signOut, updatePassword } from 'firebase/auth';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { get, push, ref, remove, set, update } from 'firebase/database';
-import { auth, rtdb } from '../../config/firebase';
+import { dbGet, dbPush, dbRemove, dbSet, dbUpdate } from '../../services/db/index.js';
+import { auth, firebaseConfig } from '../../config/firebase';
 import { fileToBase64, safeArr } from '../../utils/helpers';
 import { getMandatoryDocs, GOODS_TYPES, SERVICE_TYPES } from '../../utils/constants';
 import { readOrgChildren } from '../../utils/orgData';
@@ -108,7 +108,7 @@ export default function Contractors() {
 
         const fetchData = async () => {
             try {
-                const data = await readOrgChildren(rtdb, sess.orgId, ['contractors', 'users', 'sites', 'trainings', 'ptwRecords', 'incidents']);
+                const data = await readOrgChildren(null, sess.orgId, ['contractors', 'users', 'sites', 'trainings', 'ptwRecords', 'incidents']);
 
                 if (data.contractors) setContractors(parseContractors(data.contractors));
                 if (data.users) {
@@ -253,9 +253,9 @@ export default function Contractors() {
     }, [globalIncidents, globalTrainings, visibleContractors, workerCompanyFilter]);
 
     const refreshContractors = async () => {
-        const snap = await get(ref(rtdb, `organizations/${session.orgId}/contractors`));
-        if (snap.exists()) {
-            setContractors(parseContractors(snap.val()));
+        const snap = await dbGet(`organizations/${session.orgId}/contractors`);
+        if (snap !== null) {
+            setContractors(parseContractors(snap));
         }
     };
 
@@ -304,9 +304,9 @@ export default function Contractors() {
             const keyToUpdate = formData.firebaseKey;
             delete payload.firebaseKey;
 
-            if (keyToUpdate) await update(ref(rtdb, `organizations/${session.orgId}/contractors/${keyToUpdate}`), payload);
+            if (keyToUpdate) await dbUpdate(`organizations/${session.orgId}/contractors/${keyToUpdate}`, payload);
             else {
-                const createdRef = await push(ref(rtdb, `organizations/${session.orgId}/contractors`), payload);
+                const createdRef = await dbPush(`organizations/${session.orgId}/contractors`, payload);
                 createdVendor = {
                     ...payload,
                     firebaseKey: createdRef.key,
@@ -337,7 +337,7 @@ export default function Contractors() {
 
     const updateVendorDB = async (vendorKey, payload) => {
         try {
-            await update(ref(rtdb, `organizations/${session.orgId}/contractors/${vendorKey}`), payload);
+            await dbUpdate(`organizations/${session.orgId}/contractors/${vendorKey}`, payload);
 
             setContractors((prev) => prev.map((contractor) => {
                 if (contractor.firebaseKey !== vendorKey) return contractor;
@@ -619,8 +619,8 @@ export default function Contractors() {
                     portalSharedIdentity: reusingExistingOrgIdentity
                 };
 
-                await update(ref(rtdb, `organizations/${session.orgId}/users/${portalUid}`), nextUserPayload);
-                await update(ref(rtdb, `organizations/${session.orgId}/userPasswordState/${portalUid}`), {
+                await dbUpdate(`organizations/${session.orgId}/users/${portalUid}`, nextUserPayload);
+                await dbUpdate(`organizations/${session.orgId}/userPasswordState/${portalUid}`, {
                     mustChangePassword: nextUserPayload.mustChangePassword,
                     temporaryPasswordIssued: nextUserPayload.temporaryPasswordIssued,
                     temporaryPasswordIssuedAt: nextUserPayload.temporaryPasswordIssuedAt || '',
@@ -628,7 +628,7 @@ export default function Contractors() {
                 });
 
                 if (existingOrgUser?.firebaseKey && existingOrgUser.firebaseKey !== portalUid) {
-                    await update(ref(rtdb, `organizations/${session.orgId}/users/${existingOrgUser.firebaseKey}`), {
+                    await dbUpdate(`organizations/${session.orgId}/users/${existingOrgUser.firebaseKey}`, {
                         status: 'Deleted',
                         vendorPortal: false,
                         portalLinkedContractorId: '',
@@ -639,7 +639,7 @@ export default function Contractors() {
                 }
 
                 try {
-                    await set(ref(rtdb, `userDirectory/${portalUid}`), { orgId: session.orgId });
+                    await dbSet(`userDirectory/${portalUid}`, { orgId: session.orgId });
                 } catch (dirError) {
                     const dirMessage = String(dirError?.message || '').toLowerCase();
                     if (dirMessage.includes('permission denied')) {
@@ -765,10 +765,8 @@ export default function Contractors() {
             return;
         }
 
-        const vendorRef = ref(rtdb, `organizations/${session.orgId}/contractors/${addWorkerData.contractorId}`);
-        const snap = await get(vendorRef);
-        if (snap.exists()) {
-            const vendorData = snap.val();
+        const vendorData = await dbGet(`organizations/${session.orgId}/contractors/${addWorkerData.contractorId}`);
+        if (vendorData !== null) {
             const newWorkerObj = {
                 id: Date.now().toString(),
                 name: addWorkerData.name,
@@ -872,7 +870,7 @@ export default function Contractors() {
                         deletedBy
                     };
 
-                await update(ref(rtdb, `organizations/${session.orgId}/users/${activeVendor.portalUid}`), linkedUserUpdates);
+                await dbUpdate(`organizations/${session.orgId}/users/${activeVendor.portalUid}`, linkedUserUpdates);
 
                 setOrgUsers((prev) => prev.map((user) => (
                     user.firebaseKey === activeVendor.portalUid
@@ -884,7 +882,7 @@ export default function Contractors() {
                 )));
             }
 
-            await remove(ref(rtdb, `organizations/${session.orgId}/contractors/${activeVendor.firebaseKey}`));
+            await dbRemove(`organizations/${session.orgId}/contractors/${activeVendor.firebaseKey}`);
 
             setContractors((prev) => prev.filter((contractor) => contractor.firebaseKey !== activeVendor.firebaseKey));
             setActiveVendor(null);
@@ -907,11 +905,11 @@ export default function Contractors() {
 
         try {
             const base64 = await fileToBase64(file);
-            const vendorRef = ref(rtdb, `organizations/${session.orgId}/contractors/${activeWorker.contractorId}`);
-            const snap = await get(vendorRef);
-            if (!snap.exists()) return;
+            const snap = await dbGet(`organizations/${session.orgId}/contractors/${activeWorker.contractorId}`);
+        if (!snap) return;
+        const vendorData = snap;
 
-            const updatedWorkers = safeArr(snap.val().workers).map((worker) => {
+            const updatedWorkers = safeArr(snap.workers).map((worker) => {
                 if (worker.id !== activeWorker.id) return worker;
                 const updatedWorker = { ...worker };
                 if (type === 'med') {
@@ -949,11 +947,11 @@ export default function Contractors() {
         if (!newWorkerDocReq) return;
 
         const newDoc = { id: Date.now().toString(), name: newWorkerDocReq, status: 'Requested', file: null };
-        const vendorRef = ref(rtdb, `organizations/${session.orgId}/contractors/${activeWorker.contractorId}`);
-        const snap = await get(vendorRef);
-        if (!snap.exists()) return;
+        const snap = await dbGet(`organizations/${session.orgId}/contractors/${activeWorker.contractorId}`);
+        if (!snap) return;
+        const vendorData = snap;
 
-        const updatedWorkers = safeArr(snap.val().workers).map((worker) => (
+        const updatedWorkers = safeArr(snap.workers).map((worker) => (
             worker.id === activeWorker.id ? { ...worker, additionalDocs: [...safeArr(worker.additionalDocs), newDoc] } : worker
         ));
 
@@ -972,11 +970,11 @@ export default function Contractors() {
 
         try {
             const base64 = await fileToBase64(file);
-            const vendorRef = ref(rtdb, `organizations/${session.orgId}/contractors/${activeWorker.contractorId}`);
-            const snap = await get(vendorRef);
-            if (!snap.exists()) return;
+            const snap = await dbGet(`organizations/${session.orgId}/contractors/${activeWorker.contractorId}`);
+        if (!snap) return;
+        const vendorData = snap;
 
-            const updatedWorkers = safeArr(snap.val().workers).map((worker) => {
+            const updatedWorkers = safeArr(snap.workers).map((worker) => {
                 if (worker.id !== activeWorker.id) return worker;
                 return {
                     ...worker,

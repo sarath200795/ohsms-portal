@@ -1,9 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { deleteApp, getApps, initializeApp } from 'firebase/app';
-import { createUserWithEmailAndPassword, deleteUser, getAuth, signOut } from 'firebase/auth';
-import { ref, get, set, update, remove, push } from 'firebase/database';
-import { auth, firebaseConfig, rtdb } from '../config/firebase';
+import authService from '../services/auth/index.js';
+import { dbGet, dbSet, dbUpdate, dbRemove, dbPush, dbMultiUpdate } from '../services/db/index.js';
 import { readOrgChildren } from '../utils/orgData';
 import {
     GLOBAL_OWNER_ROLE,
@@ -28,8 +26,6 @@ import { generateTemporaryPassword } from '../utils/security';
 
 const ROLES = SUPPORTED_USER_ROLES;
 const USER_MANAGER_ROLES = [GLOBAL_OWNER_ROLE, SITE_OWNER_ROLE];
-const PROVISIONING_APP_NAME = 'ohsms-user-provisioning';
-
 const normalizeJoinCode = (value) => value.toUpperCase().trim().replace(/[^A-Z0-9-]/g, '');
 const generateJoinCode = () => {
     const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
@@ -46,14 +42,8 @@ const safeArr = (val) => {
     return [];
 };
 
-const getProvisioningAuth = () => {
-    const existingApp = getApps().find((firebaseApp) => firebaseApp.name === PROVISIONING_APP_NAME);
-    const provisioningApp = existingApp || initializeApp(firebaseConfig, PROVISIONING_APP_NAME);
-    return getAuth(provisioningApp);
-};
-
 const ensureCurrentAdminDirectory = async (sess) => {
-    const currentUser = auth.currentUser;
+    const currentUser = authService.getCurrentUser();
     if (!currentUser || !sess?.orgId || !isGlobalOwnerRole(sess.role)) return sess;
 
     const repairedSession = {
@@ -63,11 +53,11 @@ const ensureCurrentAdminDirectory = async (sess) => {
     };
 
     try {
-        const userRef = ref(rtdb, `organizations/${sess.orgId}/users/${currentUser.uid}`);
-        const userSnap = await get(userRef);
+        const userPath = `organizations/${sess.orgId}/users/${currentUser.uid}`;
+        const userData = await dbGet(userPath);
 
-        if (!userSnap.exists()) {
-            await set(userRef, {
+        if (!userData) {
+            await dbSet(userPath, {
                 name: sess.name || sess.user || currentUser.email?.split('@')[0] || 'Organization Admin',
                 email: (currentUser.email || sess.email || '').toLowerCase().trim(),
                 role: sess.role,
@@ -79,10 +69,9 @@ const ensureCurrentAdminDirectory = async (sess) => {
             });
         }
 
-        const directoryRef = ref(rtdb, `userDirectory/${currentUser.uid}`);
-        const directorySnap = await get(directoryRef);
-        if (!directorySnap.exists()) {
-            await set(directoryRef, { orgId: sess.orgId });
+        const directoryData = await dbGet(`userDirectory/${currentUser.uid}`);
+        if (!directoryData) {
+            await dbSet(`userDirectory/${currentUser.uid}`, { orgId: sess.orgId });
         }
 
         if (repairedSession.uid !== sess.uid || repairedSession.email !== sess.email) {
@@ -160,7 +149,7 @@ export default function Users() {
                 const activeSession = await ensureCurrentAdminDirectory(sess);
                 setSession(activeSession);
                 const requestedChildren = ['details', 'sites', 'users', ...(isGlobalOwnerRole(activeSession.role) ? ['permissionRequests'] : [])];
-                const data = await readOrgChildren(rtdb, activeSession.orgId, requestedChildren, { session: activeSession });
+                const data = await readOrgChildren(null, activeSession.orgId, requestedChildren, { session: activeSession });
 
                 if (data.sites) {
                     setSites(Object.keys(data.sites).map(key => ({
@@ -205,7 +194,7 @@ export default function Users() {
                         });
 
                         if (Object.keys(migrationUpdates).length > 0) {
-                            await update(ref(rtdb), migrationUpdates);
+                            await dbMultiUpdate(migrationUpdates);
                         }
                     }
                 }
@@ -269,7 +258,7 @@ export default function Users() {
             if (previousCode && previousCode !== nextCode) {
                 updates[`joinRegistry/${previousCode}`] = null;
             }
-            await update(ref(rtdb), updates);
+            await dbMultiUpdate(updates);
 
             setOrgDetails(prev => ({
                 ...prev,
@@ -306,7 +295,7 @@ export default function Users() {
 
     const writeAccessAuditLog = async (entry) => {
         try {
-            await set(push(ref(rtdb, `organizations/${session.orgId}/accessAuditLogs`)), entry);
+            await dbPush(`organizations/${session.orgId}/accessAuditLogs`, entry);
         } catch (error) {
             console.warn('Access audit log write failed after user save:', error);
         }
@@ -316,7 +305,7 @@ export default function Users() {
         if (Object.keys(requestUpdates).length === 0) return;
 
         try {
-            await update(ref(rtdb, `organizations/${session.orgId}/permissionRequests`), requestUpdates);
+            await dbUpdate(`organizations/${session.orgId}/permissionRequests`, requestUpdates);
             setPermissionRequests((prev) => {
                 const next = { ...prev };
                 Object.entries(requestUpdates).forEach(([path, value]) => {
@@ -371,7 +360,7 @@ export default function Users() {
                 const isApprovingPending = editingUser?.status === ACCOUNT_STATUS.PENDING && payload.status === ACCOUNT_STATUS.ACTIVE;
                 const savePayload = isApprovingPending ? { ...payload, joinCode: null } : payload;
 
-                await update(ref(rtdb, `organizations/${session.orgId}/users/${editingUserId}`), savePayload);
+                await dbUpdate(`organizations/${session.orgId}/users/${editingUserId}`, savePayload);
 
                 const requestUpdates = buildPermissionRequestUpdates({
                     permissionRequests,
@@ -419,7 +408,7 @@ export default function Users() {
                         createdAt: existingOrgUser.createdAt || new Date().toISOString()
                     };
 
-                    await update(ref(rtdb, `organizations/${session.orgId}/users/${existingUserId}`), mergedPayload);
+                    await dbUpdate(`organizations/${session.orgId}/users/${existingUserId}`, mergedPayload);
 
                     await writeAccessAuditLog(
                         buildUserAccessAuditEntry({
@@ -443,51 +432,47 @@ export default function Users() {
                 }
 
                 const temporaryPassword = generateTemporaryPassword();
-                const provisioningAuth = getProvisioningAuth();
-                let createdAuthUser = null;
+                let newUid = null;
 
                 try {
-                    const newUserCredential = await createUserWithEmailAndPassword(provisioningAuth, payload.email, temporaryPassword);
-                    createdAuthUser = newUserCredential.user;
+                    newUid = await authService.createUser(payload.email, temporaryPassword);
 
+                    const provisionedAt = new Date().toISOString();
                     const newUserPayload = {
                         ...payload,
                         mustChangePassword: true,
                         temporaryPasswordIssued: true,
-                        temporaryPasswordIssuedAt: new Date().toISOString(),
+                        temporaryPasswordIssuedAt: provisionedAt,
                         provisionedBy: session.name || session.email || 'Admin',
-                        createdAt: new Date().toISOString()
+                        createdAt: provisionedAt
                     };
 
-                    await set(ref(rtdb, `organizations/${session.orgId}/users/${createdAuthUser.uid}`), newUserPayload);
-                    await set(ref(rtdb, `organizations/${session.orgId}/userPasswordState/${createdAuthUser.uid}`), {
+                    await dbSet(`organizations/${session.orgId}/users/${newUid}`, newUserPayload);
+                    await dbSet(`organizations/${session.orgId}/userPasswordState/${newUid}`, {
                         mustChangePassword: true,
                         temporaryPasswordIssued: true,
-                        temporaryPasswordIssuedAt: newUserPayload.temporaryPasswordIssuedAt,
+                        temporaryPasswordIssuedAt: provisionedAt,
                         passwordUpdatedAt: ''
                     });
-                    await set(ref(rtdb, `userDirectory/${createdAuthUser.uid}`), { orgId: session.orgId });
+                    await dbSet(`userDirectory/${newUid}`, { orgId: session.orgId });
 
-                    setUsers(prev => [...prev, { ...newUserPayload, id: createdAuthUser.uid }]);
+                    setUsers(prev => [...prev, { ...newUserPayload, id: newUid }]);
                     setProvisionedCredential({
                         name: payload.name,
                         email: payload.email,
                         password: temporaryPassword
                     });
                 } catch (provisionError) {
-                    if (createdAuthUser) {
-                        await remove(ref(rtdb, `organizations/${session.orgId}/users/${createdAuthUser.uid}`)).catch(() => {});
-                        await remove(ref(rtdb, `organizations/${session.orgId}/userPasswordState/${createdAuthUser.uid}`)).catch(() => {});
-                        await remove(ref(rtdb, `userDirectory/${createdAuthUser.uid}`)).catch(() => {});
-                        await deleteUser(createdAuthUser).catch(() => {});
+                    if (newUid) {
+                        await dbRemove(`organizations/${session.orgId}/users/${newUid}`).catch(() => {});
+                        await dbRemove(`organizations/${session.orgId}/userPasswordState/${newUid}`).catch(() => {});
+                        await dbRemove(`userDirectory/${newUid}`).catch(() => {});
+                        await authService.deleteUser(newUid).catch(() => {});
                     }
                     if (provisionError.code === 'auth/email-already-in-use') {
-                        throw new Error('This email already has a Firebase login. Ask the user to use the existing organization registration flow or reset their password.');
+                        throw new Error('This email already has an existing login. Ask the user to use the existing organization registration flow or reset their password.');
                     }
                     throw provisionError;
-                } finally {
-                    await signOut(provisioningAuth).catch(() => {});
-                    await deleteApp(provisioningAuth.app).catch(() => {});
                 }
 
                 await writeAccessAuditLog(
@@ -495,7 +480,7 @@ export default function Users() {
                         actorSession: session,
                         beforeUser: null,
                         afterUser: payload,
-                        targetUserId: createdAuthUser.uid,
+                        targetUserId: newUid,
                         action: 'user-provisioned'
                     })
                 );
@@ -517,7 +502,7 @@ export default function Users() {
         }
         if (window.confirm(`Are you sure you want to permanently remove access for ${email}?`)) {
             try {
-                await remove(ref(rtdb, `organizations/${session.orgId}/users/${userId}`));
+                await dbRemove(`organizations/${session.orgId}/users/${userId}`);
                 setUsers(prev => prev.filter(u => u.id !== userId));
             } catch (error) {
                 alert("Failed to delete user: " + error.message);

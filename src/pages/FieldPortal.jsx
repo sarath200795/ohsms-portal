@@ -27,7 +27,7 @@ import {
 } from './FieldApp/utils';
 import { useAppTransition } from '../hooks/useAppTransition';
 
-const { fieldAuth, fieldDb } = getFieldPortalFirebase();
+const { fieldAuth } = getFieldPortalFirebase();
 
 const normalizeEmail = (value) => String(value || '').trim().toLowerCase();
 const getDayGreeting = () => {
@@ -124,7 +124,6 @@ export default function FieldPortal() {
 
                 try {
                     const context = await fetchFieldPortalContext({
-                        fieldDb,
                         user,
                         expectedOrgId: storedSession?.orgId || ''
                     });
@@ -196,7 +195,7 @@ export default function FieldPortal() {
         try {
             manualLoginRef.current = true;
             const userCredential = await signInWithEmailAndPassword(fieldAuth, cleanEmail, password);
-            const context = await fetchFieldPortalContext({ fieldDb, user: userCredential.user });
+            const context = await fetchFieldPortalContext({ user: userCredential.user });
 
             finalizePortalContext({
                 sessionData: context.sessionData,

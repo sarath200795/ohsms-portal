@@ -1,8 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { get, push, ref, remove, update } from 'firebase/database';
+import { dbGet, dbPush, dbUpdate, dbRemove } from '../../../services/db/index.js';
 import * as XLSX from 'xlsx';
-import { rtdb } from '../../../config/firebase';
 import { readOrgChild, readOrgChildren } from '../../../utils/orgData';
 import {
     BASE_TOPICS,
@@ -220,7 +219,7 @@ export function useTrainingModule() {
 
         const loadDatabase = async () => {
             try {
-                const orgData = await readOrgChildren(rtdb, parsedSession.orgId, [
+                const orgData = await readOrgChildren(null, parsedSession.orgId, [
                     'trainings',
                     'contractors',
                     'sites',
@@ -517,7 +516,7 @@ export function useTrainingModule() {
     const removeAttendee = (index) => setData((prev) => ({ ...prev, attendees: safeArr(prev.attendees).filter((_, idx) => idx !== index) }));
 
     const refreshTrainings = async (orgId) => {
-        const trainingCollection = await readOrgChild(rtdb, orgId, 'trainings');
+        const trainingCollection = await readOrgChild(null, orgId, 'trainings');
         setTrainings(trainingCollection ? normalizeTrainings(trainingCollection) : []);
     };
 
@@ -535,29 +534,28 @@ export function useTrainingModule() {
         if (data.linkedCapa) payload.sourceCapaRef = data.linkedCapa.uid;
 
         try {
-            if (data.firebaseKey) await update(ref(rtdb, `organizations/${session.orgId}/trainings/${data.firebaseKey}`), payload);
-            else await push(ref(rtdb, `organizations/${session.orgId}/trainings`), payload);
+            if (data.firebaseKey) await dbUpdate(`organizations/${session.orgId}/trainings/${data.firebaseKey}`, payload);
+            else await dbPush(`organizations/${session.orgId}/trainings`, payload);
 
             if (data.targetAudience === 'Contractor' && data.contractorId) {
-                const contractorRef = ref(rtdb, `organizations/${session.orgId}/contractors/${data.contractorId}`);
-                const contractorSnap = await get(contractorRef);
-                if (contractorSnap.exists()) {
-                    const contractorData = contractorSnap.val();
+                const contractorPath = `organizations/${session.orgId}/contractors/${data.contractorId}`;
+                const contractorData = await dbGet(contractorPath);
+                if (contractorData !== null) {
                     let workers = safeArr(contractorData.workers);
                     const attendedNames = safeArr(data.attendees).filter((attendee) => attendee.status === 'Attended').map((attendee) => attendee.name);
 
                     if (data.topic.toLowerCase().includes('induction')) {
                         workers = workers.map((worker) => attendedNames.includes(worker.name) && (!worker.inductionDate || worker.inductionDate === 'Pending' || worker.inductionDate === '') ? { ...worker, inductionDate: data.date } : worker);
-                        await update(contractorRef, { workers });
+                        await dbUpdate(contractorPath, { workers });
                     }
 
-                    await update(contractorRef, { trainings: [...safeArr(contractorData.trainings), { id: newId, topic: data.topic, date: data.date, attendees: attendedNames.join(', ') }] });
+                    await dbUpdate(contractorPath, { trainings: [...safeArr(contractorData.trainings), { id: newId, topic: data.topic, date: data.date, attendees: attendedNames.join(', ') }] });
                 }
             }
 
             if (isContractorInduction) alert('Contractor Training Logged! Any pending worker inductions have been updated.');
             else if (linkedCapaPath) {
-                await update(ref(rtdb, linkedCapaPath), { status: 'Closed' });
+                await dbUpdate(linkedCapaPath, { status: 'Closed' });
                 alert("Training Saved! The linked CAPA action has been marked as 'Closed'.");
             } else alert('Saved Successfully!');
 
@@ -572,7 +570,7 @@ export function useTrainingModule() {
     const handleDelete = async (training) => {
         if (!permissions.canDelete) return alert('Security Error: You do not have permission to delete training records.');
         if (!window.confirm(`Permanently delete training record ${training.id || ''}?`)) return;
-        await remove(ref(rtdb, `organizations/${session.orgId}/trainings/${training.firebaseKey}`));
+        await dbRemove(`organizations/${session.orgId}/trainings/${training.firebaseKey}`);
         setTrainings((prev) => prev.filter((item) => item.firebaseKey !== training.firebaseKey));
     };
 

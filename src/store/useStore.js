@@ -1,16 +1,23 @@
+/**
+ * Global Zustand store
+ *
+ * Maintains the signed-in session and keeps the current user's permissions
+ * fresh via a real-time subscription (Firebase listener or REST poll,
+ * depending on the active adapter).
+ */
+
 import { create } from 'zustand';
-import { ref, onValue, off } from 'firebase/database';
-import { rtdb } from '../config/firebase';
+import { dbSubscribe, orgPath } from '../services/db/index.js';
 import { haveModulesChanged } from '../utils/permissions';
 import { normalizeSessionData, normalizeUserStatus, writeStoredSession } from '../utils/session';
 
 const useStore = create((set, get) => ({
     session: null,
     orgData: null,
-    isDataLoading: true,    // Only true on the very first app load
-    listenerActive: false,  // Prevents duplicate Firebase connections
+    isDataLoading: true,
+    listenerActive: false,
 
-    // 1. Call this when any protected page loads
+    // ─── 1. Call on every protected page load ─────────────────────────────
     initializeSession: (sess) => {
         const normalizedSession = normalizeSessionData(sess);
         set({ session: normalizedSession });
@@ -18,8 +25,8 @@ const useStore = create((set, get) => ({
         if (sess && JSON.stringify(sess) !== JSON.stringify(normalizedSession)) {
             writeStoredSession(normalizedSession);
         }
-        
-        // If we are already connected to Firebase, don't do it again! (This makes navigation instant)
+
+        // Don't open a second subscription if one is already active.
         if (get().listenerActive || !normalizedSession?.orgId) return;
 
         set({ listenerActive: true, isDataLoading: true });
@@ -29,15 +36,20 @@ const useStore = create((set, get) => ({
             return;
         }
 
-        const userRef = ref(rtdb, `organizations/${normalizedSession.orgId}/users/${normalizedSession.uid}`);
-        
-        // Keep the signed-in user's permission snapshot fresh without reading the full organization tree.
-        onValue(userRef, (snap) => {
-            if (snap.exists()) {
-                const currentSession = get().session;
-                const liveUser = snap.val();
+        // Keep the signed-in user's permission snapshot fresh.
+        const userPath = orgPath(normalizedSession.orgId, 'users', normalizedSession.uid);
 
-                if (currentSession && liveUser) {
+        const unsubscribe = dbSubscribe(
+            userPath,
+            (liveUser) => {
+                if (!liveUser) {
+                    set({ orgData: null, isDataLoading: false });
+                    return;
+                }
+
+                const currentSession = get().session;
+
+                if (currentSession) {
                     const refreshedSession = normalizeSessionData({
                         ...currentSession,
                         name: liveUser.name || currentSession.name || currentSession.email?.split('@')[0] || 'User',
@@ -49,43 +61,43 @@ const useStore = create((set, get) => ({
                         mustChangePassword: Boolean(liveUser.mustChangePassword),
                         temporaryPasswordIssued: Boolean(liveUser.temporaryPasswordIssued),
                         temporaryPasswordIssuedAt: liveUser.temporaryPasswordIssuedAt || '',
-                        passwordUpdatedAt: liveUser.passwordUpdatedAt || currentSession.passwordUpdatedAt || ''
+                        passwordUpdatedAt: liveUser.passwordUpdatedAt || currentSession.passwordUpdatedAt || '',
                     });
 
-                    const statusChanged = normalizeUserStatus(liveUser.status || '') !== normalizeUserStatus(currentSession.status || '');
-                    const modulesChanged = haveModulesChanged(currentSession.accessibleModules || [], refreshedSession.accessibleModules || []);
-                    const sitesChanged = JSON.stringify(currentSession.accessibleSites || []) !== JSON.stringify(refreshedSession.accessibleSites || []);
-                    const roleChanged = String(currentSession.role || '') !== String(refreshedSession.role || '');
-                    const assignedSiteChanged = String(currentSession.assignedSite || '') !== String(refreshedSession.assignedSite || '');
-                    const passwordPolicyChanged = Boolean(currentSession.mustChangePassword) !== Boolean(refreshedSession.mustChangePassword)
-                        || Boolean(currentSession.temporaryPasswordIssued) !== Boolean(refreshedSession.temporaryPasswordIssued)
-                        || String(currentSession.passwordUpdatedAt || '') !== String(refreshedSession.passwordUpdatedAt || '');
+                    const changed =
+                        normalizeUserStatus(liveUser.status || '') !== normalizeUserStatus(currentSession.status || '') ||
+                        haveModulesChanged(currentSession.accessibleModules || [], refreshedSession.accessibleModules || []) ||
+                        JSON.stringify(currentSession.accessibleSites || []) !== JSON.stringify(refreshedSession.accessibleSites || []) ||
+                        String(currentSession.role || '') !== String(refreshedSession.role || '') ||
+                        String(currentSession.assignedSite || '') !== String(refreshedSession.assignedSite || '') ||
+                        Boolean(currentSession.mustChangePassword) !== Boolean(refreshedSession.mustChangePassword) ||
+                        Boolean(currentSession.temporaryPasswordIssued) !== Boolean(refreshedSession.temporaryPasswordIssued) ||
+                        String(currentSession.passwordUpdatedAt || '') !== String(refreshedSession.passwordUpdatedAt || '');
 
-                    if (statusChanged || modulesChanged || sitesChanged || roleChanged || assignedSiteChanged || passwordPolicyChanged) {
-                        const nextSession = refreshedSession;
-                        writeStoredSession(nextSession);
-                        set({ session: nextSession });
+                    if (changed) {
+                        writeStoredSession(refreshedSession);
+                        set({ session: refreshedSession });
                     }
                 }
 
                 set({ orgData: { currentUser: liveUser }, isDataLoading: false });
-            } else {
-                set({ orgData: null, isDataLoading: false });
+            },
+            (error) => {
+                console.error('[store] DB subscription error:', error);
+                set({ isDataLoading: false });
             }
-        }, (error) => {
-            console.error("Global DB Listener Error:", error);
-            set({ isDataLoading: false });
-        });
+        );
+
+        // Store unsubscribe so clearSession can tear it down cleanly.
+        set({ _unsubscribe: unsubscribe });
     },
 
-    // 2. Call this on Logout
+    // ─── 2. Call on logout ────────────────────────────────────────────────
     clearSession: () => {
-        const sess = get().session;
-        if (sess?.orgId && sess?.uid) {
-            off(ref(rtdb, `organizations/${sess.orgId}/users/${sess.uid}`)); // Sever the DB connection securely
-        }
-        set({ session: null, orgData: null, isDataLoading: true, listenerActive: false });
-    }
+        const { _unsubscribe } = get();
+        if (typeof _unsubscribe === 'function') _unsubscribe();
+        set({ session: null, orgData: null, isDataLoading: true, listenerActive: false, _unsubscribe: null });
+    },
 }));
 
 export default useStore;

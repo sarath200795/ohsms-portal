@@ -1,7 +1,6 @@
 import React, { Suspense, useEffect, useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import { onAuthStateChanged } from 'firebase/auth';
-import { auth } from './config/firebase';
+import authService from './services/auth/index.js';
 import AppExperienceShell from './components/AppExperienceShell';
 import AppErrorBoundary from './components/AppErrorBoundary';
 import AppRouteFallback from './components/AppRouteFallback';
@@ -73,7 +72,7 @@ export default function App() {
     const [isAuthChecking, setIsAuthChecking] = useState(true);
 
     useEffect(() => {
-        const unsubscribe = onAuthStateChanged(auth, (user) => {
+        const unsubscribe = authService.onAuthStateChanged((user) => {
             if (!user && !sessionStorage.getItem(FIELD_PORTAL_SESSION_KEY)) {
                 clearStoredSession();
             }

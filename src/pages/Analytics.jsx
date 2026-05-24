@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { equalTo, get, orderByChild, push, query, ref } from 'firebase/database';
+import { readOrgChild } from '../utils/orgData';
 import { Bar, Doughnut, Line } from 'react-chartjs-2';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
@@ -18,7 +18,6 @@ import {
     Tooltip
 } from 'chart.js';
 
-import { rtdb } from '../config/firebase';
 import { canEditCreateForRole, getAllowedSiteCodes, hasAccessibleModule, isGlobalOwnerRole } from '../utils/permissions';
 import { readStoredSession } from '../utils/session';
 import { buildRegionOptions, filterSitesByRegion, matchesRegionFilter, normalizeSites as normalizeSiteCollection } from '../utils/siteRegions';
@@ -289,8 +288,8 @@ const mergeSnapshots = (snapshots) => {
     const merged = {};
 
     snapshots.forEach((snapshot) => {
-        if (!snapshot.exists()) return;
-        Object.entries(snapshot.val() || {}).forEach(([key, value]) => {
+        if (!snapshot !== null) return;
+        Object.entries(snapshot || {}).forEach(([key, value]) => {
             merged[key] = value;
         });
     });
@@ -298,24 +297,9 @@ const mergeSnapshots = (snapshots) => {
     return Object.keys(merged).length > 0 ? merged : null;
 };
 
-const fetchScopedChild = async (orgId, childName, session) => {
-    if (!orgId || !childName) return null;
-    const childRef = ref(rtdb, `organizations/${orgId}/${childName}`);
-
-    if (!SCOPED_CHILDREN.has(childName) || isGlobalOwnerRole(session?.role) || session?.assignedSite === 'GLOBAL') {
-        const snapshot = await get(childRef);
-        return snapshot.exists() ? snapshot.val() : null;
-    }
-
-    const allowedSites = [...getAllowedSiteCodes(session)];
-    if (allowedSites.length === 0) return null;
-
-    const snapshots = await Promise.all(
-        allowedSites.map((siteId) => get(query(childRef, orderByChild('siteId'), equalTo(siteId))))
-    );
-
-    return mergeSnapshots(snapshots);
-};
+// readOrgChild from orgData.js already handles site-scoping via the active DB adapter.
+const fetchScopedChild = (orgId, childName, session) =>
+    readOrgChild(null, orgId, childName, { session });
 
 const normalizeIncidents = (rawIncidents) => (
     safeObjectEntries(rawIncidents)
@@ -2153,7 +2137,7 @@ export default function Analytics() {
                 timestamp: new Date().toISOString()
             };
 
-            await push(ref(rtdb, `organizations/${session.orgId}/manHours`), payload);
+            await dbPush(`organizations/${session.orgId}/manHours`, payload);
             setManHours((currentEntries) => [...currentEntries, payload]);
             setPermHours(0);
             setContHours(0);

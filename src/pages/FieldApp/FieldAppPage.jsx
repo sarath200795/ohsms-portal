@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { get, ref } from 'firebase/database';
-import { rtdb } from '../../config/firebase';
+import { dbGet } from '../../services/db/index.js';
 import FieldHeader from './components/FieldHeader';
 import FieldModuleCard from './components/FieldModuleCard';
 import { clearFieldModuleHomeContext, setFieldModuleHomeContext } from './portalAuth';
@@ -41,12 +40,12 @@ export default function FieldAppPage() {
 
         const fetchFieldContext = async () => {
             try {
-                const snap = await get(ref(rtdb, `organizations/${sess.orgId}/sites`));
-                if (snap.exists()) {
+                const snap = await dbGet(`organizations/${sess.orgId}/sites`);
+                if (snap !== null) {
                     setSites(
-                        Object.keys(snap.val()).map((key) => ({
-                            code: snap.val()[key].code || key,
-                            name: snap.val()[key].name || key
+                        Object.keys(snap).map((key) => ({
+                            code: snap[key].code || key,
+                            name: snap[key].name || key
                         }))
                     );
                 } else {

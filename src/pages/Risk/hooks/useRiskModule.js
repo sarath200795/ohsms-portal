@@ -1,8 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { push, ref, remove, update } from 'firebase/database';
+import { dbGet, dbPush, dbUpdate, dbRemove } from '../../../services/db/index.js';
 import * as XLSX from 'xlsx';
-import { rtdb } from '../../../config/firebase';
 import { readOrgChild, readOrgChildren } from '../../../utils/orgData';
 import {
     CHANGE_SOURCES,
@@ -120,7 +119,7 @@ export function useRiskModule() {
 
         const fetchAll = async () => {
             try {
-                const value = await readOrgChildren(rtdb, parsedSession.orgId, ['riskAssessments', 'sites', 'users']);
+                const value = await readOrgChildren(null, parsedSession.orgId, ['riskAssessments', 'sites', 'users']);
                 if (value.riskAssessments) setRepo(normalizeRiskAssessments(value.riskAssessments));
 
                 if (value.sites) setSites(normalizeSites(value.sites));
@@ -232,7 +231,7 @@ export function useRiskModule() {
     }, [filteredRepo]);
 
     const refreshRiskAssessments = async (orgId) => {
-        const riskAssessments = await readOrgChild(rtdb, orgId, 'riskAssessments');
+        const riskAssessments = await readOrgChild(null, orgId, 'riskAssessments');
         setRepo(riskAssessments ? normalizeRiskAssessments(riskAssessments) : []);
     };
 
@@ -565,8 +564,8 @@ export function useRiskModule() {
         }));
 
         try {
-            if (formData.firebaseKey) await update(ref(rtdb, `organizations/${session.orgId}/riskAssessments/${formData.firebaseKey}`), payload);
-            else await push(ref(rtdb, `organizations/${session.orgId}/riskAssessments`), payload);
+            if (formData.firebaseKey) await dbUpdate(`organizations/${session.orgId}/riskAssessments/${formData.firebaseKey}`, payload);
+            else await dbPush(`organizations/${session.orgId}/riskAssessments`, payload);
 
             alert('Risk Assessment Saved Successfully!');
             setShowChangeModal(false);
@@ -583,7 +582,7 @@ export function useRiskModule() {
     const deleteAssessment = async (firebaseKey) => {
         if (!permissions.canDelete) return alert('Security Error: Only Global Owners and Site Owners can delete Risk Assessments.');
         if (window.confirm('Permanently delete this Risk Assessment?')) {
-            await remove(ref(rtdb, `organizations/${session.orgId}/riskAssessments/${firebaseKey}`));
+            await dbRemove(`organizations/${session.orgId}/riskAssessments/${firebaseKey}`);
             setRepo((prev) => prev.filter((record) => record.firebaseKey !== firebaseKey));
         }
     };

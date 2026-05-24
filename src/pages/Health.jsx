@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { ref, update, push } from 'firebase/database';
-import { rtdb } from '../config/firebase';
+import { dbUpdate, dbPush } from '../services/db/index.js';
 import { readOrgChildren } from '../utils/orgData';
 import {
     canDeleteForRole,
@@ -247,7 +246,7 @@ export default function HealthDashboard() {
 
         const loadData = async () => {
             try {
-                const data = await readOrgChildren(rtdb, sess.orgId, [
+                const data = await readOrgChildren(null, sess.orgId, [
                     'sites',
                     'users',
                     'healthCases',
@@ -451,7 +450,7 @@ export default function HealthDashboard() {
 
         try {
             const payload = { ...formData, updatedAt: new Date().toISOString(), updatedBy: session.user || session.name };
-            await update(ref(rtdb, `organizations/${session.orgId}/healthCases/${selectedIncident.firebaseKey}`), payload);
+            await dbUpdate(`organizations/${session.orgId}/healthCases/${selectedIncident.firebaseKey}`, payload);
 
             setHealthCases({ ...healthCases, [selectedIncident.firebaseKey]: payload });
             alert("Health Case Record Saved Successfully.");
@@ -523,12 +522,11 @@ export default function HealthDashboard() {
         try {
             const payload = { ...survForm, createdBy: session.name || session.email, lastUpdated: new Date().toISOString() };
             if (survForm.firebaseKey) {
-                await update(ref(rtdb, `organizations/${session.orgId}/healthSurveillance/${survForm.firebaseKey}`), payload);
+                await dbUpdate(`organizations/${session.orgId}/healthSurveillance/${survForm.firebaseKey}`, payload);
                 setSurveillanceList(surveillanceList.map(s => s.firebaseKey === survForm.firebaseKey ? payload : s));
             } else {
-                const newRef = push(ref(rtdb, `organizations/${session.orgId}/healthSurveillance`));
-                await update(newRef, payload);
-                payload.firebaseKey = newRef.key;
+                const newId = await dbPush(`organizations/${session.orgId}/healthSurveillance`, payload);
+                payload.firebaseKey = newId;
                 setSurveillanceList([payload, ...surveillanceList]);
             }
             alert("Surveillance Record Saved Successfully.");
@@ -573,12 +571,11 @@ export default function HealthDashboard() {
         try {
             const payload = { ...vaccForm, createdBy: session.name || session.email, lastUpdated: new Date().toISOString() };
             if (vaccForm.firebaseKey) {
-                await update(ref(rtdb, `organizations/${session.orgId}/vaccinationRecords/${vaccForm.firebaseKey}`), payload);
+                await dbUpdate(`organizations/${session.orgId}/vaccinationRecords/${vaccForm.firebaseKey}`, payload);
                 setVaccinationList(vaccinationList.map(v => v.firebaseKey === vaccForm.firebaseKey ? payload : v));
             } else {
-                const newRef = push(ref(rtdb, `organizations/${session.orgId}/vaccinationRecords`));
-                await update(newRef, payload);
-                payload.firebaseKey = newRef.key;
+                const newId = await dbPush(`organizations/${session.orgId}/vaccinationRecords`, payload);
+                payload.firebaseKey = newId;
                 setVaccinationList([payload, ...vaccinationList]);
             }
             alert("Vaccination Record Saved Successfully.");
@@ -646,12 +643,11 @@ export default function HealthDashboard() {
         try {
             const payload = { ...illnessForm, createdBy: session.name || session.email, lastUpdated: new Date().toISOString() };
             if (illnessForm.firebaseKey) {
-                await update(ref(rtdb, `organizations/${session.orgId}/illnessRecords/${illnessForm.firebaseKey}`), payload);
+                await dbUpdate(`organizations/${session.orgId}/illnessRecords/${illnessForm.firebaseKey}`, payload);
                 setIllnessList(illnessList.map(i => i.firebaseKey === illnessForm.firebaseKey ? payload : i));
             } else {
-                const newRef = push(ref(rtdb, `organizations/${session.orgId}/illnessRecords`));
-                await update(newRef, payload);
-                payload.firebaseKey = newRef.key;
+                const newId = await dbPush(`organizations/${session.orgId}/illnessRecords`, payload);
+                payload.firebaseKey = newId;
                 setIllnessList([payload, ...illnessList]);
             }
             alert("Occupational Illness Record Saved Successfully.");

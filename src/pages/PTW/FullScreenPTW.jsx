@@ -1,9 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { get, push, ref, update } from 'firebase/database';
+import { dbGet, dbPush, dbUpdate } from '../../services/db/index.js';
 import QRious from 'qrious';
 
-import { rtdb } from '../../config/firebase';
 import { getFieldPortalLoginPath, getPortalAwareHomePath } from '../FieldApp/portalAuth';
 import { readOrgChildren } from '../../utils/orgData';
 import {
@@ -1229,7 +1228,7 @@ export default function FullScreenPTW() {
 
                 const loadPublicPermit = async () => {
                     try {
-                        const publicSnap = await get(ref(rtdb, `organizations/${publicOrgId}/ptwRecords/${permitIdFromQuery}`));
+                        const publicSnap = await dbGet(`organizations/${publicOrgId}/ptwRecords/${permitIdFromQuery}`);
                         if (!publicSnap.exists()) return;
 
                         const permit = normalizePermit({ firebaseKey: permitIdFromQuery, ...publicSnap.val() });
@@ -1280,7 +1279,7 @@ export default function FullScreenPTW() {
 
             const loadData = async () => {
                 try {
-                    const data = await readOrgChildren(rtdb, sess.orgId, ['sites', 'users', 'contractors', 'ptwRecords', 'lotoProcedures']);
+                    const data = await readOrgChildren(null, sess.orgId, ['sites', 'users', 'contractors', 'ptwRecords', 'lotoProcedures']);
 
                     if (data.sites) {
                         setSites(normalizeSites(data.sites));
@@ -1770,11 +1769,11 @@ export default function FullScreenPTW() {
             }
 
             if (firebaseKey) {
-                await update(ref(rtdb, `organizations/${session.orgId}/ptwRecords/${firebaseKey}`), payload);
+                await dbUpdate(`organizations/${session.orgId}/ptwRecords/${firebaseKey}`, payload);
                 setPermits((prev) => prev.map((permit) => (permit.id === formData.id ? normalizePermit({ ...payload, firebaseKey }) : permit)));
             } else {
-                const newRef = await push(ref(rtdb, `organizations/${session.orgId}/ptwRecords`), payload);
-                setPermits((prev) => [normalizePermit({ ...payload, firebaseKey: newRef.key }), ...prev]);
+                const newId = await dbPush(`organizations/${session.orgId}/ptwRecords`, payload);
+                setPermits((prev) => [normalizePermit({ ...payload, firebaseKey: newId }), ...prev]);
             }
 
             if (firebaseKey) {
@@ -1816,7 +1815,7 @@ export default function FullScreenPTW() {
                 alert(`${role === 'eng' ? 'Engineering' : 'Production'} authorization recorded. Awaiting counterpart.`);
             }
 
-            await update(ref(rtdb, `organizations/${session.orgId}/ptwRecords/${permit.firebaseKey}`), updates);
+            await dbUpdate(`organizations/${session.orgId}/ptwRecords/${permit.firebaseKey}`, updates);
             setPermits((prev) => prev.map((entry) => (entry.id === permit.id ? normalizePermit({ ...entry, ...updates }) : entry)));
         } catch (error) {
             alert(`Error approving: ${error.message}`);
@@ -1832,7 +1831,7 @@ export default function FullScreenPTW() {
 
         if (formData.firebaseKey) {
             try {
-                await update(ref(rtdb, `organizations/${session.orgId}/ptwRecords/${formData.firebaseKey}`), { nonCompliances: updatedNonCompliances });
+                await dbUpdate(`organizations/${session.orgId}/ptwRecords/${formData.firebaseKey}`, { nonCompliances: updatedNonCompliances });
                 setPermits((prev) => prev.map((permit) => permit.id === formData.id ? normalizePermit({ ...permit, nonCompliances: updatedNonCompliances }) : permit));
             } catch (error) {
                 console.error('Failed to sync NC to DB', error);
@@ -1846,7 +1845,7 @@ export default function FullScreenPTW() {
 
         if (formData.firebaseKey) {
             try {
-                await update(ref(rtdb, `organizations/${session.orgId}/ptwRecords/${formData.firebaseKey}`), { nonCompliances: updatedNonCompliances });
+                await dbUpdate(`organizations/${session.orgId}/ptwRecords/${formData.firebaseKey}`, { nonCompliances: updatedNonCompliances });
                 setPermits((prev) => prev.map((permit) => permit.id === formData.id ? normalizePermit({ ...permit, nonCompliances: updatedNonCompliances }) : permit));
             } catch (error) {
                 console.error('Failed to sync NC removal to DB', error);
@@ -1883,7 +1882,7 @@ export default function FullScreenPTW() {
                 alert('Safe observation logged successfully. Work may continue.');
             }
 
-            await update(ref(rtdb, `organizations/${session.orgId}/ptwRecords/${inspectionModal.firebaseKey}`), updates);
+            await dbUpdate(`organizations/${session.orgId}/ptwRecords/${inspectionModal.firebaseKey}`, updates);
             setPermits((prev) => prev.map((permit) => permit.id === inspectionModal.id ? normalizePermit({ ...permit, ...updates }) : permit));
             setInspectionObservation('');
             setInspectionModal(null);
@@ -1902,7 +1901,7 @@ export default function FullScreenPTW() {
         }
         try {
             const updates = { status: 'Pending Closure', engStatus: 'Closure Pending', prodStatus: 'Closure Pending' };
-            await update(ref(rtdb, `organizations/${session.orgId}/ptwRecords/${permit.firebaseKey}`), updates);
+            await dbUpdate(`organizations/${session.orgId}/ptwRecords/${permit.firebaseKey}`, updates);
             setPermits((prev) => prev.map((entry) => (entry.id === permit.id ? normalizePermit({ ...entry, ...updates }) : entry)));
             alert('Closure request sent to Authorizers.');
         } catch (error) {
@@ -1930,7 +1929,7 @@ export default function FullScreenPTW() {
                 alert(`${role === 'eng' ? 'Engineering' : 'Production'} closure verified. Awaiting counterpart.`);
             }
 
-            await update(ref(rtdb, `organizations/${session.orgId}/ptwRecords/${permit.firebaseKey}`), updates);
+            await dbUpdate(`organizations/${session.orgId}/ptwRecords/${permit.firebaseKey}`, updates);
             setPermits((prev) => prev.map((entry) => (entry.id === permit.id ? normalizePermit({ ...entry, ...updates }) : entry)));
         } catch (error) {
             alert(`Error approving closure: ${error.message}`);
@@ -1950,7 +1949,7 @@ export default function FullScreenPTW() {
             const updates = {};
             if (reassignModal.role === 'eng') updates.engApproverEmail = newApproverEmail;
             if (reassignModal.role === 'prod') updates.prodApproverEmail = newApproverEmail;
-            await update(ref(rtdb, `organizations/${session.orgId}/ptwRecords/${reassignModal.permit.firebaseKey}`), updates);
+            await dbUpdate(`organizations/${session.orgId}/ptwRecords/${reassignModal.permit.firebaseKey}`, updates);
             setPermits((prev) => prev.map((permit) => permit.id === reassignModal.permit.id ? normalizePermit({ ...permit, ...updates }) : permit));
             setReassignModal(null);
             setNewApproverEmail('');
@@ -1965,7 +1964,7 @@ export default function FullScreenPTW() {
         const qrUrl = `${window.location.origin}${window.location.pathname}?ptw=${encodeURIComponent(publicPermitKey)}&site=${encodeURIComponent(permit.siteId || siteFilter || 'All')}&org=${encodeURIComponent(session.orgId)}&fieldQr=1`;
         if (permit.firebaseKey && session?.orgId && permit.publicQrEnabled !== true) {
             try {
-                await update(ref(rtdb, `organizations/${session.orgId}/ptwRecords/${permit.firebaseKey}`), { publicQrEnabled: true });
+                await dbUpdate(`organizations/${session.orgId}/ptwRecords/${permit.firebaseKey}`, { publicQrEnabled: true });
                 setPermits((prev) => prev.map((entry) => (
                     entry.firebaseKey === permit.firebaseKey ? { ...entry, publicQrEnabled: true } : entry
                 )));

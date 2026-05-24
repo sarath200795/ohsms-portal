@@ -1,6 +1,6 @@
 import { getApps, initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
-import { getDatabase, get, ref } from 'firebase/database';
+import { dbGet } from '../../services/db/index.js';
 import { auth } from '../../config/firebase';
 import { getVisibleFieldModules } from './utils';
 import { ACCOUNT_STATUS, canAuthenticateStatus, isPendingStatus, normalizeSessionData, readStoredSession } from '../../utils/session';
@@ -13,10 +13,7 @@ export const getFieldPortalFirebase = () => {
     const existingApp = getApps().find((app) => app.name === FIELD_PORTAL_APP_NAME);
     const portalApp = existingApp || initializeApp(auth.app.options, FIELD_PORTAL_APP_NAME);
 
-    return {
-        fieldAuth: getAuth(portalApp),
-        fieldDb: getDatabase(portalApp)
-    };
+    return { fieldAuth: getAuth(portalApp) };
 };
 
 export const readFieldPortalSession = () => {
@@ -100,27 +97,27 @@ export const buildFieldPortalAuthErrorMessage = (error) => {
     return 'Could not sign in: ' + (error?.message || 'Unknown error.');
 };
 
-export const fetchFieldPortalContext = async ({ fieldDb, user, expectedOrgId = '' }) => {
+export const fetchFieldPortalContext = async ({ user, expectedOrgId = '' }) => {
     if (!user?.uid || !user?.email) {
         throw new Error('No authenticated field portal session found. Please sign in again.');
     }
 
-    const userDirSnap = await get(ref(fieldDb, `userDirectory/${user.uid}`));
-    if (!userDirSnap.exists()) {
+    const userDirData = await dbGet(`userDirectory/${user.uid}`);
+    if (!userDirData) {
         throw new Error('This account is not mapped to any organization.');
     }
 
-    const orgId = userDirSnap.val().orgId;
+    const orgId = userDirData.orgId;
     if (expectedOrgId && expectedOrgId !== orgId) {
         throw new Error('This login belongs to a different organization than the saved field portal session.');
     }
 
-    const orgUserSnap = await get(ref(fieldDb, `organizations/${orgId}/users/${user.uid}`));
-    if (!orgUserSnap.exists()) {
+    const orgUserData = await dbGet(`organizations/${orgId}/users/${user.uid}`);
+    if (!orgUserData) {
         throw new Error('Your account exists but was removed from the organization directory.');
     }
 
-    const userData = orgUserSnap.val();
+    const userData = orgUserData;
     if (isPendingStatus(userData.status)) {
         throw new Error('Your account is currently pending approval. Please contact your administrator.');
     }
@@ -152,11 +149,11 @@ export const fetchFieldPortalContext = async ({ fieldDb, user, expectedOrgId = '
         throw new Error('This account does not have access to any field portal modules.');
     }
 
-    const sitesSnap = await get(ref(fieldDb, `organizations/${orgId}/sites`));
-    const sites = sitesSnap.exists()
-        ? Object.keys(sitesSnap.val()).map((key) => ({
-            code: sitesSnap.val()[key].code || key,
-            name: sitesSnap.val()[key].name || key
+    const sitesData = await dbGet(`organizations/${orgId}/sites`);
+    const sites = sitesData !== null
+        ? Object.keys(sitesData).map((key) => ({
+            code: sitesData[key].code || key,
+            name: sitesData[key].name || key
         }))
         : [];
 

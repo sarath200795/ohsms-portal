@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { ref, get, update, push } from 'firebase/database';
-import { rtdb } from '../config/firebase';
+import { dbGet, dbUpdate, dbPush } from '../services/db/index.js';
 import { getFieldPortalLoginPath, getPortalAwareHomePath, isFieldPortalHomeContext } from './FieldApp/portalAuth';
 import FieldQrScannerModal from './FieldApp/components/FieldQrScannerModal';
 import { resolveFieldQrNavigation } from './FieldApp/utils';
@@ -101,9 +100,9 @@ export default function Loto() {
                         setPermissions({ viewOnly: true, canDelete: false, canEditCreate: false });
 
                         // Fetch only this specific procedure from the specific organization
-                        const snap = await get(ref(rtdb, `organizations/${orgId}/lotoProcedures/${execId}`));
-                        if (snap.exists()) {
-                            setExecutionProc({ firebaseKey: execId, ...snap.val() });
+                        const snap = await dbGet(`organizations/${orgId}/lotoProcedures/${execId}`);
+                        if (snap !== null) {
+                            setExecutionProc({ firebaseKey: execId, ...snap });
                         }
                         setLoading(false);
                         return;
@@ -144,7 +143,7 @@ export default function Loto() {
                 sessionStorage.setItem('isoCurrentSite', ctxSite === 'All' ? 'GLOBAL' : ctxSite);
 
                 // Fetch only the LOTO collections required by this module.
-                const data = await readOrgChildren(rtdb, sess.orgId, ['sites', 'lotoProcedures', 'lotoLogs']);
+                const data = await readOrgChildren(null, sess.orgId, ['sites', 'lotoProcedures', 'lotoLogs']);
 
                 if (data.sites) setSites(normalizeSites(data.sites));
                 if (data.lotoProcedures) setProcedures(safeArrayParse(data.lotoProcedures));
@@ -275,8 +274,8 @@ export default function Loto() {
         if (!canEditForm || !procForm.facility || !procForm.description || procForm.steps.length === 0) return alert("Validation failed.");
         try {
             const payload = { ...procForm, publicQrEnabled: procForm.status === 'Approved', lastUpdated: new Date().toISOString() };
-            if (procForm.firebaseKey) { await update(ref(rtdb, `organizations/${session.orgId}/lotoProcedures/${procForm.firebaseKey}`), payload); setProcedures(procedures.map(p => p.firebaseKey === procForm.firebaseKey ? payload : p)); }
-            else { const newRef = push(ref(rtdb, `organizations/${session.orgId}/lotoProcedures`)); await update(newRef, payload); payload.firebaseKey = newRef.key; setProcedures([payload, ...procedures]); }
+            if (procForm.firebaseKey) { await dbUpdate(`organizations/${session.orgId}/lotoProcedures/${procForm.firebaseKey}`, payload); setProcedures(procedures.map(p => p.firebaseKey === procForm.firebaseKey ? payload : p)); }
+            else { const newId = await dbPush(`organizations/${session.orgId}/lotoProcedures`, payload); payload.firebaseKey = newId; setProcedures([payload, ...procedures]); }
             alert("Saved successfully!"); setCurrentView('inventory');
         } catch { alert("Save failed."); }
     };
@@ -285,7 +284,7 @@ export default function Loto() {
         if (!window.confirm(`Approve ${proc.id} for field use?`)) return;
         try {
             const payload = { ...proc, status: 'Approved', publicQrEnabled: true, approvedBy: session.name || session.user, date: new Date().toISOString().split('T')[0] };
-            await update(ref(rtdb, `organizations/${session.orgId}/lotoProcedures/${proc.firebaseKey}`), payload);
+            await dbUpdate(`organizations/${session.orgId}/lotoProcedures/${proc.firebaseKey}`, payload);
             setProcedures(procedures.map(p => p.firebaseKey === proc.firebaseKey ? payload : p));
         } catch { alert("Approval failed."); }
     };
@@ -296,7 +295,7 @@ export default function Loto() {
     const generatePDF = async (proc, tagsOnly = false) => {
         try {
             if (session?.orgId && proc.firebaseKey && proc.status === 'Approved' && proc.publicQrEnabled !== true) {
-                await update(ref(rtdb, `organizations/${session.orgId}/lotoProcedures/${proc.firebaseKey}`), { publicQrEnabled: true });
+                await dbUpdate(`organizations/${session.orgId}/lotoProcedures/${proc.firebaseKey}`, { publicQrEnabled: true });
                 setProcedures(prev => prev.map(item => item.firebaseKey === proc.firebaseKey ? { ...item, publicQrEnabled: true } : item));
             }
 
@@ -360,7 +359,7 @@ export default function Loto() {
 
         const currentlyLocked = globalLiveMap[proc.firebaseKey] && globalLiveMap[proc.firebaseKey].has(step.tag);
         const logEntry = { timestamp: new Date().toISOString(), procId: proc.firebaseKey, procRef: proc.id, facility: proc.facility, equipment: proc.description, stepTag: step.tag, energy: step.type, action: currentlyLocked ? 'LOCK REMOVED' : 'LOCK APPLIED', user: session.name || session.user || session.email };
-        try { const newRef = push(ref(rtdb, `organizations/${session.orgId}/lotoLogs`)); await update(newRef, logEntry); logEntry.firebaseKey = newRef.key; setLogs([logEntry, ...logs]); }
+        try { const newId = await dbPush(`organizations/${session.orgId}/lotoLogs`, logEntry); logEntry.firebaseKey = newId; setLogs([logEntry, ...logs]); }
         catch { alert("Network error logging lock."); }
     };
 

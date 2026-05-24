@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { ref, onValue, update, push, remove } from 'firebase/database';
-import * as firebaseSetup from '../config/firebase';
+import { dbPush, dbUpdate, dbRemove, dbSubscribe } from '../services/db/index.js';
 import * as XLSX from 'xlsx';
 import {
     canDeleteForRole,
@@ -141,8 +140,8 @@ export default function Standards() {
                 if (loadedChildren.size === 2) setLoading(false);
             };
 
-            const unsubscribeSites = onValue(ref(rtdb, `organizations/${sess.orgId}/sites`), (snap) => {
-                const data = snap.exists() ? snap.val() : {};
+            const unsubscribeSites = dbSubscribe(`organizations/${sess.orgId}/sites`, (sitesData) => {
+                const data = sitesData !== null ? sitesData : {};
                 setSites(normalizeSites(data));
                 markLoaded('sites');
             }, (error) => {
@@ -150,9 +149,9 @@ export default function Standards() {
                 setLoading(false);
             });
 
-            const unsubscribeDocuments = onValue(ref(rtdb, `organizations/${sess.orgId}/documents`), (snap) => {
-                setDocuments(snap.exists()
-                    ? safeArrayParse(snap.val()).sort((a, b) => new Date(b.uploadDate || 0) - new Date(a.uploadDate || 0))
+            const unsubscribeDocuments = dbSubscribe(`organizations/${sess.orgId}/documents`, (data) => {
+                setDocuments(data !== null
+                    ? safeArrayParse(data).sort((a, b) => new Date(b.uploadDate || 0) - new Date(a.uploadDate || 0))
                     : []);
                 markLoaded('documents');
             }, (error) => {
@@ -319,10 +318,10 @@ export default function Standards() {
         try {
             const payload = { ...formData, lastUpdated: new Date().toISOString(), updatedBy: session.name || session.email };
             if (formData.firebaseKey) {
-                await update(ref(rtdb, `organizations/${session.orgId}/documents/${formData.firebaseKey}`), payload);
+                await dbUpdate(`organizations/${session.orgId}/documents/${formData.firebaseKey}`, payload);
             } else {
-                const newRef = await push(ref(rtdb, `organizations/${session.orgId}/documents`), payload);
-                payload.firebaseKey = newRef.key;
+                const newId = await dbPush(`organizations/${session.orgId}/documents`, payload);
+                payload.firebaseKey = newId;
             }
             alert(`Document ${payload.status} successfully.`);
             setView('library');
@@ -334,7 +333,7 @@ export default function Standards() {
     const deleteDocument = async (key) => {
         if (!window.confirm("Permanently delete this document? This cannot be undone.")) return;
         try {
-            await remove(ref(rtdb, `organizations/${session.orgId}/documents/${key}`));
+            await dbRemove(`organizations/${session.orgId}/documents/${key}`);
         } catch {
             alert("Error deleting document.");
         }

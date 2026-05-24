@@ -1,8 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { push, ref, remove, update } from 'firebase/database';
+import { dbPush, dbRemove, dbUpdate } from '../../services/db/index.js';
 import * as XLSX from 'xlsx';
-import { rtdb } from '../../config/firebase';
+
 import { getFieldPortalVerificationMessage, getPortalAwareHomePath, isFieldPortalHomeContext } from '../FieldApp/portalAuth';
 import {
     buildEditableIncidentData,
@@ -546,7 +546,7 @@ export default function Incidents() {
 
         const loadDatabases = async () => {
             try {
-                const orgData = await readOrgChildren(rtdb, session.orgId, ['sites', 'incidents', 'contractors', 'riskAssessments', 'users']);
+                const orgData = await readOrgChildren(null, session.orgId, ['sites', 'incidents', 'contractors', 'riskAssessments', 'users']);
 
                 let fetchedUsers = [];
                 let loadedIncidents = [];
@@ -1671,12 +1671,12 @@ export default function Incidents() {
             }));
 
             if (data.firebaseKey) {
-                await update(ref(rtdb, `organizations/${session.orgId}/incidents/${data.firebaseKey}`), payload);
+                await dbUpdate(`organizations/${session.orgId}/incidents/${data.firebaseKey}`, payload);
             } else {
-                await push(ref(rtdb, `organizations/${session.orgId}/incidents`), payload);
+                await dbPush(`organizations/${session.orgId}/incidents`, payload);
             }
 
-            const refreshedIncidents = await readOrgChild(rtdb, session.orgId, 'incidents');
+            const refreshedIncidents = await readOrgChild(null, session.orgId, 'incidents');
             setIncidentsList(refreshedIncidents ? Object.entries(refreshedIncidents).map(([k, v]) => ({ firebaseKey: k, ...v })) : []);
             // Fire-and-forget email notification to all org members
             notifyIncidentSaved(
@@ -1726,7 +1726,7 @@ export default function Incidents() {
 
         if (!permissions.canDelete) return alert('Security Error: Only Global Owners and Site Owners can permanently delete records.');
         if (window.confirm('Permanently delete incident?')) {
-            await remove(ref(rtdb, `organizations/${session.orgId}/incidents/${incident.firebaseKey}`));
+            await dbRemove(`organizations/${session.orgId}/incidents/${incident.firebaseKey}`);
             setIncidentsList((prev) => prev.filter((i) => i.firebaseKey !== incident.firebaseKey));
         }
     };
@@ -1793,7 +1793,7 @@ export default function Incidents() {
         setData(next);
         if (data.firebaseKey && session?.orgId) {
             try {
-                await update(ref(rtdb, `organizations/${session.orgId}/incidents/${data.firebaseKey}`), {
+                await dbUpdate(`organizations/${session.orgId}/incidents/${data.firebaseKey}`, {
                     imageEvidence: base64,
                     imageEvidenceName: file.name,
                 });
@@ -1876,7 +1876,7 @@ export default function Incidents() {
             updates[`activities/${actIdx}/hazards/${hazIdx}`] = modifiedHazard;
             updates.changeLogs = [...currentLogs, newLog];
 
-            await update(ref(rtdb, `organizations/${session.orgId}/riskAssessments/${raKey}`), updates);
+            await dbUpdate(`organizations/${session.orgId}/riskAssessments/${raKey}`, updates);
 
             const linkRecord = {
                 raDocId,

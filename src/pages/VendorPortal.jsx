@@ -12,8 +12,8 @@ import {
     signOut,
     updatePassword
 } from 'firebase/auth';
-import { equalTo, get, getDatabase, orderByChild, query, ref, set, update } from 'firebase/database';
 import { auth } from '../config/firebase';
+import { dbGet, dbSet, dbUpdate, dbQuery } from '../services/db/index.js';
 import { safeDocumentHref } from '../utils/security';
 
 const VENDOR_APP_NAME = 'vendor-portal-app';
@@ -22,13 +22,10 @@ const VENDOR_SESSION_KEY = 'vendorSession';
 const getVendorFirebase = () => {
     const existingApp = getApps().find(app => app.name === VENDOR_APP_NAME);
     const vendorApp = existingApp || initializeApp(auth.app.options, VENDOR_APP_NAME);
-    return {
-        vendorAuth: getAuth(vendorApp),
-        vendorDb: getDatabase(vendorApp)
-    };
+    return { vendorAuth: getAuth(vendorApp) };
 };
 
-const { vendorAuth, vendorDb } = getVendorFirebase();
+const { vendorAuth } = getVendorFirebase();
 
 const safeArr = (val) => {
     if (!val) return [];
@@ -109,15 +106,15 @@ const buildVendorState = (firebaseKey, vendorData) => ({
 
 const readVendorSiteCollection = async ({ orgId, childName, orgUser }) => {
     if (orgUser?.assignedSite === 'GLOBAL') {
-        const snap = await get(ref(vendorDb, `organizations/${orgId}/${childName}`));
-        return snap.exists() ? snap.val() : {};
+        const snap = await dbGet(`organizations/${orgId}/${childName}`);
+        return snap !== null ? snap : {};
     }
 
     const siteIds = [orgUser?.assignedSite].filter(Boolean);
     if (siteIds.length === 0) return {};
     const entries = await Promise.all(siteIds.map(async (siteId) => {
-        const snap = await get(query(ref(vendorDb, `organizations/${orgId}/${childName}`), orderByChild('siteId'), equalTo(siteId)));
-        return snap.exists() ? snap.val() : {};
+        const snap = await dbQuery(`organizations/${orgId}/${childName}`, 'siteId', siteId);
+        return snap !== null ? snap : {};
     }));
 
     return entries.reduce((acc, entry) => ({ ...acc, ...entry }), {});
@@ -125,8 +122,8 @@ const readVendorSiteCollection = async ({ orgId, childName, orgUser }) => {
 
 const readOptionalPasswordState = async ({ orgId, uid }) => {
     try {
-        const snap = await get(ref(vendorDb, `organizations/${orgId}/userPasswordState/${uid}`));
-        return snap.exists() ? snap.val() : null;
+        const snap = await dbGet(`organizations/${orgId}/userPasswordState/${uid}`);
+        return snap !== null ? snap : null;
     } catch (error) {
         if (isPermissionDeniedError(error)) {
             console.warn('Vendor password-state read blocked; falling back to user profile flags.', error);
@@ -147,9 +144,9 @@ const resolveLinkedContractor = async ({
     const preferredContractorId = expectedContractorId || orgUser?.portalLinkedContractorId || '';
     if (preferredContractorId) {
         try {
-            const directSnap = await get(ref(vendorDb, `organizations/${orgId}/contractors/${preferredContractorId}`));
-            if (directSnap.exists()) {
-                return [preferredContractorId, directSnap.val()];
+            const directSnap = await dbGet(`organizations/${orgId}/contractors/${preferredContractorId}`);
+            if (directSnap !== null) {
+                return [preferredContractorId, directSnap];
             }
         } catch (error) {
             if (!isPermissionDeniedError(error)) {
@@ -159,12 +156,12 @@ const resolveLinkedContractor = async ({
         }
     }
 
-    const contractorSnap = await get(ref(vendorDb, `organizations/${orgId}/contractors`));
-    if (!contractorSnap.exists()) {
+    const contractorSnap = await dbGet(`organizations/${orgId}/contractors`);
+    if (!contractorSnap !== null) {
         throw new Error('No contractor records were found for this organization.');
     }
 
-    const matchedEntry = Object.entries(contractorSnap.val()).find(([contractorKey, contractor]) => {
+    const matchedEntry = Object.entries(contractorSnap).find(([contractorKey, contractor]) => {
         const contractorEmail = normalizeEmail(contractor?.email);
         const contractorCode = normalizeVendorCode(contractor?.vendorCode);
         const contractorPortalUid = contractor?.portalUid || '';
@@ -275,8 +272,8 @@ export default function VendorPortal() {
             createdAt: nowIso
         };
 
-        await set(ref(vendorDb, `organizations/${orgId}/users/${user.uid}`), bootstrapPayload);
-        await set(ref(vendorDb, `userDirectory/${user.uid}`), { orgId });
+        await dbSet(`organizations/${orgId}/users/${user.uid}`, bootstrapPayload);
+        await dbSet(`userDirectory/${user.uid}`, { orgId });
         return { orgId, contractorId };
     }, [getBootstrapHints]);
 
@@ -291,40 +288,40 @@ export default function VendorPortal() {
                 throw new Error('No authenticated portal session found. Please sign in again.');
             }
 
-            let userDirSnap = await get(ref(vendorDb, `userDirectory/${user.uid}`));
-            if (!userDirSnap.exists()) {
+            let userDirSnap = await dbGet(`userDirectory/${user.uid}`);
+            if (!userDirSnap !== null) {
                 await ensureVendorBootstrapAccess({
                     user,
                     cleanEmail,
                     expectedOrgId,
                     expectedContractorId
                 });
-                userDirSnap = await get(ref(vendorDb, `userDirectory/${user.uid}`));
-                if (!userDirSnap.exists()) {
+                userDirSnap = await dbGet(`userDirectory/${user.uid}`);
+                if (!userDirSnap !== null) {
                     throw new Error('This vendor login could not finish linking to the organization. Ask your client admin to resend the setup link.');
                 }
             }
 
-            const orgId = userDirSnap.val().orgId;
+            const orgId = userDirSnap.orgId;
             if (expectedOrgId && expectedOrgId !== orgId) {
                 throw new Error('This login belongs to a different organization than the saved portal session.');
             }
 
-            let orgUserSnap = await get(ref(vendorDb, `organizations/${orgId}/users/${user.uid}`));
-            if (!orgUserSnap.exists()) {
+            let orgUserSnap = await dbGet(`organizations/${orgId}/users/${user.uid}`);
+            if (!orgUserSnap !== null) {
                 await ensureVendorBootstrapAccess({
                     user,
                     cleanEmail,
                     expectedOrgId: orgId,
                     expectedContractorId
                 });
-                orgUserSnap = await get(ref(vendorDb, `organizations/${orgId}/users/${user.uid}`));
-                if (!orgUserSnap.exists()) {
+                orgUserSnap = await dbGet(`organizations/${orgId}/users/${user.uid}`);
+                if (!orgUserSnap !== null) {
                     throw new Error('Your authenticated account is missing from the organization directory.');
                 }
             }
 
-            const orgUser = orgUserSnap.val();
+            const orgUser = orgUserSnap;
             const passwordState = await readOptionalPasswordState({ orgId, uid: user.uid });
             if (orgUser.status === 'Pending') {
                 throw new Error('Your portal account is still pending approval. Ask your client admin to activate it.');
@@ -563,7 +560,7 @@ export default function VendorPortal() {
             await reauthenticateWithCredential(currentUser, credential);
             await updatePassword(currentUser, passwordForm.next);
             const passwordUpdatedAt = new Date().toISOString();
-            await update(ref(vendorDb, `organizations/${vendorSession.orgId}/userPasswordState/${currentUser.uid}`), {
+            await dbUpdate(`organizations/${vendorSession.orgId}/userPasswordState/${currentUser.uid}`, {
                 mustChangePassword: false,
                 temporaryPasswordIssued: false,
                 temporaryPasswordIssuedAt: '',
@@ -644,7 +641,7 @@ export default function VendorPortal() {
         }
 
         try {
-            await update(ref(vendorDb, `organizations/${vendorSession.orgId}/contractors/${vendor.firebaseKey}`), {
+            await dbUpdate(`organizations/${vendorSession.orgId}/contractors/${vendor.firebaseKey}`, {
                 ...updates,
                 ...buildVendorUpdateAuditPayload(vendorAuth.currentUser)
             });

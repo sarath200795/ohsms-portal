@@ -1,8 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { auth, rtdb } from '../config/firebase';
-import { signInWithEmailAndPassword, createUserWithEmailAndPassword, deleteUser, sendPasswordResetEmail, signOut } from 'firebase/auth';
-import { ref, get, set, push } from 'firebase/database';
+import authService from '../services/auth/index.js';
+import { dbGet, dbSet, dbPush } from '../services/db/index.js';
 import { normalizeSessionPermissions } from '../utils/permissions';
 import { ACCOUNT_STATUS, canAuthenticateStatus, isDeletedStatus, isPendingStatus, writeStoredSession } from '../utils/session';
 
@@ -132,31 +131,27 @@ export default function Login() {
         e.preventDefault();
         setLoading(true);
         try {
-            const userCredential = await signInWithEmailAndPassword(auth, email, password);
-            const user = userCredential.user;
+            const user = await authService.signIn(email, password);
 
-            const userDirRef = ref(rtdb, `userDirectory/${user.uid}`);
-            const userDirSnap = await get(userDirRef);
+            const userDirData = await dbGet(`userDirectory/${user.uid}`);
 
-            if (userDirSnap.exists()) {
-                const userOrgId = userDirSnap.val().orgId;
-                const orgUserRef = ref(rtdb, `organizations/${userOrgId}/users/${user.uid}`);
-                const orgUserSnap = await get(orgUserRef);
-                const passwordStateSnap = await get(ref(rtdb, `organizations/${userOrgId}/userPasswordState/${user.uid}`));
+            if (userDirData) {
+                const userOrgId = userDirData.orgId;
+                const [userData, passwordState] = await Promise.all([
+                    dbGet(`organizations/${userOrgId}/users/${user.uid}`),
+                    dbGet(`organizations/${userOrgId}/userPasswordState/${user.uid}`),
+                ]);
 
-                if (orgUserSnap.exists()) {
-                    const userData = orgUserSnap.val();
-                    const passwordState = passwordStateSnap.exists() ? passwordStateSnap.val() : {};
-
+                if (userData) {
                     if (isPendingStatus(userData.status)) {
                         setLoading(false);
-                        await signOut(auth);
+                        await authService.signOut();
                         return alert('Your account is currently Pending. Please wait for your Organization Admin to approve your access.');
                     }
 
                     if (!canAuthenticateStatus(userData.status) || isDeletedStatus(userData.status)) {
                         setLoading(false);
-                        await signOut(auth);
+                        await authService.signOut();
                         return alert('This account has been deactivated. Please contact your administrator.');
                     }
 
@@ -170,20 +165,20 @@ export default function Login() {
                         assignedSite: userData.assignedSite || 'GLOBAL',
                         accessibleSites: userData.accessibleSites || [],
                         accessibleModules: userData.accessibleModules || [],
-                        mustChangePassword: passwordStateSnap.exists() ? Boolean(passwordState.mustChangePassword) : Boolean(userData.mustChangePassword),
-                        temporaryPasswordIssued: passwordStateSnap.exists() ? Boolean(passwordState.temporaryPasswordIssued) : Boolean(userData.temporaryPasswordIssued),
-                        temporaryPasswordIssuedAt: passwordStateSnap.exists() ? (passwordState.temporaryPasswordIssuedAt || '') : (userData.temporaryPasswordIssuedAt || ''),
-                        passwordUpdatedAt: passwordStateSnap.exists() ? (passwordState.passwordUpdatedAt || '') : (userData.passwordUpdatedAt || '')
+                        mustChangePassword: passwordState ? Boolean(passwordState.mustChangePassword) : Boolean(userData.mustChangePassword),
+                        temporaryPasswordIssued: passwordState ? Boolean(passwordState.temporaryPasswordIssued) : Boolean(userData.temporaryPasswordIssued),
+                        temporaryPasswordIssuedAt: passwordState ? (passwordState.temporaryPasswordIssuedAt || '') : (userData.temporaryPasswordIssuedAt || ''),
+                        passwordUpdatedAt: passwordState ? (passwordState.passwordUpdatedAt || '') : (userData.passwordUpdatedAt || '')
                     });
 
                     writeStoredSession(sessionData);
                     navigate(sessionData.mustChangePassword ? '/dashboard?forcePasswordChange=1' : '/dashboard');
                 } else {
-                    await signOut(auth);
+                    await authService.signOut();
                     alert('Your account exists but was removed from the organization directory.');
                 }
             } else {
-                await signOut(auth);
+                await authService.signOut();
                 alert('Security Error: No organization mapping found for this account. You may be using a legacy test account. Please register a new one.');
             }
         } catch (error) {
@@ -199,7 +194,7 @@ export default function Login() {
 
         setLoading(true);
         try {
-            await sendPasswordResetEmail(auth, targetEmail);
+            await authService.sendPasswordReset(targetEmail);
             alert('If an account exists for this email, a password reset link has been sent.');
             setResetEmail('');
         } catch (error) {
@@ -222,21 +217,19 @@ export default function Login() {
         let createdUser = null;
 
         try {
-            const userCredential = await createUserWithEmailAndPassword(auth, regEmail.trim().toLowerCase(), regPassword);
-            const user = userCredential.user;
-            createdUser = user;
+            const uid = await authService.createUser(regEmail.trim().toLowerCase(), regPassword);
+            createdUser = uid;
 
-            const joinSnap = await get(ref(rtdb, `joinRegistry/${normalizedJoinCode}`));
-            const existingOrgId = joinSnap.val();
+            const existingOrgId = await dbGet(`joinRegistry/${normalizedJoinCode}`);
 
             if (!existingOrgId) {
-                await deleteUser(user);
+                await authService.deleteUser(uid);
                 return alert('This join code is invalid or has expired. Please ask your Organization Admin to generate a fresh code from User Management.');
             }
 
-            await set(ref(rtdb, `organizations/${existingOrgId}/users/${user.uid}`), {
+            await dbSet(`organizations/${existingOrgId}/users/${uid}`, {
                 name: userName.trim(),
-                email: user.email.toLowerCase().trim(),
+                email: regEmail.trim().toLowerCase(),
                 role: 'User',
                 assignedSite: '',
                 accessibleSites: [],
@@ -246,16 +239,16 @@ export default function Login() {
                 createdAt: new Date().toISOString()
             });
 
-            await set(ref(rtdb, `userDirectory/${user.uid}`), { orgId: existingOrgId });
+            await dbSet(`userDirectory/${uid}`, { orgId: existingOrgId });
 
-            await signOut(auth);
+            await authService.signOut();
             alert('Access request submitted.\n\nYour account is now pending approval. Please ask your Organization Admin to approve your access from User Management.');
 
             setAuthMode('login');
             resetRegistrationFields();
         } catch (error) {
             if (createdUser) {
-                await deleteUser(createdUser).catch(() => {});
+                await authService.deleteUser(createdUser).catch(() => {});
             }
             alert(`Join request failed: ${error.message}`);
         } finally {
@@ -269,27 +262,26 @@ export default function Login() {
         setLoading(true);
 
         try {
-            const userCredential = await createUserWithEmailAndPassword(auth, regEmail.trim().toLowerCase(), regPassword);
-            const user = userCredential.user;
+            const userEmail = regEmail.trim().toLowerCase();
+            const uid = await authService.createUser(userEmail, regPassword);
 
-            const newOrgRef = push(ref(rtdb, 'organizations'));
-            const orgId = newOrgRef.key;
+            const orgId = await dbPush('organizations', null);
             const initialJoinCode = generateJoinCode();
 
-            await set(newOrgRef, {
+            await dbSet(`organizations/${orgId}`, {
                 details: {
                     name: orgName.trim(),
                     createdAt: new Date().toISOString(),
-                    ownerEmail: user.email,
+                    ownerEmail: userEmail,
                     joinCode: initialJoinCode,
                     joinCodeUpdatedAt: new Date().toISOString(),
-                    joinCodeUpdatedBy: user.email
+                    joinCodeUpdatedBy: userEmail
                 },
                 sites: { 'HQ-01': { code: 'HQ-01', name: 'Headquarters' } },
                 users: {
-                    [user.uid]: {
+                    [uid]: {
                         name: userName.trim(),
-                        email: user.email.toLowerCase().trim(),
+                        email: userEmail,
                         role: 'Global Owner',
                         assignedSite: 'GLOBAL',
                         accessibleSites: ['GLOBAL'],
@@ -299,12 +291,12 @@ export default function Login() {
                 }
             });
 
-            await set(ref(rtdb, `userDirectory/${user.uid}`), { orgId });
-            await set(ref(rtdb, `joinRegistry/${initialJoinCode}`), orgId);
+            await dbSet(`userDirectory/${uid}`, { orgId });
+            await dbSet(`joinRegistry/${initialJoinCode}`, orgId);
 
             const sessionData = normalizeSessionPermissions({
-                uid: user.uid,
-                email: user.email,
+                uid,
+                email: userEmail,
                 orgId,
                 name: userName.trim(),
                 role: 'Global Owner',

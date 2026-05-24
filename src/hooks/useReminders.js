@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { rtdb } from '../config/firebase';
 import { readOrgChildren } from '../utils/orgData';
 import { readStoredSession } from '../utils/session';
 import { buildReminders, summarizeReminders, REMINDER_COLLECTIONS } from '../utils/reminders';
@@ -21,7 +20,7 @@ export function useReminders() {
 
         setLoading(true);
         try {
-            const data = await readOrgChildren(rtdb, session.orgId, REMINDER_COLLECTIONS, { session });
+            const data = await readOrgChildren(null, session.orgId, REMINDER_COLLECTIONS, { session });
             setItems(buildReminders(data));
             setError(null);
         } catch (err) {
@@ -41,7 +40,7 @@ export function useReminders() {
                 return;
             }
             try {
-                const data = await readOrgChildren(rtdb, session.orgId, REMINDER_COLLECTIONS, { session });
+                const data = await readOrgChildren(null, session.orgId, REMINDER_COLLECTIONS, { session });
                 if (active) {
                     setItems(buildReminders(data));
                     setError(null);

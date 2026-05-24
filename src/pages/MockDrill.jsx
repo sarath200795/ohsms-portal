@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { ref, push, remove } from 'firebase/database';
-import { rtdb } from '../config/firebase';
+import { dbPush, dbRemove } from '../services/db/index.js';
 import { getFieldPortalVerificationMessage, getPortalAwareHomePath, isFieldPortalHomeContext } from './FieldApp/portalAuth';
 import { readOrgChildren } from '../utils/orgData';
 import {
@@ -292,7 +291,7 @@ export default function MockDrill() {
         const fetchAll = async () => {
             setLoading(true);
             try {
-                const val = await readOrgChildren(rtdb, session.orgId, ['sites', 'users', 'mockDrills']);
+                const val = await readOrgChildren(null, session.orgId, ['sites', 'users', 'mockDrills']);
                 if (val.sites) {
                     setSites(normalizeSites(val.sites));
                 }
@@ -453,7 +452,7 @@ export default function MockDrill() {
         const newRecord = JSON.parse(JSON.stringify(rawRecord));
 
         try {
-            await push(ref(rtdb, `organizations/${session.orgId}/mockDrills`), newRecord);
+            await dbPush(`organizations/${session.orgId}/mockDrills`, newRecord);
             setHistory([newRecord, ...history]);
             // Fire-and-forget email to all org members
             notifyMockDrillSubmitted(newRecord, users, session.name || session.email || 'Unknown');
@@ -469,7 +468,7 @@ export default function MockDrill() {
         if (window.confirm("Are you sure you want to delete this record?")) {
             try {
                 if (record.firebaseKey) {
-                    await remove(ref(rtdb, `organizations/${session.orgId}/mockDrills/${record.firebaseKey}`));
+                    await dbRemove(`organizations/${session.orgId}/mockDrills/${record.firebaseKey}`);
                 }
                 setHistory(history.filter(h => h.firebaseKey !== record.firebaseKey));
             } catch (e) {

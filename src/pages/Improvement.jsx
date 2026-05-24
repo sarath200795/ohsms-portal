@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { ref, update, push, remove } from 'firebase/database';
-import { rtdb } from '../config/firebase';
+import { dbUpdate, dbPush, dbRemove } from '../services/db/index.js';
 import { readOrgChild, readOrgChildren } from '../utils/orgData';
 import {
     canDeleteForRole,
@@ -255,7 +254,7 @@ export default function Improvement() {
         const loadDatabases = async () => {
             setLoading(true);
             try {
-                const val = await readOrgChildren(rtdb, sess.orgId, ['sites', 'users', 'improvements']);
+                const val = await readOrgChildren(null, sess.orgId, ['sites', 'users', 'improvements']);
 
                 if (val.sites) setSites(normalizeSites(val.sites));
 
@@ -438,14 +437,14 @@ export default function Improvement() {
 
         try {
             if (form.firebaseKey) {
-                await update(ref(rtdb, `organizations/${session.orgId}/improvements/${form.firebaseKey}`), payload);
+                await dbUpdate(`organizations/${session.orgId}/improvements/${form.firebaseKey}`, payload);
                 alert(form.horizontalDeployment ? "Horizontal Proposal Updated. CAPAs auto-synced!" : "Proposal Updated Successfully!");
             } else {
-                await push(ref(rtdb, `organizations/${session.orgId}/improvements`), payload);
+                await dbPush(`organizations/${session.orgId}/improvements`, payload);
                 alert(form.horizontalDeployment ? "Horizontal Proposal Created. CAPAs deployed globally!" : "Proposal Saved! Actions pushed to CAPA Manager.");
             }
 
-            const refreshedImprovements = await readOrgChild(rtdb, session.orgId, 'improvements');
+            const refreshedImprovements = await readOrgChild(null, session.orgId, 'improvements');
             setImprovements(refreshedImprovements ? Object.entries(refreshedImprovements).map(([k, v]) => ({ firebaseKey: k, ...v })).sort((a, b) => new Date(b.timestamp || 0) - new Date(a.timestamp || 0)) : []);
             setView('list');
         } catch (e) { alert("Save Failed: " + e.message); }
@@ -454,7 +453,7 @@ export default function Improvement() {
 
     const handleDelete = async (key) => {
         if (window.confirm("Permanently delete this improvement proposal?")) {
-            await remove(ref(rtdb, `organizations/${session.orgId}/improvements/${key}`));
+            await dbRemove(`organizations/${session.orgId}/improvements/${key}`);
             setImprovements(improvements.filter(i => i.firebaseKey !== key));
         }
     };

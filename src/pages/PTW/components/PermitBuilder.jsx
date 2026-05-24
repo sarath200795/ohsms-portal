@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
-import { ref, push, update } from 'firebase/database';
-import { rtdb } from '../../../config/firebase';
+import { dbPush, dbUpdate } from '../../../services/db/index.js';
 import { PERMIT_TYPES, CHECKLIST_ITEMS } from '../../../utils/constants';
 
 export default function PermitBuilder({ session, sites, contractors, onCancel, onSuccess }) {
@@ -30,8 +29,7 @@ export default function PermitBuilder({ session, sites, contractors, onCancel, o
             const permitId = `PTW-${formData.permitType}-${Math.floor(Date.now() / 1000).toString().slice(-6)}`;
             const payload = { ...formData, id: permitId, createdBy: session.name || session.email, createdAt: new Date().toISOString() };
 
-            const newRef = push(ref(rtdb, `organizations/${session.orgId}/ptwRecords`));
-            await update(newRef, payload);
+            const newId = await dbPush(`organizations/${session.orgId}/ptwRecords`, payload);
 
             alert(`Permit ${permitId} submitted successfully!`);
             onSuccess();

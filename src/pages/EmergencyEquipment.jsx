@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { ref, get, push, update, remove } from 'firebase/database';
-import { rtdb } from '../config/firebase';
+import { dbGet, dbPush, dbUpdate, dbRemove } from '../services/db/index.js';
 import { getFieldPortalLoginPath, getFieldPortalVerificationMessage, getPortalAwareHomePath, isFieldPortalHomeContext } from './FieldApp/portalAuth';
 import { readOrgChildren } from '../utils/orgData';
 import { canEditCreateForRole, isGlobalOwnerRole } from '../utils/permissions';
@@ -389,7 +388,7 @@ export default function EmergencyEquipment() {
 
             const fetchPublicData = async () => {
                 try {
-                    const eqSnap = await get(ref(rtdb, `organizations/${publicOrgId}/emergencyEquipment/${publicScanId}`));
+                    const eqSnap = await dbGet(`organizations/${publicOrgId}/emergencyEquipment/${publicScanId}`);
                     if (eqSnap.exists()) {
                         const targetEq = { firebaseKey: publicScanId, ...eqSnap.val() };
                         const publicSite = params.get('site') || targetEq.siteId || 'All';
@@ -422,7 +421,7 @@ export default function EmergencyEquipment() {
 
         const fetchData = async () => {
             try {
-                const data = await readOrgChildren(rtdb, sess.orgId, ['emergencyEquipment', 'sites', 'users']);
+                const data = await readOrgChildren(null, sess.orgId, ['emergencyEquipment', 'sites', 'users']);
                 let loadedEq = [];
                 if (data.emergencyEquipment) {
                     loadedEq = Object.entries(data.emergencyEquipment).map(([k, v]) => ({ firebaseKey: k, ...v }));
@@ -655,9 +654,9 @@ export default function EmergencyEquipment() {
             };
 
             if (formData.firebaseKey) {
-                await update(ref(rtdb, `organizations/${session.orgId}/emergencyEquipment/${formData.firebaseKey}`), payload);
+                await dbUpdate(`organizations/${session.orgId}/emergencyEquipment/${formData.firebaseKey}`, payload);
             } else {
-                await push(ref(rtdb, `organizations/${session.orgId}/emergencyEquipment`), payload);
+                await dbPush(`organizations/${session.orgId}/emergencyEquipment`, payload);
             }
             notifyEquipmentUpdated(
                 payload,
@@ -674,7 +673,7 @@ export default function EmergencyEquipment() {
 
         try {
             if (session?.orgId && equipmentItem.firebaseKey && equipmentItem.publicQrEnabled !== true) {
-                await update(ref(rtdb, `organizations/${session.orgId}/emergencyEquipment/${equipmentItem.firebaseKey}`), { publicQrEnabled: true });
+                await dbUpdate(`organizations/${session.orgId}/emergencyEquipment/${equipmentItem.firebaseKey}`, { publicQrEnabled: true });
                 printableItem = { ...equipmentItem, publicQrEnabled: true };
                 setEquipment(prev => prev.map(item => item.firebaseKey === equipmentItem.firebaseKey ? printableItem : item));
             }
@@ -724,7 +723,7 @@ export default function EmergencyEquipment() {
                 updatedBy: session.name,
                 lastUpdated: new Date().toISOString()
             };
-            await update(ref(rtdb, `organizations/${session.orgId}/emergencyEquipment/${inspectData.firebaseKey}`), payload);
+            await dbUpdate(`organizations/${session.orgId}/emergencyEquipment/${inspectData.firebaseKey}`, payload);
             setEquipment(prev => prev.map(item => (
                 item.firebaseKey === inspectData.firebaseKey
                     ? { ...item, ...payload }
@@ -747,7 +746,7 @@ export default function EmergencyEquipment() {
     const handleDelete = async (key) => {
         if (!canEdit) return alert("Permission denied.");
         if (window.confirm("Remove this equipment from the registry?")) {
-            await remove(ref(rtdb, `organizations/${session.orgId}/emergencyEquipment/${key}`));
+            await dbRemove(`organizations/${session.orgId}/emergencyEquipment/${key}`);
             setEquipment(equipment.filter(e => e.firebaseKey !== key));
         }
     };
@@ -890,13 +889,14 @@ export default function EmergencyEquipment() {
                         lastUpdated: new Date().toISOString()
                     };
 
-                    const newKey = push(ref(rtdb, `organizations/${session.orgId}/emergencyEquipment`)).key;
+                    // Generate a client-side key for the bulk import (avoids async in forEach)
+                    const newKey = `imp_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
                     updates[`organizations/${session.orgId}/emergencyEquipment/${newKey}`] = newItem;
                     count++;
                 });
 
                 if (count > 0) {
-                    await update(ref(rtdb), updates);
+                    await dbMultiUpdate(updates);
                     alert(`Successfully imported ${count} equipment records! IS 2190 dates calculated automatically.`);
                     setView('list');
                 } else {

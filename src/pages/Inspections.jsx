@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { ref, push, update, remove } from 'firebase/database';
-import { rtdb } from '../config/firebase';
+import { dbPush, dbUpdate, dbRemove } from '../services/db/index.js';
 import { getFieldPortalVerificationMessage, getPortalAwareHomePath, isFieldPortalHomeContext } from './FieldApp/portalAuth';
 import { readOrgChildren } from '../utils/orgData';
 import { canEditCreateForRole, isGlobalOwnerRole } from '../utils/permissions';
@@ -240,7 +239,7 @@ export default function Inspections() {
 
         const fetchData = async () => {
             try {
-                const data = await readOrgChildren(rtdb, sess.orgId, ['inspectionTemplates', 'inspectionRecords', 'sites', 'users']);
+                const data = await readOrgChildren(null, sess.orgId, ['inspectionTemplates', 'inspectionRecords', 'sites', 'users']);
                 if (data.inspectionTemplates) setTemplates(Object.entries(data.inspectionTemplates).map(([k, v]) => ({
                     firebaseKey: k,
                     ...v,
@@ -389,7 +388,7 @@ export default function Inspections() {
     const handleDefer = async () => {
         if (!deferDate) return alert("Please select a date to defer to.");
         try {
-            await update(ref(rtdb, `organizations/${session.orgId}/inspectionTemplates/${deferTask.templateId}`), {
+            await dbUpdate(`organizations/${session.orgId}/inspectionTemplates/${deferTask.templateId}`, {
                 deferredTo: deferDate
             });
             setDeferTask(null);
@@ -419,9 +418,9 @@ export default function Inspections() {
             if (!payload.createdAt) payload.createdAt = new Date().toISOString();
 
             if (editTemplate.firebaseKey) {
-                await update(ref(rtdb, `organizations/${session.orgId}/inspectionTemplates/${editTemplate.firebaseKey}`), payload);
+                await dbUpdate(`organizations/${session.orgId}/inspectionTemplates/${editTemplate.firebaseKey}`, payload);
             } else {
-                await push(ref(rtdb, `organizations/${session.orgId}/inspectionTemplates`), payload);
+                await dbPush(`organizations/${session.orgId}/inspectionTemplates`, payload);
             }
             alert("Inspection Form Saved Successfully!");
             setView('templates');
@@ -430,7 +429,7 @@ export default function Inspections() {
 
     const updateTemplateStatus = async (key, newStatus) => {
         try {
-            await update(ref(rtdb, `organizations/${session.orgId}/inspectionTemplates/${key}`), { status: newStatus });
+            await dbUpdate(`organizations/${session.orgId}/inspectionTemplates/${key}`, { status: newStatus });
             setTemplates(prev => prev.map(t => t.firebaseKey === key ? { ...t, status: newStatus } : t));
         } catch {
             alert("Failed to update status");
@@ -440,7 +439,7 @@ export default function Inspections() {
     const deleteTemplate = async (key) => {
         if (!window.confirm("Are you sure you want to permanently delete this inspection form?")) return;
         try {
-            await remove(ref(rtdb, `organizations/${session.orgId}/inspectionTemplates/${key}`));
+            await dbRemove(`organizations/${session.orgId}/inspectionTemplates/${key}`);
             setTemplates(prev => prev.filter(t => t.firebaseKey !== key));
         } catch {
             alert("Failed to delete template");
@@ -684,9 +683,8 @@ export default function Inspections() {
                 capa: generatedCapas
             };
 
-            const newRecordRef = push(ref(rtdb, `organizations/${session.orgId}/inspectionRecords`));
-            await update(newRecordRef, recordPayload);
-            setRecords(prev => [...prev, { firebaseKey: newRecordRef.key, ...recordPayload }]);
+            const newRecordId = await dbPush(`organizations/${session.orgId}/inspectionRecords`, recordPayload);
+            setRecords(prev => [...prev, { firebaseKey: newRecordId, ...recordPayload }]);
 
             // Fire-and-forget email notification to all org members
             notifyInspectionSubmitted(
@@ -696,7 +694,7 @@ export default function Inspections() {
             );
 
             // Clear any deferrals so the next cycle resets to normal
-            await update(ref(rtdb, `organizations/${session.orgId}/inspectionTemplates/${executingTask.templateId}`), { deferredTo: null });
+            await dbUpdate(`organizations/${session.orgId}/inspectionTemplates/${executingTask.templateId}`, { deferredTo: null });
             setTemplates(prev => prev.map(t => t.firebaseKey === executingTask.templateId ? { ...t, deferredTo: null } : t));
 
             if (generatedCapas.length > 0) {

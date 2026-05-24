@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { ref, update, push, remove } from 'firebase/database';
-import { rtdb } from '../config/firebase';
+import { dbUpdate, dbPush, dbRemove } from '../services/db/index.js';
 import * as XLSX from 'xlsx';
 import { readOrgChild, readOrgChildren } from '../utils/orgData';
 import {
@@ -240,7 +239,7 @@ export default function Consultation() {
 
             const loadDatabases = async () => {
                 try {
-                    const orgData = await readOrgChildren(rtdb, sess.orgId, ['sites', 'users', 'consultations']);
+                    const orgData = await readOrgChildren(null, sess.orgId, ['sites', 'users', 'consultations']);
 
                     if (orgData.sites) {
                         const parsedSites = Object.keys(orgData.sites).map(key => {
@@ -387,15 +386,15 @@ export default function Consultation() {
 
         try {
             if (formData.firebaseKey) {
-                await update(ref(rtdb, `organizations/${session.orgId}/consultations/${formData.firebaseKey}`), payload);
+                await dbUpdate(`organizations/${session.orgId}/consultations/${formData.firebaseKey}`, payload);
             } else {
-                await push(ref(rtdb, `organizations/${session.orgId}/consultations`), payload);
+                await dbPush(`organizations/${session.orgId}/consultations`, payload);
             }
             // Fire-and-forget email to all org members
             notifyMeetingSaved(payload, users, session.name || session.email || 'Unknown');
             alert("Record saved successfully!");
 
-            const refreshedMeetings = await readOrgChild(rtdb, session.orgId, 'consultations');
+            const refreshedMeetings = await readOrgChild(null, session.orgId, 'consultations');
             setMeetings(refreshedMeetings ? Object.entries(refreshedMeetings).map(([k, v]) => ({ firebaseKey: k, ...v })).sort((a, b) => new Date(b.date) - new Date(a.date)) : []);
             setView('list');
         } catch (e) { alert("Save failed: " + e.message); }
@@ -405,7 +404,7 @@ export default function Consultation() {
     const deleteRecord = async (key) => {
         if (!permissions.canDelete) return alert("Security Error: You do not have permission to delete this record.");
         if (window.confirm("Delete this record permanently?")) {
-            await remove(ref(rtdb, `organizations/${session.orgId}/consultations/${key}`));
+            await dbRemove(`organizations/${session.orgId}/consultations/${key}`);
             setMeetings(meetings.filter(m => m.firebaseKey !== key));
         }
     };
@@ -421,7 +420,7 @@ export default function Consultation() {
 
         const updatedActions = [...meeting.actions];
         updatedActions[idx].status = newStatus;
-        await update(ref(rtdb, `organizations/${session.orgId}/consultations/${key}`), { actions: updatedActions });
+        await dbUpdate(`organizations/${session.orgId}/consultations/${key}`, { actions: updatedActions });
         setMeetings(meetings.map(m => m.firebaseKey === key ? { ...m, actions: updatedActions } : m));
 
         if (formData && formData.firebaseKey === key) {

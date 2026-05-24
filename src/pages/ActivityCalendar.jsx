@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
-import { rtdb } from '../config/firebase';
 import { useAppTransition } from '../hooks/useAppTransition';
 import { readOrgChildren } from '../utils/orgData';
 import { getAllowedSiteCodes, hasAccessibleModule, isGlobalOwnerRole } from '../utils/permissions';
@@ -265,7 +264,7 @@ export default function ActivityCalendar() {
 
         const loadData = async () => {
             try {
-                const value = await readOrgChildren(rtdb, parsedSession.orgId, [
+                const value = await readOrgChildren(null, parsedSession.orgId, [
                     'sites',
                     'incidents',
                     'ptwRecords',

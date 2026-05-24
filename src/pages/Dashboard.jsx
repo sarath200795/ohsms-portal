@@ -1,8 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { auth, rtdb } from '../config/firebase';
-import { EmailAuthProvider, reauthenticateWithCredential, signOut, updatePassword } from 'firebase/auth';
-import { ref, get, update } from 'firebase/database';
+import authService from '../services/auth/index.js';
+import { dbGet, dbUpdate } from '../services/db/index.js';
 import useStore from '../store/useStore';
 import { clearFieldModuleHomeContext } from './FieldApp/portalAuth';
 import { useAppTransition } from '../hooks/useAppTransition';
@@ -209,24 +208,15 @@ export default function Dashboard() {
         const fetchDashboardData = async () => {
             try {
                 const orgRef = `organizations/${sess.orgId}`;
-                const permissionRequestsPromise = isGlobalAdmin
-                    ? get(ref(rtdb, `${orgRef}/permissionRequests`))
-                    : Promise.resolve(null);
-                const [detailsSnap, sitesSnap, ptwSnap, incidentsSnap, requestsSnap] = await Promise.all([
-                    get(ref(rtdb, `${orgRef}/details`)),
-                    get(ref(rtdb, `${orgRef}/sites`)),
-                    get(ref(rtdb, `${orgRef}/ptwRecords`)),
-                    get(ref(rtdb, `${orgRef}/incidents`)),
-                    permissionRequestsPromise
+                const [details, sites, ptwRecords, incidents, permissionRequests] = await Promise.all([
+                    dbGet(`${orgRef}/details`),
+                    dbGet(`${orgRef}/sites`),
+                    dbGet(`${orgRef}/ptwRecords`),
+                    dbGet(`${orgRef}/incidents`),
+                    isGlobalAdmin ? dbGet(`${orgRef}/permissionRequests`) : Promise.resolve(null),
                 ]);
 
-                setLocalOrgData({
-                    details: detailsSnap.exists() ? detailsSnap.val() : null,
-                    sites: sitesSnap.exists() ? sitesSnap.val() : null,
-                    ptwRecords: ptwSnap.exists() ? ptwSnap.val() : null,
-                    incidents: incidentsSnap.exists() ? incidentsSnap.val() : null,
-                    permissionRequests: requestsSnap?.exists() ? requestsSnap.val() : null,
-                });
+                setLocalOrgData({ details, sites, ptwRecords, incidents, permissionRequests });
             } catch (error) {
                 console.error("Dashboard Fetch Error:", error);
             } finally {
@@ -309,7 +299,7 @@ export default function Dashboard() {
     }, [localOrgData, session]);
 
     const handleLogout = async () => {
-        await signOut(auth);
+        await authService.signOut();
         sessionStorage.clear();
         clearSession();
         navigate('/');
@@ -325,10 +315,10 @@ export default function Dashboard() {
     const handleChangePassword = async (e) => {
         e.preventDefault();
 
-        const currentUser = auth.currentUser;
-        const userEmail = currentUser?.email || session?.email;
+        const currentAuthUser = authService.getCurrentUser();
+        const userEmail = currentAuthUser?.email || session?.email;
 
-        if (!currentUser || !userEmail) {
+        if (!currentAuthUser || !userEmail) {
             alert('Your secure login session is not ready. Please sign out and sign in again before changing the password.');
             return;
         }
@@ -350,12 +340,11 @@ export default function Dashboard() {
 
         setIsPasswordSaving(true);
         try {
-            const credential = EmailAuthProvider.credential(userEmail, passwordForm.current);
-            await reauthenticateWithCredential(currentUser, credential);
-            await updatePassword(currentUser, passwordForm.next);
+            await authService.reauthenticate(userEmail, passwordForm.current);
+            await authService.updatePassword(passwordForm.next);
             const passwordUpdatedAt = new Date().toISOString();
-            if (session?.orgId && currentUser.uid) {
-                await update(ref(rtdb, `organizations/${session.orgId}/userPasswordState/${currentUser.uid}`), {
+            if (session?.orgId && currentAuthUser.uid) {
+                await dbUpdate(`organizations/${session.orgId}/userPasswordState/${currentAuthUser.uid}`, {
                     mustChangePassword: false,
                     temporaryPasswordIssued: false,
                     temporaryPasswordIssuedAt: '',

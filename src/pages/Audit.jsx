@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { equalTo, onValue, orderByChild, push, query, ref, update } from 'firebase/database';
-import { rtdb } from '../config/firebase';
+import { dbPush, dbUpdate, dbSubscribe, dbQuery } from '../services/db/index.js';
 import { readOrgChildren } from '../utils/orgData';
 import {
     hasAccessibleModule,
@@ -39,11 +38,25 @@ const safeArrayParse = (data) => {
     } catch { return []; }
 };
 
-const scopedCollectionRef = (session, childName) => {
-    if (isGlobalOwnerRole(session?.role) || session?.assignedSite === 'GLOBAL') {
-        return ref(rtdb, `organizations/${session.orgId}/${childName}`);
-    }
-    return query(ref(rtdb, `organizations/${session.orgId}/${childName}`), orderByChild('siteId'), equalTo(session?.assignedSite || ''));
+// Returns a subscribe function that calls back with site-scoped data.
+// Uses dbSubscribe (real-time for Firebase, polling for REST) + client-side filter.
+const subscribeScopedCollection = (session, childName, callback, errCb) => {
+    const isGlobal = isGlobalOwnerRole(session?.role) || session?.assignedSite === 'GLOBAL';
+    const siteId = session?.assignedSite;
+    return dbSubscribe(
+        `organizations/${session.orgId}/${childName}`,
+        (data) => {
+            if (!data) { callback(null); return; }
+            if (isGlobal) { callback(data); return; }
+            // Client-side site filter for non-global users
+            const filtered = {};
+            Object.entries(data).forEach(([k, v]) => {
+                if (v?.siteId === siteId) filtered[k] = v;
+            });
+            callback(Object.keys(filtered).length > 0 ? filtered : null);
+        },
+        errCb
+    );
 };
 
 // ============================================================================
@@ -65,7 +78,7 @@ const AuditScheduler = ({ setView, session }) => {
     useEffect(() => {
         const load = async () => {
             try {
-                const val = await readOrgChildren(rtdb, session.orgId, ['sites', 'users']);
+                const val = await readOrgChildren(null, session.orgId, ['sites', 'users']);
                 if (val.sites) {
                     const parsedSites = Object.keys(val.sites).map(key => {
                         const sVal = val.sites[key];
@@ -108,9 +121,9 @@ const AuditScheduler = ({ setView, session }) => {
         if (!plan.siteId || !plan.startDate || !plan.leadAuditor) return alert("Please fill in Site, Lead Auditor and Dates.");
         const payload = { ...plan, matrix: rows, createdAt: new Date().toISOString(), createdBy: session.user, status: 'Planned' };
         try {
-            const newRef = await push(ref(rtdb, `organizations/${session.orgId}/auditPlans`), payload);
+            const newId = await dbPush(`organizations/${session.orgId}/auditPlans`, payload);
             notifyAuditSaved(
-                { ...payload, firebaseKey: newRef.key, title: `Audit Plan — ${plan.siteId || 'All Sites'}` },
+                { ...payload, firebaseKey: newId, title: `Audit Plan — ${plan.siteId || 'All Sites'}` },
                 allUsers,
                 'Audit Plan Saved',
                 session.user || session.email || 'Unknown'
@@ -348,7 +361,7 @@ const AuditorWorkplace = ({ setView, session }) => {
     useEffect(() => {
         const fetchAll = async () => {
             try {
-                const val = await readOrgChildren(rtdb, session.orgId, ['auditFindings', 'auditPlans']);
+                const val = await readOrgChildren(null, session.orgId, ['auditFindings', 'auditPlans']);
                 let findingsList = [];
                 if (val.auditFindings) {
                     const rawFindings = safeArrayParse(val.auditFindings);
@@ -457,9 +470,9 @@ const AuditorWorkplace = ({ setView, session }) => {
         const payload = { docId: docId || '', taskDetails: cleanTask, findings: cleanFindings, status: 'Reported', auditDate: new Date().toISOString(), auditor: session.user || '', siteId: cleanTask.siteId || 'GEN' };
 
         try {
-            const newRef = await push(ref(rtdb, `organizations/${session.orgId}/auditFindings`), payload);
+            const newId = await dbPush(`organizations/${session.orgId}/auditFindings`, payload);
             notifyAuditSaved(
-                { ...payload, firebaseKey: newRef.key, title: cleanTask.title || cleanTask.activity || 'Audit Findings' },
+                { ...payload, firebaseKey: newId, title: cleanTask.title || cleanTask.activity || 'Audit Findings' },
                 allUsers,
                 'Audit Report Submitted to Auditee',
                 session.user || session.email || 'Unknown'
@@ -472,7 +485,7 @@ const AuditorWorkplace = ({ setView, session }) => {
     const handleVerifyClose = async () => {
         if (!currentTask.findingRecord) return;
         try {
-            await update(ref(rtdb, `organizations/${session.orgId}/auditFindings/${currentTask.findingRecord.firebaseKey}`), { status: 'Closed', closureDate: new Date().toISOString() });
+            await dbUpdate(`organizations/${session.orgId}/auditFindings/${currentTask.findingRecord.firebaseKey}`, { status: 'Closed', closureDate: new Date().toISOString() });
             alert("Audit Verified & Closed!");
             setView('hub');
         } catch (e) { alert("Error closing: " + e.message); }
@@ -805,7 +818,7 @@ const AuditeeWorkplace = ({ setView, session }) => {
     useEffect(() => {
         const load = async () => {
             try {
-                const val = await readOrgChildren(rtdb, session.orgId, ['auditFindings', 'users']);
+                const val = await readOrgChildren(null, session.orgId, ['auditFindings', 'users']);
                 if (val.auditFindings) {
                     const rawData = safeArrayParse(val.auditFindings);
                     const mine = rawData.filter(f => f.taskDetails && f.taskDetails.auditee === session.user);
@@ -871,7 +884,7 @@ const AuditeeWorkplace = ({ setView, session }) => {
 
         const updatedRecord = { ...selectedAudit, status: 'Submitted for Verification', submissionDate: new Date().toISOString() };
         try {
-            await update(ref(rtdb, `organizations/${session.orgId}/auditFindings/${selectedAudit.firebaseKey}`), updatedRecord);
+            await dbUpdate(`organizations/${session.orgId}/auditFindings/${selectedAudit.firebaseKey}`, updatedRecord);
             notifyAuditSaved(
                 { ...updatedRecord, title: updatedRecord.taskDetails?.title || updatedRecord.taskDetails?.activity || 'Audit' },
                 users,
@@ -1117,7 +1130,7 @@ const AuditReports = ({ setView, session }) => {
     useEffect(() => {
         const load = async () => {
             try {
-                const val = await readOrgChildren(rtdb, session.orgId, ['auditFindings', 'auditPlans']);
+                const val = await readOrgChildren(null, session.orgId, ['auditFindings', 'auditPlans']);
 
                 if (val.auditFindings) {
                     const rawData = safeArrayParse(val.auditFindings);
@@ -1432,11 +1445,9 @@ const AuditDashboard = ({ setView, session }) => {
     const [selectedAudit, setSelectedAudit] = useState(null);
 
     useEffect(() => {
-        const dbRef = scopedCollectionRef(session, 'auditFindings');
-
-        const handleData = (snapshot) => {
-            if (snapshot.exists()) {
-                setAudits(safeArrayParse(snapshot.val()));
+        const handleData = (data) => {
+            if (data !== null && data !== undefined) {
+                setAudits(safeArrayParse(data));
             } else {
                 setAudits([]);
             }
@@ -1448,7 +1459,7 @@ const AuditDashboard = ({ setView, session }) => {
             setLoading(false);
         };
 
-        const unsubscribe = onValue(dbRef, handleData, handleError);
+        const unsubscribe = subscribeScopedCollection(session, 'auditFindings', handleData, handleError);
 
         return () => {
             if (typeof unsubscribe === 'function') unsubscribe();
@@ -1641,7 +1652,7 @@ const AuditCalendar = ({ setView, session }) => {
     useEffect(() => {
         const load = async () => {
             try {
-                const val = await readOrgChildren(rtdb, session.orgId, ['sites', 'auditPlans', 'auditFindings']);
+                const val = await readOrgChildren(null, session.orgId, ['sites', 'auditPlans', 'auditFindings']);
                 if (val.sites) {
                     const parsedSites = Object.keys(val.sites).map(key => {
                         const sVal = val.sites[key];

@@ -1,0 +1,37 @@
+/**
+ * Auth Service — active adapter entry point
+ *
+ * Controlled by VITE_DB_ADAPTER (same env var as the database adapter):
+ *   firebase  → Firebase Authentication
+ *   rest      → JWT / REST API backend
+ *
+ * Usage (replaces direct firebase/auth imports in components):
+ *
+ *   import { authService } from '../../services/auth';
+ *
+ *   await authService.signIn(email, password);
+ *   await authService.signOut();
+ *   const uid = await authService.createUser(email, password);
+ *   authService.onAuthStateChanged((user) => { ... });
+ */
+
+import firebaseAuthAdapter from './adapters/firebase.js';
+import restAuthAdapter     from './adapters/rest.js';
+
+const ADAPTER_KEY = import.meta.env.VITE_DB_ADAPTER || 'firebase';
+
+const ADAPTERS = {
+    firebase: firebaseAuthAdapter,
+    rest:     restAuthAdapter,
+};
+
+export const authService = ADAPTERS[ADAPTER_KEY];
+
+if (!authService) {
+    throw new Error(
+        `[auth] Unknown VITE_DB_ADAPTER="${ADAPTER_KEY}". ` +
+        `Valid options: ${Object.keys(ADAPTERS).join(', ')}.`
+    );
+}
+
+export default authService;
