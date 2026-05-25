@@ -121,8 +121,9 @@ export function isCurrentDb(entry) {
             return (entry.firebaseConfig || '') === currentFb;
         }
         if (entry.dbAdapter === 'rest') {
-            const currentUrl = localStorage.getItem('ohsms_rest_base_url') || '';
-            return (entry.restUrl || '') === currentUrl;
+            // Normalise trailing slash so 'http://x.com/' and 'http://x.com' match
+            const norm = (u) => (u || '').replace(/\/$/, '').toLowerCase();
+            return norm(entry.restUrl) === norm(localStorage.getItem('ohsms_rest_base_url'));
         }
         return false;
     } catch {
