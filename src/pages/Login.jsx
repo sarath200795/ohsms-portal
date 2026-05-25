@@ -29,6 +29,7 @@ import {
 } from '../utils/session';
 import {
     getOrgRegistry,
+    saveOrgToRegistry,
     applyOrgDbConfig,
     isCurrentDb,
     getDbTypeLabel,
@@ -189,10 +190,11 @@ export default function Login() {
 
             const userOrgId = userDirData.orgId;
 
-            // 3. Load user record + password state from the org
-            const [userData, passwordState] = await Promise.all([
+            // 3. Load user record, password state, and org details in parallel
+            const [userData, passwordState, orgDetails] = await Promise.all([
                 dbGet(`organizations/${userOrgId}/users/${user.uid}`),
                 dbGet(`organizations/${userOrgId}/userPasswordState/${user.uid}`),
+                dbGet(`organizations/${userOrgId}/details`),
             ]);
 
             if (!userData) {
@@ -232,6 +234,24 @@ export default function Login() {
             });
 
             writeStoredSession(sessionData);
+
+            // Auto-register this org in the local picker so it appears as a logo
+            // card on /login for all future visits — even for orgs created before
+            // the registry existed.  This also refreshes the logo if it changed.
+            try {
+                saveOrgToRegistry({
+                    orgId:          userOrgId,
+                    orgName:        orgDetails?.name || userData.name || user.email.split('@')[0],
+                    logoBase64:     orgDetails?.logoBase64 || null,
+                    dbAdapter:      localStorage.getItem('ohsms_db_adapter') || 'firebase',
+                    firebaseConfig: localStorage.getItem('ohsms_firebase_config') || null,
+                    restUrl:        localStorage.getItem('ohsms_rest_base_url') || null,
+                });
+                // Refresh the in-memory registry so the picker updates immediately
+                // (in case the user navigates back to /login before the next mount)
+                setOrgRegistry(getOrgRegistry());
+            } catch (_) { /* never block login for a registry write failure */ }
+
             navigate(sessionData.mustChangePassword ? '/dashboard?forcePasswordChange=1' : '/dashboard');
 
         } catch (error) {

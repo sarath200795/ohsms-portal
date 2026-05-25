@@ -76,11 +76,25 @@ export function saveOrgToRegistry(entry) {
 export function applyOrgDbConfig(entry) {
     try {
         localStorage.setItem('ohsms_db_adapter', entry.dbAdapter);
-        if (entry.dbAdapter === 'firebase' && entry.firebaseConfig) {
-            localStorage.setItem('ohsms_firebase_config', entry.firebaseConfig);
+
+        if (entry.dbAdapter === 'firebase') {
+            if (entry.firebaseConfig) {
+                // Switch to the stored config (different Firebase project)
+                localStorage.setItem('ohsms_firebase_config', entry.firebaseConfig);
+            } else {
+                // No stored config — REMOVE the override so firebase.js falls
+                // back to VITE_ env vars or built-in defaults (the "home" project).
+                // Without this removal the old project's config would survive the reload.
+                localStorage.removeItem('ohsms_firebase_config');
+            }
         }
-        if (entry.dbAdapter === 'rest' && entry.restUrl) {
-            localStorage.setItem('ohsms_rest_base_url', entry.restUrl);
+
+        if (entry.dbAdapter === 'rest') {
+            if (entry.restUrl) {
+                localStorage.setItem('ohsms_rest_base_url', entry.restUrl);
+            } else {
+                localStorage.removeItem('ohsms_rest_base_url');
+            }
         }
     } catch (err) {
         console.warn('[orgRegistry] Failed to apply DB config:', err);
