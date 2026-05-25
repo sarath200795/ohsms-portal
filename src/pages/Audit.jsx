@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { dbPush, dbUpdate, dbSubscribe, dbQuery } from '../services/db/index.js';
+import { dbPush, dbUpdate, dbSubscribe } from '../services/db/index.js';
 import { readOrgChildren } from '../utils/orgData';
 import {
     hasAccessibleModule,
@@ -350,6 +350,7 @@ const AuditScheduler = ({ setView, session }) => {
 const AuditorWorkplace = ({ setView, session }) => {
     const [workplaceView, setWorkplaceView] = useState('list');
     const [myTasks, setMyTasks] = useState([]);
+    const [allUsers, setAllUsers] = useState([]);
     const [loading, setLoading] = useState(true);
     const [filters, setFilters] = useState({ date: '', auditor: '', auditee: '', id: '' });
 
@@ -361,7 +362,7 @@ const AuditorWorkplace = ({ setView, session }) => {
     useEffect(() => {
         const fetchAll = async () => {
             try {
-                const val = await readOrgChildren(null, session.orgId, ['auditFindings', 'auditPlans']);
+                const val = await readOrgChildren(null, session.orgId, ['auditFindings', 'auditPlans', 'users']);
                 let findingsList = [];
                 if (val.auditFindings) {
                     const rawFindings = safeArrayParse(val.auditFindings);
@@ -388,6 +389,16 @@ const AuditorWorkplace = ({ setView, session }) => {
                     });
                 }
                 setMyTasks([...findingsList, ...plannedList]);
+
+                if (val.users) {
+                    const parsedUsers = Object.keys(val.users).map(key => {
+                        const uVal = val.users[key];
+                        return typeof uVal === 'object'
+                            ? { id: key, name: uVal.name || uVal.email || 'Unknown', role: uVal.role || 'User', email: uVal.email || '', ...uVal }
+                            : { id: key, name: uVal || 'Unknown', role: 'User', email: '' };
+                    }).filter(u => canAuthenticateStatus(u.status));
+                    setAllUsers(parsedUsers);
+                }
             } catch (e) {
                 console.error("Load Error:", e);
             } finally {
