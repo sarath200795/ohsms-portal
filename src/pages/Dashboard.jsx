@@ -555,9 +555,9 @@ export default function Dashboard() {
                         <div className="group relative">
                             <button
                                 type="button"
-                                onClick={() => navigate('/')}
+                                onClick={() => navigate('/dashboard')}
                                 className="myth-icon-frame flex h-12 w-12 items-center justify-center overflow-hidden rounded-[1.1rem] focus:outline-none"
-                                title="Go to home page"
+                                title="Go to dashboard"
                             >
                                 <img src={logoSrc} alt="Org Logo" className="h-full w-full object-cover" />
                             </button>
