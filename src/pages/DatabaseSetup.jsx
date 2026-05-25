@@ -608,46 +608,84 @@ export default function DatabaseSetup() {
 
                             {fbTab === 1 && (
                                 <div>
-                                    <p className="text-xs text-gray-400 mb-3 leading-relaxed">
-                                        Set these rules in <strong className="text-white">Realtime Database → Rules</strong> tab.
-                                        They ensure only authenticated OHSMS users can read/write data.
-                                    </p>
+                                    <InstructStep n={1} title="Open Realtime Database Rules">
+                                        <p>In the Firebase Console go to <strong className="text-white">Build → Realtime Database</strong></p>
+                                        <p>Click the <strong className="text-white">Rules</strong> tab at the top of the page</p>
+                                    </InstructStep>
 
-                                    <p className="text-[11px] font-bold text-white mb-1">Recommended (requires login):</p>
+                                    <InstructStep n={2} title="Paste and Publish">
+                                        <p>Replace the existing rules with the snippet below, then click <strong className="text-white">Publish</strong></p>
+                                        <p className="text-gray-600 text-[10px] mt-1">Rules take effect immediately — no redeploy needed</p>
+                                    </InstructStep>
+
                                     <CodeBlock lang="json">{`{
   "rules": {
-    ".read":  "auth != null",
-    ".write": "auth != null"
-  }
-}`}</CodeBlock>
 
-                                    <p className="text-[11px] font-bold text-white mb-1 mt-4">Development only (open — disable for production!):</p>
-                                    <CodeBlock lang="json">{`{
-  "rules": {
-    ".read":  true,
-    ".write": true
-  }
-}`}</CodeBlock>
-
-                                    <p className="text-[11px] font-bold text-white mb-1 mt-4">Production-grade (org-scoped):</p>
-                                    <CodeBlock lang="json">{`{
-  "rules": {
+    // ── Organisation data (org-scoped) ──────────────────────────
     "organizations": {
       "$orgId": {
-        ".read":  "auth != null",
-        ".write": "auth != null"
+
+        // Only members of this org can read its data
+        ".read": "auth != null &&
+          root.child('userDirectory/' + auth.uid + '/orgId').val() == $orgId",
+
+        // Org members can write; new users (not yet in directory) can
+        // write once to complete their initial account setup
+        ".write": "auth != null && (
+          root.child('userDirectory/' + auth.uid + '/orgId').val() == $orgId ||
+          !root.child('userDirectory/' + auth.uid).exists()
+        )",
+
+        // Lets an invited user write their own profile during join flow
+        "users": {
+          "$uid": {
+            ".write": "auth != null && auth.uid == $uid"
+          }
+        }
       }
     },
+
+    // ── User → Org mapping (private per user) ───────────────────
     "userDirectory": {
-      ".read":  "auth != null",
-      ".write": "auth != null"
+      "$uid": {
+        ".read":  "auth != null && auth.uid == $uid",
+        ".write": "auth != null && auth.uid == $uid"
+      }
     },
+
+    // ── Join requests (any authenticated user can submit) ────────
     "joinRegistry": {
       ".read":  "auth != null",
       ".write": "auth != null"
     }
   }
 }`}</CodeBlock>
+
+                                    <div className="mt-3 space-y-1 text-[10px] text-gray-400 leading-relaxed">
+                                        <p><span className="text-green-300 font-bold">organizations/$orgId .read</span> — Only members whose <code className="text-green-300">userDirectory</code> entry points to this org can read it</p>
+                                        <p><span className="text-green-300 font-bold">organizations/$orgId .write</span> — Org members can write; brand-new users can write once to finish account setup</p>
+                                        <p><span className="text-green-300 font-bold">organizations/$orgId/users/$uid</span> — A user can write their own profile (used during invite join flow)</p>
+                                        <p><span className="text-green-300 font-bold">userDirectory/$uid</span> — Each user can only read/write their own org-mapping record</p>
+                                        <p><span className="text-green-300 font-bold">joinRegistry</span> — Any signed-in user can submit or view join requests</p>
+                                    </div>
+
+                                    <InstructStep n={3} title="Disable Unused Auth Providers">
+                                        <p>Go to <strong className="text-white">Authentication → Sign-in method</strong></p>
+                                        <p>Disable everything except <strong className="text-white">Email/Password</strong> — unused providers (Google, GitHub, Phone…) are an unnecessary attack surface</p>
+                                    </InstructStep>
+
+                                    <InstructStep n={4} title="Restrict Authorized Domains">
+                                        <p>Go to <strong className="text-white">Authentication → Settings → Authorized domains</strong></p>
+                                        <p>Remove <code className="text-orange-300 bg-gray-900/60 px-1 rounded">localhost</code> for production and add only your organisation's domain</p>
+                                        <p className="text-gray-600 text-[10px] mt-1">Prevents sign-in flows from running on phishing or test sites</p>
+                                    </InstructStep>
+
+                                    <div className="rounded-xl border border-orange-500/20 bg-orange-950/10 p-3 mt-1">
+                                        <p className="text-[11px] font-bold text-orange-400 mb-1">💡 Firebase API keys are not secrets</p>
+                                        <p className="text-[10px] text-gray-400 leading-relaxed">
+                                            The key identifies your project, it does not grant access. Security comes entirely from these Rules and Authentication settings — anyone without a valid account in your org will be blocked.
+                                        </p>
+                                    </div>
                                 </div>
                             )}
 
