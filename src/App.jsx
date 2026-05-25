@@ -8,7 +8,8 @@ import { FIELD_PORTAL_SESSION_KEY } from './pages/FieldApp/portalAuth';
 import { lazyWithRetry } from './utils/lazyWithRetry';
 import { canAuthenticateStatus, clearStoredSession, readStoredSession, writeStoredSession } from './utils/session';
 
-const Login = lazyWithRetry(() => import('./pages/Login'), 'login');
+const LandingPage   = lazyWithRetry(() => import('./pages/LandingPage'),   'landing');
+const Login         = lazyWithRetry(() => import('./pages/Login'),         'login');
 const Dashboard = lazyWithRetry(() => import('./pages/Dashboard'), 'dashboard');
 const ActivityCalendar = lazyWithRetry(() => import('./pages/ActivityCalendar'), 'activity-calendar');
 const Tutorials = lazyWithRetry(() => import('./pages/Tutorials'), 'tutorials');
@@ -59,7 +60,7 @@ const ProtectedRoute = ({ children }) => {
         if (currentUrl.includes('?')) {
             sessionStorage.setItem('pendingRedirect', currentUrl);
         }
-        return <Navigate to="/" replace />;
+        return <Navigate to="/login" replace />;
     }
 
     if (session.mustChangePassword && window.location.pathname.toLowerCase() !== '/dashboard') {
@@ -104,10 +105,11 @@ export default function App() {
                         )}
                     >
                         <Routes>
-                            {/* Database configuration wizard — accessible without login */}
+                            {/* Public pages — no auth required */}
+                            <Route path="/"      element={<LandingPage />} />
+                            <Route path="/login" element={<Login />} />
                             <Route path="/setup" element={<DatabaseSetup />} />
 
-                            <Route path="/" element={<Login />} />
                             <Route path="/vendor-portal" element={<VendorPortal />} />
                             <Route path="/field-portal" element={<FieldPortal />} />
 

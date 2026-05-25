@@ -1,191 +1,203 @@
-import React, { useState } from 'react';
+/**
+ * Login.jsx  (route: "/login")
+ *
+ * Two modes only:
+ *   login — Sign in to an existing organisation
+ *   join  — Request access to an existing organisation with a join code
+ *
+ * "Create Organisation" has been moved to the landing page (/).
+ *
+ * On login the app:
+ *   1. Verifies the database is reachable
+ *   2. Authenticates via authService (Firebase or REST/JWT)
+ *   3. Looks up the user's org via userDirectory/{uid}
+ *   4. Loads full user record + password state from the org
+ *   5. Writes a session and navigates to /dashboard
+ */
+
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import authService from '../services/auth/index.js';
-import { dbGet, dbSet, dbPush } from '../services/db/index.js';
+import { dbGet, dbSet } from '../services/db/index.js';
 import { normalizeSessionPermissions } from '../utils/permissions';
-import { ACCOUNT_STATUS, canAuthenticateStatus, isDeletedStatus, isPendingStatus, writeStoredSession } from '../utils/session';
+import {
+    ACCOUNT_STATUS,
+    canAuthenticateStatus,
+    isDeletedStatus,
+    isPendingStatus,
+    writeStoredSession,
+} from '../utils/session';
 
+// ─── static content (preserved from before) ───────────────────────────────────
 const FEATURE_HIGHLIGHTS = [
-    { title: 'Smart RCA', icon: 'fa-brain', text: 'Incident narratives can auto-build 5-Why, fishbone, fault tree, CAPA suggestions, and HIRA review links.' },
-    { title: 'QR Field Action', icon: 'fa-qrcode', text: 'Field teams scan PTW, LOTO, emergency equipment, and inspection tags to open the correct workflow instantly.' },
-    { title: 'Audit-Ready PDFs', icon: 'fa-file-pdf', text: 'Generate formal records for incidents, HIRA, inspections, permits, emergency equipment, audits, and training.' },
-    { title: 'Connected CAPA', icon: 'fa-list-check', text: 'Findings from incidents, audits, drills, inspections, and improvements feed one centralized action tracker.' },
-    { title: 'Training Matrix', icon: 'fa-user-graduate', text: 'Track competence, expiry, retraining needs, contractor inductions, and CAPA-linked training sessions.' },
-    { title: 'Site-Based Control', icon: 'fa-shield-halved', text: 'Role, module, site, vendor, and field-portal access controls keep users focused on approved work.' }
+    { title: 'Smart RCA',        icon: 'fa-brain',          text: 'Incident narratives auto-build 5-Why, fishbone, fault tree, CAPA suggestions, and HIRA review links.' },
+    { title: 'QR Field Action',  icon: 'fa-qrcode',         text: 'Field teams scan PTW, LOTO, emergency equipment, and inspection tags to open the right workflow instantly.' },
+    { title: 'Audit-Ready PDFs', icon: 'fa-file-pdf',       text: 'Generate formal records for incidents, HIRA, inspections, permits, emergency equipment, audits, and training.' },
+    { title: 'Connected CAPA',   icon: 'fa-list-check',     text: 'Findings from incidents, audits, drills, inspections, and improvements feed one centralised action tracker.' },
+    { title: 'Training Matrix',  icon: 'fa-user-graduate',  text: 'Track competence, expiry, retraining needs, contractor inductions, and CAPA-linked training sessions.' },
+    { title: 'Site-Based Control', icon: 'fa-shield-halved', text: 'Role, module, site, vendor, and field-portal access controls keep users focused on approved work.' },
 ];
 
 const UNIQUE_FEATURES = [
     { label: 'Live Command Hub', value: 'One dashboard for site activity, open CAPA, approvals, and module navigation.' },
-    { label: 'Field Portal', value: 'Separate mobile-friendly portal for QR scanning, inspections, PTW, LOTO, incidents, and emergency equipment.' },
-    { label: 'Vendor Portal', value: 'Controlled contractor area for worker records, documents, incidents, and permit visibility.' },
-    { label: 'Activity Calendar', value: 'Daily, weekly, and monthly view of PTW, incidents, health, inspections, drills, meetings, and CAPA.' }
+    { label: 'Field Portal',     value: 'Separate mobile-friendly portal for QR scanning, inspections, PTW, LOTO, incidents, and emergency equipment.' },
+    { label: 'Vendor Portal',    value: 'Controlled contractor area for worker records, documents, incidents, and permit visibility.' },
+    { label: 'Activity Calendar', value: 'Daily, weekly, and monthly view of PTW, incidents, health, inspections, drills, meetings, and CAPA.' },
 ];
 
 const MODULE_DETAILS = [
-    {
-        title: 'Incident Management',
-        icon: 'fa-triangle-exclamation',
-        tag: 'RCA + HIRA',
-        detail: 'Report incidents, capture evidence, build investigation teams, generate smart RCA, assign CAPA, and link the event back to risk assessments.'
-    },
-    {
-        title: 'Risk Assessment',
-        icon: 'fa-shield-virus',
-        tag: 'HIRA Register',
-        detail: 'Create task-based HIRA records with hazards, controls, risk scoring, ALARP review, revision history, and controlled PDF output.'
-    },
-    {
-        title: 'PTW',
-        icon: 'fa-file-signature',
-        tag: 'Permit Control',
-        detail: 'Manage permit requests, approvals, live inspections, unsafe/safe observations, QR access, printouts, and field verification.'
-    },
-    {
-        title: 'LOTO',
-        icon: 'fa-lock',
-        tag: 'Isolation Safety',
-        detail: 'Generate isolation procedures, equipment tags, QR execution pages, verification steps, and procedure reports for field work.'
-    },
-    {
-        title: 'Inspections',
-        icon: 'fa-clipboard-check',
-        tag: 'Scheduled Checks',
-        detail: 'Assign inspections by start date, due date, frequency, site, owner, calendar visibility, completion status, CAPA, and PDFs.'
-    },
-    {
-        title: 'Emergency Equipment',
-        icon: 'fa-fire-extinguisher',
-        tag: 'Asset Readiness',
-        detail: 'Create equipment tags, inspect monthly checklists, track missed inspections, calculate next due dates, and print tag/report outputs.'
-    },
-    {
-        title: 'Emergency Module',
-        icon: 'fa-tower-broadcast',
-        tag: 'Drills + Response',
-        detail: 'Record mock drills, emergency events, lessons learned, response performance, action plans, and training links.'
-    },
-    {
-        title: 'Training',
-        icon: 'fa-person-chalkboard',
-        tag: 'Competence Matrix',
-        detail: 'Maintain training records, attendees, certificates, expiry alerts, retraining triggers, contractor induction, and CAPA-based courses.'
-    },
-    {
-        title: 'Contractors',
-        icon: 'fa-helmet-safety',
-        tag: 'Vendor Control',
-        detail: 'Register vendors, workers, documents, safety passports, induction status, permit history, and contractor incident records.'
-    },
-    {
-        title: 'Audit + CAPA',
-        icon: 'fa-magnifying-glass-chart',
-        tag: 'Assurance Loop',
-        detail: 'Plan audits, assign findings, capture responses, verify closure, and consolidate actions across all major EHS modules.'
-    },
-    {
-        title: 'Health + Surveillance',
-        icon: 'fa-heart-pulse',
-        tag: 'Worker Health',
-        detail: 'Track occupational health cases, surveillance, vaccination, illness records, restricted access, and follow-up evidence.'
-    },
-    {
-        title: 'Analytics + Calendar',
-        icon: 'fa-chart-line',
-        tag: 'Leadership View',
-        detail: 'Review trends, exposure hours, incident rates, site filters, activity calendar, management visibility, and performance reports.'
-    }
+    { title: 'Incident Management', icon: 'fa-triangle-exclamation', tag: 'RCA + HIRA',      detail: 'Report incidents, build investigation teams, generate smart RCA, assign CAPA, and link to risk assessments.' },
+    { title: 'Risk Assessment',     icon: 'fa-shield-virus',         tag: 'HIRA Register',   detail: 'Create task-based HIRA with hazards, controls, risk scoring, ALARP review, revision history, and PDF output.' },
+    { title: 'PTW',                  icon: 'fa-file-signature',       tag: 'Permit Control',  detail: 'Manage permit requests, approvals, live inspections, observations, QR access, printouts, and field verification.' },
+    { title: 'LOTO',                 icon: 'fa-lock',                 tag: 'Isolation Safety', detail: 'Generate isolation procedures, equipment tags, QR execution pages, verification steps, and procedure reports.' },
+    { title: 'Inspections',          icon: 'fa-clipboard-check',      tag: 'Scheduled Checks', detail: 'Assign inspections by date, frequency, site, owner, completion status, CAPA, and PDFs.' },
+    { title: 'Emergency Equipment',  icon: 'fa-fire-extinguisher',    tag: 'Asset Readiness', detail: 'Create equipment tags, monthly checklists, missed inspection tracking, next due dates, and printable reports.' },
 ];
 
-const normalizeJoinCode = (value) => value.toUpperCase().trim().replace(/[^A-Z0-9-]/g, '');
-const generateJoinCode = () => `JOIN-${Math.random().toString(36).slice(2, 8).toUpperCase()}-${Date.now().toString(36).slice(-4).toUpperCase()}`;
+const normalizeJoinCode = (v) => v.toUpperCase().trim().replace(/[^A-Z0-9-]/g, '');
+
+// ─── helpers ───────────────────────────────────────────────────────────────────
+
+/** Return a human-readable label for the currently active database adapter. */
+const getDbLabel = () => {
+    try {
+        const a = localStorage.getItem('ohsms_db_adapter') ||
+                  (import.meta.env.VITE_DB_ADAPTER) ||
+                  'firebase';
+        if (a === 'rest') {
+            const url = localStorage.getItem('ohsms_rest_base_url') ||
+                        import.meta.env.VITE_API_BASE_URL || '';
+            return { type: 'rest', label: url ? `REST: ${url.replace(/https?:\/\//, '').substring(0, 24)}…` : 'REST API', color: 'text-cyan-400' };
+        }
+        return { type: 'firebase', label: 'Firebase RTDB', color: 'text-orange-400' };
+    } catch {
+        return { type: 'firebase', label: 'Firebase RTDB', color: 'text-orange-400' };
+    }
+};
+
+// ─── component ────────────────────────────────────────────────────────────────
 
 export default function Login() {
     const navigate = useNavigate();
-    const [authMode, setAuthMode] = useState('login');
-    const [loading, setLoading] = useState(false);
 
-    const [email, setEmail] = useState('');
-    const [password, setPassword] = useState('');
-    const [resetEmail, setResetEmail] = useState('');
+    const [authMode, setAuthMode]               = useState('login');
+    const [loading,  setLoading]                = useState(false);
+
+    // Sign-in fields
+    const [email,    setEmail]                  = useState('');
+    const [password, setPassword]               = useState('');
+    const [resetEmail, setResetEmail]           = useState('');
     const [showPasswordReset, setShowPasswordReset] = useState(false);
 
-    const [orgName, setOrgName] = useState('');
-    const [joinCode, setJoinCode] = useState('');
-    const [userName, setUserName] = useState('');
-    const [regEmail, setRegEmail] = useState('');
-    const [regPassword, setRegPassword] = useState('');
+    // Join-org fields
+    const [joinCode,     setJoinCode]           = useState('');
+    const [userName,     setUserName]           = useState('');
+    const [regEmail,     setRegEmail]           = useState('');
+    const [regPassword,  setRegPassword]        = useState('');
 
-    // Database choice shown in Create Workspace step
-    const [dbChoice, setDbChoice] = useState(() => {
-        try { return localStorage.getItem('ohsms_db_adapter') || 'firebase'; } catch { return 'firebase'; }
-    });
+    // DB status
+    const [dbStatus, setDbStatus]               = useState(null); // null | 'ok' | 'error'
+    const [dbInfo]                              = useState(() => getDbLabel());
 
-    const isRegistering = authMode !== 'login';
     const isJoinMode = authMode === 'join';
-    const isCreateMode = authMode === 'create';
 
-    const resetRegistrationFields = () => {
-        setRegEmail('');
-        setRegPassword('');
-        setUserName('');
-        setOrgName('');
-        setJoinCode('');
+    const resetJoinFields = () => {
+        setRegEmail(''); setRegPassword(''); setUserName(''); setJoinCode('');
     };
 
+    // ── pre-flight: verify DB is reachable on mount ────────────────────────────
+    useEffect(() => {
+        let cancelled = false;
+        const check = async () => {
+            try {
+                if (dbInfo.type === 'firebase') {
+                    // ping the auth service — if Firebase initialised, this won't throw
+                    const cur = authService.getCurrentUser();
+                    if (!cancelled) setDbStatus('ok');
+                } else {
+                    const url = (localStorage.getItem('ohsms_rest_base_url') || import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '');
+                    if (!url) { if (!cancelled) setDbStatus('error'); return; }
+                    const res = await fetch(`${url}/health`, {
+                        signal: AbortSignal.timeout(5000),
+                        headers: { Accept: 'application/json' },
+                    }).catch(() => null);
+                    if (!cancelled) setDbStatus(res && (res.ok || res.status < 500) ? 'ok' : 'error');
+                }
+            } catch {
+                if (!cancelled) setDbStatus('error');
+            }
+        };
+        check();
+        return () => { cancelled = true; };
+    }, [dbInfo.type]);
+
+    // ── sign in ────────────────────────────────────────────────────────────────
     const handleLogin = async (e) => {
         e.preventDefault();
         setLoading(true);
         try {
-            const user = await authService.signIn(email, password);
+            // 1. Authenticate
+            const user = await authService.signIn(email.trim().toLowerCase(), password);
 
+            // 2. Find which organisation this user belongs to
             const userDirData = await dbGet(`userDirectory/${user.uid}`);
 
-            if (userDirData) {
-                const userOrgId = userDirData.orgId;
-                const [userData, passwordState] = await Promise.all([
-                    dbGet(`organizations/${userOrgId}/users/${user.uid}`),
-                    dbGet(`organizations/${userOrgId}/userPasswordState/${user.uid}`),
-                ]);
-
-                if (userData) {
-                    if (isPendingStatus(userData.status)) {
-                        setLoading(false);
-                        await authService.signOut();
-                        return alert('Your account is currently Pending. Please wait for your Organization Admin to approve your access.');
-                    }
-
-                    if (!canAuthenticateStatus(userData.status) || isDeletedStatus(userData.status)) {
-                        setLoading(false);
-                        await authService.signOut();
-                        return alert('This account has been deactivated. Please contact your administrator.');
-                    }
-
-                    const sessionData = normalizeSessionPermissions({
-                        uid: user.uid,
-                        email: user.email,
-                        orgId: userOrgId,
-                        name: userData.name || user.email.split('@')[0],
-                        role: userData.role || 'User',
-                        status: userData.status || ACCOUNT_STATUS.ACTIVE,
-                        assignedSite: userData.assignedSite || 'GLOBAL',
-                        accessibleSites: userData.accessibleSites || [],
-                        accessibleModules: userData.accessibleModules || [],
-                        mustChangePassword: passwordState ? Boolean(passwordState.mustChangePassword) : Boolean(userData.mustChangePassword),
-                        temporaryPasswordIssued: passwordState ? Boolean(passwordState.temporaryPasswordIssued) : Boolean(userData.temporaryPasswordIssued),
-                        temporaryPasswordIssuedAt: passwordState ? (passwordState.temporaryPasswordIssuedAt || '') : (userData.temporaryPasswordIssuedAt || ''),
-                        passwordUpdatedAt: passwordState ? (passwordState.passwordUpdatedAt || '') : (userData.passwordUpdatedAt || '')
-                    });
-
-                    writeStoredSession(sessionData);
-                    navigate(sessionData.mustChangePassword ? '/dashboard?forcePasswordChange=1' : '/dashboard');
-                } else {
-                    await authService.signOut();
-                    alert('Your account exists but was removed from the organization directory.');
-                }
-            } else {
+            if (!userDirData) {
                 await authService.signOut();
-                alert('Security Error: No organization mapping found for this account. You may be using a legacy test account. Please register a new one.');
+                alert(
+                    'Security Error: No organisation mapping found for this account.\n\n' +
+                    'You may be using a legacy test account. Please register a new one from the main page.'
+                );
+                return;
             }
+
+            const userOrgId = userDirData.orgId;
+
+            // 3. Load user record + password state from the org
+            const [userData, passwordState] = await Promise.all([
+                dbGet(`organizations/${userOrgId}/users/${user.uid}`),
+                dbGet(`organizations/${userOrgId}/userPasswordState/${user.uid}`),
+            ]);
+
+            if (!userData) {
+                await authService.signOut();
+                alert('Your account exists but was removed from the organisation directory. Please contact your admin.');
+                return;
+            }
+
+            // 4. Check account status
+            if (isPendingStatus(userData.status)) {
+                await authService.signOut();
+                alert('Your account is currently Pending. Please wait for your Organisation Admin to approve your access.');
+                return;
+            }
+
+            if (!canAuthenticateStatus(userData.status) || isDeletedStatus(userData.status)) {
+                await authService.signOut();
+                alert('This account has been deactivated. Please contact your administrator.');
+                return;
+            }
+
+            // 5. Write session and navigate
+            const sessionData = normalizeSessionPermissions({
+                uid:                user.uid,
+                email:              user.email,
+                orgId:              userOrgId,
+                name:               userData.name || user.email.split('@')[0],
+                role:               userData.role || 'User',
+                status:             userData.status || ACCOUNT_STATUS.ACTIVE,
+                assignedSite:       userData.assignedSite || 'GLOBAL',
+                accessibleSites:    userData.accessibleSites || [],
+                accessibleModules:  userData.accessibleModules || [],
+                mustChangePassword:        passwordState ? Boolean(passwordState.mustChangePassword)        : Boolean(userData.mustChangePassword),
+                temporaryPasswordIssued:   passwordState ? Boolean(passwordState.temporaryPasswordIssued)   : Boolean(userData.temporaryPasswordIssued),
+                temporaryPasswordIssuedAt: passwordState ? (passwordState.temporaryPasswordIssuedAt || '')  : (userData.temporaryPasswordIssuedAt || ''),
+                passwordUpdatedAt:         passwordState ? (passwordState.passwordUpdatedAt || '')           : (userData.passwordUpdatedAt || ''),
+            });
+
+            writeStoredSession(sessionData);
+            navigate(sessionData.mustChangePassword ? '/dashboard?forcePasswordChange=1' : '/dashboard');
+
         } catch (error) {
             alert(`Login Failed: ${error.message}`);
         } finally {
@@ -193,10 +205,10 @@ export default function Login() {
         }
     };
 
+    // ── forgot password ────────────────────────────────────────────────────────
     const handleForgotPassword = async () => {
         const targetEmail = (resetEmail || email).trim().toLowerCase();
         if (!targetEmail) return alert('Please enter your email address first.');
-
         setLoading(true);
         try {
             await authService.sendPasswordReset(targetEmail);
@@ -213,122 +225,61 @@ export default function Login() {
         }
     };
 
+    // ── join existing org ──────────────────────────────────────────────────────
     const handleJoinExistingOrg = async (e) => {
         e.preventDefault();
         if (regPassword.length < 6) return alert('Password must be at least 6 characters.');
-        const normalizedJoinCode = normalizeJoinCode(joinCode);
-        if (!normalizedJoinCode) return alert('Please enter the workspace join code provided by your admin.');
-        setLoading(true);
-        let createdUser = null;
+        const code = normalizeJoinCode(joinCode);
+        if (!code) return alert('Please enter the workspace join code provided by your admin.');
 
+        setLoading(true);
+        let createdUid = null;
         try {
             const uid = await authService.createUser(regEmail.trim().toLowerCase(), regPassword);
-            createdUser = uid;
+            createdUid = uid;
 
-            const existingOrgId = await dbGet(`joinRegistry/${normalizedJoinCode}`);
-
+            const existingOrgId = await dbGet(`joinRegistry/${code}`);
             if (!existingOrgId) {
                 await authService.deleteUser(uid);
-                return alert('This join code is invalid or has expired. Please ask your Organization Admin to generate a fresh code from User Management.');
+                alert('This join code is invalid or has expired. Please ask your Organisation Admin to generate a fresh code from User Management.');
+                return;
             }
 
             await dbSet(`organizations/${existingOrgId}/users/${uid}`, {
-                name: userName.trim(),
-                email: regEmail.trim().toLowerCase(),
-                role: 'User',
-                assignedSite: '',
-                accessibleSites: [],
+                name:             userName.trim(),
+                email:            regEmail.trim().toLowerCase(),
+                role:             'User',
+                assignedSite:     '',
+                accessibleSites:  [],
                 accessibleModules: [],
-                status: ACCOUNT_STATUS.PENDING,
-                joinCode: normalizedJoinCode,
-                createdAt: new Date().toISOString()
+                status:           ACCOUNT_STATUS.PENDING,
+                joinCode:         code,
+                createdAt:        new Date().toISOString(),
             });
 
             await dbSet(`userDirectory/${uid}`, { orgId: existingOrgId });
-
             await authService.signOut();
-            alert('Access request submitted.\n\nYour account is now pending approval. Please ask your Organization Admin to approve your access from User Management.');
 
+            alert(
+                'Access request submitted.\n\n' +
+                'Your account is now Pending. Please ask your Organisation Admin to approve your access from User Management.'
+            );
             setAuthMode('login');
-            resetRegistrationFields();
+            resetJoinFields();
         } catch (error) {
-            if (createdUser) {
-                await authService.deleteUser(createdUser).catch(() => {});
-            }
+            if (createdUid) await authService.deleteUser(createdUid).catch(() => {});
             alert(`Join request failed: ${error.message}`);
         } finally {
             setLoading(false);
         }
     };
 
-    const handleCreateWorkspace = async (e) => {
-        e.preventDefault();
-        if (regPassword.length < 6) return alert('Password must be at least 6 characters.');
-        setLoading(true);
-
-        try {
-            const userEmail = regEmail.trim().toLowerCase();
-            const uid = await authService.createUser(userEmail, regPassword);
-
-            const orgId = await dbPush('organizations', null);
-            const initialJoinCode = generateJoinCode();
-
-            await dbSet(`organizations/${orgId}`, {
-                details: {
-                    name: orgName.trim(),
-                    createdAt: new Date().toISOString(),
-                    ownerEmail: userEmail,
-                    joinCode: initialJoinCode,
-                    joinCodeUpdatedAt: new Date().toISOString(),
-                    joinCodeUpdatedBy: userEmail
-                },
-                sites: { 'HQ-01': { code: 'HQ-01', name: 'Headquarters' } },
-                users: {
-                    [uid]: {
-                        name: userName.trim(),
-                        email: userEmail,
-                        role: 'Global Owner',
-                        assignedSite: 'GLOBAL',
-                        accessibleSites: ['GLOBAL'],
-                        status: ACCOUNT_STATUS.ACTIVE,
-                        createdAt: new Date().toISOString()
-                    }
-                }
-            });
-
-            await dbSet(`userDirectory/${uid}`, { orgId });
-            await dbSet(`joinRegistry/${initialJoinCode}`, orgId);
-
-            const sessionData = normalizeSessionPermissions({
-                uid,
-                email: userEmail,
-                orgId,
-                name: userName.trim(),
-                role: 'Global Owner',
-                status: ACCOUNT_STATUS.ACTIVE,
-                assignedSite: 'GLOBAL',
-                accessibleSites: ['GLOBAL'],
-                accessibleModules: [
-                    'Analytics', 'Incidents', 'Risk Assessment', 'Participation',
-                    'Internal Audit', 'CAPA Manager', 'Training', 'Improvement',
-                    'Record Emergency', 'OHS Tools', 'Contractors', 'MOC',
-                    'Inspections', 'Sites', 'Users'
-                ]
-            });
-
-            writeStoredSession(sessionData);
-            alert('Workspace created successfully! You are the Global Owner.');
-            navigate('/dashboard');
-        } catch (error) {
-            alert(`Workspace creation failed: ${error.message}`);
-        } finally {
-            setLoading(false);
-        }
-    };
-
+    // ── render ─────────────────────────────────────────────────────────────────
     return (
         <div className="myth-shell min-h-screen overflow-y-auto bg-[#080705] px-3 py-4 text-white sm:px-4" style={{ overflowY: 'auto' }}>
             <div className="mx-auto grid min-h-[calc(100vh-2rem)] max-w-6xl grid-cols-1 gap-4 lg:grid-cols-[1fr_0.72fr]">
+
+                {/* ── HERO BANNER ── */}
                 <section className="hero-banner flex flex-col justify-between rounded-[1.5rem] p-5 lg:p-6">
                     <img src="/safety-transition.svg" alt="" className="hero-safety-visual hidden lg:block" aria-hidden="true" />
                     <div>
@@ -345,15 +296,16 @@ export default function Login() {
                             </div>
                         </div>
                         <p className="max-w-2xl text-sm leading-relaxed text-[var(--myth-muted)]">
-                            A tactical command interface for modern EHS teams, designed for fast navigation, clear priorities, and confident action in live operations.
+                            A tactical command interface for modern EHS teams — fast navigation, clear priorities,
+                            and confident action in live operations. Connects to any database.
                         </p>
                     </div>
 
                     <div className="mt-4 grid grid-cols-2 gap-2 lg:grid-cols-4">
-                        {UNIQUE_FEATURES.map((feature) => (
-                            <div key={feature.label} className="rounded-xl border border-[var(--myth-border)] bg-black/25 p-3 shadow-inner">
-                                <p className="legendary-title text-[9px] text-[var(--myth-cyan)]">{feature.label}</p>
-                                <p className="mt-1 text-[10px] leading-snug text-[var(--myth-muted)]">{feature.value}</p>
+                        {UNIQUE_FEATURES.map((f) => (
+                            <div key={f.label} className="rounded-xl border border-[var(--myth-border)] bg-black/25 p-3 shadow-inner">
+                                <p className="legendary-title text-[9px] text-[var(--myth-cyan)]">{f.label}</p>
+                                <p className="mt-1 text-[10px] leading-snug text-[var(--myth-muted)]">{f.value}</p>
                             </div>
                         ))}
                     </div>
@@ -362,10 +314,10 @@ export default function Login() {
                         <div className="rounded-2xl border border-[var(--myth-border)] bg-black/20 p-3">
                             <p className="legendary-title mb-2 text-[10px] text-[var(--myth-cyan)]">Core Strengths</p>
                             <div className="flex flex-wrap gap-2">
-                                {FEATURE_HIGHLIGHTS.map((feature) => (
-                                    <span key={feature.title} className="inline-flex items-center gap-2 rounded-full border border-[var(--myth-border)] bg-black/25 px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--myth-muted)]">
-                                        <i className={`fas ${feature.icon} text-[var(--myth-cyan)]`}></i>
-                                        {feature.title}
+                                {FEATURE_HIGHLIGHTS.map((f) => (
+                                    <span key={f.title} className="inline-flex items-center gap-2 rounded-full border border-[var(--myth-border)] bg-black/25 px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--myth-muted)]">
+                                        <i className={`fas ${f.icon} text-[var(--myth-cyan)]`}></i>
+                                        {f.title}
                                     </span>
                                 ))}
                             </div>
@@ -376,15 +328,15 @@ export default function Login() {
                                 <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-[var(--myth-muted)]">Connected EHS</span>
                             </div>
                             <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                                {MODULE_DETAILS.slice(0, 6).map((module) => (
-                                    <div key={module.title} className="rounded-xl border border-[var(--myth-border)] bg-[rgba(8,10,12,0.72)] p-2.5">
+                                {MODULE_DETAILS.map((m) => (
+                                    <div key={m.title} className="rounded-xl border border-[var(--myth-border)] bg-[rgba(8,10,12,0.72)] p-2.5">
                                         <div className="flex items-center gap-2">
                                             <span className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg border border-[var(--myth-border)] bg-black/30 text-[var(--myth-cyan)]">
-                                                <i className={`fas ${module.icon}`}></i>
+                                                <i className={`fas ${m.icon}`}></i>
                                             </span>
                                             <div className="min-w-0">
-                                                <h3 className="truncate text-xs font-black text-white">{module.title}</h3>
-                                                <p className="truncate text-[8px] font-black uppercase tracking-[0.14em] text-[var(--myth-cyan)]">{module.tag}</p>
+                                                <h3 className="truncate text-xs font-black text-white">{m.title}</h3>
+                                                <p className="truncate text-[8px] font-black uppercase tracking-[0.14em] text-[var(--myth-cyan)]">{m.tag}</p>
                                             </div>
                                         </div>
                                     </div>
@@ -394,38 +346,77 @@ export default function Login() {
                     </div>
                 </section>
 
+                {/* ── COMMAND PANEL ── */}
                 <section className="command-panel flex flex-col justify-between rounded-[1.5rem] p-5 lg:p-6">
                     <div>
+                        {/* ── DB status chip ── */}
+                        <div className="mb-4 flex items-center gap-2">
+                            <div className={`h-1.5 w-1.5 rounded-full ${dbStatus === 'ok' ? 'bg-green-400' : dbStatus === 'error' ? 'bg-red-400 animate-pulse' : 'bg-gray-500'}`} />
+                            <span className={`text-[10px] font-bold ${dbInfo.color}`}>{dbInfo.label}</span>
+                            {dbStatus === 'error' && (
+                                <a href="/setup" className="ml-auto text-[10px] text-red-400 hover:text-red-300 underline transition-colors">
+                                    Fix →
+                                </a>
+                            )}
+                        </div>
+
+                        {dbStatus === 'error' && (
+                            <div className="mb-4 rounded-xl border border-red-500/30 bg-red-950/20 p-3">
+                                <p className="text-[11px] font-bold text-red-400 mb-1">⚠ Database Unreachable</p>
+                                <p className="text-[10px] text-gray-400 leading-relaxed">
+                                    Cannot connect to{' '}
+                                    <span className="font-bold text-white">{dbInfo.label}</span>.
+                                    {' '}Check your configuration or{' '}
+                                    <a href="/setup" className="text-cyan-400 underline hover:text-cyan-300">open the Database Setup Wizard</a>.
+                                </p>
+                            </div>
+                        )}
+
                         <p className="legendary-title text-[11px] text-[var(--myth-cyan)]">
-                            {isCreateMode ? 'Initialize Enterprise Workspace' : isJoinMode ? 'Request Existing Org Access' : 'Enterprise Access'}
+                            {isJoinMode ? 'Request Existing Org Access' : 'Enterprise Access'}
                         </p>
                         <h2 className="mt-2 text-4xl text-white">
-                            {isCreateMode ? 'Deploy a New Workspace' : isJoinMode ? 'Join Your Organization' : 'Access the Control Room'}
+                            {isJoinMode ? 'Join Your Organisation' : 'Access the Control Room'}
                         </h2>
                         <p className="mt-2 text-xs leading-relaxed text-[var(--myth-muted)]">
-                            {isCreateMode
-                                ? 'Create a brand new enterprise workspace. You will become the Global Owner.'
-                                : isJoinMode
-                                    ? 'Already have a company workspace? Request access and wait for your admin to approve your account.'
+                            {isJoinMode
+                                ? 'Already have a company workspace? Request access and wait for your admin to approve your account.'
                                 : 'Use your enterprise credentials to access the unified safety command environment.'}
                         </p>
 
-                        <div className="mt-5 grid grid-cols-3 gap-2 rounded-2xl border border-[var(--myth-border)] bg-[rgba(10,8,6,0.82)] p-1.5">
-                            <button type="button" onClick={() => setAuthMode('login')} className={`myth-button px-2 py-2.5 text-[11px] ${authMode === 'login' ? 'myth-button-primary' : 'myth-button-secondary'}`}>Sign In</button>
-                            <button type="button" onClick={() => setAuthMode('join')} className={`myth-button px-2 py-2.5 text-[11px] ${isJoinMode ? 'myth-button-primary' : 'myth-button-secondary'}`}>Existing Org</button>
-                            <button type="button" onClick={() => setAuthMode('create')} className={`myth-button px-2 py-2.5 text-[11px] ${isCreateMode ? 'myth-button-primary' : 'myth-button-secondary'}`}>New Org</button>
+                        {/* ── 2-tab nav ── */}
+                        <div className="mt-5 grid grid-cols-2 gap-2 rounded-2xl border border-[var(--myth-border)] bg-[rgba(10,8,6,0.82)] p-1.5">
+                            <button type="button" onClick={() => setAuthMode('login')}
+                                className={`myth-button px-2 py-2.5 text-[11px] ${authMode === 'login' ? 'myth-button-primary' : 'myth-button-secondary'}`}>
+                                Sign In
+                            </button>
+                            <button type="button" onClick={() => setAuthMode('join')}
+                                className={`myth-button px-2 py-2.5 text-[11px] ${isJoinMode ? 'myth-button-primary' : 'myth-button-secondary'}`}>
+                                Join Existing Org
+                            </button>
                         </div>
                     </div>
 
-                    {!isRegistering ? (
+                    {/* ── SIGN IN FORM ── */}
+                    {!isJoinMode ? (
                         <form onSubmit={handleLogin} className="mt-5 space-y-3">
                             <div>
                                 <label className="legendary-title mb-1.5 block text-[10px] text-[var(--myth-cyan)]">Email Address</label>
-                                <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} className="w-full rounded-xl border px-4 py-2.5 text-sm outline-none transition" placeholder="you@company.com" />
+                                <input
+                                    type="email" required
+                                    value={email} onChange={(e) => setEmail(e.target.value)}
+                                    className="w-full rounded-xl border px-4 py-2.5 text-sm outline-none transition"
+                                    placeholder="you@company.com"
+                                />
                             </div>
                             <div>
                                 <label className="legendary-title mb-1.5 block text-[10px] text-[var(--myth-cyan)]">Password</label>
-                                <input type="password" required value={password} onChange={(e) => setPassword(e.target.value)} className="w-full rounded-xl border px-4 py-2.5 text-sm outline-none transition" placeholder="Enter your secure password" />
+                                <input
+                                    type="password" required
+                                    value={password} onChange={(e) => setPassword(e.target.value)}
+                                    className="w-full rounded-xl border px-4 py-2.5 text-sm outline-none transition"
+                                    placeholder="Enter your secure password"
+                                />
                             </div>
                             <div className="flex flex-wrap items-center justify-between gap-2 text-[11px]">
                                 <button
@@ -447,6 +438,7 @@ export default function Login() {
                                     New user in existing org
                                 </button>
                             </div>
+
                             {showPasswordReset && (
                                 <div className="rounded-xl border border-[var(--myth-border)] bg-black/20 p-3">
                                     <div className="flex flex-col gap-2 sm:flex-row">
@@ -458,105 +450,106 @@ export default function Login() {
                                             className="w-full rounded-lg border px-3 py-2 text-sm outline-none transition"
                                             placeholder="Password reset email"
                                         />
-                                        <button type="button" onClick={handleForgotPassword} disabled={loading} className="myth-button myth-button-secondary whitespace-nowrap px-4 py-2 text-[11px]">
+                                        <button
+                                            type="button"
+                                            onClick={handleForgotPassword}
+                                            disabled={loading}
+                                            className="myth-button myth-button-secondary whitespace-nowrap px-4 py-2 text-[11px]"
+                                        >
                                             Send Reset
                                         </button>
                                     </div>
                                 </div>
                             )}
-                            <button type="submit" disabled={loading} className="myth-button myth-button-primary w-full px-4 py-3 text-sm">
-                                {loading ? 'Authenticating...' : 'Secure Sign In'}
+
+                            <button type="submit" disabled={loading}
+                                className="myth-button myth-button-primary w-full px-4 py-3 text-sm">
+                                {loading ? 'Authenticating…' : 'Secure Sign In'}
                             </button>
+
+                            {/* NEW ORG CTA */}
+                            <div className="rounded-xl border border-gray-700/40 bg-black/20 p-3 text-center mt-2">
+                                <p className="text-[11px] text-gray-500 mb-2">Don't have an organisation yet?</p>
+                                <button
+                                    type="button"
+                                    onClick={() => navigate('/')}
+                                    className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 text-[11px] font-bold hover:bg-cyan-500/20 transition-all"
+                                >
+                                    🏢 Create a New Organisation →
+                                </button>
+                            </div>
                         </form>
                     ) : (
-                        <form onSubmit={isJoinMode ? handleJoinExistingOrg : handleCreateWorkspace} className="mt-5 space-y-3">
-                            <div className={`rounded-xl border p-3 ${isJoinMode ? 'border-cyan-400/30 bg-cyan-950/20' : 'border-orange-400/30 bg-orange-950/20'}`}>
-                                <p className="legendary-title text-[10px] text-[var(--myth-cyan)]">{isJoinMode ? 'Admin Approval Required' : 'Global Owner Setup'}</p>
+                        /* ── JOIN EXISTING ORG FORM ── */
+                        <form onSubmit={handleJoinExistingOrg} className="mt-5 space-y-3">
+                            <div className="rounded-xl border border-cyan-400/30 bg-cyan-950/20 p-3">
+                                <p className="legendary-title text-[10px] text-[var(--myth-cyan)]">Admin Approval Required</p>
                                 <p className="mt-1 text-[11px] leading-snug text-[var(--myth-muted)]">
-                                    {isJoinMode
-                                        ? 'This creates a pending user in an existing organization. Access starts only after admin approval.'
-                                        : 'This creates a new organization and assigns you as the first Global Owner.'}
+                                    This creates a pending user in an existing organisation.
+                                    Access starts only after admin approval.
                                 </p>
                             </div>
 
-                            {/* ── Database choice (Create Workspace only) ── */}
-                            {isCreateMode && (
-                                <div className="rounded-xl border border-gray-700/50 bg-black/20 p-3 space-y-2.5">
-                                    <p className="legendary-title text-[10px] text-[var(--myth-cyan)]">🗄️ Database Connection</p>
-                                    <div className="grid grid-cols-2 gap-2">
-                                        <button type="button" onClick={() => setDbChoice('firebase')}
-                                            className={`rounded-lg border p-2 text-left transition-all ${dbChoice === 'firebase' ? 'border-orange-500/50 bg-orange-950/30' : 'border-gray-700 hover:border-gray-600'}`}>
-                                            <p className="text-base leading-none mb-1">🔥</p>
-                                            <p className="text-[11px] font-black text-white">Firebase</p>
-                                            <p className="text-[9px] text-gray-500 mt-0.5">Google managed, free tier</p>
-                                        </button>
-                                        <button type="button" onClick={() => setDbChoice('rest')}
-                                            className={`rounded-lg border p-2 text-left transition-all ${dbChoice === 'rest' ? 'border-cyan-500/50 bg-cyan-950/30' : 'border-gray-700 hover:border-gray-600'}`}>
-                                            <p className="text-base leading-none mb-1">🖥️</p>
-                                            <p className="text-[11px] font-black text-white">Own Database</p>
-                                            <p className="text-[9px] text-gray-500 mt-0.5">PostgreSQL, MongoDB, MySQL…</p>
-                                        </button>
-                                    </div>
-
-                                    {dbChoice === 'firebase' && (
-                                        <div className="rounded-lg border border-orange-500/20 bg-orange-950/15 p-2.5 space-y-1">
-                                            <p className="text-[10px] font-bold text-orange-400">🔥 Firebase Quick Setup</p>
-                                            <p className="text-[10px] text-gray-400">1. Go to <a href="https://console.firebase.google.com" target="_blank" rel="noreferrer" className="text-orange-300 underline">console.firebase.google.com</a> — create a project</p>
-                                            <p className="text-[10px] text-gray-400">2. Enable Realtime Database + Email/Password Auth</p>
-                                            <p className="text-[10px] text-gray-400">3. Copy your config and enter it in the setup wizard</p>
-                                            <a href="/setup" target="_blank" rel="noreferrer"
-                                                className="inline-block mt-1 text-[10px] font-bold text-cyan-400 hover:text-cyan-300 transition-colors">
-                                                → Open Database Setup Wizard ↗
-                                            </a>
-                                        </div>
-                                    )}
-
-                                    {dbChoice === 'rest' && (
-                                        <div className="rounded-lg border border-cyan-500/20 bg-cyan-950/15 p-2.5 space-y-1">
-                                            <p className="text-[10px] font-bold text-cyan-400">🖥️ Own Database Setup</p>
-                                            <p className="text-[10px] text-gray-400">1. Set up a REST API backend (Node.js, Python, PHP, etc.)</p>
-                                            <p className="text-[10px] text-gray-400">2. Implement the OHSMS API contract (GET/POST/PATCH/DELETE /{'{path}'})</p>
-                                            <p className="text-[10px] text-gray-400">3. Enter your API URL in the setup wizard</p>
-                                            <p className="text-[10px] text-gray-400">💡 Easiest start: <a href="https://supabase.com" target="_blank" rel="noreferrer" className="text-cyan-300 underline">Supabase</a> (free PostgreSQL + REST API)</p>
-                                            <a href="/setup" target="_blank" rel="noreferrer"
-                                                className="inline-block mt-1 text-[10px] font-bold text-cyan-400 hover:text-cyan-300 transition-colors">
-                                                → Full Setup Guide &amp; API Contract ↗
-                                            </a>
-                                        </div>
-                                    )}
-                                </div>
-                            )}
                             <div>
-                                <label className="legendary-title mb-1.5 block text-[10px] text-[var(--myth-cyan)]">{isJoinMode ? 'Workspace Join Code' : 'Organization Name'}</label>
-                                {isJoinMode ? (
-                                    <input type="text" required value={joinCode} onChange={(e) => setJoinCode(normalizeJoinCode(e.target.value))} className="w-full rounded-xl border px-4 py-2.5 text-sm uppercase tracking-[0.18em] outline-none transition" placeholder="JOIN-ABC123-XYZ9" />
-                                ) : (
-                                    <input type="text" required value={orgName} onChange={(e) => setOrgName(e.target.value)} className="w-full rounded-xl border px-4 py-2.5 text-sm outline-none transition" placeholder="e.g. Acme Corp" />
-                                )}
+                                <label className="legendary-title mb-1.5 block text-[10px] text-[var(--myth-cyan)]">Workspace Join Code</label>
+                                <input
+                                    type="text" required
+                                    value={joinCode}
+                                    onChange={(e) => setJoinCode(normalizeJoinCode(e.target.value))}
+                                    className="w-full rounded-xl border px-4 py-2.5 text-sm uppercase tracking-[0.18em] outline-none transition"
+                                    placeholder="JOIN-ABC123-XYZ9"
+                                />
                                 <p className="mt-1.5 text-[10px] leading-snug text-[var(--myth-muted)]">
-                                    {isJoinMode ? 'Ask your admin to generate this from User Management. Organization names are no longer searchable from the login page.' : 'Choose a workspace name for your company. The secure join code is generated after setup.'}
+                                    Ask your admin to generate this from User Management. Organisation names are not searchable from this page.
                                 </p>
                             </div>
+
                             <div className="grid gap-3 sm:grid-cols-2">
                                 <div>
                                     <label className="legendary-title mb-1.5 block text-[10px] text-[var(--myth-cyan)]">Your Full Name</label>
-                                    <input type="text" required value={userName} onChange={(e) => setUserName(e.target.value)} className="w-full rounded-xl border px-4 py-2.5 text-sm outline-none transition" placeholder="John Doe" />
+                                    <input
+                                        type="text" required
+                                        value={userName} onChange={(e) => setUserName(e.target.value)}
+                                        className="w-full rounded-xl border px-4 py-2.5 text-sm outline-none transition"
+                                        placeholder="John Doe"
+                                    />
                                 </div>
                                 <div>
                                     <label className="legendary-title mb-1.5 block text-[10px] text-[var(--myth-cyan)]">Account Email</label>
-                                    <input type="email" required value={regEmail} onChange={(e) => setRegEmail(e.target.value)} className="w-full rounded-xl border px-4 py-2.5 text-sm outline-none transition" placeholder="john@acme.com" />
+                                    <input
+                                        type="email" required
+                                        value={regEmail} onChange={(e) => setRegEmail(e.target.value)}
+                                        className="w-full rounded-xl border px-4 py-2.5 text-sm outline-none transition"
+                                        placeholder="john@acme.com"
+                                    />
                                 </div>
                             </div>
+
                             <div>
                                 <label className="legendary-title mb-1.5 block text-[10px] text-[var(--myth-cyan)]">Secure Password</label>
-                                <input type="password" required value={regPassword} onChange={(e) => setRegPassword(e.target.value)} className="w-full rounded-xl border px-4 py-2.5 text-sm outline-none transition" placeholder="Minimum 6 characters" />
+                                <input
+                                    type="password" required
+                                    value={regPassword} onChange={(e) => setRegPassword(e.target.value)}
+                                    className="w-full rounded-xl border px-4 py-2.5 text-sm outline-none transition"
+                                    placeholder="Minimum 6 characters"
+                                />
                             </div>
-                            <button type="submit" disabled={loading} className="myth-button myth-button-cyan mt-2 w-full px-4 py-3 text-sm">
-                                {loading ? 'Processing...' : isJoinMode ? 'Submit Access Request' : 'Create Workspace'}
+
+                            <button type="submit" disabled={loading}
+                                className="myth-button myth-button-cyan mt-2 w-full px-4 py-3 text-sm">
+                                {loading ? 'Processing…' : 'Submit Access Request'}
                             </button>
+
+                            <div className="text-center">
+                                <button type="button" onClick={() => navigate('/')}
+                                    className="text-[11px] text-gray-500 hover:text-cyan-400 transition-colors underline">
+                                    Create a new organisation instead →
+                                </button>
+                            </div>
                         </form>
                     )}
 
+                    {/* ── FOOTER ── */}
                     <div className="command-divider mt-5"></div>
                     <div className="mt-3 flex items-center justify-between">
                         <p className="text-[10px] uppercase tracking-[0.24em] text-[var(--myth-muted)]">
@@ -568,6 +561,7 @@ export default function Login() {
                         </a>
                     </div>
                 </section>
+
             </div>
         </div>
     );
