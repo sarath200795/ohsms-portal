@@ -1,5 +1,5 @@
 /**
- * LandingPage.jsx — Public marketing & org-creation page  (route: "/")
+ * LandingPage.jsx — Public marketing page  (route: "/")
  *
  * Sections:
  *  1. Sticky navbar
@@ -9,21 +9,12 @@
  *  5. All EHS modules grid
  *  6. Cross-cutting smart features
  *  7. How it works
- *  8. Create Organisation form (moved from Login)
+ *  8. Create Organisation CTA → /setup wizard
  *  9. Footer
  */
 
 import React, { useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import authService from '../services/auth/index.js';
-import { dbGet, dbSet, dbPush } from '../services/db/index.js';
-import { normalizeSessionPermissions } from '../utils/permissions';
-import { ACCOUNT_STATUS, writeStoredSession } from '../utils/session';
-
-// ─── static data ──────────────────────────────────────────────────────────────
-
-const generateJoinCode = () =>
-    `JOIN-${Math.random().toString(36).slice(2, 8).toUpperCase()}-${Date.now().toString(36).slice(-4).toUpperCase()}`;
 
 const MODULES = [
     { icon: 'fa-triangle-exclamation', color: 'text-red-400',    bg: 'bg-red-500/10 border-red-500/20',    title: 'Incident Management',      tag: 'RCA + HIRA',          desc: 'Report incidents, build 5-Why / fishbone / fault-tree, assign CAPA, and link back to risk assessments automatically.' },
@@ -87,97 +78,10 @@ function inputCls(extra = '') {
 // ─── main component ───────────────────────────────────────────────────────────
 
 export default function LandingPage() {
-    const navigate   = useNavigate();
-    const createRef  = useRef(null);
+    const navigate  = useNavigate();
+    const createRef = useRef(null);
 
-    // Create org form state
-    const [orgName,      setOrgName     ] = useState('');
-    const [userName,     setUserName    ] = useState('');
-    const [regEmail,     setRegEmail    ] = useState('');
-    const [regPassword,  setRegPassword ] = useState('');
-    const [loading,      setLoading     ] = useState(false);
-    const [createError,  setCreateError ] = useState('');
-    const [createSuccess,setCreateSuccess] = useState(false);
-    const [dbChoice,     setDbChoice    ] = useState(() => {
-        try { return localStorage.getItem('ohsms_db_adapter') || 'firebase'; } catch { return 'firebase'; }
-    });
-
-    // nav highlight
     const [mobileMenu, setMobileMenu] = useState(false);
-
-    const scrollToCreate = () => {
-        createRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        setMobileMenu(false);
-    };
-
-    // ── create org handler (moved from Login.jsx) ──────────────────────────────
-    const handleCreateWorkspace = async (e) => {
-        e.preventDefault();
-        setCreateError('');
-
-        if (orgName.trim().length < 2)  return setCreateError('Organisation name must be at least 2 characters.');
-        if (userName.trim().length < 2) return setCreateError('Your name must be at least 2 characters.');
-        if (regPassword.length < 6)     return setCreateError('Password must be at least 6 characters.');
-
-        setLoading(true);
-        try {
-            const userEmail = regEmail.trim().toLowerCase();
-            const uid       = await authService.createUser(userEmail, regPassword);
-            const orgId     = await dbPush('organizations', null);
-            const code      = generateJoinCode();
-
-            await dbSet(`organizations/${orgId}`, {
-                details: {
-                    name: orgName.trim(),
-                    createdAt:           new Date().toISOString(),
-                    ownerEmail:          userEmail,
-                    joinCode:            code,
-                    joinCodeUpdatedAt:   new Date().toISOString(),
-                    joinCodeUpdatedBy:   userEmail,
-                },
-                sites: { 'HQ-01': { code: 'HQ-01', name: 'Headquarters' } },
-                users: {
-                    [uid]: {
-                        name:             userName.trim(),
-                        email:            userEmail,
-                        role:             'Global Owner',
-                        assignedSite:     'GLOBAL',
-                        accessibleSites:  ['GLOBAL'],
-                        status:           ACCOUNT_STATUS.ACTIVE,
-                        createdAt:        new Date().toISOString(),
-                    },
-                },
-            });
-
-            await dbSet(`userDirectory/${uid}`, { orgId });
-            await dbSet(`joinRegistry/${code}`,  orgId);
-
-            const session = normalizeSessionPermissions({
-                uid,
-                email:            userEmail,
-                orgId,
-                name:             userName.trim(),
-                role:             'Global Owner',
-                status:           ACCOUNT_STATUS.ACTIVE,
-                assignedSite:     'GLOBAL',
-                accessibleSites:  ['GLOBAL'],
-                accessibleModules: [
-                    'Analytics', 'Incidents', 'Risk Assessment', 'Participation',
-                    'Internal Audit', 'CAPA Manager', 'Training', 'Improvement',
-                    'Record Emergency', 'OHS Tools', 'Contractors', 'MOC',
-                    'Inspections', 'Sites', 'Users',
-                ],
-            });
-
-            writeStoredSession(session);
-            setCreateSuccess(true);
-            setTimeout(() => navigate('/dashboard'), 1400);
-        } catch (err) {
-            setCreateError(err.message || 'Something went wrong. Please try again.');
-        } finally {
-            setLoading(false);
-        }
-    };
 
     // ── render ─────────────────────────────────────────────────────────────────
     return (
@@ -217,7 +121,7 @@ export default function LandingPage() {
                             className="px-4 py-2 rounded-lg text-xs font-bold text-gray-400 hover:text-white transition-colors hidden sm:block">
                             Sign In
                         </button>
-                        <button onClick={scrollToCreate}
+                        <button onClick={() => navigate('/setup')}
                             className="px-4 py-2 rounded-xl bg-cyan-500 text-black text-xs font-black hover:bg-cyan-400 transition-colors">
                             Create Organisation
                         </button>
@@ -275,7 +179,7 @@ export default function LandingPage() {
                     </p>
 
                     <div className="flex flex-wrap items-center justify-center gap-3 mb-12">
-                        <button onClick={scrollToCreate}
+                        <button onClick={() => navigate('/setup')}
                             className="px-8 py-3.5 rounded-xl bg-cyan-500 text-black font-black text-sm hover:bg-cyan-400 active:bg-cyan-600 transition-all shadow-lg shadow-cyan-500/20">
                             Create Free Organisation →
                         </button>
@@ -462,147 +366,57 @@ export default function LandingPage() {
             </section>
 
             {/* ══════════════════════════════════════════════════
-                CREATE ORGANISATION (moved from Login)
+                CREATE ORGANISATION — guided onboarding CTA
             ══════════════════════════════════════════════════ */}
-            <section ref={createRef} id="create-org" className="px-4 sm:px-6 py-20 max-w-7xl mx-auto">
-                <div className="grid lg:grid-cols-2 gap-12 items-start">
+            <section ref={createRef} id="create-org" className="px-4 sm:px-6 py-20 max-w-4xl mx-auto text-center">
+                <SectionLabel>🚀 Get Started</SectionLabel>
+                <h2 className="text-3xl sm:text-4xl font-black text-white mb-5 leading-tight">
+                    Ready to Launch Your<br />
+                    <span className="text-cyan-400">EHS Workspace?</span>
+                </h2>
+                <p className="text-sm text-gray-400 leading-relaxed mb-10 max-w-2xl mx-auto">
+                    Our guided setup wizard walks you through connecting your database, uploading your logo,
+                    and creating your admin account — all in one place. Takes under 5 minutes.
+                </p>
 
-                    {/* Left: pitch */}
-                    <div>
-                        <SectionLabel>🏢 Create Your Organisation</SectionLabel>
-                        <h2 className="text-3xl sm:text-4xl font-black text-white mb-5 leading-tight">
-                            Register in Minutes.<br />
-                            <span className="text-cyan-400">You're in Control.</span>
-                        </h2>
-                        <p className="text-sm text-gray-400 leading-relaxed mb-8">
-                            Creating an organisation makes you the <strong className="text-white">Global Owner</strong> —
-                            full access to every module, complete control over users, sites, and permissions.
-                            Your data is stored in your chosen database from the moment you sign up.
-                        </p>
-
-                        <div className="space-y-4 mb-8">
-                            {[
-                                { icon: '✅', text: 'Full access to all 15+ EHS modules immediately' },
-                                { icon: '🔑', text: 'Unique join code to invite your entire team' },
-                                { icon: '🏗️', text: 'One default site created (add more from Site Management)' },
-                                { icon: '🗄️', text: 'Data stored in your chosen database — Firebase, PostgreSQL, or any REST API' },
-                                { icon: '📱', text: 'Field portal, vendor portal, and QR access ready out of the box' },
-                            ].map(({ icon, text }) => (
-                                <div key={text} className="flex items-start gap-3">
-                                    <span className="text-lg flex-shrink-0 mt-0.5">{icon}</span>
-                                    <p className="text-sm text-gray-300 leading-relaxed">{text}</p>
-                                </div>
-                            ))}
-                        </div>
-
-                        {/* Already have an org? */}
-                        <div className="rounded-2xl border border-gray-700/60 bg-gray-900/30 p-5">
-                            <p className="text-sm font-bold text-white mb-1">Already have an organisation?</p>
-                            <p className="text-xs text-gray-400 mb-3">Sign in to your existing workspace, or use a join code to request access to an existing organisation.</p>
-                            <button onClick={() => navigate('/login')}
-                                className="px-5 py-2.5 rounded-xl border border-gray-600 text-gray-300 text-xs font-bold hover:border-gray-400 hover:text-white transition-all">
-                                Sign In or Join Existing Org →
-                            </button>
-                        </div>
-                    </div>
-
-                    {/* Right: form */}
-                    <div className="rounded-2xl border border-gray-700/60 bg-gray-900/30 p-6 lg:sticky lg:top-20">
-                        {createSuccess ? (
-                            <div className="text-center py-10">
-                                <div className="text-7xl mb-5">✅</div>
-                                <h3 className="text-2xl font-black text-white mb-2">Organisation Created!</h3>
-                                <p className="text-sm text-gray-400">Redirecting to your dashboard…</p>
+                {/* 4-step visual */}
+                <div className="grid sm:grid-cols-4 gap-4 mb-10">
+                    {[
+                        { n: '01', icon: '🗄️', title: 'Choose Database',  desc: 'Firebase or your own PostgreSQL / MongoDB / REST API' },
+                        { n: '02', icon: '🔧', title: 'Configure',         desc: 'Enter credentials and test the connection in one click' },
+                        { n: '03', icon: '🏢', title: 'Upload Logo',       desc: 'Brand your workspace with your organisation logo (optional)' },
+                        { n: '04', icon: '👤', title: 'Create Admin',      desc: 'Set your org name, email and password — you\'re in as Global Owner' },
+                    ].map(({ n, icon, title, desc }) => (
+                        <div key={n} className="rounded-2xl border border-gray-800/60 bg-gray-900/30 p-5 text-left">
+                            <div className="flex items-center gap-2 mb-3">
+                                <span className="text-[10px] font-black text-cyan-500 uppercase tracking-widest">{n}</span>
+                                <span className="text-lg">{icon}</span>
                             </div>
-                        ) : (
-                            <form onSubmit={handleCreateWorkspace} className="space-y-4">
-                                <div>
-                                    <p className="text-base font-black text-white mb-1">Create Your Workspace</p>
-                                    <p className="text-xs text-gray-500 mb-5">You will be the Global Owner of this organisation.</p>
-                                </div>
-
-                                {/* database choice */}
-                                <div>
-                                    <label className="block text-[10px] font-black uppercase tracking-widest text-gray-500 mb-2">
-                                        Database Connection
-                                    </label>
-                                    <div className="grid grid-cols-2 gap-2 mb-3">
-                                        <button type="button" onClick={() => setDbChoice('firebase')}
-                                            className={`rounded-xl border p-3 text-left transition-all ${dbChoice === 'firebase' ? 'border-orange-500/50 bg-orange-950/30' : 'border-gray-700 hover:border-gray-600'}`}>
-                                            <p className="text-xl mb-1">🔥</p>
-                                            <p className="text-xs font-black text-white">Firebase</p>
-                                            <p className="text-[10px] text-gray-500">Google managed · free</p>
-                                        </button>
-                                        <button type="button" onClick={() => setDbChoice('rest')}
-                                            className={`rounded-xl border p-3 text-left transition-all ${dbChoice === 'rest' ? 'border-cyan-500/50 bg-cyan-950/30' : 'border-gray-700 hover:border-gray-600'}`}>
-                                            <p className="text-xl mb-1">🖥️</p>
-                                            <p className="text-xs font-black text-white">Own Database</p>
-                                            <p className="text-[10px] text-gray-500">PostgreSQL / MongoDB…</p>
-                                        </button>
-                                    </div>
-
-                                    {dbChoice === 'firebase' && (
-                                        <div className="rounded-xl border border-orange-500/20 bg-orange-950/15 p-3 text-xs text-gray-400 space-y-1 mb-1">
-                                            <p className="font-bold text-orange-400">🔥 Firebase Setup</p>
-                                            <p>1. <a href="https://console.firebase.google.com" target="_blank" rel="noreferrer" className="text-orange-300 underline">Create a Firebase project</a> and enable Realtime Database + Email Auth</p>
-                                            <p>2. Copy your config and enter it in the <a href="/setup" target="_blank" rel="noreferrer" className="text-cyan-400 underline">Database Setup Wizard</a></p>
-                                        </div>
-                                    )}
-                                    {dbChoice === 'rest' && (
-                                        <div className="rounded-xl border border-cyan-500/20 bg-cyan-950/15 p-3 text-xs text-gray-400 space-y-1 mb-1">
-                                            <p className="font-bold text-cyan-400">🖥️ Own Database Setup</p>
-                                            <p>Set up your REST API backend (easiest: <a href="https://supabase.com" target="_blank" rel="noreferrer" className="text-cyan-300 underline">Supabase</a> — free PostgreSQL with built-in REST)</p>
-                                            <p>Then open the <a href="/setup" target="_blank" rel="noreferrer" className="text-cyan-400 underline">Database Setup Wizard</a> to enter your API URL</p>
-                                        </div>
-                                    )}
-                                </div>
-
-                                {/* org details */}
-                                <div>
-                                    <label className="block text-[10px] font-black uppercase tracking-widest text-gray-500 mb-1.5">Organisation Name</label>
-                                    <input type="text" required value={orgName} onChange={e => setOrgName(e.target.value)}
-                                        className={inputCls()} placeholder="e.g. Acme Corp Safety" />
-                                </div>
-
-                                <div className="grid grid-cols-2 gap-3">
-                                    <div>
-                                        <label className="block text-[10px] font-black uppercase tracking-widest text-gray-500 mb-1.5">Your Full Name</label>
-                                        <input type="text" required value={userName} onChange={e => setUserName(e.target.value)}
-                                            className={inputCls()} placeholder="John Smith" />
-                                    </div>
-                                    <div>
-                                        <label className="block text-[10px] font-black uppercase tracking-widest text-gray-500 mb-1.5">Work Email</label>
-                                        <input type="email" required value={regEmail} onChange={e => setRegEmail(e.target.value)}
-                                            className={inputCls()} placeholder="john@acme.com" />
-                                    </div>
-                                </div>
-
-                                <div>
-                                    <label className="block text-[10px] font-black uppercase tracking-widest text-gray-500 mb-1.5">Password</label>
-                                    <input type="password" required value={regPassword} onChange={e => setRegPassword(e.target.value)}
-                                        className={inputCls()} placeholder="Minimum 6 characters" />
-                                </div>
-
-                                {createError && (
-                                    <div className="rounded-xl border border-red-500/30 bg-red-950/20 p-3 text-xs text-red-400">
-                                        ⚠ {createError}
-                                    </div>
-                                )}
-
-                                <button type="submit" disabled={loading}
-                                    className="w-full py-3.5 rounded-xl bg-cyan-500 text-black font-black text-sm hover:bg-cyan-400 active:bg-cyan-600 transition-all disabled:opacity-60">
-                                    {loading ? '⏳ Creating Workspace…' : 'Create Organisation & Launch Dashboard →'}
-                                </button>
-
-                                <p className="text-[10px] text-gray-600 text-center leading-relaxed">
-                                    By creating an organisation you agree to use OHSMS Enterprise responsibly.
-                                    Your data is stored in the database you configure at{' '}
-                                    <a href="/setup" className="text-cyan-500/70 underline hover:text-cyan-400">/setup</a>.
-                                </p>
-                            </form>
-                        )}
-                    </div>
+                            <p className="text-sm font-black text-white mb-1">{title}</p>
+                            <p className="text-[11px] text-gray-500 leading-relaxed">{desc}</p>
+                        </div>
+                    ))}
                 </div>
+
+                <div className="flex flex-wrap items-center justify-center gap-4">
+                    <button
+                        onClick={() => navigate('/setup')}
+                        className="px-10 py-4 rounded-xl bg-cyan-500 text-black font-black text-sm hover:bg-cyan-400 active:bg-cyan-600 transition-all shadow-lg shadow-cyan-500/20"
+                    >
+                        Start Free Setup Wizard →
+                    </button>
+                    <button
+                        onClick={() => navigate('/login')}
+                        className="px-8 py-4 rounded-xl border border-gray-700 text-gray-300 font-bold text-sm hover:border-gray-500 hover:text-white transition-all"
+                    >
+                        Sign In to Existing Org
+                    </button>
+                </div>
+
+                <p className="mt-5 text-[10px] text-gray-700">
+                    Already configured? &nbsp;
+                    <button onClick={() => navigate('/login')} className="text-gray-500 hover:text-gray-300 underline transition">Sign in directly</button>
+                </p>
             </section>
 
             {/* ══════════════════════════════════════════════════
@@ -634,7 +448,7 @@ export default function LandingPage() {
                         <div>
                             <p className="text-[10px] font-black uppercase tracking-widest text-gray-500 mb-3">Get Started</p>
                             <div className="space-y-2">
-                                <button onClick={scrollToCreate} className="block text-xs text-gray-500 hover:text-gray-300 transition-colors">Create Organisation</button>
+                                <button onClick={() => navigate('/setup')} className="block text-xs text-gray-500 hover:text-gray-300 transition-colors">Create Organisation</button>
                                 <button onClick={() => navigate('/login')} className="block text-xs text-gray-500 hover:text-gray-300 transition-colors">Sign In</button>
                                 <a href="/setup" className="block text-xs text-gray-500 hover:text-gray-300 transition-colors">Configure Database</a>
                                 <a href="/setup" className="block text-xs text-gray-500 hover:text-gray-300 transition-colors">Database Setup Wizard</a>

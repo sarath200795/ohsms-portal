@@ -1,17 +1,19 @@
 /**
- * DatabaseSetup.jsx
+ * DatabaseSetup.jsx — Organisation Onboarding Wizard  (route: /setup)
  *
- * Full-screen database configuration wizard available at /setup.
- * Lets any deployer (or admin) switch the app between:
- *   • Firebase Realtime Database (default)
- *   • Any REST API backend (PostgreSQL, MongoDB, MySQL, Supabase, etc.)
- *
- * Configuration is persisted in localStorage and read at module-load time
- * by the service adapters — a page reload activates the new settings.
+ * Step 0 — Choose Database (Firebase or Own DB)
+ * Step 1 — Configure Database (form + test connection)
+ * Step 2 — Upload Logo (optional)
+ * Step 3 — Create Organisation & First Admin User → auto-login → /dashboard
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
+import authService from '../services/auth/index.js';
+import { dbSet, dbPush } from '../services/db/index.js';
+import { compressImageToBase64, base64SizeKB } from '../utils/imageUtils.js';
+import { normalizeSessionPermissions } from '../utils/permissions';
+import { ACCOUNT_STATUS, writeStoredSession } from '../utils/session';
 
 // ─── localStorage keys (must match src/config/firebase.js + adapters) ─────────
 const SK = {
@@ -38,11 +40,14 @@ const FB_PLACEHOLDERS = {
     appId:             '1:871919638023:web:abcdef...',
 };
 
+const generateJoinCode = () =>
+    `JOIN-${Math.random().toString(36).slice(2, 8).toUpperCase()}-${Date.now().toString(36).slice(-4).toUpperCase()}`;
+
 // ─── small reusable components ────────────────────────────────────────────────
 
 function StepBar({ steps, current }) {
     return (
-        <div className="flex items-center justify-center gap-2 mb-10">
+        <div className="flex items-center justify-center gap-2 mb-10 flex-wrap">
             {steps.map((label, i) => (
                 <React.Fragment key={i}>
                     <div className="flex items-center gap-2">
@@ -58,7 +63,7 @@ function StepBar({ steps, current }) {
                         }`}>{label}</span>
                     </div>
                     {i < steps.length - 1 && (
-                        <div className={`h-px w-8 transition-colors duration-500 ${i < current ? 'bg-cyan-500' : 'bg-gray-800'}`} />
+                        <div className={`h-px w-6 transition-colors duration-500 ${i < current ? 'bg-cyan-500' : 'bg-gray-800'}`} />
                     )}
                 </React.Fragment>
             ))}
@@ -148,10 +153,11 @@ function EndpointRow({ method, path, desc }) {
 // ─── main component ───────────────────────────────────────────────────────────
 
 export default function DatabaseSetup() {
-    const navigate = useNavigate();
+    const navigate    = useNavigate();
+    const logoFileRef = useRef(null);
 
-    // wizard state
-    const [step,        setStep       ] = useState(0);           // 0 choose | 1 configure | 2 done
+    // ── wizard step: 0=Choose 1=Configure 2=Logo 3=CreateOrg ──────────────────
+    const [step,        setStep       ] = useState(0);
     const [dbType,      setDbType     ] = useState(null);        // 'firebase' | 'rest'
     const [configMode,  setConfigMode ] = useState('form');      // 'form' | 'json'
     const [fbConfig,    setFbConfig   ] = useState({ ...EMPTY_FB });
@@ -167,6 +173,20 @@ export default function DatabaseSetup() {
     // instruction tab per panel
     const [fbTab,  setFbTab ] = useState(0);
     const [rstTab, setRstTab] = useState(0);
+
+    // ── Logo state ─────────────────────────────────────────────────────────────
+    const [logoPreview,   setLogoPreview  ] = useState(null);
+    const [logoError,     setLogoError    ] = useState('');
+
+    // ── Create org state ───────────────────────────────────────────────────────
+    const [orgName,       setOrgName      ] = useState('');
+    const [userName,      setUserName     ] = useState('');
+    const [regEmail,      setRegEmail     ] = useState('');
+    const [regPassword,   setRegPassword  ] = useState('');
+    const [showPassword,  setShowPassword ] = useState(false);
+    const [createError,   setCreateError  ] = useState('');
+    const [createLoading, setCreateLoading] = useState(false);
+    const [createSuccess, setCreateSuccess] = useState(false);
 
     // ── load saved config ──────────────────────────────────────────────────────
     useEffect(() => {
@@ -198,8 +218,8 @@ export default function DatabaseSetup() {
     };
 
     const handleBack = () => {
-        setStep(s => Math.max(0, s - 1));
-        if (step === 1) setDbType(null);
+        if (step === 1) { setStep(0); setDbType(null); }
+        else { setStep(s => Math.max(0, s - 1)); }
         setTestState('idle');
         setTestMsg('');
     };
@@ -243,7 +263,6 @@ export default function DatabaseSetup() {
                     setTestMsg('Please fill in at least API Key and Project ID before testing.');
                     return;
                 }
-                // Dynamic import so this page loads even without Firebase env vars
                 const { initializeApp, getApps, deleteApp } = await import('firebase/app');
                 const { getDatabase, ref: rtRef, get }      = await import('firebase/database');
                 const TEST_APP = '__ohsms_setup_test__';
@@ -251,7 +270,6 @@ export default function DatabaseSetup() {
                 if (existing) await deleteApp(existing);
                 const testApp = initializeApp(cfg, TEST_APP);
                 const testDb  = getDatabase(testApp);
-                // /.info/connected is readable without auth rules — perfect for a ping
                 await get(rtRef(testDb, '/.info/connected')).catch(() => {});
                 await deleteApp(testApp);
                 setTestState('success');
@@ -304,10 +322,108 @@ export default function DatabaseSetup() {
             localStorage.setItem(SK.REST_POLL, String(restConfig.pollMs));
         }
         localStorage.setItem(SK.DONE, 'true');
-        setStep(2);
+        // Reload the page so the new adapter is picked up by all service modules,
+        // then navigate to the logo step after reload via sessionStorage flag.
+        sessionStorage.setItem('ohsms_setup_step', '2');
+        window.location.reload();
     };
 
-    const handleLaunch = () => { window.location.href = '/'; };
+    // Restore step after page reload triggered by handleSave
+    useEffect(() => {
+        const pending = sessionStorage.getItem('ohsms_setup_step');
+        if (pending) {
+            sessionStorage.removeItem('ohsms_setup_step');
+            setStep(parseInt(pending, 10));
+        }
+    }, []);
+
+    // ── Logo handlers ──────────────────────────────────────────────────────────
+    const handleLogoFile = async (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        setLogoError('');
+        try {
+            const dataUrl = await compressImageToBase64(file, 256, 0.85);
+            const sizeKb  = base64SizeKB(dataUrl);
+            if (sizeKb > 200) {
+                setLogoError(`Image is still too large after compression (${sizeKb} KB). Please choose a smaller image.`);
+                return;
+            }
+            setLogoPreview(dataUrl);
+        } catch (err) {
+            setLogoError(err.message);
+        }
+    };
+
+    // ── Create Org handler ─────────────────────────────────────────────────────
+    const handleCreateOrg = async (e) => {
+        e.preventDefault();
+        setCreateError('');
+
+        if (orgName.trim().length < 2)  return setCreateError('Organisation name must be at least 2 characters.');
+        if (userName.trim().length < 2) return setCreateError('Your full name must be at least 2 characters.');
+        if (regPassword.length < 6)     return setCreateError('Password must be at least 6 characters.');
+
+        setCreateLoading(true);
+        try {
+            const userEmail = regEmail.trim().toLowerCase();
+            const uid       = await authService.createUser(userEmail, regPassword);
+            const orgId     = await dbPush('organizations', null);
+            const code      = generateJoinCode();
+
+            await dbSet(`organizations/${orgId}`, {
+                details: {
+                    name:               orgName.trim(),
+                    createdAt:          new Date().toISOString(),
+                    ownerEmail:         userEmail,
+                    joinCode:           code,
+                    joinCodeUpdatedAt:  new Date().toISOString(),
+                    joinCodeUpdatedBy:  userEmail,
+                    ...(logoPreview ? { logoBase64: logoPreview } : {}),
+                },
+                sites: { 'HQ-01': { code: 'HQ-01', name: 'Headquarters' } },
+                users: {
+                    [uid]: {
+                        name:             userName.trim(),
+                        email:            userEmail,
+                        role:             'Global Owner',
+                        assignedSite:     'GLOBAL',
+                        accessibleSites:  ['GLOBAL'],
+                        status:           ACCOUNT_STATUS.ACTIVE,
+                        createdAt:        new Date().toISOString(),
+                    },
+                },
+            });
+
+            await dbSet(`userDirectory/${uid}`, { orgId });
+            await dbSet(`joinRegistry/${code}`,  orgId);
+
+            const session = normalizeSessionPermissions({
+                uid,
+                email:             userEmail,
+                orgId,
+                name:              userName.trim(),
+                role:              'Global Owner',
+                status:            ACCOUNT_STATUS.ACTIVE,
+                assignedSite:      'GLOBAL',
+                accessibleSites:   ['GLOBAL'],
+                accessibleModules: [
+                    'Analytics', 'Incidents', 'Risk Assessment', 'Participation',
+                    'Internal Audit', 'CAPA Manager', 'Training', 'Improvement',
+                    'Record Emergency', 'OHS Tools', 'Contractors', 'MOC',
+                    'Inspections', 'Sites', 'Users', 'Activity Calendar', 'Tutorials',
+                ],
+            });
+
+            writeStoredSession(session);
+            setCreateSuccess(true);
+            setTimeout(() => navigate('/dashboard'), 1500);
+        } catch (err) {
+            setCreateError(err.message || 'Something went wrong. Please try again.');
+        } finally {
+            setCreateLoading(false);
+        }
+    };
 
     // ── shared styles ──────────────────────────────────────────────────────────
     const inputCls =
@@ -336,20 +452,27 @@ export default function DatabaseSetup() {
 
                 {/* ── HEADER ── */}
                 <div className="text-center mb-10">
-                    <div className="inline-flex items-center gap-2 rounded-full border border-cyan-500/30 bg-cyan-500/10 px-4 py-1.5 text-[11px] font-black uppercase tracking-widest text-cyan-400 mb-5">
-                        🗄️ Database Configuration
+                    <button
+                        onClick={() => navigate('/')}
+                        className="inline-flex items-center gap-2 mb-5 opacity-60 hover:opacity-100 transition-opacity"
+                    >
+                        <img src="/we-ehs-logo.jpg" alt="OHSMS" className="h-8 w-8 rounded-xl object-cover" />
+                        <span className="text-xs font-black uppercase tracking-widest text-gray-400">OHSMS Enterprise</span>
+                    </button>
+                    <div className="inline-flex items-center gap-2 rounded-full border border-cyan-500/30 bg-cyan-500/10 px-4 py-1.5 text-[11px] font-black uppercase tracking-widest text-cyan-400 mb-5 block">
+                        🚀 New Organisation Setup
                     </div>
                     <h1 className="text-4xl sm:text-5xl font-black text-white mb-3 leading-tight">
-                        Connect Your<br className="sm:hidden" /> Database
+                        Set Up Your Workspace
                     </h1>
                     <p className="text-sm text-gray-400 max-w-lg mx-auto leading-relaxed">
-                        OHSMS Enterprise works with <strong className="text-white">any database</strong>.
-                        Configure your connection here — the entire app connects automatically without touching a single line of code.
+                        Connect your database, brand with your logo, and create your admin account —
+                        your EHS command centre will be ready in minutes.
                     </p>
                 </div>
 
                 {/* ── STEP BAR ── */}
-                <StepBar steps={['Choose', 'Configure', 'Connected']} current={step} />
+                <StepBar steps={['Database', 'Configure', 'Upload Logo', 'Create Org']} current={step} />
 
                 {/* ═══════════════════════════════════════════════════════════
                     STEP 0 — CHOOSE
@@ -447,7 +570,7 @@ export default function DatabaseSetup() {
 
                                     <InstructStep n={5} title="Paste or Enter Config on the Right">
                                         <p>Switch to <strong className="text-white">Paste JSON</strong> mode and paste your config, or fill each field individually</p>
-                                        <p>Click <strong className="text-white">Test Connection</strong> → then <strong className="text-white">Save &amp; Connect</strong></p>
+                                        <p>Click <strong className="text-white">Test Connection</strong> → then <strong className="text-white">Save &amp; Continue</strong></p>
                                     </InstructStep>
 
                                     <div className="rounded-xl border border-orange-500/20 bg-orange-950/15 p-3 mt-2">
@@ -597,7 +720,7 @@ VITE_FIREBASE_APP_ID=1:871919638023:web:abcdef`}</CodeBlock>
                                 </button>
                                 <button onClick={handleSave}
                                     className="py-2.5 rounded-xl bg-cyan-500 text-black text-xs font-black hover:bg-cyan-400 transition">
-                                    Save &amp; Connect →
+                                    Save &amp; Continue →
                                 </button>
                             </div>
 
@@ -697,41 +820,35 @@ VITE_FIREBASE_APP_ID=1:871919638023:web:abcdef`}</CodeBlock>
                                         },
                                         {
                                             badge: '🟢',
-                                            name:  'Python + FastAPI + PostgreSQL',
-                                            stack: 'Python · Railway / AWS',
+                                            name:  'FastAPI + PostgreSQL',
+                                            stack: 'Python · Render / Fly.io',
                                             diff:  'Easy',
                                             color: 'border-green-500/20 bg-green-950/10',
-                                            desc:  'FastAPI auto-generates OpenAPI docs. Perfect for teams comfortable with Python.',
+                                            desc:  'Auto-generated OpenAPI docs. Perfect for data science teams or orgs already using Python.',
                                         },
                                         {
-                                            badge: '🟡',
-                                            name:  'Node.js + Express + MongoDB',
-                                            stack: 'MongoDB Atlas · Render',
-                                            diff:  'Medium',
-                                            color: 'border-gray-700 bg-gray-900/30',
-                                            desc:  'Flexible document store — schema-free like Firebase. Good migration path from Firebase.',
-                                        },
-                                        {
-                                            badge: '🟡',
+                                            badge: '🔵',
                                             name:  'Laravel + MySQL',
-                                            stack: 'PHP · cPanel / VPS',
+                                            stack: 'PHP · any shared hosting',
                                             diff:  'Medium',
-                                            color: 'border-gray-700 bg-gray-900/30',
-                                            desc:  'Great if your team knows PHP. MySQL is widely supported in corporate hosting environments.',
+                                            color: 'border-blue-500/20 bg-blue-950/10',
+                                            desc:  'Works on even the cheapest shared hosting. Good for organisations already running PHP-based ERP systems.',
                                         },
-                                    ].map(({ badge, name, stack, diff, color, desc }) => (
-                                        <div key={name} className={`rounded-xl border p-3.5 ${color}`}>
-                                            <div className="flex items-center gap-2 mb-1.5">
-                                                <span className="text-base">{badge}</span>
-                                                <span className="text-sm font-black text-white">{name}</span>
-                                                <span className="text-[10px] text-gray-500">{stack}</span>
-                                                <span className={`ml-auto px-1.5 py-0.5 rounded text-[9px] font-bold ${
-                                                    diff === 'Easiest' ? 'bg-yellow-900/50 text-yellow-400' :
-                                                    diff === 'Easy'    ? 'bg-green-900/50 text-green-400' :
-                                                                         'bg-gray-800 text-gray-400'
-                                                }`}>{diff}</span>
+                                        {
+                                            badge: '🔵',
+                                            name:  'MongoDB Atlas + API',
+                                            stack: 'NoSQL · Atlas Data API',
+                                            diff:  'Medium',
+                                            color: 'border-blue-500/20 bg-blue-950/10',
+                                            desc:  'Schema-free migration from Firebase. Atlas has a built-in Data API that can serve as your REST backend.',
+                                        },
+                                    ].map(opt => (
+                                        <div key={opt.name} className={`rounded-xl border p-3 ${opt.color}`}>
+                                            <div className="flex items-center justify-between gap-2 mb-1">
+                                                <p className="text-xs font-black text-white">{opt.badge} {opt.name}</p>
+                                                <span className="text-[10px] text-gray-500">{opt.stack}</span>
                                             </div>
-                                            <p className="text-[11px] text-gray-400 leading-relaxed">{desc}</p>
+                                            <p className="text-[11px] text-gray-400 leading-relaxed">{opt.desc}</p>
                                         </div>
                                     ))}
                                 </div>
@@ -861,7 +978,7 @@ VITE_API_POLL_MS=5000`}</CodeBlock>
                                 </button>
                                 <button onClick={handleSave}
                                     className="py-2.5 rounded-xl bg-cyan-500 text-black text-xs font-black hover:bg-cyan-400 transition">
-                                    Save &amp; Connect →
+                                    Save &amp; Continue →
                                 </button>
                             </div>
 
@@ -882,42 +999,241 @@ VITE_API_POLL_MS=5000`}</CodeBlock>
                 )}
 
                 {/* ═══════════════════════════════════════════════════════════
-                    STEP 2 — DONE
+                    STEP 2 — UPLOAD LOGO (optional)
                 ═══════════════════════════════════════════════════════════ */}
                 {step === 2 && (
-                    <div className="text-center max-w-lg mx-auto">
-                        <div className="text-8xl mb-6 select-none">✅</div>
-                        <h2 className="text-3xl font-black text-white mb-3">Database Connected!</h2>
-                        <p className="text-sm text-gray-400 mb-6 leading-relaxed">
-                            {dbType === 'firebase'
-                                ? 'Firebase Realtime Database is now configured. All data operations in OHSMS Enterprise will route through your Firebase project.'
-                                : 'Your REST API is now configured. All data operations will route through your backend server.'}
-                        </p>
-
-                        <div className="rounded-2xl border border-green-500/20 bg-green-950/15 p-5 mb-8 text-left">
-                            <p className="text-xs font-black text-green-400 mb-3">What happens when you launch:</p>
-                            <ul className="space-y-2 text-xs text-gray-400">
-                                <li className="flex gap-2"><span className="text-green-500">→</span> The app reloads and connects using your new {dbType === 'firebase' ? 'Firebase' : 'REST API'} settings</li>
-                                <li className="flex gap-2"><span className="text-green-500">→</span> Create your first organization from the login page</li>
-                                <li className="flex gap-2"><span className="text-green-500">→</span> All data is stored in your {dbType === 'firebase' ? 'Firebase project' : 'database'}</li>
-                                <li className="flex gap-2"><span className="text-green-500">→</span> You can reconfigure any time by visiting <code className="bg-gray-800 px-1 rounded">/setup</code></li>
-                            </ul>
+                    <div className="max-w-md mx-auto">
+                        <div className="text-center mb-8">
+                            <div className="text-6xl mb-3 select-none">🏢</div>
+                            <h2 className="text-2xl font-black text-white mb-2">Upload Your Logo</h2>
+                            <p className="text-sm text-gray-400 leading-relaxed">
+                                This logo replaces the default icon across your entire workspace.
+                                You can skip this and upload it later from the dashboard.
+                            </p>
                         </div>
 
-                        <button onClick={handleLaunch}
-                            className="px-10 py-3.5 rounded-xl bg-cyan-500 text-black font-black text-sm hover:bg-cyan-400 active:bg-cyan-600 transition">
-                            Launch OHSMS Enterprise →
-                        </button>
+                        {/* Preview */}
+                        <div className="flex flex-col items-center gap-4 mb-6">
+                            <div className="relative flex h-32 w-32 items-center justify-center overflow-hidden rounded-3xl border-2 border-dashed border-gray-600 bg-gray-900/60 shadow-lg">
+                                {logoPreview ? (
+                                    <img src={logoPreview} alt="Logo preview" className="h-full w-full object-cover" />
+                                ) : (
+                                    <div className="flex flex-col items-center gap-2 text-gray-600">
+                                        <span className="text-4xl">📷</span>
+                                        <span className="text-[10px] font-bold uppercase tracking-widest">No logo yet</span>
+                                    </div>
+                                )}
+                                {logoPreview && (
+                                    <span className="absolute bottom-2 right-2 rounded-lg bg-cyan-500 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wider text-black">
+                                        Preview
+                                    </span>
+                                )}
+                            </div>
+                            <p className="text-xs text-gray-500 text-center">
+                                {logoPreview
+                                    ? `Compressed to ${base64SizeKB(logoPreview)} KB — looks great!`
+                                    : 'PNG, JPG, SVG, WEBP accepted · Auto-compressed to 256×256 px'}
+                            </p>
+                        </div>
 
-                        <p className="mt-4 text-[11px] text-gray-600">
-                            Settings saved in browser localStorage ·{' '}
-                            <button onClick={() => setStep(1)} className="text-gray-500 hover:text-gray-300 underline transition">Edit configuration</button>
+                        {/* File picker */}
+                        <label className="mb-4 flex cursor-pointer items-center justify-center gap-3 rounded-2xl border border-dashed border-gray-700 bg-gray-900/50 px-4 py-4 transition hover:border-cyan-500/50 hover:bg-cyan-950/10">
+                            <span className="text-xl">📁</span>
+                            <span className="text-sm text-gray-400">
+                                {logoPreview ? 'Choose a different image' : 'Choose image file…'}
+                            </span>
+                            <input
+                                ref={logoFileRef}
+                                type="file"
+                                accept="image/*"
+                                className="sr-only"
+                                onChange={handleLogoFile}
+                            />
+                        </label>
+
+                        {logoError && (
+                            <div className="mb-4 rounded-xl border border-red-500/30 bg-red-950/20 px-4 py-3 text-xs text-red-400">
+                                ⚠ {logoError}
+                            </div>
+                        )}
+
+                        {logoPreview && (
+                            <button
+                                type="button"
+                                onClick={() => { setLogoPreview(null); setLogoError(''); if (logoFileRef.current) logoFileRef.current.value = ''; }}
+                                className="mb-4 w-full text-center text-xs text-gray-600 hover:text-red-400 transition"
+                            >
+                                ✕ Remove selected image
+                            </button>
+                        )}
+
+                        {/* Actions */}
+                        <div className="grid grid-cols-2 gap-3">
+                            <button
+                                type="button"
+                                onClick={() => { setLogoPreview(null); setStep(3); }}
+                                className="py-3 rounded-xl border border-gray-700 text-gray-400 text-xs font-bold hover:border-gray-500 hover:text-gray-200 transition"
+                            >
+                                Skip for now →
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setStep(3)}
+                                disabled={!logoPreview}
+                                className="py-3 rounded-xl bg-cyan-500 text-black text-xs font-black hover:bg-cyan-400 transition disabled:opacity-40 disabled:cursor-not-allowed"
+                            >
+                                Use This Logo →
+                            </button>
+                        </div>
+
+                        <p className="mt-4 text-center text-[10px] text-gray-700">
+                            You can change the logo any time from the dashboard (Global Owner only).
                         </p>
                     </div>
                 )}
 
-                {/* ── back button ── */}
-                {step > 0 && step < 2 && (
+                {/* ═══════════════════════════════════════════════════════════
+                    STEP 3 — CREATE ORGANISATION & FIRST ADMIN USER
+                ═══════════════════════════════════════════════════════════ */}
+                {step === 3 && (
+                    <div className="max-w-lg mx-auto">
+                        {createSuccess ? (
+                            /* ── Success state ── */
+                            <div className="text-center py-10">
+                                <div className="text-8xl mb-6 select-none animate-bounce">🎉</div>
+                                <h2 className="text-3xl font-black text-white mb-3">Organisation Created!</h2>
+                                <p className="text-sm text-gray-400 mb-2">
+                                    Welcome aboard, Global Owner. Your EHS workspace is ready.
+                                </p>
+                                <p className="text-xs text-cyan-400">Redirecting to your dashboard…</p>
+                            </div>
+                        ) : (
+                            <form onSubmit={handleCreateOrg} className="space-y-5">
+                                <div className="text-center mb-8">
+                                    <div className="text-6xl mb-3 select-none">👤</div>
+                                    <h2 className="text-2xl font-black text-white mb-2">Create Your Organisation</h2>
+                                    <p className="text-sm text-gray-400 leading-relaxed">
+                                        You'll be the <strong className="text-cyan-400">Global Owner</strong> with full access to all 15+ EHS modules.
+                                        Invite your team after setup.
+                                    </p>
+                                </div>
+
+                                {/* Logo summary */}
+                                {logoPreview && (
+                                    <div className="flex items-center gap-3 rounded-xl border border-cyan-500/20 bg-cyan-950/15 p-3">
+                                        <img src={logoPreview} alt="Logo" className="h-10 w-10 rounded-xl object-cover border border-gray-700" />
+                                        <div>
+                                            <p className="text-[11px] font-bold text-cyan-400">Logo selected ✓</p>
+                                            <p className="text-[10px] text-gray-500">{base64SizeKB(logoPreview)} KB · will be saved with your org</p>
+                                        </div>
+                                        <button type="button" onClick={() => setStep(2)} className="ml-auto text-[10px] text-gray-600 hover:text-gray-300 transition underline">
+                                            Change
+                                        </button>
+                                    </div>
+                                )}
+
+                                {/* Organisation name */}
+                                <div>
+                                    <label className="block text-[10px] font-black uppercase tracking-widest text-gray-500 mb-1.5">
+                                        Organisation Name <span className="text-red-500">*</span>
+                                    </label>
+                                    <input
+                                        type="text"
+                                        value={orgName}
+                                        onChange={e => setOrgName(e.target.value)}
+                                        className={inputCls}
+                                        placeholder="e.g. Acme Mining Ltd"
+                                        required
+                                        minLength={2}
+                                    />
+                                </div>
+
+                                {/* Admin name */}
+                                <div>
+                                    <label className="block text-[10px] font-black uppercase tracking-widest text-gray-500 mb-1.5">
+                                        Your Full Name <span className="text-red-500">*</span>
+                                    </label>
+                                    <input
+                                        type="text"
+                                        value={userName}
+                                        onChange={e => setUserName(e.target.value)}
+                                        className={inputCls}
+                                        placeholder="e.g. Sarah Johnson"
+                                        required
+                                        minLength={2}
+                                    />
+                                </div>
+
+                                {/* Admin email */}
+                                <div>
+                                    <label className="block text-[10px] font-black uppercase tracking-widest text-gray-500 mb-1.5">
+                                        Email Address <span className="text-red-500">*</span>
+                                    </label>
+                                    <input
+                                        type="email"
+                                        value={regEmail}
+                                        onChange={e => setRegEmail(e.target.value)}
+                                        className={inputCls}
+                                        placeholder="admin@company.com"
+                                        required
+                                        autoComplete="email"
+                                    />
+                                    <p className="text-[10px] text-gray-600 mt-1">Used to sign in to this workspace.</p>
+                                </div>
+
+                                {/* Password */}
+                                <div>
+                                    <label className="block text-[10px] font-black uppercase tracking-widest text-gray-500 mb-1.5">
+                                        Password <span className="text-red-500">*</span>
+                                    </label>
+                                    <div className="relative">
+                                        <input
+                                            type={showPassword ? 'text' : 'password'}
+                                            value={regPassword}
+                                            onChange={e => setRegPassword(e.target.value)}
+                                            className={`${inputCls} pr-10`}
+                                            placeholder="At least 6 characters"
+                                            required
+                                            minLength={6}
+                                            autoComplete="new-password"
+                                        />
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowPassword(v => !v)}
+                                            className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-600 hover:text-gray-300 transition text-xs"
+                                        >
+                                            {showPassword ? '🙈' : '👁️'}
+                                        </button>
+                                    </div>
+                                </div>
+
+                                {/* Error */}
+                                {createError && (
+                                    <div className="rounded-xl border border-red-500/30 bg-red-950/20 px-4 py-3 text-xs text-red-400">
+                                        ⚠ {createError}
+                                    </div>
+                                )}
+
+                                {/* Submit */}
+                                <button
+                                    type="submit"
+                                    disabled={createLoading}
+                                    className="w-full py-3.5 rounded-xl bg-cyan-500 text-black font-black text-sm hover:bg-cyan-400 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                    {createLoading ? '⏳ Creating Workspace…' : '🚀 Create Organisation & Launch Dashboard →'}
+                                </button>
+
+                                <p className="text-center text-[10px] text-gray-600 leading-relaxed">
+                                    By creating an organisation you become its Global Owner.<br />
+                                    A unique join code is generated so your team can request access.
+                                </p>
+                            </form>
+                        )}
+                    </div>
+                )}
+
+                {/* ── back button — visible on steps 1 and 2 only ── */}
+                {step > 0 && step < 3 && !createSuccess && (
                     <div className="text-center mt-8">
                         <button onClick={handleBack}
                             className="text-xs text-gray-600 hover:text-gray-400 transition">
@@ -927,10 +1243,16 @@ VITE_API_POLL_MS=5000`}</CodeBlock>
                 )}
 
                 {/* ── footer ── */}
-                <div className="text-center mt-12 text-[10px] text-gray-700 space-x-3">
-                    <span>OHSMS Enterprise · Database Configuration</span>
+                <div className="text-center mt-12 text-[10px] text-gray-700 space-x-4">
+                    <button onClick={() => navigate('/login')} className="hover:text-gray-500 transition underline">
+                        Already have an account? Sign in
+                    </button>
                     <span>·</span>
                     <button onClick={() => navigate('/')} className="hover:text-gray-500 transition underline">
+                        Back to home
+                    </button>
+                    <span>·</span>
+                    <button onClick={() => navigate('/login')} className="hover:text-gray-500 transition underline">
                         Skip — use current config
                     </button>
                 </div>
