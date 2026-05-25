@@ -145,8 +145,10 @@ export default function Login() {
             if (!userDirData) {
                 await authService.signOut();
                 alert(
-                    'Security Error: No organisation mapping found for this account.\n\n' +
-                    'You may be using a legacy test account. Please register a new one from the main page.'
+                    'Account not linked to any organisation.\n\n' +
+                    'This usually means the organisation setup did not complete fully. ' +
+                    'Please go to the Setup Wizard (/setup) and create your organisation again, ' +
+                    'or ask your admin to add your account from User Management.'
                 );
                 return;
             }
@@ -235,8 +237,14 @@ export default function Login() {
         setLoading(true);
         let createdUid = null;
         try {
-            const uid = await authService.createUser(regEmail.trim().toLowerCase(), regPassword);
+            const joinEmail = regEmail.trim().toLowerCase();
+
+            // 1. Create Firebase Auth account (provisioning app signs out after — primary auth has no user yet).
+            const uid = await authService.createUser(joinEmail, regPassword);
             createdUid = uid;
+
+            // 2. Sign in to primary auth so DB reads/writes pass security rules (auth != null).
+            await authService.signIn(joinEmail, regPassword);
 
             const existingOrgId = await dbGet(`joinRegistry/${code}`);
             if (!existingOrgId) {
@@ -247,7 +255,7 @@ export default function Login() {
 
             await dbSet(`organizations/${existingOrgId}/users/${uid}`, {
                 name:             userName.trim(),
-                email:            regEmail.trim().toLowerCase(),
+                email:            joinEmail,
                 role:             'User',
                 assignedSite:     '',
                 accessibleSites:  [],

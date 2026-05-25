@@ -367,8 +367,18 @@ export default function DatabaseSetup() {
         setCreateLoading(true);
         try {
             const userEmail = regEmail.trim().toLowerCase();
-            const uid       = await authService.createUser(userEmail, regPassword);
-            const orgId     = await dbPush('organizations', null);
+
+            // 1. Create the Firebase Auth account via the provisioning app.
+            //    createUser uses a secondary app and signs OUT of it when done,
+            //    so the primary auth still has no current user at this point.
+            const uid = await authService.createUser(userEmail, regPassword);
+
+            // 2. Sign in to the PRIMARY auth instance so the Firebase security
+            //    rules (auth != null) pass for all subsequent DB writes.
+            await authService.signIn(userEmail, regPassword);
+
+            // 3. Now safe to write — auth.currentUser is set.
+            const orgId = await dbPush('organizations', null);
             const code      = generateJoinCode();
 
             await dbSet(`organizations/${orgId}`, {
