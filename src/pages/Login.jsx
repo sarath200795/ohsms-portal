@@ -27,6 +27,12 @@ import {
     isPendingStatus,
     writeStoredSession,
 } from '../utils/session';
+import {
+    getOrgRegistry,
+    applyOrgDbConfig,
+    isCurrentDb,
+    getDbTypeLabel,
+} from '../utils/orgRegistry.js';
 
 // ─── static content (preserved from before) ───────────────────────────────────
 const FEATURE_HIGHLIGHTS = [
@@ -99,11 +105,39 @@ export default function Login() {
     const [dbStatus, setDbStatus]               = useState(null); // null | 'ok' | 'error'
     const [dbInfo]                              = useState(() => getDbLabel());
 
+    // Org registry picker
+    const [orgRegistry, setOrgRegistry]         = useState([]);
+    const [pickedOrg,   setPickedOrg]           = useState(null); // null = show picker when registry has entries
+
     const isJoinMode = authMode === 'join';
 
     const resetJoinFields = () => {
         setRegEmail(''); setRegPassword(''); setUserName(''); setJoinCode('');
     };
+
+    // ── org picker ────────────────────────────────────────────────────────────
+    const handleOrgPick = (entry) => {
+        if (isCurrentDb(entry)) {
+            // Same DB already active — just show the login form for this org
+            setPickedOrg(entry);
+        } else {
+            // Different DB — apply the new config, stash the pick, and reload
+            // so the Firebase SDK re-initialises with the new credentials.
+            applyOrgDbConfig(entry);
+            sessionStorage.setItem('ohsms_picked_org', JSON.stringify(entry));
+            window.location.reload();
+        }
+    };
+
+    // ── load org registry + restore pickedOrg after a DB-switch reload ──────────
+    useEffect(() => {
+        setOrgRegistry(getOrgRegistry());
+        const pending = sessionStorage.getItem('ohsms_picked_org');
+        if (pending) {
+            try { setPickedOrg(JSON.parse(pending)); } catch {}
+            sessionStorage.removeItem('ohsms_picked_org');
+        }
+    }, []);
 
     // ── pre-flight: verify DB is reachable on mount ────────────────────────────
     useEffect(() => {
@@ -363,215 +397,331 @@ export default function Login() {
 
                 {/* ── COMMAND PANEL ── */}
                 <section className="command-panel flex flex-col justify-between rounded-[1.5rem] p-5 lg:p-6">
-                    <div>
-                        {/* ── DB status chip ── */}
-                        <div className="mb-4 flex items-center gap-2">
-                            <div className={`h-1.5 w-1.5 rounded-full ${dbStatus === 'ok' ? 'bg-green-400' : dbStatus === 'error' ? 'bg-red-400 animate-pulse' : 'bg-gray-500'}`} />
-                            <span className={`text-[10px] font-bold ${dbInfo.color}`}>{dbInfo.label}</span>
+
+                    {/* ═══════════════════════════════════════════════════════
+                        ORG PICKER — shown when the registry has entries and
+                        no org has been selected yet for this session
+                    ═══════════════════════════════════════════════════════ */}
+                    {orgRegistry.length > 0 && !pickedOrg ? (
+                        <div>
+                            {/* Picker header */}
+                            <p className="legendary-title text-[11px] text-[var(--myth-cyan)]">Multi-Organisation Access</p>
+                            <h2 className="mt-2 text-3xl text-white">Select Your Workspace</h2>
+                            <p className="mt-2 text-xs leading-relaxed text-[var(--myth-muted)]">
+                                Choose the organisation you want to sign in to.
+                                The app will connect to that workspace's database automatically.
+                            </p>
+
+                            {/* Org cards grid */}
+                            <div className={`mt-5 grid gap-3 ${orgRegistry.length === 1 ? 'grid-cols-1' : 'grid-cols-2'}`}>
+                                {orgRegistry.map((entry) => (
+                                    <button
+                                        key={entry.orgId}
+                                        type="button"
+                                        onClick={() => handleOrgPick(entry)}
+                                        className="group relative flex flex-col items-center gap-3 rounded-2xl border border-gray-700/60 bg-gray-900/50 p-5 text-center transition-all duration-200 hover:border-cyan-500/50 hover:bg-cyan-950/15 focus:outline-none focus:ring-2 focus:ring-cyan-500/30"
+                                    >
+                                        {/* Logo / Initial avatar */}
+                                        <div className="relative h-20 w-20 flex-shrink-0 overflow-hidden rounded-2xl border border-gray-700/80 bg-gray-800">
+                                            {entry.logoBase64 ? (
+                                                <img
+                                                    src={entry.logoBase64}
+                                                    alt={entry.orgName}
+                                                    className="h-full w-full object-cover"
+                                                />
+                                            ) : (
+                                                <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-cyan-900/40 to-gray-900 text-3xl font-black text-cyan-400">
+                                                    {(entry.orgName || '?').charAt(0).toUpperCase()}
+                                                </div>
+                                            )}
+                                            {/* Green dot = currently connected DB */}
+                                            {isCurrentDb(entry) && (
+                                                <div
+                                                    className="absolute -right-1 -top-1 h-3.5 w-3.5 rounded-full border-2 border-[#080705] bg-green-400 shadow"
+                                                    title="Currently connected"
+                                                />
+                                            )}
+                                        </div>
+
+                                        {/* Org name + DB badge */}
+                                        <div className="min-w-0 w-full">
+                                            <p className="truncate text-sm font-bold text-white">{entry.orgName}</p>
+                                            <p className={`mt-0.5 text-[10px] font-bold uppercase tracking-wide ${
+                                                entry.dbAdapter === 'firebase' ? 'text-orange-400' : 'text-cyan-400'
+                                            }`}>
+                                                {entry.dbAdapter === 'firebase' ? '🔥 Firebase' : `🖥️ ${getDbTypeLabel(entry)}`}
+                                            </p>
+                                        </div>
+
+                                        {/* Hover CTA label */}
+                                        <span className="text-[10px] font-bold uppercase tracking-widest text-gray-600 transition-colors group-hover:text-cyan-400">
+                                            {isCurrentDb(entry) ? 'Sign In →' : 'Connect & Sign In →'}
+                                        </span>
+                                    </button>
+                                ))}
+                            </div>
+
+                            {/* Setup new org */}
+                            <div className="mt-5 rounded-xl border border-gray-800/60 bg-black/20 p-3 text-center">
+                                <p className="mb-2 text-[11px] text-gray-500">Need a different workspace?</p>
+                                <button
+                                    type="button"
+                                    onClick={() => navigate('/setup')}
+                                    className="inline-flex items-center gap-2 rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-4 py-2 text-[11px] font-bold text-cyan-400 transition-all hover:bg-cyan-500/20"
+                                >
+                                    🏢 Set Up New Organisation →
+                                </button>
+                            </div>
+                        </div>
+
+                    ) : (
+                        /* ═══════════════════════════════════════════════════
+                            SIGN IN / JOIN FORM
+                        ═══════════════════════════════════════════════════ */
+                        <div>
+                            {/* ── DB status chip ── */}
+                            <div className="mb-4 flex items-center gap-2">
+                                <div className={`h-1.5 w-1.5 rounded-full ${dbStatus === 'ok' ? 'bg-green-400' : dbStatus === 'error' ? 'bg-red-400 animate-pulse' : 'bg-gray-500'}`} />
+                                <span className={`text-[10px] font-bold ${dbInfo.color}`}>{dbInfo.label}</span>
+                                {dbStatus === 'error' && (
+                                    <a href="/setup" className="ml-auto text-[10px] text-red-400 underline transition-colors hover:text-red-300">
+                                        Fix →
+                                    </a>
+                                )}
+                            </div>
+
                             {dbStatus === 'error' && (
-                                <a href="/setup" className="ml-auto text-[10px] text-red-400 hover:text-red-300 underline transition-colors">
-                                    Fix →
-                                </a>
+                                <div className="mb-4 rounded-xl border border-red-500/30 bg-red-950/20 p-3">
+                                    <p className="mb-1 text-[11px] font-bold text-red-400">⚠ Database Unreachable</p>
+                                    <p className="text-[10px] leading-relaxed text-gray-400">
+                                        Cannot connect to{' '}
+                                        <span className="font-bold text-white">{dbInfo.label}</span>.{' '}
+                                        Check your configuration or{' '}
+                                        <a href="/setup" className="text-cyan-400 underline hover:text-cyan-300">
+                                            open the Database Setup Wizard
+                                        </a>.
+                                    </p>
+                                </div>
                             )}
-                        </div>
 
-                        {dbStatus === 'error' && (
-                            <div className="mb-4 rounded-xl border border-red-500/30 bg-red-950/20 p-3">
-                                <p className="text-[11px] font-bold text-red-400 mb-1">⚠ Database Unreachable</p>
-                                <p className="text-[10px] text-gray-400 leading-relaxed">
-                                    Cannot connect to{' '}
-                                    <span className="font-bold text-white">{dbInfo.label}</span>.
-                                    {' '}Check your configuration or{' '}
-                                    <a href="/setup" className="text-cyan-400 underline hover:text-cyan-300">open the Database Setup Wizard</a>.
-                                </p>
-                            </div>
-                        )}
-
-                        <p className="legendary-title text-[11px] text-[var(--myth-cyan)]">
-                            {isJoinMode ? 'Request Existing Org Access' : 'Enterprise Access'}
-                        </p>
-                        <h2 className="mt-2 text-4xl text-white">
-                            {isJoinMode ? 'Join Your Organisation' : 'Access the Control Room'}
-                        </h2>
-                        <p className="mt-2 text-xs leading-relaxed text-[var(--myth-muted)]">
-                            {isJoinMode
-                                ? 'Already have a company workspace? Request access and wait for your admin to approve your account.'
-                                : 'Use your enterprise credentials to access the unified safety command environment.'}
-                        </p>
-
-                        {/* ── 2-tab nav ── */}
-                        <div className="mt-5 grid grid-cols-2 gap-2 rounded-2xl border border-[var(--myth-border)] bg-[rgba(10,8,6,0.82)] p-1.5">
-                            <button type="button" onClick={() => setAuthMode('login')}
-                                className={`myth-button px-2 py-2.5 text-[11px] ${authMode === 'login' ? 'myth-button-primary' : 'myth-button-secondary'}`}>
-                                Sign In
-                            </button>
-                            <button type="button" onClick={() => setAuthMode('join')}
-                                className={`myth-button px-2 py-2.5 text-[11px] ${isJoinMode ? 'myth-button-primary' : 'myth-button-secondary'}`}>
-                                Join Existing Org
-                            </button>
-                        </div>
-                    </div>
-
-                    {/* ── SIGN IN FORM ── */}
-                    {!isJoinMode ? (
-                        <form onSubmit={handleLogin} className="mt-5 space-y-3">
-                            <div>
-                                <label className="legendary-title mb-1.5 block text-[10px] text-[var(--myth-cyan)]">Email Address</label>
-                                <input
-                                    type="email" required
-                                    value={email} onChange={(e) => setEmail(e.target.value)}
-                                    className="w-full rounded-xl border px-4 py-2.5 text-sm outline-none transition"
-                                    placeholder="you@company.com"
-                                />
-                            </div>
-                            <div>
-                                <label className="legendary-title mb-1.5 block text-[10px] text-[var(--myth-cyan)]">Password</label>
-                                <input
-                                    type="password" required
-                                    value={password} onChange={(e) => setPassword(e.target.value)}
-                                    className="w-full rounded-xl border px-4 py-2.5 text-sm outline-none transition"
-                                    placeholder="Enter your secure password"
-                                />
-                            </div>
-                            <div className="flex flex-wrap items-center justify-between gap-2 text-[11px]">
-                                <button
-                                    type="button"
-                                    onClick={() => {
-                                        setResetEmail((prev) => prev || email);
-                                        setShowPasswordReset((prev) => !prev);
-                                        setTimeout(() => document.getElementById('forgot-password-email')?.focus(), 0);
-                                    }}
-                                    className="font-bold uppercase tracking-[0.16em] text-[var(--myth-cyan)] transition hover:text-white"
-                                >
-                                    Forgot password?
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => setAuthMode('join')}
-                                    className="font-bold uppercase tracking-[0.16em] text-[var(--myth-muted)] transition hover:text-white"
-                                >
-                                    New user in existing org
-                                </button>
-                            </div>
-
-                            {showPasswordReset && (
-                                <div className="rounded-xl border border-[var(--myth-border)] bg-black/20 p-3">
-                                    <div className="flex flex-col gap-2 sm:flex-row">
-                                        <input
-                                            id="forgot-password-email"
-                                            type="email"
-                                            value={resetEmail}
-                                            onChange={(e) => setResetEmail(e.target.value)}
-                                            className="w-full rounded-lg border px-3 py-2 text-sm outline-none transition"
-                                            placeholder="Password reset email"
+                            {/* ── Selected org context chip ── */}
+                            {pickedOrg && (
+                                <div className="mb-4 flex items-center gap-3 rounded-xl border border-cyan-500/20 bg-cyan-950/15 px-3 py-2.5">
+                                    {pickedOrg.logoBase64 ? (
+                                        <img
+                                            src={pickedOrg.logoBase64}
+                                            alt={pickedOrg.orgName}
+                                            className="h-9 w-9 flex-shrink-0 rounded-xl border border-gray-700 object-cover"
                                         />
+                                    ) : (
+                                        <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl border border-gray-700 bg-cyan-900/50 text-sm font-black text-cyan-400">
+                                            {(pickedOrg.orgName || '?').charAt(0).toUpperCase()}
+                                        </div>
+                                    )}
+                                    <div className="min-w-0 flex-1">
+                                        <p className="truncate text-xs font-bold text-white">{pickedOrg.orgName}</p>
+                                        <p className={`text-[10px] font-bold ${pickedOrg.dbAdapter === 'firebase' ? 'text-orange-400' : 'text-cyan-400'}`}>
+                                            {pickedOrg.dbAdapter === 'firebase' ? '🔥 Firebase' : `🖥️ ${getDbTypeLabel(pickedOrg)}`}
+                                        </p>
+                                    </div>
+                                    {orgRegistry.length > 1 && (
                                         <button
                                             type="button"
-                                            onClick={handleForgotPassword}
-                                            disabled={loading}
-                                            className="myth-button myth-button-secondary whitespace-nowrap px-4 py-2 text-[11px]"
+                                            onClick={() => setPickedOrg(null)}
+                                            className="whitespace-nowrap text-[10px] font-bold uppercase tracking-wider text-gray-600 transition-colors hover:text-cyan-400"
                                         >
-                                            Send Reset
+                                            ← Switch
                                         </button>
-                                    </div>
+                                    )}
                                 </div>
                             )}
 
-                            <button type="submit" disabled={loading}
-                                className="myth-button myth-button-primary w-full px-4 py-3 text-sm">
-                                {loading ? 'Authenticating…' : 'Secure Sign In'}
-                            </button>
+                            <p className="legendary-title text-[11px] text-[var(--myth-cyan)]">
+                                {isJoinMode ? 'Request Existing Org Access' : 'Enterprise Access'}
+                            </p>
+                            <h2 className="mt-2 text-4xl text-white">
+                                {isJoinMode ? 'Join Your Organisation' : 'Access the Control Room'}
+                            </h2>
+                            <p className="mt-2 text-xs leading-relaxed text-[var(--myth-muted)]">
+                                {isJoinMode
+                                    ? 'Already have a company workspace? Request access and wait for your admin to approve your account.'
+                                    : 'Use your enterprise credentials to access the unified safety command environment.'}
+                            </p>
 
-                            {/* NEW ORG CTA */}
-                            <div className="rounded-xl border border-gray-700/40 bg-black/20 p-3 text-center mt-2">
-                                <p className="text-[11px] text-gray-500 mb-2">Don't have an organisation yet?</p>
-                                <button
-                                    type="button"
-                                    onClick={() => navigate('/')}
-                                    className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 text-[11px] font-bold hover:bg-cyan-500/20 transition-all"
-                                >
-                                    🏢 Create a New Organisation →
+                            {/* ── 2-tab nav ── */}
+                            <div className="mt-5 grid grid-cols-2 gap-2 rounded-2xl border border-[var(--myth-border)] bg-[rgba(10,8,6,0.82)] p-1.5">
+                                <button type="button" onClick={() => setAuthMode('login')}
+                                    className={`myth-button px-2 py-2.5 text-[11px] ${authMode === 'login' ? 'myth-button-primary' : 'myth-button-secondary'}`}>
+                                    Sign In
+                                </button>
+                                <button type="button" onClick={() => setAuthMode('join')}
+                                    className={`myth-button px-2 py-2.5 text-[11px] ${isJoinMode ? 'myth-button-primary' : 'myth-button-secondary'}`}>
+                                    Join Existing Org
                                 </button>
                             </div>
-                        </form>
-                    ) : (
-                        /* ── JOIN EXISTING ORG FORM ── */
-                        <form onSubmit={handleJoinExistingOrg} className="mt-5 space-y-3">
-                            <div className="rounded-xl border border-cyan-400/30 bg-cyan-950/20 p-3">
-                                <p className="legendary-title text-[10px] text-[var(--myth-cyan)]">Admin Approval Required</p>
-                                <p className="mt-1 text-[11px] leading-snug text-[var(--myth-muted)]">
-                                    This creates a pending user in an existing organisation.
-                                    Access starts only after admin approval.
-                                </p>
-                            </div>
 
-                            <div>
-                                <label className="legendary-title mb-1.5 block text-[10px] text-[var(--myth-cyan)]">Workspace Join Code</label>
-                                <input
-                                    type="text" required
-                                    value={joinCode}
-                                    onChange={(e) => setJoinCode(normalizeJoinCode(e.target.value))}
-                                    className="w-full rounded-xl border px-4 py-2.5 text-sm uppercase tracking-[0.18em] outline-none transition"
-                                    placeholder="JOIN-ABC123-XYZ9"
-                                />
-                                <p className="mt-1.5 text-[10px] leading-snug text-[var(--myth-muted)]">
-                                    Ask your admin to generate this from User Management. Organisation names are not searchable from this page.
-                                </p>
-                            </div>
+                            {/* ── SIGN IN FORM ── */}
+                            {!isJoinMode ? (
+                                <form onSubmit={handleLogin} className="mt-5 space-y-3">
+                                    <div>
+                                        <label className="legendary-title mb-1.5 block text-[10px] text-[var(--myth-cyan)]">Email Address</label>
+                                        <input
+                                            type="email" required
+                                            value={email} onChange={(e) => setEmail(e.target.value)}
+                                            className="w-full rounded-xl border px-4 py-2.5 text-sm outline-none transition"
+                                            placeholder="you@company.com"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="legendary-title mb-1.5 block text-[10px] text-[var(--myth-cyan)]">Password</label>
+                                        <input
+                                            type="password" required
+                                            value={password} onChange={(e) => setPassword(e.target.value)}
+                                            className="w-full rounded-xl border px-4 py-2.5 text-sm outline-none transition"
+                                            placeholder="Enter your secure password"
+                                        />
+                                    </div>
+                                    <div className="flex flex-wrap items-center justify-between gap-2 text-[11px]">
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setResetEmail((prev) => prev || email);
+                                                setShowPasswordReset((prev) => !prev);
+                                                setTimeout(() => document.getElementById('forgot-password-email')?.focus(), 0);
+                                            }}
+                                            className="font-bold uppercase tracking-[0.16em] text-[var(--myth-cyan)] transition hover:text-white"
+                                        >
+                                            Forgot password?
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => setAuthMode('join')}
+                                            className="font-bold uppercase tracking-[0.16em] text-[var(--myth-muted)] transition hover:text-white"
+                                        >
+                                            New user in existing org
+                                        </button>
+                                    </div>
 
-                            <div className="grid gap-3 sm:grid-cols-2">
-                                <div>
-                                    <label className="legendary-title mb-1.5 block text-[10px] text-[var(--myth-cyan)]">Your Full Name</label>
-                                    <input
-                                        type="text" required
-                                        value={userName} onChange={(e) => setUserName(e.target.value)}
-                                        className="w-full rounded-xl border px-4 py-2.5 text-sm outline-none transition"
-                                        placeholder="John Doe"
-                                    />
-                                </div>
-                                <div>
-                                    <label className="legendary-title mb-1.5 block text-[10px] text-[var(--myth-cyan)]">Account Email</label>
-                                    <input
-                                        type="email" required
-                                        value={regEmail} onChange={(e) => setRegEmail(e.target.value)}
-                                        className="w-full rounded-xl border px-4 py-2.5 text-sm outline-none transition"
-                                        placeholder="john@acme.com"
-                                    />
-                                </div>
-                            </div>
+                                    {showPasswordReset && (
+                                        <div className="rounded-xl border border-[var(--myth-border)] bg-black/20 p-3">
+                                            <div className="flex flex-col gap-2 sm:flex-row">
+                                                <input
+                                                    id="forgot-password-email"
+                                                    type="email"
+                                                    value={resetEmail}
+                                                    onChange={(e) => setResetEmail(e.target.value)}
+                                                    className="w-full rounded-lg border px-3 py-2 text-sm outline-none transition"
+                                                    placeholder="Password reset email"
+                                                />
+                                                <button
+                                                    type="button"
+                                                    onClick={handleForgotPassword}
+                                                    disabled={loading}
+                                                    className="myth-button myth-button-secondary whitespace-nowrap px-4 py-2 text-[11px]"
+                                                >
+                                                    Send Reset
+                                                </button>
+                                            </div>
+                                        </div>
+                                    )}
 
-                            <div>
-                                <label className="legendary-title mb-1.5 block text-[10px] text-[var(--myth-cyan)]">Secure Password</label>
-                                <input
-                                    type="password" required
-                                    value={regPassword} onChange={(e) => setRegPassword(e.target.value)}
-                                    className="w-full rounded-xl border px-4 py-2.5 text-sm outline-none transition"
-                                    placeholder="Minimum 6 characters"
-                                />
-                            </div>
+                                    <button type="submit" disabled={loading}
+                                        className="myth-button myth-button-primary w-full px-4 py-3 text-sm">
+                                        {loading ? 'Authenticating…' : 'Secure Sign In'}
+                                    </button>
 
-                            <button type="submit" disabled={loading}
-                                className="myth-button myth-button-cyan mt-2 w-full px-4 py-3 text-sm">
-                                {loading ? 'Processing…' : 'Submit Access Request'}
-                            </button>
+                                    {/* New org CTA */}
+                                    <div className="mt-2 rounded-xl border border-gray-700/40 bg-black/20 p-3 text-center">
+                                        <p className="mb-2 text-[11px] text-gray-500">Don't have an organisation yet?</p>
+                                        <button
+                                            type="button"
+                                            onClick={() => navigate('/setup')}
+                                            className="inline-flex items-center gap-2 rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-4 py-2 text-[11px] font-bold text-cyan-400 transition-all hover:bg-cyan-500/20"
+                                        >
+                                            🏢 Create a New Organisation →
+                                        </button>
+                                    </div>
+                                </form>
+                            ) : (
+                                /* ── JOIN EXISTING ORG FORM ── */
+                                <form onSubmit={handleJoinExistingOrg} className="mt-5 space-y-3">
+                                    <div className="rounded-xl border border-cyan-400/30 bg-cyan-950/20 p-3">
+                                        <p className="legendary-title text-[10px] text-[var(--myth-cyan)]">Admin Approval Required</p>
+                                        <p className="mt-1 text-[11px] leading-snug text-[var(--myth-muted)]">
+                                            This creates a pending user in an existing organisation.
+                                            Access starts only after admin approval.
+                                        </p>
+                                    </div>
 
-                            <div className="text-center">
-                                <button type="button" onClick={() => navigate('/')}
-                                    className="text-[11px] text-gray-500 hover:text-cyan-400 transition-colors underline">
-                                    Create a new organisation instead →
-                                </button>
-                            </div>
-                        </form>
+                                    <div>
+                                        <label className="legendary-title mb-1.5 block text-[10px] text-[var(--myth-cyan)]">Workspace Join Code</label>
+                                        <input
+                                            type="text" required
+                                            value={joinCode}
+                                            onChange={(e) => setJoinCode(normalizeJoinCode(e.target.value))}
+                                            className="w-full rounded-xl border px-4 py-2.5 text-sm uppercase tracking-[0.18em] outline-none transition"
+                                            placeholder="JOIN-ABC123-XYZ9"
+                                        />
+                                        <p className="mt-1.5 text-[10px] leading-snug text-[var(--myth-muted)]">
+                                            Ask your admin to generate this from User Management. Organisation names are not searchable from this page.
+                                        </p>
+                                    </div>
+
+                                    <div className="grid gap-3 sm:grid-cols-2">
+                                        <div>
+                                            <label className="legendary-title mb-1.5 block text-[10px] text-[var(--myth-cyan)]">Your Full Name</label>
+                                            <input
+                                                type="text" required
+                                                value={userName} onChange={(e) => setUserName(e.target.value)}
+                                                className="w-full rounded-xl border px-4 py-2.5 text-sm outline-none transition"
+                                                placeholder="John Doe"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="legendary-title mb-1.5 block text-[10px] text-[var(--myth-cyan)]">Account Email</label>
+                                            <input
+                                                type="email" required
+                                                value={regEmail} onChange={(e) => setRegEmail(e.target.value)}
+                                                className="w-full rounded-xl border px-4 py-2.5 text-sm outline-none transition"
+                                                placeholder="john@acme.com"
+                                            />
+                                        </div>
+                                    </div>
+
+                                    <div>
+                                        <label className="legendary-title mb-1.5 block text-[10px] text-[var(--myth-cyan)]">Secure Password</label>
+                                        <input
+                                            type="password" required
+                                            value={regPassword} onChange={(e) => setRegPassword(e.target.value)}
+                                            className="w-full rounded-xl border px-4 py-2.5 text-sm outline-none transition"
+                                            placeholder="Minimum 6 characters"
+                                        />
+                                    </div>
+
+                                    <button type="submit" disabled={loading}
+                                        className="myth-button myth-button-cyan mt-2 w-full px-4 py-3 text-sm">
+                                        {loading ? 'Processing…' : 'Submit Access Request'}
+                                    </button>
+
+                                    <div className="text-center">
+                                        <button type="button" onClick={() => navigate('/setup')}
+                                            className="text-[11px] text-gray-500 underline transition-colors hover:text-cyan-400">
+                                            Create a new organisation instead →
+                                        </button>
+                                    </div>
+                                </form>
+                            )}
+                        </div>
                     )}
 
-                    {/* ── FOOTER ── */}
+                    {/* ── FOOTER — always visible ── */}
                     <div className="command-divider mt-5"></div>
                     <div className="mt-3 flex items-center justify-between">
                         <p className="text-[10px] uppercase tracking-[0.24em] text-[var(--myth-muted)]">
                             Powered by WE EHS Safety Tool
                         </p>
                         <a href="/setup"
-                            className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-[0.14em] text-gray-600 hover:text-cyan-400 transition-colors">
+                            className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-[0.14em] text-gray-600 transition-colors hover:text-cyan-400">
                             🗄️ Configure Database
                         </a>
                     </div>

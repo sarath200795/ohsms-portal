@@ -14,6 +14,7 @@ import { dbSet, dbPush } from '../services/db/index.js';
 import { compressImageToBase64, base64SizeKB } from '../utils/imageUtils.js';
 import { normalizeSessionPermissions } from '../utils/permissions';
 import { ACCOUNT_STATUS, writeStoredSession } from '../utils/session';
+import { saveOrgToRegistry } from '../utils/orgRegistry.js';
 
 // ─── localStorage keys (must match src/config/firebase.js + adapters) ─────────
 const SK = {
@@ -426,6 +427,18 @@ export default function DatabaseSetup() {
             });
 
             writeStoredSession(session);
+
+            // Register this org in the local registry so the Login page
+            // can show it in the org picker for future sign-ins.
+            saveOrgToRegistry({
+                orgId,
+                orgName:       orgName.trim(),
+                logoBase64:    logoPreview || null,
+                dbAdapter:     localStorage.getItem('ohsms_db_adapter') || 'firebase',
+                firebaseConfig: localStorage.getItem('ohsms_firebase_config') || null,
+                restUrl:       localStorage.getItem('ohsms_rest_base_url') || null,
+            });
+
             setCreateSuccess(true);
             setTimeout(() => navigate('/dashboard'), 1500);
         } catch (err) {
