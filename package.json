@@ -29,6 +29,7 @@
     "video:record:loto-deep-dive": "node scripts/video-guides/record-loto-live-tutorial.mjs",
     "video:record:ptw-deep-dive": "node scripts/video-guides/record-ptw-live-tutorial.mjs",
     "video:record:emergency-equipment-deep-dive": "node scripts/video-guides/record-emergency-equipment-live-tutorial.mjs",
+    "video:record:onboarding": "node scripts/video-guides/record-onboarding-tutorial.mjs",
     "video:record:modules": "node scripts/video-guides/render-all-modules.mjs",
     "video:record:minute-modules": "node scripts/video-guides/render-minute-modules.mjs",
     "video:record:tutorial-modules": "node scripts/video-guides/render-tutorial-modules.mjs",

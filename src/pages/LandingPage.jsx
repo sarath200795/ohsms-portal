@@ -4,15 +4,16 @@
  * Design: vibrant coloured sections, floating PPE animations, Inter font.
  *
  * Sections:
- *  1. Sticky navbar          — white
- *  2. Hero                   — deep navy gradient + floating PPE icons
- *  3. Stats strip            — orange gradient
- *  4. Database portability   — sky-blue tinted
- *  5. All EHS modules grid   — amber/warm tinted
- *  6. Smart features         — emerald tinted
- *  7. How it works           — indigo tinted
- *  8. Animated CTA + FAQ     — white
- *  9. Footer                 — dark navy + contact details
+ *  1.  Sticky navbar          — white
+ *  2.  Hero                   — deep navy gradient + floating PPE icons
+ *  3.  Stats strip            — orange gradient
+ *  4.  Database portability   — sky-blue tinted
+ *  5.  All EHS modules grid   — amber/warm tinted
+ *  6.  Smart features         — emerald tinted
+ *  7.  How it works           — indigo tinted
+ *  8.  Tutorial Videos        — dark cinematic
+ *  9.  Animated CTA + FAQ     — white
+ *  10. Footer                 — dark navy + contact details
  */
 
 import React, { useState } from 'react';
@@ -74,6 +75,97 @@ const FAQ = [
     { q: 'Who owns the data?',                        a: 'You do. All data is stored in your own chosen database — your Firebase project, your PostgreSQL server, or any backend you control. Nothing is stored on our servers.' },
 ];
 
+const TUTORIALS = [
+    {
+        id: 'onboarding',
+        category: 'Getting Started',
+        title: 'How to Onboard an Organisation',
+        desc: 'Step-by-step walkthrough: configure Firebase, create your workspace, and invite your team — all in under 5 minutes.',
+        duration: '5:20',
+        icon: 'fa-rocket',
+        color: '#f97316',
+        featured: true,
+        ytId: null,
+    },
+    {
+        id: 'firebase-setup',
+        category: 'Getting Started',
+        title: 'Firebase Free Database Setup',
+        desc: 'Create a Firebase project, copy credentials, set security rules, and connect in the setup wizard.',
+        duration: '3:45',
+        icon: 'fa-database',
+        color: '#fbbf24',
+        featured: false,
+        ytId: null,
+    },
+    {
+        id: 'incident-reporting',
+        category: 'EHS Modules',
+        title: 'Incident Reporting & RCA',
+        desc: 'Log an incident, auto-generate a 5-Why tree, assign CAPA, and export the formal PDF report.',
+        duration: '6:10',
+        icon: 'fa-triangle-exclamation',
+        color: '#ef4444',
+        featured: false,
+        ytId: null,
+    },
+    {
+        id: 'ptw',
+        category: 'EHS Modules',
+        title: 'Permit to Work Lifecycle',
+        desc: 'Create, approve, inspect, and close a hot-work permit. QR access for field teams.',
+        duration: '4:55',
+        icon: 'fa-file-signature',
+        color: '#eab308',
+        featured: false,
+        ytId: null,
+    },
+    {
+        id: 'loto',
+        category: 'EHS Modules',
+        title: 'LOTO Isolation Procedures',
+        desc: 'Build an isolation procedure, tag equipment with QR codes, and record field verification.',
+        duration: '5:30',
+        icon: 'fa-lock',
+        color: '#06b6d4',
+        featured: false,
+        ytId: null,
+    },
+    {
+        id: 'inspections',
+        category: 'Operations',
+        title: 'Scheduled Inspections',
+        desc: 'Schedule an inspection, complete it on mobile, raise findings, and link to CAPA.',
+        duration: '4:20',
+        icon: 'fa-clipboard-check',
+        color: '#22c55e',
+        featured: false,
+        ytId: null,
+    },
+    {
+        id: 'contractors',
+        category: 'Operations',
+        title: 'Contractor Management',
+        desc: 'Register a contractor company, onboard workers, issue safety passports, and log contractor incidents.',
+        duration: '5:00',
+        icon: 'fa-helmet-safety',
+        color: '#84cc16',
+        featured: false,
+        ytId: null,
+    },
+    {
+        id: 'audit-capa',
+        category: 'Operations',
+        title: 'Audit Planning & CAPA',
+        desc: 'Plan a site audit, assign findings, capture responses, and verify closure with evidence.',
+        duration: '4:40',
+        icon: 'fa-magnifying-glass-chart',
+        color: '#0ea5e9',
+        featured: false,
+        ytId: null,
+    },
+];
+
 // ─── floating PPE icons in the hero ──────────────────────────────────────────
 
 const PPE_ICONS = [
@@ -115,10 +207,12 @@ function LightBadge({ children }) {
 export default function LandingPage() {
     const navigate = useNavigate();
 
-    const [mobileMenu, setMobileMenu]   = useState(false);
-    const [activeIndex, setActiveIndex] = useState(0);
-    const [btnShadow, setBtnShadow]     = useState(false);
-    const [email, setEmail]             = useState('');
+    const [mobileMenu, setMobileMenu]       = useState(false);
+    const [activeIndex, setActiveIndex]     = useState(0);
+    const [btnShadow, setBtnShadow]         = useState(false);
+    const [email, setEmail]                 = useState('');
+    const [videoModal, setVideoModal]       = useState(null);
+    const [tutorialFilter, setTutorialFilter] = useState(null);
 
     const toggleFaq = (i) => setActiveIndex(prev => (prev === i ? null : i));
     const scrollTo  = (id) => { document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' }); setMobileMenu(false); };
@@ -140,9 +234,10 @@ export default function LandingPage() {
                     </div>
 
                     <div className="hidden md:flex items-center gap-7 text-[13px] font-medium text-neutral-500">
-                        <button onClick={() => scrollTo('modules')}     className="hover:text-orange-500 transition-colors">Modules</button>
-                        <button onClick={() => scrollTo('database')}    className="hover:text-orange-500 transition-colors">Database</button>
+                        <button onClick={() => scrollTo('modules')}      className="hover:text-orange-500 transition-colors">Modules</button>
+                        <button onClick={() => scrollTo('database')}     className="hover:text-orange-500 transition-colors">Database</button>
                         <button onClick={() => scrollTo('how-it-works')} className="hover:text-orange-500 transition-colors">How it works</button>
+                        <button onClick={() => scrollTo('tutorials')}    className="hover:text-orange-500 transition-colors">Tutorials</button>
                     </div>
 
                     <div className="flex items-center gap-2">
@@ -163,7 +258,7 @@ export default function LandingPage() {
 
                 {mobileMenu && (
                     <div className="md:hidden border-t border-neutral-100 bg-white px-5 py-3 space-y-1">
-                        {[{ label: 'Modules', id: 'modules' }, { label: 'Database', id: 'database' }, { label: 'How it works', id: 'how-it-works' }].map(({ label, id }) => (
+                        {[{ label: 'Modules', id: 'modules' }, { label: 'Database', id: 'database' }, { label: 'How it works', id: 'how-it-works' }, { label: 'Tutorials', id: 'tutorials' }].map(({ label, id }) => (
                             <button key={id} onClick={() => scrollTo(id)}
                                 className="block w-full text-left text-sm text-neutral-600 hover:text-orange-500 py-2 transition-colors">{label}</button>
                         ))}
@@ -436,7 +531,163 @@ export default function LandingPage() {
             </section>
 
             {/* ══════════════════════════════════════════════════
-                8. CTA (animated gradient) + FAQ
+                8. TUTORIAL VIDEOS — dark cinematic
+            ══════════════════════════════════════════════════ */}
+            <section id="tutorials" className="py-20 px-5 relative overflow-hidden"
+                style={{ background: 'linear-gradient(135deg,#0f172a 0%,#0a1628 60%,#0d1117 100%)' }}>
+
+                {/* ambient glow orbs */}
+                <div className="absolute inset-0 pointer-events-none overflow-hidden">
+                    <div className="absolute top-[-10%] left-[-5%] w-[600px] h-[600px] rounded-full"
+                        style={{ background: 'radial-gradient(circle,rgba(249,115,22,0.08) 0%,transparent 70%)' }} />
+                    <div className="absolute bottom-[-10%] right-[-5%] w-[500px] h-[500px] rounded-full"
+                        style={{ background: 'radial-gradient(circle,rgba(6,182,212,0.07) 0%,transparent 70%)' }} />
+                    <div className="absolute top-[40%] left-[45%] w-[400px] h-[400px] rounded-full"
+                        style={{ background: 'radial-gradient(circle,rgba(139,92,246,0.05) 0%,transparent 70%)' }} />
+                </div>
+
+                <div className={`${C} relative z-10`}>
+
+                    {/* heading */}
+                    <div className="text-center mb-12">
+                        <SectionBadge>📹 Tutorial Videos</SectionBadge>
+                        <h2 className="font-bold mb-4 text-white" style={{ fontSize: 'clamp(1.8rem,3.5vw,2.6rem)', letterSpacing: '-0.02em' }}>
+                            See OHSMS Enterprise <span style={{ color: '#f97316' }}>in Action</span>
+                        </h2>
+                        <p className="text-[0.95rem] max-w-2xl mx-auto leading-relaxed" style={{ color: 'rgba(255,255,255,0.5)' }}>
+                            Step-by-step video walkthroughs for every module. Follow along and get productive in minutes.
+                        </p>
+                    </div>
+
+                    {/* category filter pills */}
+                    <div className="flex flex-wrap justify-center gap-2 mb-10">
+                        {[null, 'Getting Started', 'EHS Modules', 'Operations'].map(cat => (
+                            <button key={cat || 'all'} onClick={() => setTutorialFilter(cat)}
+                                className="px-5 py-2 rounded-full text-[12px] font-semibold transition-all duration-200 border"
+                                style={{
+                                    background:   tutorialFilter === cat ? 'linear-gradient(135deg,#f97316,#ea580c)' : 'rgba(255,255,255,0.05)',
+                                    color:        tutorialFilter === cat ? '#fff' : 'rgba(255,255,255,0.5)',
+                                    borderColor:  tutorialFilter === cat ? 'transparent' : 'rgba(255,255,255,0.1)',
+                                    boxShadow:    tutorialFilter === cat ? '0 4px 14px rgba(249,115,22,0.35)' : 'none',
+                                }}>
+                                {cat || 'All Videos'}
+                            </button>
+                        ))}
+                    </div>
+
+                    {/* ── Featured card ── */}
+                    {TUTORIALS
+                        .filter(t => !tutorialFilter || t.category === tutorialFilter)
+                        .filter(t => t.featured)
+                        .map(tut => (
+                            <div key={tut.id}
+                                className="rounded-2xl overflow-hidden mb-7 cursor-pointer group transition-all duration-300 hover:-translate-y-1"
+                                style={{ border: `1px solid ${tut.color}30`, boxShadow: `0 20px 60px rgba(0,0,0,0.5), 0 0 0 1px ${tut.color}10` }}
+                                onClick={() => setVideoModal(tut)}>
+                                <div className="grid sm:grid-cols-[1.6fr_1fr]">
+                                    {/* thumbnail area */}
+                                    <div className="relative overflow-hidden" style={{ background: `linear-gradient(135deg,${tut.color}18,${tut.color}05)`, minHeight: '220px' }}>
+                                        {/* play button */}
+                                        <div className="absolute inset-0 flex items-center justify-center">
+                                            <div className="w-20 h-20 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform duration-300"
+                                                style={{ background: `${tut.color}35`, border: `2px solid ${tut.color}70`, boxShadow: `0 0 40px ${tut.color}30` }}>
+                                                <i className="fas fa-play ml-1.5 text-3xl" style={{ color: tut.color }} />
+                                            </div>
+                                        </div>
+                                        {/* badge row */}
+                                        <div className="absolute top-4 left-4 flex gap-2">
+                                            <span className="px-3 py-1 rounded-full text-[11px] font-bold uppercase tracking-widest"
+                                                style={{ background: tut.color, color: '#fff' }}>★ Featured</span>
+                                            <span className="px-3 py-1 rounded-full text-[11px] font-semibold"
+                                                style={{ background: 'rgba(0,0,0,0.55)', color: 'rgba(255,255,255,0.8)' }}>
+                                                <i className="fas fa-clock mr-1" />{tut.duration}
+                                            </span>
+                                        </div>
+                                        {/* gradient fade at bottom */}
+                                        <div className="absolute bottom-0 left-0 right-0 h-16"
+                                            style={{ background: 'linear-gradient(transparent,rgba(0,0,0,0.45))' }} />
+                                        {/* ghost icon watermark */}
+                                        <div className="absolute bottom-3 right-4 text-[90px] opacity-[0.08] pointer-events-none select-none">
+                                            <i className={`fas ${tut.icon}`} style={{ color: tut.color }} />
+                                        </div>
+                                    </div>
+                                    {/* text area */}
+                                    <div className="p-8 flex flex-col justify-center" style={{ background: 'rgba(255,255,255,0.025)' }}>
+                                        <span className="inline-block px-3 py-1 rounded-full text-[11px] font-semibold mb-4 self-start"
+                                            style={{ background: `${tut.color}20`, color: tut.color, border: `1px solid ${tut.color}35` }}>
+                                            {tut.category}
+                                        </span>
+                                        <h3 className="text-[1.25rem] font-bold text-white mb-3 leading-snug">{tut.title}</h3>
+                                        <p className="text-[0.85rem] leading-relaxed mb-6" style={{ color: 'rgba(255,255,255,0.5)' }}>{tut.desc}</p>
+                                        <div className="flex items-center gap-3">
+                                            <button className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-[0.85rem] font-semibold transition-all hover:-translate-y-0.5"
+                                                style={{ background: `linear-gradient(135deg,${tut.color},${tut.color}cc)`, color: '#fff', boxShadow: `0 6px 20px ${tut.color}45` }}>
+                                                <i className="fas fa-play text-[10px]" /> Watch Tutorial
+                                            </button>
+                                            <span className="text-[12px]" style={{ color: 'rgba(255,255,255,0.3)' }}>
+                                                <i className="fas fa-film mr-1" />Screen recording + narration
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        ))
+                    }
+
+                    {/* ── Grid cards ── */}
+                    <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                        {TUTORIALS
+                            .filter(t => !tutorialFilter || t.category === tutorialFilter)
+                            .filter(t => !t.featured)
+                            .map(tut => (
+                                <div key={tut.id} onClick={() => setVideoModal(tut)}
+                                    className="rounded-2xl overflow-hidden cursor-pointer group transition-all duration-200 hover:-translate-y-1.5"
+                                    style={{ border: '1px solid rgba(255,255,255,0.07)', background: 'rgba(255,255,255,0.025)', boxShadow: '0 8px 28px rgba(0,0,0,0.35)' }}>
+                                    {/* thumbnail */}
+                                    <div className="relative overflow-hidden" style={{ height: '130px', background: `linear-gradient(135deg,${tut.color}18,${tut.color}05)` }}>
+                                        <div className="absolute inset-0 flex items-center justify-center">
+                                            <div className="w-12 h-12 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform duration-300"
+                                                style={{ background: `${tut.color}30`, border: `1.5px solid ${tut.color}60`, boxShadow: `0 0 20px ${tut.color}25` }}>
+                                                <i className="fas fa-play ml-0.5 text-lg" style={{ color: tut.color }} />
+                                            </div>
+                                        </div>
+                                        <div className="absolute top-2.5 left-2.5">
+                                            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full"
+                                                style={{ background: `${tut.color}25`, color: tut.color, border: `1px solid ${tut.color}35` }}>
+                                                {tut.category}
+                                            </span>
+                                        </div>
+                                        <div className="absolute bottom-2 right-2.5 text-[9px] font-semibold px-2 py-0.5 rounded-full"
+                                            style={{ background: 'rgba(0,0,0,0.6)', color: 'rgba(255,255,255,0.7)' }}>
+                                            <i className="fas fa-clock mr-1" />{tut.duration}
+                                        </div>
+                                        <div className="absolute bottom-[-8px] right-[-8px] text-[72px] opacity-[0.07] pointer-events-none select-none">
+                                            <i className={`fas ${tut.icon}`} style={{ color: tut.color }} />
+                                        </div>
+                                    </div>
+                                    {/* card body */}
+                                    <div className="p-4">
+                                        <h4 className="text-[0.85rem] font-bold text-white mb-1.5 leading-snug group-hover:text-orange-400 transition-colors">{tut.title}</h4>
+                                        <p className="text-[0.75rem] leading-relaxed" style={{ color: 'rgba(255,255,255,0.38)' }}>{tut.desc}</p>
+                                    </div>
+                                </div>
+                            ))
+                        }
+                    </div>
+
+                    {/* coming soon note */}
+                    <p className="text-center mt-10 text-[0.8rem]" style={{ color: 'rgba(255,255,255,0.28)' }}>
+                        <i className="fas fa-film mr-2" />More tutorials being recorded ·{' '}
+                        <button onClick={() => scrollTo('footer')} className="border-none bg-transparent cursor-pointer p-0 transition-colors hover:text-orange-400"
+                            style={{ color: 'rgba(249,115,22,0.6)', textDecoration: 'underline', textUnderlineOffset: '3px', fontSize: 'inherit' }}>
+                            Subscribe for updates
+                        </button>
+                    </p>
+                </div>
+            </section>
+
+            {/* ══════════════════════════════════════════════════
+                9. CTA (animated gradient) + FAQ
             ══════════════════════════════════════════════════ */}
             <section className="py-20 max-[900px]:py-[60px] px-5 bg-white">
                 <div className={C}>
@@ -509,9 +760,9 @@ export default function LandingPage() {
             </section>
 
             {/* ══════════════════════════════════════════════════
-                9. FOOTER — dark navy
+                10. FOOTER — dark navy
             ══════════════════════════════════════════════════ */}
-            <footer style={{ background: 'linear-gradient(135deg,#0f172a 0%,#1e3a5f 100%)', paddingTop: '80px', paddingBottom: '20px' }}>
+            <footer id="footer" style={{ background: 'linear-gradient(135deg,#0f172a 0%,#1e3a5f 100%)', paddingTop: '80px', paddingBottom: '20px' }}>
                 <div className={C}>
 
                     {/* 5-column grid */}
@@ -566,6 +817,7 @@ export default function LandingPage() {
                                     { label: 'Modules',      id: 'modules' },
                                     { label: 'Database',     id: 'database' },
                                     { label: 'How It Works', id: 'how-it-works' },
+                                    { label: 'Tutorials',    id: 'tutorials' },
                                     { label: 'FAQ',          id: 'faq' },
                                 ].map(({ label, id }) => (
                                     <li key={label}>
@@ -672,6 +924,80 @@ export default function LandingPage() {
 
                 </div>
             </footer>
+
+            {/* ══════════════════════════════════════════════════
+                VIDEO MODAL — full-screen overlay
+            ══════════════════════════════════════════════════ */}
+            {videoModal && (
+                <div
+                    className="fixed inset-0 z-[99999] flex items-center justify-center p-4"
+                    style={{ background: 'rgba(0,0,0,0.88)', backdropFilter: 'blur(8px)' }}
+                    onClick={() => setVideoModal(null)}>
+                    <div
+                        className="w-full max-w-2xl rounded-2xl overflow-hidden relative"
+                        style={{ border: `1px solid ${videoModal.color}30`, boxShadow: `0 40px 100px rgba(0,0,0,0.7), 0 0 0 1px ${videoModal.color}15` }}
+                        onClick={e => e.stopPropagation()}>
+
+                        {/* if YouTube ID available, embed; otherwise show placeholder */}
+                        {videoModal.ytId ? (
+                            <div className="relative" style={{ paddingBottom: '56.25%' }}>
+                                <iframe
+                                    className="absolute inset-0 w-full h-full"
+                                    src={`https://www.youtube.com/embed/${videoModal.ytId}?autoplay=1&rel=0`}
+                                    title={videoModal.title}
+                                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                                    allowFullScreen
+                                />
+                            </div>
+                        ) : (
+                            <div className="flex flex-col items-center justify-center text-center py-16 px-8"
+                                style={{ background: `linear-gradient(135deg,${videoModal.color}12,rgba(15,23,42,0.98))`, minHeight: '320px' }}>
+                                {/* big icon */}
+                                <div className="w-24 h-24 rounded-full flex items-center justify-center mb-6"
+                                    style={{ background: `${videoModal.color}20`, border: `2px solid ${videoModal.color}50`, animation: 'ppe-pulse 2.5s ease-in-out infinite' }}>
+                                    <i className={`fas ${videoModal.icon} text-4xl`} style={{ color: videoModal.color }} />
+                                </div>
+                                <span className="inline-block px-3 py-1 rounded-full text-[11px] font-bold uppercase tracking-widest mb-4"
+                                    style={{ background: `${videoModal.color}25`, color: videoModal.color, border: `1px solid ${videoModal.color}40` }}>
+                                    {videoModal.category}
+                                </span>
+                                <h3 className="text-xl font-bold text-white mb-3">{videoModal.title}</h3>
+                                <p className="text-[0.88rem] leading-relaxed mb-6 max-w-sm" style={{ color: 'rgba(255,255,255,0.52)' }}>
+                                    This tutorial is being recorded. Subscribe for updates when it goes live.
+                                </p>
+                                <div className="flex items-center gap-3 flex-wrap justify-center">
+                                    {[
+                                        { icon: 'fa-clock',  label: `${videoModal.duration} runtime` },
+                                        { icon: 'fa-film',   label: 'Screen recording' },
+                                        { icon: 'fa-music',  label: 'Narration + music' },
+                                    ].map(({ icon, label }) => (
+                                        <span key={label} className="flex items-center gap-2 px-4 py-2 rounded-xl text-[0.8rem] font-semibold"
+                                            style={{ background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.5)', border: '1px solid rgba(255,255,255,0.09)' }}>
+                                            <i className={`fas ${icon}`} /> {label}
+                                        </span>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* modal info bar */}
+                        <div className="px-6 py-4 flex items-center justify-between gap-4"
+                            style={{ background: '#0d1117', borderTop: '1px solid rgba(255,255,255,0.07)' }}>
+                            <div className="min-w-0">
+                                <p className="text-[0.85rem] font-bold text-white truncate">{videoModal.title}</p>
+                                <p className="text-[0.75rem] mt-0.5 truncate" style={{ color: 'rgba(255,255,255,0.38)' }}>
+                                    <i className="fas fa-clock mr-1" />{videoModal.duration} · {videoModal.category}
+                                </p>
+                            </div>
+                            <button onClick={() => setVideoModal(null)}
+                                className="flex-shrink-0 w-8 h-8 rounded-lg flex items-center justify-center border-none cursor-pointer transition-all hover:bg-white/10"
+                                style={{ background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.55)' }}>
+                                <i className="fas fa-xmark" />
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
         </div>
     );
