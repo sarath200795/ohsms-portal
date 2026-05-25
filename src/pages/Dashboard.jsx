@@ -1,7 +1,8 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import authService from '../services/auth/index.js';
 import { dbGet, dbUpdate } from '../services/db/index.js';
+import { compressImageToBase64, base64SizeKB } from '../utils/imageUtils.js';
 import useStore from '../store/useStore';
 import { clearFieldModuleHomeContext } from './FieldApp/portalAuth';
 import { useAppTransition } from '../hooks/useAppTransition';
@@ -178,6 +179,14 @@ export default function Dashboard() {
     // --- PHASE 2 TARGETED FETCHING STATE ---
     const [localOrgData, setLocalOrgData] = useState(null);
     const [localLoading, setLocalLoading] = useState(true);
+
+    // --- ORG LOGO ---
+    const [logoSrc,       setLogoSrc      ] = useState('/we-ehs-logo.jpg');
+    const [showLogoModal, setShowLogoModal ] = useState(false);
+    const [logoPreview,   setLogoPreview  ] = useState(null);
+    const [logoUploading, setLogoUploading] = useState(false);
+    const [logoError,     setLogoError    ] = useState('');
+    const logoFileRef = useRef(null);
     const { items: reminderItems, summary: reminderSummary, loading: remindersLoading } = useReminders();
     const passwordChangeRequired = Boolean(session?.mustChangePassword);
 
@@ -217,6 +226,8 @@ export default function Dashboard() {
                 ]);
 
                 setLocalOrgData({ details, sites, ptwRecords, incidents, permissionRequests });
+                // Apply org logo if one has been uploaded
+                if (details?.logoBase64) setLogoSrc(details.logoBase64);
             } catch (error) {
                 console.error("Dashboard Fetch Error:", error);
             } finally {
@@ -387,6 +398,58 @@ export default function Dashboard() {
         sessionStorage.setItem('isoCurrentSite', newSite);
     };
 
+    /* ── ORG LOGO HANDLERS ─────────────────────────────────────────── */
+    const handleLogoFileChange = async (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        setLogoError('');
+        try {
+            const dataUrl = await compressImageToBase64(file, 256, 0.85);
+            const sizeKb = base64SizeKB(dataUrl);
+            if (sizeKb > 200) {
+                setLogoError(`Image is still too large after compression (${sizeKb} KB). Please choose a smaller image.`);
+                return;
+            }
+            setLogoPreview(dataUrl);
+        } catch (err) {
+            setLogoError(err.message);
+        }
+    };
+
+    const handleLogoSave = async () => {
+        if (!logoPreview || !session?.orgId) return;
+        setLogoUploading(true);
+        setLogoError('');
+        try {
+            await dbUpdate(`organizations/${session.orgId}/details`, { logoBase64: logoPreview });
+            setLogoSrc(logoPreview);
+            setLogoPreview(null);
+            setShowLogoModal(false);
+            if (logoFileRef.current) logoFileRef.current.value = '';
+        } catch {
+            setLogoError('Failed to save logo. Please try again.');
+        } finally {
+            setLogoUploading(false);
+        }
+    };
+
+    const handleLogoRemove = async () => {
+        if (!session?.orgId) return;
+        setLogoUploading(true);
+        setLogoError('');
+        try {
+            await dbUpdate(`organizations/${session.orgId}/details`, { logoBase64: null });
+            setLogoSrc('/we-ehs-logo.jpg');
+            setLogoPreview(null);
+            setShowLogoModal(false);
+            if (logoFileRef.current) logoFileRef.current.value = '';
+        } catch {
+            setLogoError('Failed to remove logo. Please try again.');
+        } finally {
+            setLogoUploading(false);
+        }
+    };
+
     const handleNavigation = (mod) => {
         if (passwordChangeRequired) {
             setIsPasswordModalOpen(true);
@@ -488,12 +551,30 @@ export default function Dashboard() {
             <header className="myth-topbar z-40 px-4 sm:px-6">
                 <div className="mx-auto flex h-20 max-w-7xl items-center justify-between gap-4">
                     <div className="flex items-center gap-4">
-                        <div className="myth-icon-frame flex h-12 w-12 items-center justify-center overflow-hidden rounded-[1.1rem]">
-                            <img src="/we-ehs-logo.jpg" alt="WE EHS" className="h-full w-full object-cover" />
+                        {/* ── ORG LOGO — click = home; camera overlay = upload (Global Owner only) ── */}
+                        <div className="group relative">
+                            <button
+                                type="button"
+                                onClick={() => navigate('/')}
+                                className="myth-icon-frame flex h-12 w-12 items-center justify-center overflow-hidden rounded-[1.1rem] focus:outline-none"
+                                title="Go to home page"
+                            >
+                                <img src={logoSrc} alt="Org Logo" className="h-full w-full object-cover" />
+                            </button>
+                            {isGlobalAdmin && (
+                                <button
+                                    type="button"
+                                    onClick={() => { setLogoError(''); setLogoPreview(null); setShowLogoModal(true); }}
+                                    className="absolute -bottom-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-[var(--myth-ember)] text-[8px] text-white opacity-0 shadow-lg transition-opacity duration-200 group-hover:opacity-100"
+                                    title="Upload organisation logo"
+                                >
+                                    <i className="fas fa-camera"></i>
+                                </button>
+                            )}
                         </div>
                         <div>
                             <p className="myth-kicker">Enterprise Command</p>
-                            <h1 className="text-3xl text-white">WE EHS Safety Tool</h1>
+                            <h1 className="text-3xl text-white">{orgName}</h1>
                         </div>
 
                         <div className="myth-surface-soft ml-2 hidden items-center gap-2 rounded-2xl px-4 py-3 lg:flex">
@@ -725,6 +806,102 @@ export default function Dashboard() {
                                     <p className="mt-2 text-sm text-[var(--myth-muted)]">No pending actions required.</p>
                                 </div>
                             )}
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ── LOGO UPLOAD MODAL (Global Owner only) ─────────────────── */}
+            {showLogoModal && (
+                <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
+                    <div className="absolute inset-0 bg-black/65 backdrop-blur-sm" onClick={() => { if (!logoUploading) setShowLogoModal(false); }}></div>
+                    <div className="command-panel relative w-full max-w-sm rounded-[2rem] p-6">
+                        <div className="mb-5 flex items-start justify-between gap-4 border-b border-[rgba(242,201,120,0.1)] pb-5">
+                            <div>
+                                <p className="myth-kicker">Organisation Branding</p>
+                                <h2 className="mt-1 text-3xl text-white">Upload Logo</h2>
+                                <p className="mt-2 text-sm leading-relaxed text-[var(--myth-muted)]">
+                                    Replaces the default logo across the entire workspace. Max 256 × 256 px, JPEG compressed.
+                                </p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => { if (!logoUploading) setShowLogoModal(false); }}
+                                disabled={logoUploading}
+                                className="myth-outline-button flex h-10 w-10 shrink-0 items-center justify-center rounded-full disabled:opacity-50"
+                            >
+                                <i className="fas fa-times"></i>
+                            </button>
+                        </div>
+
+                        {/* Preview area */}
+                        <div className="mb-5 flex flex-col items-center gap-4">
+                            <div className="relative flex h-28 w-28 items-center justify-center overflow-hidden rounded-[1.4rem] border-2 border-dashed border-[rgba(242,201,120,0.25)] bg-[rgba(10,8,6,0.6)]">
+                                {logoPreview ? (
+                                    <img src={logoPreview} alt="Preview" className="h-full w-full object-cover" />
+                                ) : (
+                                    <img src={logoSrc} alt="Current Logo" className="h-full w-full object-cover opacity-60" />
+                                )}
+                                {logoPreview && (
+                                    <span className="absolute bottom-1 right-1 rounded-md bg-[var(--myth-ember)] px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-[#140e08]">
+                                        New
+                                    </span>
+                                )}
+                            </div>
+                            <p className="text-center text-xs text-[var(--myth-muted)]">
+                                {logoPreview
+                                    ? `Preview ready — ${base64SizeKB(logoPreview)} KB`
+                                    : logoSrc !== '/we-ehs-logo.jpg'
+                                        ? 'Current custom logo shown'
+                                        : 'No custom logo set'}
+                            </p>
+                        </div>
+
+                        {/* File input */}
+                        <label className="mb-4 flex cursor-pointer items-center justify-center gap-3 rounded-2xl border border-dashed border-[rgba(242,201,120,0.22)] bg-[rgba(10,8,6,0.5)] px-4 py-4 transition hover:border-[rgba(242,201,120,0.45)]">
+                            <i className="fas fa-cloud-arrow-up text-[var(--myth-gold)]"></i>
+                            <span className="text-sm text-[var(--myth-ink)]">
+                                {logoPreview ? 'Choose a different image' : 'Choose image file…'}
+                            </span>
+                            <input
+                                ref={logoFileRef}
+                                type="file"
+                                accept="image/*"
+                                className="sr-only"
+                                onChange={handleLogoFileChange}
+                                disabled={logoUploading}
+                            />
+                        </label>
+
+                        {logoError && (
+                            <p className="mb-4 rounded-xl bg-[rgba(239,68,68,0.12)] px-4 py-3 text-xs text-red-400">
+                                <i className="fas fa-circle-exclamation mr-2"></i>{logoError}
+                            </p>
+                        )}
+
+                        <div className="flex gap-3">
+                            {logoSrc !== '/we-ehs-logo.jpg' && !logoPreview && (
+                                <button
+                                    type="button"
+                                    onClick={handleLogoRemove}
+                                    disabled={logoUploading}
+                                    className="myth-button myth-button-danger flex-1 py-3 text-xs disabled:opacity-50"
+                                >
+                                    {logoUploading ? <i className="fas fa-spinner fa-spin"></i> : <><i className="fas fa-trash-can mr-2"></i>Remove Logo</>}
+                                </button>
+                            )}
+                            <button
+                                type="button"
+                                onClick={handleLogoSave}
+                                disabled={!logoPreview || logoUploading}
+                                className="myth-button myth-button-primary flex-1 py-3 text-xs disabled:opacity-50"
+                            >
+                                {logoUploading ? (
+                                    <><i className="fas fa-spinner fa-spin mr-2"></i>Saving…</>
+                                ) : (
+                                    <><i className="fas fa-floppy-disk mr-2"></i>Save Logo</>
+                                )}
+                            </button>
                         </div>
                     </div>
                 </div>

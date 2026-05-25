@@ -285,11 +285,18 @@ export default function Login() {
                     <div>
                         <p className="hud-chip mb-3">Tactical Operations Interface</p>
                         <div className="mb-4 flex items-center gap-4">
-                            <img
-                                src="/we-ehs-logo.jpg"
-                                alt="WE EHS Logo"
-                                className="h-16 w-16 rounded-2xl border border-[var(--myth-border-strong)] object-cover shadow-2xl sm:h-20 sm:w-20"
-                            />
+                            <button
+                                type="button"
+                                onClick={() => navigate('/')}
+                                className="focus:outline-none"
+                                title="Go to home page"
+                            >
+                                <img
+                                    src="/we-ehs-logo.jpg"
+                                    alt="WE EHS Logo"
+                                    className="h-16 w-16 rounded-2xl border border-[var(--myth-border-strong)] object-cover shadow-2xl transition-opacity hover:opacity-80 sm:h-20 sm:w-20"
+                                />
+                            </button>
                             <div>
                                 <p className="legendary-title text-xs text-[var(--myth-cyan)]">WE EHS Safety Tool</p>
                                 <h1 className="mt-1 text-4xl text-white sm:text-5xl">Control Safer Operations</h1>
