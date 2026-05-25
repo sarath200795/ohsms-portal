@@ -398,141 +398,204 @@ export default function Login() {
                 {/* ── COMMAND PANEL ── */}
                 <section className="command-panel flex flex-col justify-between rounded-[1.5rem] p-5 lg:p-6">
 
-                    {/* ═══════════════════════════════════════════════════════
-                        ORG PICKER — shown when the registry has entries and
-                        no org has been selected yet for this session
-                    ═══════════════════════════════════════════════════════ */}
-                    {orgRegistry.length > 0 && !pickedOrg ? (
+                    {/* ═══════════════════════════════════════════════════════════════
+                        ORG / DATABASE PICKER
+                        Always shown first — pickedOrg === null means "show picker".
+                        Works whether the registry has entries or not.
+                    ═══════════════════════════════════════════════════════════════ */}
+                    {!pickedOrg ? (
                         <div>
-                            {/* Picker header */}
-                            <p className="legendary-title text-[11px] text-[var(--myth-cyan)]">Multi-Organisation Access</p>
-                            <h2 className="mt-2 text-3xl text-white">Select Your Workspace</h2>
+                            <p className="legendary-title text-[11px] text-[var(--myth-cyan)]">
+                                {orgRegistry.length > 0 ? 'Connected Organisations' : 'Database Connection'}
+                            </p>
+                            <h2 className="mt-2 text-3xl text-white">
+                                {orgRegistry.length > 0 ? 'Select Your Workspace' : 'Connect Your Database'}
+                            </h2>
                             <p className="mt-2 text-xs leading-relaxed text-[var(--myth-muted)]">
-                                Choose the organisation you want to sign in to.
-                                The app will connect to that workspace's database automatically.
+                                {orgRegistry.length > 0
+                                    ? 'Click your organisation logo to connect to its database and sign in.'
+                                    : 'Set up a database connection first, then create your organisation.'}
                             </p>
 
-                            {/* Org cards grid */}
-                            <div className={`mt-5 grid gap-3 ${orgRegistry.length === 1 ? 'grid-cols-1' : 'grid-cols-2'}`}>
-                                {orgRegistry.map((entry) => (
-                                    <button
-                                        key={entry.orgId}
-                                        type="button"
-                                        onClick={() => handleOrgPick(entry)}
-                                        className="group relative flex flex-col items-center gap-3 rounded-2xl border border-gray-700/60 bg-gray-900/50 p-5 text-center transition-all duration-200 hover:border-cyan-500/50 hover:bg-cyan-950/15 focus:outline-none focus:ring-2 focus:ring-cyan-500/30"
-                                    >
-                                        {/* Logo / Initial avatar */}
-                                        <div className="relative h-20 w-20 flex-shrink-0 overflow-hidden rounded-2xl border border-gray-700/80 bg-gray-800">
-                                            {entry.logoBase64 ? (
-                                                <img
-                                                    src={entry.logoBase64}
-                                                    alt={entry.orgName}
-                                                    className="h-full w-full object-cover"
-                                                />
-                                            ) : (
-                                                <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-cyan-900/40 to-gray-900 text-3xl font-black text-cyan-400">
-                                                    {(entry.orgName || '?').charAt(0).toUpperCase()}
-                                                </div>
-                                            )}
-                                            {/* Green dot = currently connected DB */}
-                                            {isCurrentDb(entry) && (
-                                                <div
-                                                    className="absolute -right-1 -top-1 h-3.5 w-3.5 rounded-full border-2 border-[#080705] bg-green-400 shadow"
-                                                    title="Currently connected"
-                                                />
-                                            )}
-                                        </div>
-
-                                        {/* Org name + DB badge */}
-                                        <div className="min-w-0 w-full">
-                                            <p className="truncate text-sm font-bold text-white">{entry.orgName}</p>
-                                            <p className={`mt-0.5 text-[10px] font-bold uppercase tracking-wide ${
-                                                entry.dbAdapter === 'firebase' ? 'text-orange-400' : 'text-cyan-400'
-                                            }`}>
-                                                {entry.dbAdapter === 'firebase' ? '🔥 Firebase' : `🖥️ ${getDbTypeLabel(entry)}`}
-                                            </p>
-                                        </div>
-
-                                        {/* Hover CTA label */}
-                                        <span className="text-[10px] font-bold uppercase tracking-widest text-gray-600 transition-colors group-hover:text-cyan-400">
-                                            {isCurrentDb(entry) ? 'Sign In →' : 'Connect & Sign In →'}
-                                        </span>
-                                    </button>
-                                ))}
+                            {/* Active DB status bar */}
+                            <div className="mt-4 flex items-center gap-2 rounded-lg border border-gray-800 bg-black/40 px-3 py-2">
+                                <div className={`h-2 w-2 flex-shrink-0 rounded-full ${
+                                    dbStatus === 'ok'    ? 'bg-green-400' :
+                                    dbStatus === 'error' ? 'animate-pulse bg-red-400' :
+                                                          'bg-gray-500'
+                                }`} />
+                                <span className={`flex-1 truncate text-[10px] font-bold ${dbInfo.color}`}>
+                                    {dbStatus === 'ok' ? 'Connected · ' : dbStatus === 'error' ? 'Unreachable · ' : 'Checking · '}
+                                    {dbInfo.label}
+                                </span>
+                                <a href="/setup" className="flex-shrink-0 text-[10px] text-gray-600 underline transition-colors hover:text-cyan-400">
+                                    Change
+                                </a>
                             </div>
 
-                            {/* Setup new org */}
-                            <div className="mt-5 rounded-xl border border-gray-800/60 bg-black/20 p-3 text-center">
-                                <p className="mb-2 text-[11px] text-gray-500">Need a different workspace?</p>
+                            {orgRegistry.length > 0 ? (
+                                /* ── Registered org cards ── */
+                                <div className={`mt-4 grid gap-3 ${orgRegistry.length === 1 ? 'grid-cols-1' : 'grid-cols-2'}`}>
+                                    {orgRegistry.map((entry) => {
+                                        const isCurrent = isCurrentDb(entry);
+                                        return (
+                                            <button
+                                                key={entry.orgId}
+                                                type="button"
+                                                onClick={() => handleOrgPick(entry)}
+                                                className={`group relative flex flex-col items-center gap-3 rounded-2xl border p-5 text-center transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-cyan-500/30 ${
+                                                    isCurrent
+                                                        ? 'border-cyan-500/40 bg-cyan-950/20 hover:border-cyan-400/70 hover:bg-cyan-950/30'
+                                                        : 'border-gray-700/60 bg-gray-900/50 hover:border-orange-500/50 hover:bg-orange-950/15'
+                                                }`}
+                                            >
+                                                {/* Logo or initial avatar */}
+                                                <div className="relative h-20 w-20 flex-shrink-0 overflow-hidden rounded-2xl border border-gray-700/80 bg-gray-800">
+                                                    {entry.logoBase64 ? (
+                                                        <img
+                                                            src={entry.logoBase64}
+                                                            alt={entry.orgName}
+                                                            className="h-full w-full object-cover"
+                                                        />
+                                                    ) : (
+                                                        <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-cyan-900/40 to-gray-900 text-3xl font-black text-cyan-400">
+                                                            {(entry.orgName || '?').charAt(0).toUpperCase()}
+                                                        </div>
+                                                    )}
+                                                    {/* Green dot — currently active database */}
+                                                    {isCurrent && (
+                                                        <div
+                                                            className="absolute -right-1 -top-1 h-4 w-4 rounded-full border-2 border-[#080705] bg-green-400 shadow-md"
+                                                            title="Currently connected"
+                                                        />
+                                                    )}
+                                                </div>
+
+                                                {/* Org name + DB type badge */}
+                                                <div className="min-w-0 w-full">
+                                                    <p className="truncate text-sm font-bold text-white">{entry.orgName}</p>
+                                                    <p className={`mt-0.5 text-[10px] font-bold uppercase tracking-wide ${
+                                                        entry.dbAdapter === 'firebase' ? 'text-orange-400' : 'text-cyan-400'
+                                                    }`}>
+                                                        {entry.dbAdapter === 'firebase' ? '🔥 Firebase' : `🖥️ ${getDbTypeLabel(entry)}`}
+                                                    </p>
+                                                    {isCurrent && (
+                                                        <p className="mt-0.5 text-[10px] font-bold text-green-400">✓ Active</p>
+                                                    )}
+                                                </div>
+
+                                                {/* Action label */}
+                                                <span className={`text-[10px] font-bold uppercase tracking-widest transition-colors ${
+                                                    isCurrent
+                                                        ? 'text-cyan-500 group-hover:text-cyan-300'
+                                                        : 'text-gray-600 group-hover:text-orange-400'
+                                                }`}>
+                                                    {isCurrent ? 'Sign In →' : 'Switch DB & Sign In →'}
+                                                </span>
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            ) : (
+                                /* ── Empty state — no orgs registered ── */
+                                <div className="mt-5 rounded-2xl border border-dashed border-gray-700 bg-gray-900/30 p-6 text-center">
+                                    <p className="mb-1 text-4xl select-none">🔌</p>
+                                    <p className="mb-1 text-sm font-bold text-gray-300">No organisations registered yet</p>
+                                    <p className="mb-4 text-[11px] leading-relaxed text-gray-500">
+                                        Use the Setup Wizard to connect a database and create your first organisation.
+                                        It will appear here for fast one-click sign-in next time.
+                                    </p>
+                                    <button
+                                        type="button"
+                                        onClick={() => navigate('/setup')}
+                                        className="inline-flex items-center gap-2 rounded-xl border border-cyan-500/30 bg-cyan-500/10 px-5 py-2.5 text-[11px] font-bold text-cyan-400 transition-all hover:bg-cyan-500/20"
+                                    >
+                                        🚀 Set Up First Organisation →
+                                    </button>
+                                </div>
+                            )}
+
+                            {/* Bottom row of actions */}
+                            <div className="mt-4 flex items-center justify-between gap-3">
+                                {orgRegistry.length > 0 && (
+                                    <button
+                                        type="button"
+                                        onClick={() => navigate('/setup')}
+                                        className="text-[11px] text-gray-600 underline transition-colors hover:text-cyan-400"
+                                    >
+                                        + Add another organisation
+                                    </button>
+                                )}
+                                {/* Fallback: bypass picker and log in with whatever DB is active */}
                                 <button
                                     type="button"
-                                    onClick={() => navigate('/setup')}
-                                    className="inline-flex items-center gap-2 rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-4 py-2 text-[11px] font-bold text-cyan-400 transition-all hover:bg-cyan-500/20"
+                                    onClick={() => setPickedOrg({
+                                        orgId:         '_direct',
+                                        orgName:       dbInfo.label,
+                                        logoBase64:    null,
+                                        dbAdapter:     dbInfo.type,
+                                        firebaseConfig: null,
+                                        restUrl:       null,
+                                    })}
+                                    className="ml-auto text-[11px] text-gray-600 underline transition-colors hover:text-gray-300"
                                 >
-                                    🏢 Set Up New Organisation →
+                                    Continue with current database →
                                 </button>
                             </div>
                         </div>
 
                     ) : (
-                        /* ═══════════════════════════════════════════════════
+                        /* ═══════════════════════════════════════════════════════════
                             SIGN IN / JOIN FORM
-                        ═══════════════════════════════════════════════════ */
+                            pickedOrg is set — DB is already correct (either it was
+                            the active DB, or a page reload applied the new config).
+                        ═══════════════════════════════════════════════════════════ */
                         <div>
-                            {/* ── DB status chip ── */}
-                            <div className="mb-4 flex items-center gap-2">
-                                <div className={`h-1.5 w-1.5 rounded-full ${dbStatus === 'ok' ? 'bg-green-400' : dbStatus === 'error' ? 'bg-red-400 animate-pulse' : 'bg-gray-500'}`} />
-                                <span className={`text-[10px] font-bold ${dbInfo.color}`}>{dbInfo.label}</span>
-                                {dbStatus === 'error' && (
-                                    <a href="/setup" className="ml-auto text-[10px] text-red-400 underline transition-colors hover:text-red-300">
-                                        Fix →
-                                    </a>
+                            {/* ── Selected org / DB header — ALWAYS shows "← Change" ── */}
+                            <div className="mb-4 flex items-center gap-3 rounded-xl border border-cyan-500/20 bg-cyan-950/15 px-3 py-2.5">
+                                {pickedOrg.orgId !== '_direct' && pickedOrg.logoBase64 ? (
+                                    <img
+                                        src={pickedOrg.logoBase64}
+                                        alt={pickedOrg.orgName}
+                                        className="h-9 w-9 flex-shrink-0 rounded-xl border border-gray-700 object-cover"
+                                    />
+                                ) : (
+                                    <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl border border-gray-700 bg-cyan-900/50 text-base font-black text-cyan-400">
+                                        {pickedOrg.orgId === '_direct' ? '🗄️' : (pickedOrg.orgName || '?').charAt(0).toUpperCase()}
+                                    </div>
                                 )}
+                                <div className="min-w-0 flex-1">
+                                    <p className="truncate text-xs font-bold text-white">{pickedOrg.orgName}</p>
+                                    <p className={`text-[10px] font-bold ${
+                                        pickedOrg.dbAdapter === 'firebase' ? 'text-orange-400' : 'text-cyan-400'
+                                    }`}>
+                                        {pickedOrg.dbAdapter === 'firebase' ? '🔥 Firebase' : `🖥️ ${getDbTypeLabel(pickedOrg)}`}
+                                        {dbStatus === 'ok'    && <span className="ml-2 text-green-400 font-bold">✓ Connected</span>}
+                                        {dbStatus === 'error' && <span className="ml-2 text-red-400 font-bold">⚠ Unreachable</span>}
+                                    </p>
+                                </div>
+                                {/* Always visible — lets user go back to picker */}
+                                <button
+                                    type="button"
+                                    onClick={() => setPickedOrg(null)}
+                                    className="flex-shrink-0 rounded-lg border border-gray-700/60 bg-gray-800/60 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-gray-400 transition-all hover:border-cyan-500/40 hover:bg-cyan-950/20 hover:text-cyan-400"
+                                >
+                                    ← Change
+                                </button>
                             </div>
 
                             {dbStatus === 'error' && (
                                 <div className="mb-4 rounded-xl border border-red-500/30 bg-red-950/20 p-3">
                                     <p className="mb-1 text-[11px] font-bold text-red-400">⚠ Database Unreachable</p>
                                     <p className="text-[10px] leading-relaxed text-gray-400">
-                                        Cannot connect to{' '}
-                                        <span className="font-bold text-white">{dbInfo.label}</span>.{' '}
-                                        Check your configuration or{' '}
-                                        <a href="/setup" className="text-cyan-400 underline hover:text-cyan-300">
-                                            open the Database Setup Wizard
-                                        </a>.
-                                    </p>
-                                </div>
-                            )}
-
-                            {/* ── Selected org context chip ── */}
-                            {pickedOrg && (
-                                <div className="mb-4 flex items-center gap-3 rounded-xl border border-cyan-500/20 bg-cyan-950/15 px-3 py-2.5">
-                                    {pickedOrg.logoBase64 ? (
-                                        <img
-                                            src={pickedOrg.logoBase64}
-                                            alt={pickedOrg.orgName}
-                                            className="h-9 w-9 flex-shrink-0 rounded-xl border border-gray-700 object-cover"
-                                        />
-                                    ) : (
-                                        <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl border border-gray-700 bg-cyan-900/50 text-sm font-black text-cyan-400">
-                                            {(pickedOrg.orgName || '?').charAt(0).toUpperCase()}
-                                        </div>
-                                    )}
-                                    <div className="min-w-0 flex-1">
-                                        <p className="truncate text-xs font-bold text-white">{pickedOrg.orgName}</p>
-                                        <p className={`text-[10px] font-bold ${pickedOrg.dbAdapter === 'firebase' ? 'text-orange-400' : 'text-cyan-400'}`}>
-                                            {pickedOrg.dbAdapter === 'firebase' ? '🔥 Firebase' : `🖥️ ${getDbTypeLabel(pickedOrg)}`}
-                                        </p>
-                                    </div>
-                                    {orgRegistry.length > 1 && (
-                                        <button
-                                            type="button"
-                                            onClick={() => setPickedOrg(null)}
-                                            className="whitespace-nowrap text-[10px] font-bold uppercase tracking-wider text-gray-600 transition-colors hover:text-cyan-400"
-                                        >
-                                            ← Switch
+                                        Cannot reach <span className="font-bold text-white">{dbInfo.label}</span>.{' '}
+                                        Try{' '}
+                                        <button type="button" onClick={() => setPickedOrg(null)} className="text-cyan-400 underline hover:text-cyan-300">
+                                            selecting a different organisation
                                         </button>
-                                    )}
+                                        {' '}or{' '}
+                                        <a href="/setup" className="text-cyan-400 underline hover:text-cyan-300">reconfigure the database</a>.
+                                    </p>
                                 </div>
                             )}
 
@@ -630,9 +693,8 @@ export default function Login() {
                                         {loading ? 'Authenticating…' : 'Secure Sign In'}
                                     </button>
 
-                                    {/* New org CTA */}
                                     <div className="mt-2 rounded-xl border border-gray-700/40 bg-black/20 p-3 text-center">
-                                        <p className="mb-2 text-[11px] text-gray-500">Don't have an organisation yet?</p>
+                                        <p className="mb-2 text-[11px] text-gray-500">Need a new workspace?</p>
                                         <button
                                             type="button"
                                             onClick={() => navigate('/setup')}
@@ -663,7 +725,7 @@ export default function Login() {
                                             placeholder="JOIN-ABC123-XYZ9"
                                         />
                                         <p className="mt-1.5 text-[10px] leading-snug text-[var(--myth-muted)]">
-                                            Ask your admin to generate this from User Management. Organisation names are not searchable from this page.
+                                            Ask your admin to generate this from User Management.
                                         </p>
                                     </div>
 
