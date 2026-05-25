@@ -1373,3 +1373,49 @@ table tbody tr:hover {
 @media (prefers-reduced-motion: reduce) {
   .c5-animated-gradient { animation: none; }
 }
+
+/* ─── Safety PPE floating icon animations ──────────────────────── */
+
+@keyframes ppe-float-a {
+  0%,100% { transform: translateY(0)   rotate(0deg)  scale(1);    }
+  30%     { transform: translateY(-18px) rotate(6deg)  scale(1.06); }
+  60%     { transform: translateY(-8px)  rotate(-4deg) scale(0.97); }
+}
+@keyframes ppe-float-b {
+  0%,100% { transform: translateY(0)   rotate(0deg)  scale(1);    }
+  25%     { transform: translateY(-22px) rotate(-7deg) scale(1.08); }
+  55%     { transform: translateY(-5px)  rotate(5deg)  scale(0.95); }
+  80%     { transform: translateY(-14px) rotate(-2deg) scale(1.03); }
+}
+@keyframes ppe-float-c {
+  0%,100% { transform: translate(0,0)      rotate(0deg);   }
+  33%     { transform: translate(10px,-16px) rotate(8deg);  }
+  66%     { transform: translate(-8px,-10px) rotate(-5deg); }
+}
+@keyframes ppe-float-d {
+  0%,100% { transform: translate(0,0)       rotate(0deg);    }
+  40%     { transform: translate(-12px,-20px) rotate(-9deg); }
+  70%     { transform: translate(6px,-6px)    rotate(4deg);  }
+}
+@keyframes ppe-pulse {
+  0%,100% { opacity: 0.18; }
+  50%     { opacity: 0.32; }
+}
+
+.ppe-icon {
+  position: absolute;
+  pointer-events: none;
+  user-select: none;
+  animation: ppe-pulse 4s ease-in-out infinite;
+}
+.ppe-icon.a { animation: ppe-float-a 6s ease-in-out infinite, ppe-pulse 5s ease-in-out infinite; }
+.ppe-icon.b { animation: ppe-float-b 7s ease-in-out infinite, ppe-pulse 4s ease-in-out infinite; }
+.ppe-icon.c { animation: ppe-float-c 8s ease-in-out infinite, ppe-pulse 6s ease-in-out infinite; }
+.ppe-icon.d { animation: ppe-float-d 5.5s ease-in-out infinite, ppe-pulse 5s ease-in-out infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  .ppe-icon, .ppe-icon.a, .ppe-icon.b, .ppe-icon.c, .ppe-icon.d {
+    animation: none;
+    opacity: 0.14;
+  }
+}
