@@ -8,6 +8,7 @@ import { clearFieldModuleHomeContext } from './FieldApp/portalAuth';
 import { useAppTransition } from '../hooks/useAppTransition';
 import { hasAccessibleModule, isGlobalOwnerRole } from '../utils/permissions';
 import { readStoredSession, writeStoredSession } from '../utils/session';
+import { saveOrgToRegistry } from '../utils/orgRegistry.js';
 import { useReminders } from '../hooks/useReminders';
 import NeedsAttentionPanel from '../components/NeedsAttentionPanel';
 
@@ -187,6 +188,13 @@ export default function Dashboard() {
     const [logoUploading, setLogoUploading] = useState(false);
     const [logoError,     setLogoError    ] = useState('');
     const logoFileRef = useRef(null);
+
+    // Rename organisation
+    const [showRenameModal, setShowRenameModal] = useState(false);
+    const [renameValue,     setRenameValue    ] = useState('');
+    const [renameLoading,   setRenameLoading  ] = useState(false);
+    const [renameError,     setRenameError    ] = useState('');
+    const [displayOrgName,  setDisplayOrgName ] = useState(null); // overrides useMemo orgName after a rename
     const { items: reminderItems, summary: reminderSummary, loading: remindersLoading } = useReminders();
     const passwordChangeRequired = Boolean(session?.mustChangePassword);
 
@@ -450,6 +458,36 @@ export default function Dashboard() {
         }
     };
 
+    // ── rename organisation ────────────────────────────────────────────────────
+    const handleRenameOrg = async () => {
+        const newName = renameValue.trim();
+        if (!newName) return setRenameError('Organisation name cannot be empty.');
+        if (newName.length > 80) return setRenameError('Name must be 80 characters or fewer.');
+        if (!session?.orgId) return;
+        setRenameLoading(true);
+        setRenameError('');
+        try {
+            await dbUpdate(`organizations/${session.orgId}/details`, { name: newName });
+            setDisplayOrgName(newName);
+            setShowRenameModal(false);
+            // Keep the picker in sync so the new name appears on /login next visit
+            try {
+                saveOrgToRegistry({
+                    orgId:          session.orgId,
+                    orgName:        newName,
+                    logoBase64:     logoSrc !== '/we-ehs-logo.jpg' ? logoSrc : null,
+                    dbAdapter:      localStorage.getItem('ohsms_db_adapter') || 'firebase',
+                    firebaseConfig: localStorage.getItem('ohsms_firebase_config') || null,
+                    restUrl:        localStorage.getItem('ohsms_rest_base_url') || null,
+                });
+            } catch (_) {}
+        } catch {
+            setRenameError('Failed to save. Please try again.');
+        } finally {
+            setRenameLoading(false);
+        }
+    };
+
     const handleNavigation = (mod) => {
         if (passwordChangeRequired) {
             setIsPasswordModalOpen(true);
@@ -574,7 +612,23 @@ export default function Dashboard() {
                         </div>
                         <div>
                             <p className="myth-kicker">Enterprise Command</p>
-                            <h1 className="text-3xl text-white">{orgName}</h1>
+                            <div className="group/rename flex items-center gap-2">
+                                <h1 className="text-3xl text-white">{displayOrgName ?? orgName}</h1>
+                                {isGlobalAdmin && (
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setRenameValue(displayOrgName ?? orgName);
+                                            setRenameError('');
+                                            setShowRenameModal(true);
+                                        }}
+                                        className="flex h-6 w-6 items-center justify-center rounded-lg bg-white/10 text-[10px] text-white opacity-0 transition-opacity hover:bg-white/20 group-hover/rename:opacity-100"
+                                        title="Rename organisation"
+                                    >
+                                        <i className="fas fa-pencil"></i>
+                                    </button>
+                                )}
+                            </div>
                         </div>
 
                         <div className="myth-surface-soft ml-2 hidden items-center gap-2 rounded-2xl px-4 py-3 lg:flex">
@@ -901,6 +955,88 @@ export default function Dashboard() {
                                 ) : (
                                     <><i className="fas fa-floppy-disk mr-2"></i>Save Logo</>
                                 )}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ── RENAME ORGANISATION MODAL ── */}
+            {showRenameModal && (
+                <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
+                    <div
+                        className="absolute inset-0 bg-black/65 backdrop-blur-sm"
+                        onClick={() => { if (!renameLoading) setShowRenameModal(false); }}
+                    />
+                    <div className="command-panel relative w-full max-w-md rounded-[2rem] p-6">
+                        {/* Header */}
+                        <div className="mb-5 flex items-start justify-between gap-4 border-b border-[rgba(242,201,120,0.1)] pb-5">
+                            <div>
+                                <p className="myth-kicker">Organisation Settings</p>
+                                <h2 className="mt-1 text-3xl text-white">Rename Organisation</h2>
+                                <p className="mt-2 text-sm leading-relaxed text-[var(--myth-muted)]">
+                                    Updates the name shown across the dashboard and login screen.
+                                </p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => { if (!renameLoading) setShowRenameModal(false); }}
+                                disabled={renameLoading}
+                                className="myth-outline-button flex h-10 w-10 shrink-0 items-center justify-center rounded-full disabled:opacity-50"
+                            >
+                                <i className="fas fa-times"></i>
+                            </button>
+                        </div>
+
+                        {/* Input */}
+                        <div className="mb-2">
+                            <label className="legendary-title mb-1.5 block text-[10px] text-[var(--myth-cyan)]">
+                                Organisation Name
+                            </label>
+                            <input
+                                type="text"
+                                value={renameValue}
+                                onChange={(e) => { setRenameValue(e.target.value); setRenameError(''); }}
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter' && !renameLoading) handleRenameOrg();
+                                    if (e.key === 'Escape') setShowRenameModal(false);
+                                }}
+                                className="w-full rounded-xl border bg-transparent px-4 py-2.5 text-sm outline-none transition"
+                                placeholder="Enter organisation name"
+                                maxLength={80}
+                                autoFocus
+                                disabled={renameLoading}
+                            />
+                            <p className="mt-1 text-right text-[10px] text-[var(--myth-muted)]">
+                                {renameValue.length} / 80
+                            </p>
+                        </div>
+
+                        {renameError && (
+                            <p className="mb-4 rounded-xl bg-[rgba(239,68,68,0.12)] px-4 py-3 text-xs text-red-400">
+                                <i className="fas fa-circle-exclamation mr-2"></i>{renameError}
+                            </p>
+                        )}
+
+                        {/* Actions */}
+                        <div className="mt-4 flex gap-3">
+                            <button
+                                type="button"
+                                onClick={() => setShowRenameModal(false)}
+                                disabled={renameLoading}
+                                className="myth-button myth-button-secondary flex-1 py-3 text-sm disabled:opacity-50"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="button"
+                                onClick={handleRenameOrg}
+                                disabled={renameLoading || !renameValue.trim()}
+                                className="myth-button myth-button-primary flex-1 py-3 text-sm disabled:opacity-50"
+                            >
+                                {renameLoading
+                                    ? <><i className="fas fa-spinner fa-spin mr-2"></i>Saving…</>
+                                    : <><i className="fas fa-floppy-disk mr-2"></i>Save Name</>}
                             </button>
                         </div>
                     </div>
