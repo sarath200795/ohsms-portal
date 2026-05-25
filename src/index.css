@@ -1261,3 +1261,115 @@ table tbody tr:hover {
 .print-overlay {
   display: none;
 }
+
+
+/* =========================================
+   6. LANDING PAGE — white / Inter design
+========================================= */
+
+/* Scope: reset dark globals for the white landing page wrapper */
+.lp {
+  color-scheme: light;
+}
+
+.lp h1,
+.lp h2,
+.lp h3,
+.lp h4 {
+  font-family: 'Inter', sans-serif;
+  letter-spacing: normal;
+  text-shadow: none;
+}
+
+/* Override dark input !important rules inside landing page */
+.lp input[type="email"],
+.lp input[type="text"] {
+  background-color: #ffffff !important;
+  border-color: #f0f0f0 !important;
+  color: #171717 !important;
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.02) !important;
+}
+
+.lp input[type="email"]:focus,
+.lp input[type="text"]:focus {
+  border-color: #cccccc !important;
+  outline: none !important;
+}
+
+
+/* ─── Animated gradient blob card ───────────────────────────── */
+
+@property --c5-x1 { syntax: '<percentage>'; inherits: false; initial-value: 10%; }
+@property --c5-y1 { syntax: '<percentage>'; inherits: false; initial-value: 10%; }
+@property --c5-x2 { syntax: '<percentage>'; inherits: false; initial-value: 90%; }
+@property --c5-y2 { syntax: '<percentage>'; inherits: false; initial-value: 10%; }
+@property --c5-x3 { syntax: '<percentage>'; inherits: false; initial-value: 10%; }
+@property --c5-y3 { syntax: '<percentage>'; inherits: false; initial-value: 90%; }
+@property --c5-x4 { syntax: '<percentage>'; inherits: false; initial-value: 90%; }
+@property --c5-y4 { syntax: '<percentage>'; inherits: false; initial-value: 90%; }
+@property --c5-x5 { syntax: '<percentage>'; inherits: false; initial-value: 50%; }
+@property --c5-y5 { syntax: '<percentage>'; inherits: false; initial-value: 50%; }
+@property --c5-s1 { syntax: '<percentage>'; inherits: false; initial-value: 55%; }
+@property --c5-s2 { syntax: '<percentage>'; inherits: false; initial-value: 55%; }
+@property --c5-s3 { syntax: '<percentage>'; inherits: false; initial-value: 55%; }
+@property --c5-s4 { syntax: '<percentage>'; inherits: false; initial-value: 55%; }
+@property --c5-s5 { syntax: '<percentage>'; inherits: false; initial-value: 65%; }
+
+.c5-animated-gradient {
+  background-color: #ff8e53;
+  background-image:
+    radial-gradient(circle at var(--c5-x1) var(--c5-y1), #fff1aa 0px, transparent var(--c5-s1)),
+    radial-gradient(circle at var(--c5-x2) var(--c5-y2), #ff4b2b 0px, transparent var(--c5-s2)),
+    radial-gradient(circle at var(--c5-x3) var(--c5-y3), #8aff8a 0px, transparent var(--c5-s3)),
+    radial-gradient(circle at var(--c5-x4) var(--c5-y4), #ffd000 0px, transparent var(--c5-s4)),
+    radial-gradient(circle at var(--c5-x5) var(--c5-y5), #ff1493 0px, transparent var(--c5-s5));
+  animation:
+    c5-blob1 5s ease-in-out infinite,
+    c5-blob2 6s ease-in-out infinite,
+    c5-blob3 5.5s ease-in-out infinite,
+    c5-blob4 6.5s ease-in-out infinite,
+    c5-blob5 4s ease-in-out infinite,
+    c5-size1 3.5s ease-in-out infinite,
+    c5-size2 4.2s ease-in-out infinite,
+    c5-size3 3.8s ease-in-out infinite,
+    c5-size4 4.6s ease-in-out infinite,
+    c5-size5 3s ease-in-out infinite;
+}
+
+@keyframes c5-blob1 {
+  0%,100% { --c5-x1: 5%;  --c5-y1: 5%;  }
+  25%     { --c5-x1: 45%; --c5-y1: 20%; }
+  50%     { --c5-x1: 30%; --c5-y1: 55%; }
+  75%     { --c5-x1: 0%;  --c5-y1: 30%; }
+}
+@keyframes c5-blob2 {
+  0%,100% { --c5-x2: 95%; --c5-y2: 5%;  }
+  33%     { --c5-x2: 55%; --c5-y2: 35%; }
+  66%     { --c5-x2: 80%; --c5-y2: 65%; }
+}
+@keyframes c5-blob3 {
+  0%,100% { --c5-x3: 5%;  --c5-y3: 95%; }
+  40%     { --c5-x3: 45%; --c5-y3: 65%; }
+  70%     { --c5-x3: 25%; --c5-y3: 100%; }
+}
+@keyframes c5-blob4 {
+  0%,100% { --c5-x4: 95%; --c5-y4: 95%; }
+  30%     { --c5-x4: 60%; --c5-y4: 70%; }
+  60%     { --c5-x4: 100%; --c5-y4: 50%; }
+}
+@keyframes c5-blob5 {
+  0%,100% { --c5-x5: 50%; --c5-y5: 50%; }
+  25%     { --c5-x5: 70%; --c5-y5: 30%; }
+  50%     { --c5-x5: 40%; --c5-y5: 70%; }
+  75%     { --c5-x5: 30%; --c5-y5: 40%; }
+}
+
+@keyframes c5-size1 { 0%,100% { --c5-s1: 45%; } 50% { --c5-s1: 80%; } }
+@keyframes c5-size2 { 0%,100% { --c5-s2: 45%; } 50% { --c5-s2: 85%; } }
+@keyframes c5-size3 { 0%,100% { --c5-s3: 45%; } 50% { --c5-s3: 78%; } }
+@keyframes c5-size4 { 0%,100% { --c5-s4: 45%; } 50% { --c5-s4: 82%; } }
+@keyframes c5-size5 { 0%,100% { --c5-s5: 50%; } 50% { --c5-s5: 85%; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .c5-animated-gradient { animation: none; }
+}
