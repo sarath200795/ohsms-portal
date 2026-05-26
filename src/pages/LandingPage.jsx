@@ -75,6 +75,17 @@ const FAQ = [
     { q: 'Who owns the data?',                        a: 'You do. All data is stored in your own chosen database — your Firebase project, your PostgreSQL server, or any backend you control. Nothing is stored on our servers.' },
 ];
 
+/**
+ * TUTORIALS — video card data.
+ *
+ * To make a video live, set ONE of:
+ *   ytId:      YouTube video ID (e.g. 'dQw4w9WgXcQ')  → embeds YouTube player
+ *   videoSrc:  Public path to a self-hosted MP4        → uses HTML5 <video>
+ *              e.g. '/tutorials/onboarding.mp4'
+ *              (copy the file from artifacts/videos/tutorials/ to public/tutorials/)
+ *
+ * When both are null the card shows a "Coming Soon" badge and is not clickable.
+ */
 const TUTORIALS = [
     {
         id: 'onboarding',
@@ -86,6 +97,7 @@ const TUTORIALS = [
         color: '#f97316',
         featured: true,
         ytId: null,
+        videoSrc: null, // set to '/tutorials/onboarding.mp4' after running: npm run video:record:onboarding
     },
     {
         id: 'firebase-setup',
@@ -97,6 +109,7 @@ const TUTORIALS = [
         color: '#fbbf24',
         featured: false,
         ytId: null,
+        videoSrc: null,
     },
     {
         id: 'incident-reporting',
@@ -108,6 +121,7 @@ const TUTORIALS = [
         color: '#ef4444',
         featured: false,
         ytId: null,
+        videoSrc: null,
     },
     {
         id: 'ptw',
@@ -119,6 +133,7 @@ const TUTORIALS = [
         color: '#eab308',
         featured: false,
         ytId: null,
+        videoSrc: null,
     },
     {
         id: 'loto',
@@ -130,6 +145,7 @@ const TUTORIALS = [
         color: '#06b6d4',
         featured: false,
         ytId: null,
+        videoSrc: null,
     },
     {
         id: 'inspections',
@@ -141,6 +157,7 @@ const TUTORIALS = [
         color: '#22c55e',
         featured: false,
         ytId: null,
+        videoSrc: null,
     },
     {
         id: 'contractors',
@@ -152,6 +169,7 @@ const TUTORIALS = [
         color: '#84cc16',
         featured: false,
         ytId: null,
+        videoSrc: null,
     },
     {
         id: 'audit-capa',
@@ -163,8 +181,12 @@ const TUTORIALS = [
         color: '#0ea5e9',
         featured: false,
         ytId: null,
+        videoSrc: null,
     },
 ];
+
+/** Returns true when a tutorial has playable video content. */
+const hasVideo = (t) => Boolean(t.ytId || t.videoSrc);
 
 // ─── floating PPE icons in the hero ──────────────────────────────────────────
 
@@ -211,8 +233,22 @@ export default function LandingPage() {
     const [activeIndex, setActiveIndex]     = useState(0);
     const [btnShadow, setBtnShadow]         = useState(false);
     const [email, setEmail]                 = useState('');
-    const [videoModal, setVideoModal]       = useState(null);
+    const [videoModal, setVideoModal]         = useState(null);
     const [tutorialFilter, setTutorialFilter] = useState(null);
+    const [toast, setToast]                   = useState(null); // { msg, color }
+
+    const showToast = (msg, color = '#f97316') => {
+        setToast({ msg, color });
+        setTimeout(() => setToast(null), 3200);
+    };
+
+    const openTutorial = (tut) => {
+        if (hasVideo(tut)) {
+            setVideoModal(tut);
+        } else {
+            showToast(`"${tut.title}" is being recorded — subscribe for updates!`, tut.color);
+        }
+    };
 
     const toggleFaq = (i) => setActiveIndex(prev => (prev === i ? null : i));
     const scrollTo  = (id) => { document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' }); setMobileMenu(false); };
@@ -562,7 +598,7 @@ export default function LandingPage() {
                     {/* category filter pills */}
                     <div className="flex flex-wrap justify-center gap-2 mb-10">
                         {[null, 'Getting Started', 'EHS Modules', 'Operations'].map(cat => (
-                            <button key={cat || 'all'} onClick={() => setTutorialFilter(cat)}
+                            <button type="button" key={cat || 'all'} onClick={() => setTutorialFilter(cat)}
                                 className="px-5 py-2 rounded-full text-[12px] font-semibold transition-all duration-200 border"
                                 style={{
                                     background:   tutorialFilter === cat ? 'linear-gradient(135deg,#f97316,#ea580c)' : 'rgba(255,255,255,0.05)',
@@ -579,59 +615,95 @@ export default function LandingPage() {
                     {TUTORIALS
                         .filter(t => !tutorialFilter || t.category === tutorialFilter)
                         .filter(t => t.featured)
-                        .map(tut => (
-                            <div key={tut.id}
-                                className="rounded-2xl overflow-hidden mb-7 cursor-pointer group transition-all duration-300 hover:-translate-y-1"
-                                style={{ border: `1px solid ${tut.color}30`, boxShadow: `0 20px 60px rgba(0,0,0,0.5), 0 0 0 1px ${tut.color}10` }}
-                                onClick={() => setVideoModal(tut)}>
-                                <div className="grid sm:grid-cols-[1.6fr_1fr]">
-                                    {/* thumbnail area */}
-                                    <div className="relative overflow-hidden" style={{ background: `linear-gradient(135deg,${tut.color}18,${tut.color}05)`, minHeight: '220px' }}>
-                                        {/* play button */}
-                                        <div className="absolute inset-0 flex items-center justify-center">
-                                            <div className="w-20 h-20 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform duration-300"
-                                                style={{ background: `${tut.color}35`, border: `2px solid ${tut.color}70`, boxShadow: `0 0 40px ${tut.color}30` }}>
-                                                <i className="fas fa-play ml-1.5 text-3xl" style={{ color: tut.color }} />
+                        .map(tut => {
+                            const live = hasVideo(tut);
+                            return (
+                                <div key={tut.id}
+                                    className={`rounded-2xl overflow-hidden mb-7 group transition-all duration-300 ${live ? 'cursor-pointer hover:-translate-y-1' : 'cursor-default'}`}
+                                    style={{ border: `1px solid ${tut.color}${live ? '40' : '20'}`, boxShadow: `0 20px 60px rgba(0,0,0,0.5)` }}
+                                    onClick={() => openTutorial(tut)}>
+                                    <div className="grid sm:grid-cols-[1.6fr_1fr]">
+                                        {/* thumbnail */}
+                                        <div className="relative overflow-hidden" style={{ background: `linear-gradient(135deg,${tut.color}18,${tut.color}05)`, minHeight: '220px' }}>
+                                            <div className="absolute inset-0 flex items-center justify-center">
+                                                {live ? (
+                                                    <div className="w-20 h-20 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform duration-300"
+                                                        style={{ background: `${tut.color}35`, border: `2px solid ${tut.color}70`, boxShadow: `0 0 40px ${tut.color}30` }}>
+                                                        <i className="fas fa-play ml-1.5 text-3xl" style={{ color: tut.color }} />
+                                                    </div>
+                                                ) : (
+                                                    <div className="flex flex-col items-center gap-3 text-center px-6">
+                                                        <div className="w-16 h-16 rounded-full flex items-center justify-center"
+                                                            style={{ background: `${tut.color}18`, border: `2px dashed ${tut.color}50` }}>
+                                                            <i className={`fas ${tut.icon} text-2xl`} style={{ color: `${tut.color}90` }} />
+                                                        </div>
+                                                        <span className="text-[11px] font-bold uppercase tracking-widest px-3 py-1 rounded-full"
+                                                            style={{ background: 'rgba(0,0,0,0.5)', color: 'rgba(255,255,255,0.5)', border: '1px dashed rgba(255,255,255,0.18)' }}>
+                                                            🎬 Recording in progress
+                                                        </span>
+                                                        <code className="text-[10px] px-3 py-1.5 rounded-lg block"
+                                                            style={{ background: 'rgba(0,0,0,0.55)', color: '#f97316', fontFamily: '"JetBrains Mono",monospace', border: '1px solid rgba(249,115,22,0.2)' }}>
+                                                            npm run video:record:onboarding
+                                                        </code>
+                                                    </div>
+                                                )}
+                                            </div>
+                                            <div className="absolute top-4 left-4 flex gap-2">
+                                                <span className="px-3 py-1 rounded-full text-[11px] font-bold uppercase tracking-widest"
+                                                    style={{ background: tut.color, color: '#fff' }}>★ Featured</span>
+                                                {!live && (
+                                                    <span className="px-3 py-1 rounded-full text-[11px] font-bold uppercase tracking-widest"
+                                                        style={{ background: 'rgba(0,0,0,0.6)', color: 'rgba(255,255,255,0.6)', border: '1px dashed rgba(255,255,255,0.2)' }}>
+                                                        Coming Soon
+                                                    </span>
+                                                )}
+                                                <span className="px-3 py-1 rounded-full text-[11px] font-semibold"
+                                                    style={{ background: 'rgba(0,0,0,0.55)', color: 'rgba(255,255,255,0.8)' }}>
+                                                    <i className="fas fa-clock mr-1" />{tut.duration}
+                                                </span>
+                                            </div>
+                                            <div className="absolute bottom-0 left-0 right-0 h-16"
+                                                style={{ background: 'linear-gradient(transparent,rgba(0,0,0,0.45))' }} />
+                                            <div className="absolute bottom-3 right-4 text-[90px] opacity-[0.06] pointer-events-none select-none">
+                                                <i className={`fas ${tut.icon}`} style={{ color: tut.color }} />
                                             </div>
                                         </div>
-                                        {/* badge row */}
-                                        <div className="absolute top-4 left-4 flex gap-2">
-                                            <span className="px-3 py-1 rounded-full text-[11px] font-bold uppercase tracking-widest"
-                                                style={{ background: tut.color, color: '#fff' }}>★ Featured</span>
-                                            <span className="px-3 py-1 rounded-full text-[11px] font-semibold"
-                                                style={{ background: 'rgba(0,0,0,0.55)', color: 'rgba(255,255,255,0.8)' }}>
-                                                <i className="fas fa-clock mr-1" />{tut.duration}
+                                        {/* text area */}
+                                        <div className="p-8 flex flex-col justify-center" style={{ background: 'rgba(255,255,255,0.02)' }}>
+                                            <span className="inline-block px-3 py-1 rounded-full text-[11px] font-semibold mb-4 self-start"
+                                                style={{ background: `${tut.color}20`, color: tut.color, border: `1px solid ${tut.color}35` }}>
+                                                {tut.category}
                                             </span>
-                                        </div>
-                                        {/* gradient fade at bottom */}
-                                        <div className="absolute bottom-0 left-0 right-0 h-16"
-                                            style={{ background: 'linear-gradient(transparent,rgba(0,0,0,0.45))' }} />
-                                        {/* ghost icon watermark */}
-                                        <div className="absolute bottom-3 right-4 text-[90px] opacity-[0.08] pointer-events-none select-none">
-                                            <i className={`fas ${tut.icon}`} style={{ color: tut.color }} />
-                                        </div>
-                                    </div>
-                                    {/* text area */}
-                                    <div className="p-8 flex flex-col justify-center" style={{ background: 'rgba(255,255,255,0.025)' }}>
-                                        <span className="inline-block px-3 py-1 rounded-full text-[11px] font-semibold mb-4 self-start"
-                                            style={{ background: `${tut.color}20`, color: tut.color, border: `1px solid ${tut.color}35` }}>
-                                            {tut.category}
-                                        </span>
-                                        <h3 className="text-[1.25rem] font-bold text-white mb-3 leading-snug">{tut.title}</h3>
-                                        <p className="text-[0.85rem] leading-relaxed mb-6" style={{ color: 'rgba(255,255,255,0.5)' }}>{tut.desc}</p>
-                                        <div className="flex items-center gap-3">
-                                            <button className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-[0.85rem] font-semibold transition-all hover:-translate-y-0.5"
-                                                style={{ background: `linear-gradient(135deg,${tut.color},${tut.color}cc)`, color: '#fff', boxShadow: `0 6px 20px ${tut.color}45` }}>
-                                                <i className="fas fa-play text-[10px]" /> Watch Tutorial
-                                            </button>
-                                            <span className="text-[12px]" style={{ color: 'rgba(255,255,255,0.3)' }}>
-                                                <i className="fas fa-film mr-1" />Screen recording + narration
-                                            </span>
+                                            <h3 className="text-[1.25rem] font-bold text-white mb-3 leading-snug">{tut.title}</h3>
+                                            <p className="text-[0.85rem] leading-relaxed mb-5" style={{ color: 'rgba(255,255,255,0.5)' }}>{tut.desc}</p>
+                                            {live ? (
+                                                <button className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-[0.85rem] font-semibold transition-all hover:-translate-y-0.5 self-start"
+                                                    style={{ background: `linear-gradient(135deg,${tut.color},${tut.color}cc)`, color: '#fff', boxShadow: `0 6px 20px ${tut.color}45` }}>
+                                                    <i className="fas fa-play text-[10px]" /> Watch Tutorial
+                                                </button>
+                                            ) : (
+                                                <div className="rounded-xl p-4"
+                                                    style={{ background: 'rgba(249,115,22,0.06)', border: '1px solid rgba(249,115,22,0.15)' }}>
+                                                    <p className="text-[11px] font-bold uppercase tracking-widest mb-2" style={{ color: '#f97316' }}>
+                                                        <i className="fas fa-terminal mr-1.5" />Generate this video
+                                                    </p>
+                                                    <p className="text-[0.78rem] mb-3 leading-relaxed" style={{ color: 'rgba(255,255,255,0.45)' }}>
+                                                        Start your preview server, then run:
+                                                    </p>
+                                                    <code className="text-[11px] block px-3 py-2 rounded-lg"
+                                                        style={{ background: 'rgba(0,0,0,0.4)', color: '#fbbf24', fontFamily: '"JetBrains Mono",monospace', border: '1px solid rgba(249,115,22,0.2)' }}>
+                                                        npm run video:record:onboarding
+                                                    </code>
+                                                    <p className="text-[10px] mt-2" style={{ color: 'rgba(255,255,255,0.3)' }}>
+                                                        Then copy the MP4 to public/tutorials/onboarding.mp4
+                                                    </p>
+                                                </div>
+                                            )}
                                         </div>
                                     </div>
                                 </div>
-                            </div>
-                        ))
+                            );
+                        })
                     }
 
                     {/* ── Grid cards ── */}
@@ -639,46 +711,71 @@ export default function LandingPage() {
                         {TUTORIALS
                             .filter(t => !tutorialFilter || t.category === tutorialFilter)
                             .filter(t => !t.featured)
-                            .map(tut => (
-                                <div key={tut.id} onClick={() => setVideoModal(tut)}
-                                    className="rounded-2xl overflow-hidden cursor-pointer group transition-all duration-200 hover:-translate-y-1.5"
-                                    style={{ border: '1px solid rgba(255,255,255,0.07)', background: 'rgba(255,255,255,0.025)', boxShadow: '0 8px 28px rgba(0,0,0,0.35)' }}>
-                                    {/* thumbnail */}
-                                    <div className="relative overflow-hidden" style={{ height: '130px', background: `linear-gradient(135deg,${tut.color}18,${tut.color}05)` }}>
-                                        <div className="absolute inset-0 flex items-center justify-center">
-                                            <div className="w-12 h-12 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform duration-300"
-                                                style={{ background: `${tut.color}30`, border: `1.5px solid ${tut.color}60`, boxShadow: `0 0 20px ${tut.color}25` }}>
-                                                <i className="fas fa-play ml-0.5 text-lg" style={{ color: tut.color }} />
+                            .map(tut => {
+                                const live = hasVideo(tut);
+                                return (
+                                    <div key={tut.id}
+                                        onClick={() => openTutorial(tut)}
+                                        className={`rounded-2xl overflow-hidden group transition-all duration-200 ${live ? 'cursor-pointer hover:-translate-y-1.5' : 'cursor-default'}`}
+                                        style={{ border: '1px solid rgba(255,255,255,0.07)', background: 'rgba(255,255,255,0.025)', boxShadow: '0 8px 28px rgba(0,0,0,0.35)' }}>
+                                        {/* thumbnail */}
+                                        <div className="relative overflow-hidden" style={{ height: '130px', background: `linear-gradient(135deg,${tut.color}18,${tut.color}05)` }}>
+                                            <div className="absolute inset-0 flex items-center justify-center">
+                                                {live ? (
+                                                    <div className="w-12 h-12 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform duration-300"
+                                                        style={{ background: `${tut.color}30`, border: `1.5px solid ${tut.color}60`, boxShadow: `0 0 20px ${tut.color}25` }}>
+                                                        <i className="fas fa-play ml-0.5 text-lg" style={{ color: tut.color }} />
+                                                    </div>
+                                                ) : (
+                                                    <div className="w-10 h-10 rounded-full flex items-center justify-center"
+                                                        style={{ background: `${tut.color}12`, border: `1.5px dashed ${tut.color}40` }}>
+                                                        <i className={`fas ${tut.icon} text-base`} style={{ color: `${tut.color}70` }} />
+                                                    </div>
+                                                )}
+                                            </div>
+                                            {/* coming soon ribbon */}
+                                            {!live && (
+                                                <div className="absolute top-0 right-0 overflow-hidden" style={{ width: '70px', height: '70px' }}>
+                                                    <div className="absolute text-[8px] font-black uppercase tracking-wide text-white text-center"
+                                                        style={{
+                                                            background: 'rgba(100,100,100,0.7)',
+                                                            width: '100px',
+                                                            padding: '3px 0',
+                                                            transform: 'rotate(45deg) translateX(20px) translateY(-10px)',
+                                                        }}>
+                                                        Soon
+                                                    </div>
+                                                </div>
+                                            )}
+                                            <div className="absolute top-2.5 left-2.5">
+                                                <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full"
+                                                    style={{ background: `${tut.color}25`, color: tut.color, border: `1px solid ${tut.color}35` }}>
+                                                    {tut.category}
+                                                </span>
+                                            </div>
+                                            <div className="absolute bottom-2 right-2.5 text-[9px] font-semibold px-2 py-0.5 rounded-full"
+                                                style={{ background: 'rgba(0,0,0,0.6)', color: 'rgba(255,255,255,0.6)' }}>
+                                                <i className="fas fa-clock mr-1" />{tut.duration}
+                                            </div>
+                                            <div className="absolute bottom-[-8px] right-[-8px] text-[72px] opacity-[0.06] pointer-events-none select-none">
+                                                <i className={`fas ${tut.icon}`} style={{ color: tut.color }} />
                                             </div>
                                         </div>
-                                        <div className="absolute top-2.5 left-2.5">
-                                            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full"
-                                                style={{ background: `${tut.color}25`, color: tut.color, border: `1px solid ${tut.color}35` }}>
-                                                {tut.category}
-                                            </span>
-                                        </div>
-                                        <div className="absolute bottom-2 right-2.5 text-[9px] font-semibold px-2 py-0.5 rounded-full"
-                                            style={{ background: 'rgba(0,0,0,0.6)', color: 'rgba(255,255,255,0.7)' }}>
-                                            <i className="fas fa-clock mr-1" />{tut.duration}
-                                        </div>
-                                        <div className="absolute bottom-[-8px] right-[-8px] text-[72px] opacity-[0.07] pointer-events-none select-none">
-                                            <i className={`fas ${tut.icon}`} style={{ color: tut.color }} />
+                                        {/* card body */}
+                                        <div className="p-4">
+                                            <h4 className={`text-[0.85rem] font-bold mb-1.5 leading-snug transition-colors ${live ? 'text-white group-hover:text-orange-400' : 'text-white/60'}`}>{tut.title}</h4>
+                                            <p className="text-[0.75rem] leading-relaxed" style={{ color: 'rgba(255,255,255,0.35)' }}>{tut.desc}</p>
                                         </div>
                                     </div>
-                                    {/* card body */}
-                                    <div className="p-4">
-                                        <h4 className="text-[0.85rem] font-bold text-white mb-1.5 leading-snug group-hover:text-orange-400 transition-colors">{tut.title}</h4>
-                                        <p className="text-[0.75rem] leading-relaxed" style={{ color: 'rgba(255,255,255,0.38)' }}>{tut.desc}</p>
-                                    </div>
-                                </div>
-                            ))
+                                );
+                            })
                         }
                     </div>
 
-                    {/* coming soon note */}
+                    {/* bottom note */}
                     <p className="text-center mt-10 text-[0.8rem]" style={{ color: 'rgba(255,255,255,0.28)' }}>
-                        <i className="fas fa-film mr-2" />More tutorials being recorded ·{' '}
-                        <button onClick={() => scrollTo('footer')} className="border-none bg-transparent cursor-pointer p-0 transition-colors hover:text-orange-400"
+                        <i className="fas fa-film mr-2" />Videos go live as they are recorded ·{' '}
+                        <button type="button" onClick={() => scrollTo('footer')} className="border-none bg-transparent cursor-pointer p-0 transition-colors hover:text-orange-400"
                             style={{ color: 'rgba(249,115,22,0.6)', textDecoration: 'underline', textUnderlineOffset: '3px', fontSize: 'inherit' }}>
                             Subscribe for updates
                         </button>
@@ -925,6 +1022,26 @@ export default function LandingPage() {
                 </div>
             </footer>
 
+            {/* ── Toast notification (coming-soon click) ── */}
+            {toast && (
+                <div className="fixed bottom-6 left-1/2 z-[99998] flex items-center gap-3 px-5 py-3 rounded-2xl pointer-events-none"
+                    style={{
+                        transform: 'translateX(-50%)',
+                        background: 'rgba(10,14,22,0.95)',
+                        border: `1px solid ${toast.color}40`,
+                        boxShadow: `0 12px 40px rgba(0,0,0,0.5), 0 0 0 1px ${toast.color}20`,
+                        backdropFilter: 'blur(12px)',
+                        animation: 'ppe-float-a 0.3s ease-out',
+                        maxWidth: 'calc(100vw - 40px)',
+                    }}>
+                    <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
+                        style={{ background: `${toast.color}20`, border: `1px solid ${toast.color}35` }}>
+                        <i className="fas fa-film text-sm" style={{ color: toast.color }} />
+                    </div>
+                    <p className="text-[0.85rem] text-white font-medium">{toast.msg}</p>
+                </div>
+            )}
+
             {/* ══════════════════════════════════════════════════
                 VIDEO MODAL — full-screen overlay
             ══════════════════════════════════════════════════ */}
@@ -938,8 +1055,8 @@ export default function LandingPage() {
                         style={{ border: `1px solid ${videoModal.color}30`, boxShadow: `0 40px 100px rgba(0,0,0,0.7), 0 0 0 1px ${videoModal.color}15` }}
                         onClick={e => e.stopPropagation()}>
 
-                        {/* if YouTube ID available, embed; otherwise show placeholder */}
-                        {videoModal.ytId ? (
+                        {/* ── Video player: YouTube embed ── */}
+                        {videoModal.ytId && (
                             <div className="relative" style={{ paddingBottom: '56.25%' }}>
                                 <iframe
                                     className="absolute inset-0 w-full h-full"
@@ -949,35 +1066,18 @@ export default function LandingPage() {
                                     allowFullScreen
                                 />
                             </div>
-                        ) : (
-                            <div className="flex flex-col items-center justify-center text-center py-16 px-8"
-                                style={{ background: `linear-gradient(135deg,${videoModal.color}12,rgba(15,23,42,0.98))`, minHeight: '320px' }}>
-                                {/* big icon */}
-                                <div className="w-24 h-24 rounded-full flex items-center justify-center mb-6"
-                                    style={{ background: `${videoModal.color}20`, border: `2px solid ${videoModal.color}50`, animation: 'ppe-pulse 2.5s ease-in-out infinite' }}>
-                                    <i className={`fas ${videoModal.icon} text-4xl`} style={{ color: videoModal.color }} />
-                                </div>
-                                <span className="inline-block px-3 py-1 rounded-full text-[11px] font-bold uppercase tracking-widest mb-4"
-                                    style={{ background: `${videoModal.color}25`, color: videoModal.color, border: `1px solid ${videoModal.color}40` }}>
-                                    {videoModal.category}
-                                </span>
-                                <h3 className="text-xl font-bold text-white mb-3">{videoModal.title}</h3>
-                                <p className="text-[0.88rem] leading-relaxed mb-6 max-w-sm" style={{ color: 'rgba(255,255,255,0.52)' }}>
-                                    This tutorial is being recorded. Subscribe for updates when it goes live.
-                                </p>
-                                <div className="flex items-center gap-3 flex-wrap justify-center">
-                                    {[
-                                        { icon: 'fa-clock',  label: `${videoModal.duration} runtime` },
-                                        { icon: 'fa-film',   label: 'Screen recording' },
-                                        { icon: 'fa-music',  label: 'Narration + music' },
-                                    ].map(({ icon, label }) => (
-                                        <span key={label} className="flex items-center gap-2 px-4 py-2 rounded-xl text-[0.8rem] font-semibold"
-                                            style={{ background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.5)', border: '1px solid rgba(255,255,255,0.09)' }}>
-                                            <i className={`fas ${icon}`} /> {label}
-                                        </span>
-                                    ))}
-                                </div>
-                            </div>
+                        )}
+
+                        {/* ── Video player: self-hosted MP4 ── */}
+                        {!videoModal.ytId && videoModal.videoSrc && (
+                            <video
+                                className="w-full block"
+                                style={{ maxHeight: '60vh', background: '#000' }}
+                                src={videoModal.videoSrc}
+                                controls
+                                autoPlay
+                                playsInline
+                            />
                         )}
 
                         {/* modal info bar */}
@@ -989,7 +1089,7 @@ export default function LandingPage() {
                                     <i className="fas fa-clock mr-1" />{videoModal.duration} · {videoModal.category}
                                 </p>
                             </div>
-                            <button onClick={() => setVideoModal(null)}
+                            <button type="button" onClick={() => setVideoModal(null)}
                                 className="flex-shrink-0 w-8 h-8 rounded-lg flex items-center justify-center border-none cursor-pointer transition-all hover:bg-white/10"
                                 style={{ background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.55)' }}>
                                 <i className="fas fa-xmark" />
