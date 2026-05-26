@@ -613,7 +613,7 @@ export default function Dashboard() {
                         <div>
                             <p className="myth-kicker">Enterprise Command</p>
                             <div className="group/rename flex items-center gap-2">
-                                <h1 className="text-3xl text-white">{displayOrgName ?? orgName}</h1>
+                                <h1 className="text-3xl text-[var(--myth-ink)]">{displayOrgName ?? orgName}</h1>
                                 {isGlobalAdmin && (
                                     <button
                                         type="button"
@@ -622,7 +622,7 @@ export default function Dashboard() {
                                             setRenameError('');
                                             setShowRenameModal(true);
                                         }}
-                                        className="flex h-6 w-6 items-center justify-center rounded-lg bg-white/10 text-[10px] text-white opacity-0 transition-opacity hover:bg-white/20 group-hover/rename:opacity-100"
+                                        className="flex h-6 w-6 items-center justify-center rounded-lg bg-slate-100 text-[10px] text-[var(--myth-muted)] opacity-0 transition-opacity hover:bg-orange-100 hover:text-[var(--myth-ember)] group-hover/rename:opacity-100"
                                         title="Rename organisation"
                                     >
                                         <i className="fas fa-pencil"></i>
@@ -686,15 +686,15 @@ export default function Dashboard() {
                                     <div className="myth-surface-soft flex items-center gap-2.5 rounded-2xl px-4 py-3 text-sm">
                                         <span className="live-pulse" aria-hidden="true" />
                                         <span className="text-[var(--myth-muted)]">Shift Status:</span>{' '}
-                                        <strong className="text-white">{greeting} operations check active</strong>
+                                        <strong className="text-[var(--myth-ink)]">{greeting} operations check active</strong>
                                     </div>
                                     <div className="myth-surface-soft rounded-2xl px-4 py-3 text-sm">
                                         <span className="text-[var(--myth-muted)]">Organization:</span>{' '}
-                                        <strong className="text-white">{orgName}</strong>
+                                        <strong className="text-[var(--myth-ink)]">{orgName}</strong>
                                     </div>
                                     <div className="myth-surface-soft rounded-2xl px-4 py-3 text-sm">
                                         <span className="text-[var(--myth-muted)]">Site Context:</span>{' '}
-                                        <strong className="text-white">{activeSiteName}</strong>
+                                        <strong className="text-[var(--myth-ember)]">{activeSiteName}</strong>
                                     </div>
                                 </div>
 
@@ -736,7 +736,7 @@ export default function Dashboard() {
                             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-1">
                                 <div className="myth-stat-card p-5">
                                     <p className="myth-kicker relative z-10">Modules Unlocked</p>
-                                    <div className="relative z-10 mt-3 text-5xl font-black text-white stat-number-pop">{visibleModules.length}</div>
+                                    <div className="relative z-10 mt-3 text-5xl font-black text-[var(--myth-ink)] stat-number-pop">{visibleModules.length}</div>
                                     <div className="relative z-10 myth-stat-bar">
                                         <div
                                             className="myth-stat-bar-fill"
@@ -747,7 +747,7 @@ export default function Dashboard() {
                                 </div>
                                 <div className="myth-stat-card p-5">
                                     <p className="myth-kicker relative z-10">Action Queue</p>
-                                    <div className={`relative z-10 mt-3 text-5xl font-black stat-number-pop ${myActions.length > 0 ? 'text-[var(--myth-ember)]' : 'text-white'}`}>{myActions.length}</div>
+                                    <div className={`relative z-10 mt-3 text-5xl font-black stat-number-pop ${myActions.length > 0 ? 'text-[var(--myth-ember)]' : 'text-[var(--myth-ink)]'}`}>{myActions.length}</div>
                                     <div className="relative z-10 myth-stat-bar">
                                         <div
                                             className="myth-stat-bar-fill"
@@ -804,7 +804,7 @@ export default function Dashboard() {
                                     <i className="fas fa-lock"></i>
                                 </div>
                                 <p className="myth-kicker">Access Gate</p>
-                                <h4 className="mt-3 text-3xl text-white">No Modules Assigned</h4>
+                                <h4 className="mt-3 text-3xl text-[var(--myth-ink)]">No Modules Assigned</h4>
                                 <p className="mx-auto mt-3 max-w-xl text-sm leading-relaxed text-[var(--myth-muted)]">
                                     Your account is active, but no operational systems have been assigned yet. Request access to unlock the relevant command stations.
                                 </p>
@@ -831,7 +831,7 @@ export default function Dashboard() {
                         <div className="flex items-center justify-between border-b border-[rgba(242,201,120,0.1)] px-6 py-5">
                             <div>
                                 <p className="myth-kicker">Action Center</p>
-                                <h2 className="mt-1 text-3xl text-white">Priority Inbox</h2>
+                                <h2 className="mt-1 text-3xl text-[var(--myth-ink)]">Priority Inbox</h2>
                             </div>
                             <button onClick={() => setIsNotificationOpen(false)} className="myth-outline-button flex h-10 w-10 items-center justify-center rounded-full"><i className="fas fa-times"></i></button>
                         </div>
@@ -846,7 +846,7 @@ export default function Dashboard() {
                                 >
                                     <p className="myth-kicker text-[10px]">{act.module}</p>
                                     <div className="mt-3 flex items-start justify-between gap-3">
-                                        <p className="text-sm font-semibold leading-snug text-white">{act.title}</p>
+                                        <p className="text-sm font-semibold leading-snug text-[var(--myth-ink)]">{act.title}</p>
                                         <i className="fas fa-arrow-right mt-1 text-[var(--myth-ember)]"></i>
                                     </div>
                                 </button>
@@ -873,7 +873,7 @@ export default function Dashboard() {
                         <div className="mb-5 flex items-start justify-between gap-4 border-b border-[rgba(242,201,120,0.1)] pb-5">
                             <div>
                                 <p className="myth-kicker">Organisation Branding</p>
-                                <h2 className="mt-1 text-3xl text-white">Upload Logo</h2>
+                                <h2 className="mt-1 text-3xl text-[var(--myth-ink)]">Upload Logo</h2>
                                 <p className="mt-2 text-sm leading-relaxed text-[var(--myth-muted)]">
                                     Replaces the default logo across the entire workspace. Max 256 × 256 px, JPEG compressed.
                                 </p>
@@ -973,7 +973,7 @@ export default function Dashboard() {
                         <div className="mb-5 flex items-start justify-between gap-4 border-b border-[rgba(242,201,120,0.1)] pb-5">
                             <div>
                                 <p className="myth-kicker">Organisation Settings</p>
-                                <h2 className="mt-1 text-3xl text-white">Rename Organisation</h2>
+                                <h2 className="mt-1 text-3xl text-[var(--myth-ink)]">Rename Organisation</h2>
                                 <p className="mt-2 text-sm leading-relaxed text-[var(--myth-muted)]">
                                     Updates the name shown across the dashboard and login screen.
                                 </p>
@@ -1050,7 +1050,7 @@ export default function Dashboard() {
                         <div className="mb-6 flex items-start justify-between gap-4 border-b border-[rgba(242,201,120,0.1)] pb-5">
                             <div>
                                 <p className="myth-kicker">Account Security</p>
-                                <h2 className="mt-1 text-3xl text-white">{passwordChangeRequired ? 'Password Update Required' : 'Change Password'}</h2>
+                                <h2 className="mt-1 text-3xl text-[var(--myth-ink)]">{passwordChangeRequired ? 'Password Update Required' : 'Change Password'}</h2>
                                 <p className="mt-2 text-sm leading-relaxed text-[var(--myth-muted)]">
                                     {passwordChangeRequired
                                         ? 'This account was provisioned with a temporary password. Update it now before using the enterprise workspace.'
