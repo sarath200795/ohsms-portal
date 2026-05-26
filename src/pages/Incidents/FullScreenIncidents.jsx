@@ -76,29 +76,9 @@ const createInitialDataState = () => ({
     reporting: createDefaultIncidentReporting()
 });
 
-const fileToBase64 = (file) => new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.readAsDataURL(file);
-    reader.onload = () => resolve(reader.result);
-    reader.onerror = (error) => reject(error);
-});
-
-const compressImage = (file, maxDim = 1600, quality = 0.82) =>
-    new Promise((resolve) => {
-        const img = new Image();
-        const url = URL.createObjectURL(file);
-        img.onload = () => {
-            URL.revokeObjectURL(url);
-            const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
-            const canvas = document.createElement('canvas');
-            canvas.width = Math.round(img.width * scale);
-            canvas.height = Math.round(img.height * scale);
-            canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
-            resolve(canvas.toDataURL('image/jpeg', quality));
-        };
-        img.onerror = () => { URL.revokeObjectURL(url); fileToBase64(file).then(resolve); };
-        img.src = url;
-    });
+// fileToBase64 and compressImage (base64 data URL versions) removed — replaced by
+// compressImageToBlob + uploadAttachment from src/utils/storageUpload.js.
+// from src/utils/storageUpload.js which returns a Blob for Firebase Storage upload.
 
 const normalizeEvidenceLabel = (value) => String(value || '')
     .replace(/\.[^/.]+$/, '')
