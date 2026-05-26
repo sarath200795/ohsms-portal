@@ -1080,10 +1080,17 @@ table tbody tr:hover {
 }
 
 /* More slate-800 opacity variants */
+.bg-slate-800\/30 { background-color: rgba(226, 232, 240, 0.5) !important; }
 .bg-slate-800\/40 { background-color: rgba(226, 232, 240, 0.7) !important; }
 .bg-slate-800\/60 { background-color: rgba(226, 232, 240, 0.85) !important; }
 .bg-slate-800\/70 { background-color: rgba(226, 232, 240, 0.9) !important; }
-.bg-slate-800\/30 { background-color: rgba(226, 232, 240, 0.5) !important; }
+.bg-slate-800\/80 { background-color: rgba(226, 232, 240, 0.95) !important; }
+.bg-slate-800\/90 { background-color: rgba(226, 232, 240, 1) !important; }
+
+/* Hover variants */
+.hover\:bg-slate-800\/60:hover { background-color: rgba(241, 245, 249, 0.9) !important; }
+.hover\:bg-slate-800\/80:hover { background-color: rgba(241, 245, 249, 0.95) !important; }
+.hover\:bg-slate-900\/40:hover { background-color: rgba(248, 250, 252, 0.94) !important; }
 
 /* Emerald/green dark chip backgrounds */
 .bg-emerald-900\/30 { background-color: rgba(209, 250, 229, 0.7) !important; }
