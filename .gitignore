@@ -33,3 +33,13 @@ backend/.env.*
 **/.env
 **/.env.*
 !**/.env.example
+
+# Video recording artifacts (raw recordings, WAVs, previews — too large for git)
+artifacts/
+
+# Throwaway test/sync files
+COWORK_SYNC_TEST.txt
+
+# Claude Code local settings (personal overrides, not shared)
+.claude/settings.local.json
+.claude/videos/
