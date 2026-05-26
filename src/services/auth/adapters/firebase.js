@@ -5,32 +5,31 @@
  *
  * User provisioning strategy
  * ──────────────────────────
- * createUser  — uses a secondary Firebase app instance so the admin's own
- *               session is never disturbed.  RTDB records are written by the
- *               adapter itself (same data the server-side handler would write).
+ * createUser  — calls the Firebase Auth REST API (accounts:signUp) directly
+ *               via fetch rather than via the SDK.  This creates the Auth
+ *               account without touching the SDK's auth-state machinery, so
+ *               the admin's primary session and RTDB WebSocket connection are
+ *               never disrupted.  RTDB records are then written immediately
+ *               using the admin's already-authenticated primary app.
  *               No server env vars required.
  *
  * deleteUser  — tries the server-side /api/admin/users endpoint first so the
  *               Firebase Auth account is fully removed.  If the endpoint is not
- *               configured (FIREBASE_SERVICE_ACCOUNT_JSON missing) it falls back
- *               to removing RTDB records only.  The Auth account survives but is
- *               effectively neutered — RTDB rules deny access to any user whose
- *               userDirectory / org records have been deleted.
+ *               configured (FIREBASE_SERVICE_ACCOUNT_JSON missing), falls back
+ *               to removing RTDB records only — the Auth account survives but
+ *               the user is effectively locked out because RTDB rules deny
+ *               access without valid userDirectory / org records.
  */
 
 import {
     EmailAuthProvider,
-    createUserWithEmailAndPassword,
-    getAuth,
     onAuthStateChanged,
     reauthenticateWithCredential,
     sendPasswordResetEmail,
     signInWithEmailAndPassword,
     signOut as fbSignOut,
-    signOut,
     updatePassword as fbUpdatePassword,
 } from 'firebase/auth';
-import { initializeApp, getApps } from 'firebase/app';
 import { auth, firebaseConfig } from '../../../config/firebase.js';
 import { dbSet, dbRemove } from '../../db/index.js';
 
@@ -44,12 +43,49 @@ const generateTemporaryPassword = () => {
     return Array.from(bytes, (b) => charset[b % charset.length]).join('');
 };
 
-/** Reuse or create a secondary Firebase app for provisioning new accounts */
-const getProvisioningAuth = () => {
-    const PROVISION_APP = 'ohsms-user-provisioning';
-    const existing = getApps().find((a) => a.name === PROVISION_APP);
-    const app = existing || initializeApp(firebaseConfig, PROVISION_APP);
-    return getAuth(app);
+/**
+ * Create a Firebase Auth account via the REST API without touching the
+ * SDK auth-state.  Returns the new user's UID.
+ *
+ * Using fetch directly (instead of createUserWithEmailAndPassword) means:
+ *  - No secondary app instance is created or signed in.
+ *  - The admin's primary session and RTDB WebSocket stay untouched.
+ *  - PERMISSION_DENIED from a disrupted auth context is impossible.
+ */
+const createAuthAccountViaRest = async (email, password) => {
+    const apiKey = firebaseConfig.apiKey;
+    if (!apiKey) {
+        throw new Error(
+            'Firebase API key is not configured.  ' +
+            'Set VITE_FIREBASE_API_KEY or use the /setup wizard.'
+        );
+    }
+
+    const res = await fetch(
+        `https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${apiKey}`,
+        {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, password, returnSecureToken: false }),
+        }
+    );
+
+    const data = await res.json();
+
+    if (!res.ok) {
+        const msg = data?.error?.message || `Auth REST error ${res.status}`;
+        // Translate common Firebase error codes to human-readable messages.
+        if (msg === 'EMAIL_EXISTS') throw new Error('This email address is already registered.');
+        if (msg === 'INVALID_EMAIL') throw new Error('The email address is not valid.');
+        if (msg === 'WEAK_PASSWORD : Password should be at least 6 characters') {
+            throw new Error('Generated password is too weak — this should not happen.');
+        }
+        throw new Error(msg);
+    }
+
+    // `localId` is Firebase's name for the user's UID in REST responses.
+    if (!data.localId) throw new Error('Firebase did not return a user ID.');
+    return data.localId;
 };
 
 // ── Adapter ──────────────────────────────────────────────────────────────────
@@ -64,9 +100,7 @@ const firebaseAuthAdapter = {
         return { uid: cred.user.uid, email: cred.user.email };
     },
 
-    /**
-     * Sign out the current user.
-     */
+    /** Sign out the current user. */
     async signOut() {
         await fbSignOut(auth);
     },
@@ -94,13 +128,13 @@ const firebaseAuthAdapter = {
     /**
      * Create a new Firebase Auth account + RTDB records.
      *
-     * Uses a secondary Firebase app instance so the admin's primary session is
-     * never interrupted.  Writes org user record, password state, and
-     * userDirectory mapping directly to RTDB — the same data the server-side
-     * handler would have written.
+     * The Auth account is created via the Firebase Auth REST API (not the
+     * SDK) to avoid any disruption to the admin's active session.  RTDB
+     * records are then written immediately under the admin's auth.
      *
      * @param {string} email
-     * @param {object} payload  { name, role, assignedSite, accessibleSites, accessibleModules, orgId }
+     * @param {object} payload  { name, role, assignedSite, accessibleSites,
+     *                            accessibleModules, orgId }
      * @returns {Promise<{uid: string, temporaryPassword: string}>}
      */
     async createUser(email, payload) {
@@ -116,27 +150,16 @@ const firebaseAuthAdapter = {
         if (!orgId) throw new Error('orgId is required to provision a user.');
 
         const temporaryPassword = generateTemporaryPassword();
-        const provisioningAuth  = getProvisioningAuth();
 
-        // 1. Create the Firebase Auth account via the secondary app.
-        //    The secondary app signs in as the NEW user — we immediately sign it
-        //    out again so only the primary admin session remains active.
-        let uid;
-        try {
-            const cred = await createUserWithEmailAndPassword(
-                provisioningAuth,
-                email.trim().toLowerCase(),
-                temporaryPassword
-            );
-            uid = cred.user.uid;
-        } finally {
-            // Always sign out from the secondary app, even if the above threw.
-            await signOut(provisioningAuth).catch(() => {});
-        }
+        // 1. Create the Firebase Auth account via REST (no SDK auth-state impact).
+        const uid = await createAuthAccountViaRest(
+            email.trim().toLowerCase(),
+            temporaryPassword
+        );
 
-        // 2. Write RTDB records (same structure the server-side handler writes).
-        //    Write org record FIRST so the userDirectory write rule passes
-        //    (it checks that the user record already exists in the org).
+        // 2. Write RTDB records under the admin's authenticated primary session.
+        //    Write org record FIRST — the userDirectory write rule verifies that
+        //    the org user record already exists before allowing the mapping write.
         const provisionedAt = new Date().toISOString();
 
         const userRecord = {
@@ -154,14 +177,18 @@ const firebaseAuthAdapter = {
         };
 
         try {
+            // Step A — org user record (must exist before step C)
             await dbSet(`organizations/${orgId}/users/${uid}`, userRecord);
+
+            // Step B — password state
             await dbSet(`organizations/${orgId}/userPasswordState/${uid}`, {
                 mustChangePassword:        true,
                 temporaryPasswordIssued:   true,
                 temporaryPasswordIssuedAt: provisionedAt,
                 passwordUpdatedAt:         '',
             });
-            // userDirectory must be written AFTER the org user record exists
+
+            // Step C — userDirectory mapping (rule checks step A exists first)
             await dbSet(`userDirectory/${uid}`, { orgId });
         } catch (dbErr) {
             // Best-effort rollback of RTDB records.
@@ -172,7 +199,7 @@ const firebaseAuthAdapter = {
             await dbRemove(`userDirectory/${uid}`).catch(() => {});
             throw new Error(
                 'Auth account was created but database records failed to write. ' +
-                'The account has been rolled back. Details: ' + dbErr.message
+                'Details: ' + dbErr.message
             );
         }
 
@@ -182,20 +209,19 @@ const firebaseAuthAdapter = {
     /**
      * Delete a user's Firebase Auth account and RTDB records.
      *
-     * Tries the server-side /api/admin/users endpoint first (which fully
-     * removes the Auth account).  If the endpoint is not configured, falls
-     * back to removing RTDB records only — the Auth account survives but the
-     * user is effectively locked out because RTDB rules deny access to any
-     * account without valid userDirectory / org records.
+     * Tries /api/admin/users first (fully removes the Auth account when the
+     * server env vars are configured).  On a 500 "Server configuration error"
+     * falls back to removing RTDB records only — the user is locked out even
+     * though the Auth account survives.
      *
-     * @param {string} uid    Firebase Auth UID of the user to delete
-     * @param {string} orgId  Organisation ID
+     * @param {string} uid
+     * @param {string} orgId
      */
     async deleteUser(uid, orgId) {
         const currentUser = auth.currentUser;
         if (!currentUser) throw new Error('No authenticated admin session found.');
 
-        // Try server-side deletion first (fully removes the Auth account).
+        // Try full server-side deletion first.
         try {
             const idToken = await currentUser.getIdToken();
             const res = await fetch('/api/admin/users', {
@@ -204,41 +230,33 @@ const firebaseAuthAdapter = {
                 body: JSON.stringify({ uid, orgId, callerIdToken: idToken }),
             });
 
-            if (res.ok) return; // Full deletion succeeded — done.
+            if (res.ok) return;
 
             const data = await res.json().catch(() => ({}));
             const isConfigError =
                 res.status === 500 &&
                 (data.error || '').toLowerCase().includes('server configuration');
 
-            // If it's not a config error, surface the real problem.
             if (!isConfigError) {
                 throw new Error(data.error || `Server error ${res.status}`);
             }
 
-            // Config error → fall through to RTDB-only cleanup below.
             console.warn(
-                '[authService.deleteUser] Server-side deletion not configured ' +
-                '(FIREBASE_SERVICE_ACCOUNT_JSON missing). Falling back to ' +
-                'RTDB-only removal. The Firebase Auth account will remain but ' +
-                'the user will be unable to access the application.'
+                '[authService.deleteUser] Server-side deletion not configured. ' +
+                'Falling back to RTDB-only removal.'
             );
         } catch (fetchErr) {
-            // Network error or non-JSON response — fall through to RTDB cleanup.
-            if (!fetchErr.message?.includes('RTDB-only')) {
-                console.warn('[authService.deleteUser] Server endpoint unreachable:', fetchErr.message);
-            }
+            if (fetchErr.message?.includes('Server error') || fetchErr.message?.includes('admin session')) throw fetchErr;
+            console.warn('[authService.deleteUser] Server endpoint unreachable:', fetchErr.message);
         }
 
-        // Fallback: remove RTDB records so the account is locked out.
+        // Fallback — remove RTDB records so the account is locked out.
         await dbRemove(`organizations/${orgId}/users/${uid}`);
         await dbRemove(`organizations/${orgId}/userPasswordState/${uid}`);
         await dbRemove(`userDirectory/${uid}`);
     },
 
-    /**
-     * Send a password-reset email.
-     */
+    /** Send a password-reset email. */
     async sendPasswordReset(email) {
         await sendPasswordResetEmail(auth, email);
     },
