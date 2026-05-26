@@ -176,30 +176,52 @@ const firebaseAuthAdapter = {
             createdAt:                 provisionedAt,
         };
 
+        // Step A — org user record (must exist before step C).
+        // Split into separate try-catch blocks so the exact failing path is
+        // surfaced in the error message for easier debugging.
         try {
-            // Step A — org user record (must exist before step C)
             await dbSet(`organizations/${orgId}/users/${uid}`, userRecord);
+        } catch (dbErr) {
+            // Best-effort rollback.  Auth account cannot be deleted client-side;
+            // without RTDB records the account is effectively locked out.
+            await dbRemove(`organizations/${orgId}/users/${uid}`).catch(() => {});
+            throw new Error(
+                `Failed writing user record [organizations/${orgId}/users/${uid}]: ` +
+                dbErr.message
+            );
+        }
 
-            // Step B — password state
+        // Step B — password state.
+        // NOTE: Firebase RTDB silently drops empty-string values, which would
+        // cause the `.validate` rule (hasChildren + isString on passwordUpdatedAt)
+        // to fail with PERMISSION_DENIED.  Use the provisionedAt timestamp here
+        // instead of an empty string.
+        try {
             await dbSet(`organizations/${orgId}/userPasswordState/${uid}`, {
                 mustChangePassword:        true,
                 temporaryPasswordIssued:   true,
                 temporaryPasswordIssuedAt: provisionedAt,
-                passwordUpdatedAt:         '',
+                passwordUpdatedAt:         provisionedAt, // never empty — Firebase drops ''
             });
+        } catch (dbErr) {
+            await dbRemove(`organizations/${orgId}/users/${uid}`).catch(() => {});
+            await dbRemove(`organizations/${orgId}/userPasswordState/${uid}`).catch(() => {});
+            throw new Error(
+                `Failed writing password state [organizations/${orgId}/userPasswordState/${uid}]: ` +
+                dbErr.message
+            );
+        }
 
-            // Step C — userDirectory mapping (rule checks step A exists first)
+        // Step C — userDirectory mapping (rule verifies step A record exists first).
+        try {
             await dbSet(`userDirectory/${uid}`, { orgId });
         } catch (dbErr) {
-            // Best-effort rollback of RTDB records.
-            // The Firebase Auth account cannot be deleted client-side, but
-            // without RTDB records the account cannot access any org data.
             await dbRemove(`organizations/${orgId}/users/${uid}`).catch(() => {});
             await dbRemove(`organizations/${orgId}/userPasswordState/${uid}`).catch(() => {});
             await dbRemove(`userDirectory/${uid}`).catch(() => {});
             throw new Error(
-                'Auth account was created but database records failed to write. ' +
-                'Details: ' + dbErr.message
+                `Failed writing userDirectory mapping [userDirectory/${uid}]: ` +
+                dbErr.message
             );
         }
 
