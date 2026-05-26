@@ -890,7 +890,7 @@ export default function Dashboard() {
 
                         {/* Preview area */}
                         <div className="mb-5 flex flex-col items-center gap-4">
-                            <div className="relative flex h-28 w-28 items-center justify-center overflow-hidden rounded-[1.4rem] border-2 border-dashed border-[rgba(242,201,120,0.25)] bg-[rgba(10,8,6,0.6)]">
+                            <div className="relative flex h-28 w-28 items-center justify-center overflow-hidden rounded-[1.4rem] border-2 border-dashed border-slate-300 bg-slate-100">
                                 {logoPreview ? (
                                     <img src={logoPreview} alt="Preview" className="h-full w-full object-cover" />
                                 ) : (
@@ -912,7 +912,7 @@ export default function Dashboard() {
                         </div>
 
                         {/* File input */}
-                        <label className="mb-4 flex cursor-pointer items-center justify-center gap-3 rounded-2xl border border-dashed border-[rgba(242,201,120,0.22)] bg-[rgba(10,8,6,0.5)] px-4 py-4 transition hover:border-[rgba(242,201,120,0.45)]">
+                        <label className="mb-4 flex cursor-pointer items-center justify-center gap-3 rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-4 transition hover:border-orange-400 hover:bg-orange-50">
                             <i className="fas fa-cloud-arrow-up text-[var(--myth-gold)]"></i>
                             <span className="text-sm text-[var(--myth-ink)]">
                                 {logoPreview ? 'Choose a different image' : 'Choose image file…'}
@@ -928,7 +928,7 @@ export default function Dashboard() {
                         </label>
 
                         {logoError && (
-                            <p className="mb-4 rounded-xl bg-[rgba(239,68,68,0.12)] px-4 py-3 text-xs text-red-400">
+                            <p className="mb-4 rounded-xl bg-red-50 border border-red-200 px-4 py-3 text-xs text-red-600">
                                 <i className="fas fa-circle-exclamation mr-2"></i>{logoError}
                             </p>
                         )}
@@ -1013,7 +1013,7 @@ export default function Dashboard() {
                         </div>
 
                         {renameError && (
-                            <p className="mb-4 rounded-xl bg-[rgba(239,68,68,0.12)] px-4 py-3 text-xs text-red-400">
+                            <p className="mb-4 rounded-xl bg-red-50 border border-red-200 px-4 py-3 text-xs text-red-600">
                                 <i className="fas fa-circle-exclamation mr-2"></i>{renameError}
                             </p>
                         )}
@@ -1078,7 +1078,7 @@ export default function Dashboard() {
                                     type="password"
                                     value={passwordForm.current}
                                     onChange={e => setPasswordForm(prev => ({ ...prev, current: e.target.value }))}
-                                    className="w-full rounded-2xl border border-[rgba(242,201,120,0.16)] bg-[rgba(10,8,6,0.78)] px-4 py-3 text-sm text-white outline-none transition focus:border-[var(--myth-cyan)]"
+                                    className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-[var(--myth-ink)] outline-none transition focus:border-[var(--myth-ember)]"
                                     autoComplete="current-password"
                                     required
                                 />
@@ -1091,7 +1091,7 @@ export default function Dashboard() {
                                     type="password"
                                     value={passwordForm.next}
                                     onChange={e => setPasswordForm(prev => ({ ...prev, next: e.target.value }))}
-                                    className="w-full rounded-2xl border border-[rgba(242,201,120,0.16)] bg-[rgba(10,8,6,0.78)] px-4 py-3 text-sm text-white outline-none transition focus:border-[var(--myth-cyan)]"
+                                    className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-[var(--myth-ink)] outline-none transition focus:border-[var(--myth-ember)]"
                                     autoComplete="new-password"
                                     minLength={6}
                                     required
@@ -1106,7 +1106,7 @@ export default function Dashboard() {
                                     type="password"
                                     value={passwordForm.confirm}
                                     onChange={e => setPasswordForm(prev => ({ ...prev, confirm: e.target.value }))}
-                                    className="w-full rounded-2xl border border-[rgba(242,201,120,0.16)] bg-[rgba(10,8,6,0.78)] px-4 py-3 text-sm text-white outline-none transition focus:border-[var(--myth-cyan)]"
+                                    className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-[var(--myth-ink)] outline-none transition focus:border-[var(--myth-ember)]"
                                     autoComplete="new-password"
                                     minLength={6}
                                     required

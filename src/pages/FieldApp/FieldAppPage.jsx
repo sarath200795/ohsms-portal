@@ -100,7 +100,7 @@ export default function FieldAppPage() {
 
     if (loading) {
         return (
-            <div className="myth-shell flex h-screen items-center justify-center bg-[#080705] font-['Space_Grotesk'] text-[var(--myth-ink)]">
+            <div className="myth-shell flex h-screen items-center justify-center bg-[var(--myth-bg)] text-[var(--myth-ink)]">
                 <div className="command-panel flex items-center gap-4 rounded-[1.8rem] px-8 py-6">
                     <div className="h-10 w-10 animate-spin rounded-full border-2 border-[rgba(242,201,120,0.12)] border-t-[var(--myth-cyan)]"></div>
                     <span className="myth-kicker">Loading Field App</span>
@@ -110,7 +110,7 @@ export default function FieldAppPage() {
     }
 
     return (
-        <div className="myth-shell min-h-screen bg-[#080705] font-['Space_Grotesk'] text-white">
+        <div className="myth-shell min-h-screen bg-[var(--myth-bg)] text-[var(--myth-ink)]">
 
             <FieldHeader
                 firstName={firstName}

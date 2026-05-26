@@ -24,13 +24,13 @@ export default function Tutorials() {
     }, []);
 
     return (
-        <div className="myth-shell min-h-screen bg-[#080705] px-4 py-6 text-white sm:px-6 sm:py-8">
+        <div className="myth-shell min-h-screen bg-[var(--myth-bg)] px-4 py-6 text-[var(--myth-ink)] sm:px-6 sm:py-8">
             <div className="mx-auto max-w-7xl">
                 <div className="command-panel mb-8 rounded-[2.2rem] p-6 sm:p-8">
                     <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
                         <div>
                             <p className="myth-kicker">Training Library</p>
-                            <h1 className="mt-2 text-4xl text-white sm:text-5xl">Tutorials</h1>
+                            <h1 className="mt-2 text-4xl text-[var(--myth-ink)] sm:text-5xl">Tutorials</h1>
                             <p className="mt-4 max-w-3xl text-sm leading-relaxed text-[var(--myth-muted)] sm:text-base">
                                 Watch guided module walkthroughs, portal videos, and the platform overview from one place. These are the same videos used in the first-open module prompts.
                             </p>

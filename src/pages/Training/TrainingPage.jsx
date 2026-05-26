@@ -14,9 +14,9 @@ export default function TrainingPage() {
 
     if (module.loading) {
         return (
-            <div className="flex h-screen items-center justify-center text-white bg-slate-950 flex-col gap-4 font-['Space_Grotesk']">
+            <div className="flex h-screen items-center justify-center flex-col gap-4 bg-[var(--myth-bg)]">
                 <i className="fas fa-circle-notch fa-spin text-4xl text-blue-500"></i>
-                <p className="text-slate-400 font-bold uppercase tracking-widest text-sm">Loading Registry & Cross-Module Dependencies...</p>
+                <p className="text-[var(--myth-muted)] font-bold uppercase tracking-widest text-sm">Loading Registry & Cross-Module Dependencies...</p>
             </div>
         );
     }
@@ -32,11 +32,11 @@ export default function TrainingPage() {
                 `}
             </style>
 
-            <div className="flex flex-col h-screen bg-slate-950 text-white font-['Space_Grotesk'] overflow-hidden print:h-auto print:overflow-visible print:bg-white print:text-black">
-                <header className="h-16 border-b border-slate-800 flex items-center justify-between px-6 bg-slate-900/80 backdrop-blur-md print:hidden z-20 flex-shrink-0">
+            <div className="flex flex-col h-screen bg-[var(--myth-bg)] text-[var(--myth-ink)] overflow-hidden print:h-auto print:overflow-visible print:bg-white print:text-black">
+                <header className="h-16 border-b border-slate-200 flex items-center justify-between px-6 bg-white shadow-sm print:hidden z-20 flex-shrink-0">
                     <div className="flex items-center gap-4">
-                        <button type="button" onClick={() => navigate('/dashboard')} className="text-slate-400 hover:text-white transition-colors flex items-center gap-2"><i className="fas fa-arrow-left"></i> Hub</button>
-                        <div className="h-6 w-px bg-slate-800 mx-2"></div>
+                        <button type="button" onClick={() => navigate('/dashboard')} className="text-[var(--myth-muted)] hover:text-[var(--myth-ink)] transition-colors flex items-center gap-2"><i className="fas fa-arrow-left"></i> Hub</button>
+                        <div className="h-6 w-px bg-slate-200 mx-2"></div>
                         <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center text-white font-bold shadow-lg"><i className="fas fa-graduation-cap"></i></div>
                         <h1 className="font-bold text-lg tracking-wide hidden md:block">Training & Competence</h1>
                     </div>

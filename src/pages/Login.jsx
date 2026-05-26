@@ -338,7 +338,7 @@ export default function Login() {
 
     // ── render ─────────────────────────────────────────────────────────────────
     return (
-        <div className="myth-shell min-h-screen overflow-y-auto bg-[#080705] px-3 py-4 text-white sm:px-4" style={{ overflowY: 'auto' }}>
+        <div className="myth-shell min-h-screen overflow-y-auto px-3 py-4 sm:px-4" style={{ overflowY: 'auto' }}>
             <div className="mx-auto grid min-h-[calc(100vh-2rem)] max-w-6xl grid-cols-1 gap-4 lg:grid-cols-[1fr_0.72fr]">
 
                 {/* ── HERO BANNER ── */}
@@ -438,7 +438,7 @@ export default function Login() {
                             </p>
 
                             {/* Active DB status bar */}
-                            <div className="mt-4 flex items-center gap-2 rounded-lg border border-gray-800 bg-black/40 px-3 py-2">
+                            <div className="mt-4 flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
                                 <div className={`h-2 w-2 flex-shrink-0 rounded-full ${
                                     dbStatus === 'ok'    ? 'bg-green-400' :
                                     dbStatus === 'error' ? 'animate-pulse bg-red-400' :
@@ -448,7 +448,7 @@ export default function Login() {
                                     {dbStatus === 'ok' ? 'Connected · ' : dbStatus === 'error' ? 'Unreachable · ' : 'Checking · '}
                                     {dbInfo.label}
                                 </span>
-                                <a href="/setup" className="flex-shrink-0 text-[10px] text-gray-600 underline transition-colors hover:text-cyan-400">
+                                <a href="/setup" className="flex-shrink-0 text-[10px] text-slate-500 underline transition-colors hover:text-[var(--myth-ember)]">
                                     Change
                                 </a>
                             </div>
@@ -463,14 +463,14 @@ export default function Login() {
                                                 key={entry.orgId}
                                                 type="button"
                                                 onClick={() => handleOrgPick(entry)}
-                                                className={`group relative flex flex-col items-center gap-3 rounded-2xl border p-5 text-center transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-cyan-500/30 ${
+                                                className={`group relative flex flex-col items-center gap-3 rounded-2xl border p-5 text-center transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-orange-400/30 ${
                                                     isCurrent
-                                                        ? 'border-cyan-500/40 bg-cyan-950/20 hover:border-cyan-400/70 hover:bg-cyan-950/30'
-                                                        : 'border-gray-700/60 bg-gray-900/50 hover:border-orange-500/50 hover:bg-orange-950/15'
+                                                        ? 'border-sky-300 bg-sky-50 hover:border-sky-400 hover:bg-sky-100/80'
+                                                        : 'border-slate-200 bg-white hover:border-orange-300 hover:bg-orange-50/80'
                                                 }`}
                                             >
                                                 {/* Logo or initial avatar */}
-                                                <div className="relative h-20 w-20 flex-shrink-0 overflow-hidden rounded-2xl border border-gray-700/80 bg-gray-800">
+                                                <div className="relative h-20 w-20 flex-shrink-0 overflow-hidden rounded-2xl border border-slate-200 bg-slate-100">
                                                     {entry.logoBase64 ? (
                                                         <img
                                                             src={entry.logoBase64}
@@ -478,14 +478,14 @@ export default function Login() {
                                                             className="h-full w-full object-cover"
                                                         />
                                                     ) : (
-                                                        <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-cyan-900/40 to-gray-900 text-3xl font-black text-cyan-400">
+                                                        <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-sky-100 to-slate-100 text-3xl font-black text-sky-600">
                                                             {(entry.orgName || '?').charAt(0).toUpperCase()}
                                                         </div>
                                                     )}
                                                     {/* Green dot — currently active database */}
                                                     {isCurrent && (
                                                         <div
-                                                            className="absolute -right-1 -top-1 h-4 w-4 rounded-full border-2 border-[#080705] bg-green-400 shadow-md"
+                                                            className="absolute -right-1 -top-1 h-4 w-4 rounded-full border-2 border-white bg-green-400 shadow-md"
                                                             title="Currently connected"
                                                         />
                                                     )}
@@ -518,17 +518,17 @@ export default function Login() {
                                 </div>
                             ) : (
                                 /* ── Empty state — no orgs registered ── */
-                                <div className="mt-5 rounded-2xl border border-dashed border-gray-700 bg-gray-900/30 p-6 text-center">
+                                <div className="mt-5 rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-6 text-center">
                                     <p className="mb-1 text-4xl select-none">🔌</p>
-                                    <p className="mb-1 text-sm font-bold text-gray-300">No organisations registered yet</p>
-                                    <p className="mb-4 text-[11px] leading-relaxed text-gray-500">
+                                    <p className="mb-1 text-sm font-bold text-slate-700">No organisations registered yet</p>
+                                    <p className="mb-4 text-[11px] leading-relaxed text-slate-500">
                                         Use the Setup Wizard to connect a database and create your first organisation.
                                         It will appear here for fast one-click sign-in next time.
                                     </p>
                                     <button
                                         type="button"
                                         onClick={() => navigate('/setup')}
-                                        className="inline-flex items-center gap-2 rounded-xl border border-cyan-500/30 bg-cyan-500/10 px-5 py-2.5 text-[11px] font-bold text-cyan-400 transition-all hover:bg-cyan-500/20"
+                                        className="inline-flex items-center gap-2 rounded-xl border border-orange-300 bg-orange-50 px-5 py-2.5 text-[11px] font-bold text-orange-600 transition-all hover:bg-orange-100"
                                     >
                                         🚀 Set Up First Organisation →
                                     </button>
@@ -541,7 +541,7 @@ export default function Login() {
                                     <button
                                         type="button"
                                         onClick={() => navigate('/setup')}
-                                        className="text-[11px] text-gray-600 underline transition-colors hover:text-cyan-400"
+                                        className="text-[11px] text-slate-500 underline transition-colors hover:text-[var(--myth-ember)]"
                                     >
                                         + Add another organisation
                                     </button>
@@ -557,7 +557,7 @@ export default function Login() {
                                         firebaseConfig: null,
                                         restUrl:       null,
                                     })}
-                                    className="ml-auto text-[11px] text-gray-600 underline transition-colors hover:text-gray-300"
+                                    className="ml-auto text-[11px] text-slate-500 underline transition-colors hover:text-slate-700"
                                 >
                                     Continue with current database →
                                 </button>
@@ -572,57 +572,57 @@ export default function Login() {
                         ═══════════════════════════════════════════════════════════ */
                         <div>
                             {/* ── Selected org / DB header — ALWAYS shows "← Change" ── */}
-                            <div className="mb-4 flex items-center gap-3 rounded-xl border border-cyan-500/20 bg-cyan-950/15 px-3 py-2.5">
+                            <div className="mb-4 flex items-center gap-3 rounded-xl border border-sky-200 bg-sky-50 px-3 py-2.5">
                                 {pickedOrg.orgId !== '_direct' && pickedOrg.logoBase64 ? (
                                     <img
                                         src={pickedOrg.logoBase64}
                                         alt={pickedOrg.orgName}
-                                        className="h-9 w-9 flex-shrink-0 rounded-xl border border-gray-700 object-cover"
+                                        className="h-9 w-9 flex-shrink-0 rounded-xl border border-slate-200 object-cover"
                                     />
                                 ) : (
-                                    <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl border border-gray-700 bg-cyan-900/50 text-base font-black text-cyan-400">
+                                    <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl border border-sky-200 bg-sky-100 text-base font-black text-sky-600">
                                         {pickedOrg.orgId === '_direct' ? '🗄️' : (pickedOrg.orgName || '?').charAt(0).toUpperCase()}
                                     </div>
                                 )}
                                 <div className="min-w-0 flex-1">
-                                    <p className="truncate text-xs font-bold text-white">{pickedOrg.orgName}</p>
+                                    <p className="truncate text-xs font-bold text-[var(--myth-ink)]">{pickedOrg.orgName}</p>
                                     <p className={`text-[10px] font-bold ${
-                                        pickedOrg.dbAdapter === 'firebase' ? 'text-orange-400' : 'text-cyan-400'
+                                        pickedOrg.dbAdapter === 'firebase' ? 'text-orange-500' : 'text-sky-600'
                                     }`}>
                                         {pickedOrg.dbAdapter === 'firebase' ? '🔥 Firebase' : `🖥️ ${getDbTypeLabel(pickedOrg)}`}
-                                        {dbStatus === 'ok'    && <span className="ml-2 text-green-400 font-bold">✓ Connected</span>}
-                                        {dbStatus === 'error' && <span className="ml-2 text-red-400 font-bold">⚠ Unreachable</span>}
+                                        {dbStatus === 'ok'    && <span className="ml-2 text-emerald-600 font-bold">✓ Connected</span>}
+                                        {dbStatus === 'error' && <span className="ml-2 text-red-500 font-bold">⚠ Unreachable</span>}
                                     </p>
                                 </div>
                                 {/* Always visible — lets user go back to picker */}
                                 <button
                                     type="button"
                                     onClick={() => setPickedOrg(null)}
-                                    className="flex-shrink-0 rounded-lg border border-gray-700/60 bg-gray-800/60 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-gray-400 transition-all hover:border-cyan-500/40 hover:bg-cyan-950/20 hover:text-cyan-400"
+                                    className="flex-shrink-0 rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-500 transition-all hover:border-orange-300 hover:bg-orange-50 hover:text-[var(--myth-ember)]"
                                 >
                                     ← Change
                                 </button>
                             </div>
 
                             {dbStatus === 'error' && (
-                                <div className="mb-4 rounded-xl border border-red-500/30 bg-red-950/20 p-3">
-                                    <p className="mb-1 text-[11px] font-bold text-red-400">⚠ Database Unreachable</p>
-                                    <p className="text-[10px] leading-relaxed text-gray-400">
-                                        Cannot reach <span className="font-bold text-white">{dbInfo.label}</span>.{' '}
+                                <div className="mb-4 rounded-xl border border-red-200 bg-red-50 p-3">
+                                    <p className="mb-1 text-[11px] font-bold text-red-600">⚠ Database Unreachable</p>
+                                    <p className="text-[10px] leading-relaxed text-slate-500">
+                                        Cannot reach <span className="font-bold text-[var(--myth-ink)]">{dbInfo.label}</span>.{' '}
                                         Try{' '}
-                                        <button type="button" onClick={() => setPickedOrg(null)} className="text-cyan-400 underline hover:text-cyan-300">
+                                        <button type="button" onClick={() => setPickedOrg(null)} className="text-[var(--myth-ember)] underline hover:text-orange-700">
                                             selecting a different organisation
                                         </button>
                                         {' '}or{' '}
-                                        <a href="/setup" className="text-cyan-400 underline hover:text-cyan-300">reconfigure the database</a>.
+                                        <a href="/setup" className="text-[var(--myth-ember)] underline hover:text-orange-700">reconfigure the database</a>.
                                     </p>
                                 </div>
                             )}
 
-                            <p className="legendary-title text-[11px] text-[var(--myth-cyan)]">
+                            <p className="legendary-title text-[11px] text-[var(--myth-ember)]">
                                 {isJoinMode ? 'Request Existing Org Access' : 'Enterprise Access'}
                             </p>
-                            <h2 className="mt-2 text-4xl text-white">
+                            <h2 className="mt-2 text-4xl text-[var(--myth-ink)]">
                                 {isJoinMode ? 'Join Your Organisation' : 'Access the Control Room'}
                             </h2>
                             <p className="mt-2 text-xs leading-relaxed text-[var(--myth-muted)]">
@@ -632,7 +632,7 @@ export default function Login() {
                             </p>
 
                             {/* ── 2-tab nav ── */}
-                            <div className="mt-5 grid grid-cols-2 gap-2 rounded-2xl border border-[var(--myth-border)] bg-[rgba(10,8,6,0.82)] p-1.5">
+                            <div className="mt-5 grid grid-cols-2 gap-2 rounded-2xl border border-slate-200 bg-slate-100 p-1.5">
                                 <button type="button" onClick={() => setAuthMode('login')}
                                     className={`myth-button px-2 py-2.5 text-[11px] ${authMode === 'login' ? 'myth-button-primary' : 'myth-button-secondary'}`}>
                                     Sign In
@@ -647,7 +647,7 @@ export default function Login() {
                             {!isJoinMode ? (
                                 <form onSubmit={handleLogin} className="mt-5 space-y-3">
                                     <div>
-                                        <label className="legendary-title mb-1.5 block text-[10px] text-[var(--myth-cyan)]">Email Address</label>
+                                        <label className="legendary-title mb-1.5 block text-[10px] text-[var(--myth-ember)]">Email Address</label>
                                         <input
                                             type="email" required
                                             value={email} onChange={(e) => setEmail(e.target.value)}
@@ -656,7 +656,7 @@ export default function Login() {
                                         />
                                     </div>
                                     <div>
-                                        <label className="legendary-title mb-1.5 block text-[10px] text-[var(--myth-cyan)]">Password</label>
+                                        <label className="legendary-title mb-1.5 block text-[10px] text-[var(--myth-ember)]">Password</label>
                                         <input
                                             type="password" required
                                             value={password} onChange={(e) => setPassword(e.target.value)}
@@ -672,21 +672,21 @@ export default function Login() {
                                                 setShowPasswordReset((prev) => !prev);
                                                 setTimeout(() => document.getElementById('forgot-password-email')?.focus(), 0);
                                             }}
-                                            className="font-bold uppercase tracking-[0.16em] text-[var(--myth-cyan)] transition hover:text-white"
+                                            className="font-bold uppercase tracking-[0.16em] text-[var(--myth-ember)] transition hover:text-orange-700"
                                         >
                                             Forgot password?
                                         </button>
                                         <button
                                             type="button"
                                             onClick={() => setAuthMode('join')}
-                                            className="font-bold uppercase tracking-[0.16em] text-[var(--myth-muted)] transition hover:text-white"
+                                            className="font-bold uppercase tracking-[0.16em] text-[var(--myth-muted)] transition hover:text-[var(--myth-ink)]"
                                         >
                                             New user in existing org
                                         </button>
                                     </div>
 
                                     {showPasswordReset && (
-                                        <div className="rounded-xl border border-[var(--myth-border)] bg-black/20 p-3">
+                                        <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
                                             <div className="flex flex-col gap-2 sm:flex-row">
                                                 <input
                                                     id="forgot-password-email"
@@ -713,12 +713,12 @@ export default function Login() {
                                         {loading ? 'Authenticating…' : 'Secure Sign In'}
                                     </button>
 
-                                    <div className="mt-2 rounded-xl border border-gray-700/40 bg-black/20 p-3 text-center">
-                                        <p className="mb-2 text-[11px] text-gray-500">Need a new workspace?</p>
+                                    <div className="mt-2 rounded-xl border border-slate-200 bg-slate-50 p-3 text-center">
+                                        <p className="mb-2 text-[11px] text-slate-500">Need a new workspace?</p>
                                         <button
                                             type="button"
                                             onClick={() => navigate('/setup')}
-                                            className="inline-flex items-center gap-2 rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-4 py-2 text-[11px] font-bold text-cyan-400 transition-all hover:bg-cyan-500/20"
+                                            className="inline-flex items-center gap-2 rounded-lg border border-orange-300 bg-orange-50 px-4 py-2 text-[11px] font-bold text-[var(--myth-ember)] transition-all hover:bg-orange-100"
                                         >
                                             🏢 Create a New Organisation →
                                         </button>
@@ -727,8 +727,8 @@ export default function Login() {
                             ) : (
                                 /* ── JOIN EXISTING ORG FORM ── */
                                 <form onSubmit={handleJoinExistingOrg} className="mt-5 space-y-3">
-                                    <div className="rounded-xl border border-cyan-400/30 bg-cyan-950/20 p-3">
-                                        <p className="legendary-title text-[10px] text-[var(--myth-cyan)]">Admin Approval Required</p>
+                                    <div className="rounded-xl border border-sky-200 bg-sky-50 p-3">
+                                        <p className="legendary-title text-[10px] text-[var(--myth-ember)]">Admin Approval Required</p>
                                         <p className="mt-1 text-[11px] leading-snug text-[var(--myth-muted)]">
                                             This creates a pending user in an existing organisation.
                                             Access starts only after admin approval.
@@ -736,7 +736,7 @@ export default function Login() {
                                     </div>
 
                                     <div>
-                                        <label className="legendary-title mb-1.5 block text-[10px] text-[var(--myth-cyan)]">Workspace Join Code</label>
+                                        <label className="legendary-title mb-1.5 block text-[10px] text-[var(--myth-ember)]">Workspace Join Code</label>
                                         <input
                                             type="text" required
                                             value={joinCode}
@@ -751,7 +751,7 @@ export default function Login() {
 
                                     <div className="grid gap-3 sm:grid-cols-2">
                                         <div>
-                                            <label className="legendary-title mb-1.5 block text-[10px] text-[var(--myth-cyan)]">Your Full Name</label>
+                                            <label className="legendary-title mb-1.5 block text-[10px] text-[var(--myth-ember)]">Your Full Name</label>
                                             <input
                                                 type="text" required
                                                 value={userName} onChange={(e) => setUserName(e.target.value)}
@@ -760,7 +760,7 @@ export default function Login() {
                                             />
                                         </div>
                                         <div>
-                                            <label className="legendary-title mb-1.5 block text-[10px] text-[var(--myth-cyan)]">Account Email</label>
+                                            <label className="legendary-title mb-1.5 block text-[10px] text-[var(--myth-ember)]">Account Email</label>
                                             <input
                                                 type="email" required
                                                 value={regEmail} onChange={(e) => setRegEmail(e.target.value)}
@@ -771,7 +771,7 @@ export default function Login() {
                                     </div>
 
                                     <div>
-                                        <label className="legendary-title mb-1.5 block text-[10px] text-[var(--myth-cyan)]">Secure Password</label>
+                                        <label className="legendary-title mb-1.5 block text-[10px] text-[var(--myth-ember)]">Secure Password</label>
                                         <input
                                             type="password" required
                                             value={regPassword} onChange={(e) => setRegPassword(e.target.value)}
@@ -781,13 +781,13 @@ export default function Login() {
                                     </div>
 
                                     <button type="submit" disabled={loading}
-                                        className="myth-button myth-button-cyan mt-2 w-full px-4 py-3 text-sm">
+                                        className="myth-button myth-button-primary mt-2 w-full px-4 py-3 text-sm">
                                         {loading ? 'Processing…' : 'Submit Access Request'}
                                     </button>
 
                                     <div className="text-center">
                                         <button type="button" onClick={() => navigate('/setup')}
-                                            className="text-[11px] text-gray-500 underline transition-colors hover:text-cyan-400">
+                                            className="text-[11px] text-slate-500 underline transition-colors hover:text-[var(--myth-ember)]">
                                             Create a new organisation instead →
                                         </button>
                                     </div>
@@ -803,7 +803,7 @@ export default function Login() {
                             Powered by WE EHS Safety Tool
                         </p>
                         <a href="/setup"
-                            className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-[0.14em] text-gray-600 transition-colors hover:text-cyan-400">
+                            className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500 transition-colors hover:text-[var(--myth-ember)]">
                             🗄️ Configure Database
                         </a>
                     </div>

@@ -76,7 +76,7 @@ export default function OhsTools() {
     if (!session) return null;
 
     return (
-        <div className="myth-shell flex h-screen flex-col overflow-hidden bg-[#080705] font-['Space_Grotesk']">
+        <div className="myth-shell flex h-screen flex-col overflow-hidden bg-[var(--myth-bg)]">
             <header className="myth-topbar z-20 px-4 sm:px-6">
                 <div className="mx-auto flex h-20 max-w-7xl items-center justify-between gap-4">
                     <div className="flex items-center gap-4">

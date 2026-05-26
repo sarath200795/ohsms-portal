@@ -277,7 +277,7 @@ export default function FieldPortal() {
 
     if (loading) {
         return (
-            <div className="myth-shell flex h-screen items-center justify-center bg-[#080705] font-['Space_Grotesk'] text-[var(--myth-ink)]">
+            <div className="myth-shell flex h-screen items-center justify-center bg-[var(--myth-bg)] text-[var(--myth-ink)]">
                 <div className="command-panel flex items-center gap-4 rounded-[1.8rem] px-8 py-6">
                     <div className="h-10 w-10 animate-spin rounded-full border-2 border-[rgba(242,201,120,0.12)] border-t-[var(--myth-cyan)]"></div>
                     <span className="myth-kicker">Verifying Field Access</span>
@@ -288,7 +288,7 @@ export default function FieldPortal() {
 
     if (!isAuthenticated) {
         return (
-            <div className="myth-shell min-h-screen overflow-hidden bg-[#080705] font-['Space_Grotesk'] text-white">
+            <div className="myth-shell min-h-screen overflow-hidden bg-[var(--myth-bg)] text-[var(--myth-ink)]">
                 <div className="relative z-10 flex min-h-screen items-center justify-center px-4 py-10">
                     <div className="grid w-full max-w-6xl grid-cols-1 gap-6 lg:grid-cols-[1.15fr_0.85fr]">
                         <section className="hero-banner flex flex-col justify-between rounded-[2.2rem] p-8 lg:p-10">
@@ -381,7 +381,7 @@ export default function FieldPortal() {
     const greeting = getDayGreeting();
 
     return (
-        <div className="myth-shell min-h-screen bg-[#080705] font-['Space_Grotesk'] text-white">
+        <div className="myth-shell min-h-screen bg-[var(--myth-bg)] text-[var(--myth-ink)]">
             <header className="myth-topbar sticky top-0 z-30">
                 <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-4 sm:px-6">
                     <div className="flex items-center gap-3">

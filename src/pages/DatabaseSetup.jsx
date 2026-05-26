@@ -461,7 +461,7 @@ export default function DatabaseSetup() {
 
     // ── render ─────────────────────────────────────────────────────────────────
     return (
-        <div className="min-h-screen bg-[#080705] text-white overflow-y-auto">
+        <div className="min-h-screen bg-[var(--myth-bg)] text-[var(--myth-ink)] overflow-y-auto">
 
             {/* subtle grid bg */}
             <div className="fixed inset-0 pointer-events-none opacity-[0.025]" style={{

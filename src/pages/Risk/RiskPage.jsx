@@ -14,27 +14,27 @@ export default function RiskPage() {
 
     if (module.loading) {
         return (
-            <div className="flex h-screen items-center justify-center text-white bg-slate-950 flex-col font-['Space_Grotesk']">
+            <div className="flex h-screen items-center justify-center flex-col bg-[var(--myth-bg)]">
                 <i className="fas fa-shield-virus fa-spin text-4xl text-blue-500 mb-4"></i>
-                <h2 className="text-sm font-bold uppercase tracking-widest text-slate-400">Loading Risk Matrix...</h2>
+                <h2 className="text-sm font-bold uppercase tracking-widest text-[var(--myth-muted)]">Loading Risk Matrix...</h2>
             </div>
         );
     }
 
     return (
-        <div className="flex flex-col h-screen bg-slate-950 text-white font-['Space_Grotesk'] overflow-hidden relative">
+        <div className="flex flex-col h-screen bg-[var(--myth-bg)] text-[var(--myth-ink)] overflow-hidden relative">
             <div className="absolute top-0 right-0 w-[600px] h-[600px] bg-blue-600/5 rounded-full blur-[120px] pointer-events-none z-0"></div>
 
-            <header className="app-ui h-16 border-b border-slate-800 bg-slate-900/80 backdrop-blur-md flex items-center justify-between px-6 z-20 flex-shrink-0 print:hidden">
+            <header className="app-ui h-16 border-b border-slate-200 bg-white flex items-center justify-between px-6 z-20 flex-shrink-0 print:hidden shadow-sm">
                 <div className="flex items-center gap-4">
-                    <button type="button" onClick={() => navigate('/dashboard')} className="text-slate-400 hover:text-white transition-colors flex items-center gap-2">
+                    <button type="button" onClick={() => navigate('/dashboard')} className="text-[var(--myth-muted)] hover:text-[var(--myth-ink)] transition-colors flex items-center gap-2">
                         <i className="fas fa-arrow-left"></i> Hub
                     </button>
-                    <div className="h-6 w-px bg-slate-800 mx-2"></div>
+                    <div className="h-6 w-px bg-slate-200 mx-2"></div>
                     <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-blue-500 to-indigo-600 flex items-center justify-center text-white font-bold shadow-lg shadow-blue-900/50">
                         <i className="fas fa-shield-virus"></i>
                     </div>
-                    <h1 className="font-bold text-lg tracking-wide hidden md:block text-blue-400">HIRA Risk Management</h1>
+                    <h1 className="font-bold text-lg tracking-wide hidden md:block text-[var(--myth-ink)]">HIRA Risk Management</h1>
                     <div className="ml-4 flex gap-2">
                         <span className="text-[10px] uppercase font-bold tracking-widest bg-blue-500/10 text-blue-400 px-2 py-1 rounded border border-blue-500/20">{module.session?.role}</span>
                         {module.permissions.viewOnly && <span className="text-[10px] uppercase font-bold tracking-widest bg-yellow-500/10 text-yellow-400 px-2 py-1 rounded border border-yellow-500/20"><i className="fas fa-eye mr-1"></i> Read Only</span>}

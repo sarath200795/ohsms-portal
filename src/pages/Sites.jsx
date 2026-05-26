@@ -103,26 +103,26 @@ export default function Sites() {
         }
     };
 
-    if (loading) return <div className="h-screen flex items-center justify-center bg-slate-950 text-white font-['Space_Grotesk'] animate-pulse">Loading Sites...</div>;
+    if (loading) return <div className="h-screen flex items-center justify-center bg-[var(--myth-bg)] text-[var(--myth-muted)] animate-pulse">Loading Sites...</div>;
 
     return (
-        <div className="flex flex-col h-screen bg-slate-950 text-white font-['Space_Grotesk']">
-            <header className="h-16 px-6 flex items-center justify-between border-b border-slate-800 bg-slate-900/80">
+        <div className="flex flex-col h-screen bg-[var(--myth-bg)] text-[var(--myth-ink)]">
+            <header className="h-16 px-6 flex items-center justify-between border-b border-slate-200 bg-white shadow-sm">
                 <div className="flex items-center gap-4">
-                    <button onClick={() => navigate('/dashboard')} className="text-slate-400 hover:text-white transition"><i className="fas fa-arrow-left mr-2"></i> Hub</button>
-                    <div className="h-6 w-px bg-slate-800 mx-2"></div>
-                    <h1 className="text-lg font-bold"><i className="fas fa-building-shield text-emerald-400 mr-2"></i> Facility Management</h1>
+                    <button onClick={() => navigate('/dashboard')} className="text-[var(--myth-muted)] hover:text-[var(--myth-ink)] transition"><i className="fas fa-arrow-left mr-2"></i> Hub</button>
+                    <div className="h-6 w-px bg-slate-200 mx-2"></div>
+                    <h1 className="text-lg font-bold text-[var(--myth-ink)]"><i className="fas fa-building-shield text-emerald-500 mr-2"></i> Facility Management</h1>
                 </div>
-                <button onClick={() => openForm()} className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-lg text-sm font-bold shadow-lg transition flex items-center gap-2">
+                <button onClick={() => openForm()} className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-lg text-sm font-bold shadow-sm transition flex items-center gap-2">
                     <i className="fas fa-plus"></i> Add Facility
                 </button>
             </header>
 
             <main className="flex-1 overflow-y-auto p-8 custom-scroll">
                 <div className="max-w-5xl mx-auto">
-                    <div className="bg-slate-900/50 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
+                    <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
                         <table className="w-full text-left text-sm">
-                            <thead className="bg-slate-950 text-[10px] uppercase text-slate-400 font-bold tracking-widest border-b border-slate-800">
+                            <thead className="bg-slate-50 text-[10px] uppercase text-slate-500 font-bold tracking-widest border-b border-slate-200">
                                 <tr>
                                     <th className="p-4 pl-6">Site Code</th>
                                     <th className="p-4">Facility Name</th>
@@ -131,22 +131,22 @@ export default function Sites() {
                                     <th className="p-4 pr-6 text-right">Actions</th>
                                 </tr>
                             </thead>
-                            <tbody className="divide-y divide-slate-800">
+                            <tbody className="divide-y divide-slate-100">
                                 {sites.map(site => (
-                                    <tr key={site.firebaseKey} className="hover:bg-slate-800/50 transition">
-                                        <td className="p-4 pl-6 font-mono text-emerald-400 font-bold">{site.code}</td>
-                                        <td className="p-4 font-bold text-white">{site.name}</td>
-                                        <td className="p-4 text-xs font-bold text-cyan-300">{site.region || 'Unassigned'}</td>
-                                        <td className="p-4 text-slate-400 text-xs">{site.address || 'N/A'}</td>
+                                    <tr key={site.firebaseKey} className="hover:bg-slate-50 transition">
+                                        <td className="p-4 pl-6 font-mono text-emerald-600 font-bold">{site.code}</td>
+                                        <td className="p-4 font-bold text-[var(--myth-ink)]">{site.name}</td>
+                                        <td className="p-4 text-xs font-bold text-sky-600">{site.region || 'Unassigned'}</td>
+                                        <td className="p-4 text-[var(--myth-muted)] text-xs">{site.address || 'N/A'}</td>
                                         <td className="p-4 pr-6 text-right">
                                             <div className="flex justify-end gap-2">
-                                                <button onClick={() => openForm(site)} className="bg-blue-600/20 hover:bg-blue-600 text-blue-400 hover:text-white px-3 py-1.5 rounded text-xs font-bold transition border border-blue-500/30">Edit</button>
-                                                <button onClick={() => handleDelete(site.firebaseKey, site.code)} className="bg-red-900/30 hover:bg-red-600 text-red-500 hover:text-white px-3 py-1.5 rounded text-xs font-bold transition border border-red-500/30">Delete</button>
+                                                <button onClick={() => openForm(site)} className="bg-blue-50 hover:bg-blue-600 text-blue-600 hover:text-white px-3 py-1.5 rounded text-xs font-bold transition border border-blue-200">Edit</button>
+                                                <button onClick={() => handleDelete(site.firebaseKey, site.code)} className="bg-red-50 hover:bg-red-600 text-red-500 hover:text-white px-3 py-1.5 rounded text-xs font-bold transition border border-red-200">Delete</button>
                                             </div>
                                         </td>
                                     </tr>
                                 ))}
-                                {sites.length === 0 && <tr><td colSpan={5} className="p-10 text-center text-slate-500 italic">No facilities configured.</td></tr>}
+                                {sites.length === 0 && <tr><td colSpan={5} className="p-10 text-center text-slate-400 italic">No facilities configured.</td></tr>}
                             </tbody>
                         </table>
                     </div>
@@ -155,37 +155,37 @@ export default function Sites() {
 
             {/* CREATE/EDIT MODAL */}
             {isModalOpen && (
-                <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-                    <div className="bg-slate-900 border border-slate-700 rounded-3xl p-8 max-w-md w-full shadow-2xl animate-in fade-in zoom-in duration-200">
-                        <div className="flex justify-between items-center mb-6 border-b border-slate-800 pb-4">
-                            <h2 className="text-xl font-bold text-white">{formData.firebaseKey ? 'Edit Facility' : 'Register New Facility'}</h2>
-                            <button onClick={() => setIsModalOpen(false)} className="text-slate-500 hover:text-white"><i className="fas fa-times text-xl"></i></button>
+                <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                    <div className="bg-white border border-slate-200 rounded-3xl p-8 max-w-md w-full shadow-2xl animate-in fade-in zoom-in duration-200">
+                        <div className="flex justify-between items-center mb-6 border-b border-slate-200 pb-4">
+                            <h2 className="text-xl font-bold text-[var(--myth-ink)]">{formData.firebaseKey ? 'Edit Facility' : 'Register New Facility'}</h2>
+                            <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-[var(--myth-ink)]"><i className="fas fa-times text-xl"></i></button>
                         </div>
 
                         <form onSubmit={handleSave} className="space-y-4">
                             <div>
-                                <label className="text-[10px] uppercase font-bold text-slate-400 block mb-2">Unique Site Code</label>
-                                <input required value={formData.code} onChange={e => setFormData({ ...formData, code: e.target.value.toUpperCase() })} placeholder="e.g. NYC-01" className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-sm text-white font-mono outline-none focus:border-emerald-500 uppercase" />
+                                <label className="text-[10px] uppercase font-bold text-[var(--myth-muted)] block mb-2">Unique Site Code</label>
+                                <input required value={formData.code} onChange={e => setFormData({ ...formData, code: e.target.value.toUpperCase() })} placeholder="e.g. NYC-01" className="w-full bg-white border border-slate-200 rounded-xl p-3 text-sm text-[var(--myth-ink)] font-mono outline-none focus:border-emerald-500 uppercase" />
                             </div>
                             <div>
-                                <label className="text-[10px] uppercase font-bold text-slate-400 block mb-2">Facility Name</label>
-                                <input required value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} placeholder="e.g. New York Assembly Plant" className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-sm text-white outline-none focus:border-emerald-500" />
+                                <label className="text-[10px] uppercase font-bold text-[var(--myth-muted)] block mb-2">Facility Name</label>
+                                <input required value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} placeholder="e.g. New York Assembly Plant" className="w-full bg-white border border-slate-200 rounded-xl p-3 text-sm text-[var(--myth-ink)] outline-none focus:border-emerald-500" />
                             </div>
                             <div>
-                                <label className="text-[10px] uppercase font-bold text-slate-400 block mb-2">Region</label>
-                                <select required value={formData.region} onChange={e => setFormData({ ...formData, region: e.target.value })} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-sm text-white outline-none focus:border-emerald-500">
+                                <label className="text-[10px] uppercase font-bold text-[var(--myth-muted)] block mb-2">Region</label>
+                                <select required value={formData.region} onChange={e => setFormData({ ...formData, region: e.target.value })} className="w-full bg-white border border-slate-200 rounded-xl p-3 text-sm text-[var(--myth-ink)] outline-none focus:border-emerald-500">
                                     <option value="">Select Region...</option>
                                     {SITE_REGION_OPTIONS.map((region) => <option key={region} value={region}>{region}</option>)}
                                 </select>
                             </div>
                             <div>
-                                <label className="text-[10px] uppercase font-bold text-slate-400 block mb-2">Address / Location</label>
-                                <textarea rows="2" value={formData.address} onChange={e => setFormData({ ...formData, address: e.target.value })} placeholder="Optional address..." className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-sm text-white outline-none focus:border-emerald-500 custom-scroll"></textarea>
+                                <label className="text-[10px] uppercase font-bold text-[var(--myth-muted)] block mb-2">Address / Location</label>
+                                <textarea rows="2" value={formData.address} onChange={e => setFormData({ ...formData, address: e.target.value })} placeholder="Optional address..." className="w-full bg-white border border-slate-200 rounded-xl p-3 text-sm text-[var(--myth-ink)] outline-none focus:border-emerald-500 custom-scroll"></textarea>
                             </div>
 
                             <div className="pt-4 flex gap-4">
-                                <button type="button" onClick={() => setIsModalOpen(false)} className="flex-1 bg-slate-800 hover:bg-slate-700 text-white font-bold py-3 rounded-xl transition tracking-widest uppercase text-xs border border-slate-700">Cancel</button>
-                                <button type="submit" className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 rounded-xl shadow-lg transition tracking-widest uppercase text-xs">Save Facility</button>
+                                <button type="button" onClick={() => setIsModalOpen(false)} className="flex-1 bg-slate-100 hover:bg-slate-200 text-[var(--myth-ink)] font-bold py-3 rounded-xl transition tracking-widest uppercase text-xs border border-slate-200">Cancel</button>
+                                <button type="submit" className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 rounded-xl shadow-sm transition tracking-widest uppercase text-xs">Save Facility</button>
                             </div>
                         </form>
                     </div>

@@ -20,10 +20,10 @@ const fileToBase64 = (file) => new Promise((resolve, reject) => {
 
 const getTypeClass = (type) => {
     const t = type || '';
-    if (t.includes('Major')) return 'bg-red-900/50 text-red-300 border border-red-500';
-    if (t.includes('Minor')) return 'bg-orange-900/50 text-orange-300 border border-orange-500';
-    if (t.includes('OFI')) return 'bg-yellow-900/50 text-yellow-300 border border-yellow-500';
-    return 'bg-blue-900/50 text-blue-300 border border-blue-500';
+    if (t.includes('Major')) return 'bg-red-50 text-red-600 border border-red-300';
+    if (t.includes('Minor')) return 'bg-orange-50 text-orange-600 border border-orange-300';
+    if (t.includes('OFI')) return 'bg-amber-50 text-amber-700 border border-amber-300';
+    return 'bg-blue-50 text-blue-600 border border-blue-300';
 };
 
 const safeArrayParse = (data) => {
@@ -1839,7 +1839,7 @@ export default function Audit() {
         navigate(redirectTo);
     }, [alertMessage, navigate, redirectTo]);
 
-    if (!session) return <div className="flex h-screen items-center justify-center text-white bg-slate-950 font-['Space_Grotesk']"><div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mr-4"></div> Loading Audit System...</div>;
+    if (!session) return <div className="flex h-screen items-center justify-center bg-[var(--myth-bg)]"><div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mr-4"></div><span className="text-[var(--myth-muted)]"> Loading Audit System...</span></div>;
 
     let ViewComponent;
     switch (view) {
@@ -1851,17 +1851,17 @@ export default function Audit() {
         case 'calendar': ViewComponent = <AuditCalendar setView={setView} session={session} />; break;
         default:
             ViewComponent = (
-                <div className="flex flex-col h-screen bg-slate-950 text-white font-['Space_Grotesk'] overflow-hidden animate-in fade-in duration-500 relative">
+                <div className="flex flex-col h-screen bg-[var(--myth-bg)] text-[var(--myth-ink)] overflow-hidden animate-in fade-in duration-500 relative">
                     <div className="absolute top-0 right-0 w-[600px] h-[600px] bg-blue-600/5 rounded-full blur-[120px] pointer-events-none z-0"></div>
 
-                    <div className="h-16 border-b border-slate-800 bg-slate-900/80 backdrop-blur-md flex items-center justify-between px-6 flex-shrink-0 relative z-10">
+                    <div className="h-16 border-b border-slate-200 bg-white shadow-sm flex items-center justify-between px-6 flex-shrink-0 relative z-10">
                         <div className="flex items-center gap-4">
-                            <button onClick={() => navigate('/dashboard')} className="text-slate-400 hover:text-white flex items-center gap-2 transition-colors"><i className="fas fa-arrow-left"></i> Hub</button>
-                            <div className="h-6 w-px bg-slate-800 mx-2"></div>
+                            <button onClick={() => navigate('/dashboard')} className="text-[var(--myth-muted)] hover:text-[var(--myth-ink)] flex items-center gap-2 transition-colors"><i className="fas fa-arrow-left"></i> Hub</button>
+                            <div className="h-6 w-px bg-slate-200 mx-2"></div>
                             <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center text-white font-bold shadow-lg"><i className="fas fa-clipboard-check"></i></div>
-                            <h1 className="font-bold text-lg tracking-wide hidden md:block">Internal Audit Hub</h1>
+                            <h1 className="font-bold text-lg tracking-wide hidden md:block text-[var(--myth-ink)]">Internal Audit Hub</h1>
                         </div>
-                        <span className="text-[10px] uppercase font-bold tracking-widest bg-slate-950 px-4 py-2 rounded-xl text-emerald-400 border border-slate-800 shadow-inner">Org: {session.orgId}</span>
+                        <span className="text-[10px] uppercase font-bold tracking-widest bg-slate-100 px-4 py-2 rounded-xl text-emerald-600 border border-slate-200">Org: {session.orgId}</span>
                     </div>
 
                     <div className="flex-1 p-8 flex items-center justify-center overflow-y-auto custom-scroll relative z-10">
@@ -1909,5 +1909,5 @@ export default function Audit() {
             );
     }
 
-    return <div className="font-['Space_Grotesk']">{ViewComponent}</div>;
+    return <div>{ViewComponent}</div>;
 }

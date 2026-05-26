@@ -696,14 +696,103 @@ table tbody tr:hover {
   box-shadow: inset 3px 0 0 rgba(249, 115, 22, 0.4);
 }
 
-/* ─── Light theme: fix text-white inside light-bg components ─── */
-.myth-panel .text-white,
-.glass-panel .text-white,
-.command-panel .text-white,
-.myth-surface-soft .text-white,
-.myth-stat-card .text-white,
-.myth-icon-frame .text-white {
+/* ─── Light theme: text-white → dark ink everywhere ─── */
+.text-white {
   color: var(--myth-ink) !important;
+}
+
+/* Keep white text only on deliberately dark backgrounds */
+.hero-banner .text-white,
+.lp .text-white,
+.route-transition-overlay .text-white {
+  color: #ffffff !important;
+}
+
+/* Restore white text on colored button/badge elements that have both
+   a colored bg class AND text-white — these need white for readability */
+.bg-indigo-600.text-white, .bg-indigo-500.text-white,
+.bg-blue-600.text-white,   .bg-blue-500.text-white,
+.bg-emerald-600.text-white,.bg-emerald-500.text-white,
+.bg-red-600.text-white,    .bg-red-500.text-white,
+.bg-amber-500.text-white,  .bg-amber-600.text-white,
+.bg-orange-500.text-white, .bg-orange-600.text-white,
+.bg-purple-600.text-white, .bg-purple-500.text-white,
+.bg-teal-600.text-white,   .bg-teal-500.text-white,
+.bg-rose-600.text-white,   .bg-rose-500.text-white,
+.bg-pink-600.text-white,   .bg-pink-500.text-white,
+.bg-cyan-600.text-white,   .bg-cyan-500.text-white,
+.bg-green-600.text-white,  .bg-green-500.text-white,
+.bg-lime-600.text-white,   .bg-lime-500.text-white,
+.bg-sky-600.text-white,    .bg-sky-500.text-white,
+.bg-violet-600.text-white, .bg-violet-500.text-white,
+.bg-fuchsia-600.text-white,.bg-fuchsia-500.text-white,
+.bg-yellow-500.text-white, .bg-yellow-600.text-white,
+.bg-slate-700.text-white,  .bg-slate-600.text-white,
+/* gradient buttons also need white text */
+[class*="from-blue-"][class*="to-indigo"].text-white,
+[class*="from-indigo-"][class*="to-blue"].text-white,
+[class*="from-blue-6"].text-white,
+[class*="from-emerald"].text-white,
+[class*="from-red-"].text-white,
+[class*="from-purple-"].text-white {
+  color: #ffffff !important;
+}
+
+/* Colored hover state — keep white text on hover over colored bg */
+.hover\:bg-indigo-600:hover,
+.hover\:bg-blue-600:hover,
+.hover\:bg-emerald-600:hover,
+.hover\:bg-red-600:hover,
+.hover\:bg-amber-500:hover,
+.hover\:bg-orange-500:hover,
+.hover\:bg-purple-600:hover {
+  color: #ffffff !important;
+}
+
+/* Ensure myth-button-primary (orange gradient) always keeps white text */
+.myth-button-primary,
+.myth-button-primary:hover,
+.myth-button-danger,
+.myth-button-danger:hover {
+  color: #ffffff !important;
+}
+
+/* White text inside colored gradient containers (icon badges, nav icons, etc.) */
+.bg-gradient-to-tr .text-white,
+.bg-gradient-to-br .text-white,
+.bg-gradient-to-r .text-white,
+.bg-gradient-to-b .text-white,
+[class*="from-blue-"] .text-white,
+[class*="from-indigo-"] .text-white,
+[class*="from-emerald-"] .text-white,
+[class*="from-red-"] .text-white,
+[class*="from-amber-"] .text-white,
+[class*="from-orange-"] .text-white,
+[class*="from-purple-"] .text-white,
+[class*="from-teal-"] .text-white,
+[class*="from-rose-"] .text-white,
+[class*="from-sky-"] .text-white,
+[class*="from-violet-"] .text-white,
+[class*="from-cyan-"] .text-white,
+[class*="from-green-"] .text-white,
+[class*="from-pink-"] .text-white {
+  color: #ffffff !important;
+}
+
+/* Colored bg parent → white text children */
+.bg-indigo-600 .text-white, .bg-indigo-500 .text-white,
+.bg-blue-600 .text-white,   .bg-blue-500 .text-white,
+.bg-emerald-600 .text-white,.bg-emerald-500 .text-white,
+.bg-red-600 .text-white,    .bg-red-500 .text-white,
+.bg-amber-500 .text-white,  .bg-amber-600 .text-white,
+.bg-orange-500 .text-white, .bg-orange-600 .text-white,
+.bg-purple-600 .text-white, .bg-purple-500 .text-white,
+.bg-teal-600 .text-white,   .bg-teal-500 .text-white,
+.bg-rose-600 .text-white,   .bg-rose-500 .text-white,
+.bg-green-600 .text-white,  .bg-green-500 .text-white,
+.bg-sky-600 .text-white,    .bg-sky-500 .text-white,
+.bg-cyan-600 .text-white,   .bg-cyan-500 .text-white {
+  color: #ffffff !important;
 }
 
 /* Dark inline backgrounds inside light panels → soft slate */
@@ -713,6 +802,45 @@ table tbody tr:hover {
 .command-panel [style*="rgba(10, 8, 6"] {
   background: rgba(248, 250, 252, 0.9) !important;
   border-color: rgba(226, 232, 240, 0.8) !important;
+}
+
+/* Light text on dark pages → readable on light backgrounds */
+.text-slate-100, .text-slate-200 {
+  color: var(--myth-ink) !important;
+}
+.text-slate-300 {
+  color: #374151 !important;
+}
+.text-slate-400 {
+  color: var(--myth-muted) !important;
+}
+.text-cyan-300 {
+  color: #0284c7 !important;
+}
+.text-blue-400 {
+  color: #2563eb !important;
+}
+
+/* Space Grotesk font → Inter */
+[class*="Space_Grotesk"],
+[style*="Space Grotesk"] {
+  font-family: "Inter", sans-serif !important;
+}
+
+/* Dark hover backgrounds → light */
+.hover\:bg-slate-900:hover,
+.hover\:bg-slate-800:hover {
+  background-color: rgba(241, 245, 249, 1) !important;
+}
+
+/* Dark table row hover → light */
+.hover\:bg-slate-800\/50:hover {
+  background-color: rgba(248, 250, 252, 0.9) !important;
+}
+
+/* Divider bars */
+.bg-slate-800.mx-2 {
+  background-color: rgba(226, 232, 240, 1) !important;
 }
 
 .bg-slate-950 {
@@ -765,6 +893,107 @@ table tbody tr:hover {
 .border-slate-800 {
   border-color: rgba(226, 232, 240, 0.9) !important;
 }
+
+/* ─── Hardcoded dark background → light overrides ────────────────── */
+/* Primary dark bg used across pages (Activity Calendar, Tutorials, OhsTools, etc.) */
+.bg-\[#080705\] {
+  background-color: #f8fafc !important;
+}
+
+/* Dark rgba card/panel backgrounds */
+.bg-\[rgba\(12\,10\,8\,0\.6\)\],
+.bg-\[rgba\(12\,10\,8\,0\.72\)\],
+.bg-\[rgba\(12\,10\,8\,0\.68\)\],
+.bg-\[rgba\(10\,8\,6\,0\.72\)\],
+.bg-\[rgba\(10\,8\,6\,0\.5\)\],
+.bg-\[rgba\(10\,8\,6\,0\.6\)\],
+.bg-\[rgba\(10\,8\,6\,0\.78\)\] {
+  background-color: rgba(241, 245, 249, 0.98) !important;
+}
+
+/* Selected / active card dark bg → light sky */
+.bg-\[rgba\(17\,40\,48\,0\.72\)\] {
+  background-color: rgba(240, 249, 255, 0.98) !important;
+}
+
+/* Dark profile avatar bg */
+.bg-\[rgba\(10\,8\,6\,0\.82\)\] {
+  background-color: rgba(241, 245, 249, 0.98) !important;
+}
+
+/* Subtle dark accent → light amber */
+.bg-\[rgba\(215\,131\,57\,0\.18\)\] {
+  background-color: rgba(255, 247, 237, 0.9) !important;
+}
+
+/* ─── Additional dark utility → light overrides ─────────────────── */
+
+/* Solid dark backgrounds */
+.bg-slate-800 {
+  background-color: rgba(226, 232, 240, 1) !important;
+}
+.bg-slate-800\/50 {
+  background-color: rgba(226, 232, 240, 0.5) !important;
+}
+.bg-slate-900 {
+  background-color: rgba(248, 250, 252, 1) !important;
+}
+
+/* More hover backgrounds */
+.hover\:bg-slate-700:hover {
+  background-color: rgba(241, 245, 249, 1) !important;
+}
+
+/* Dark divide → light */
+.divide-slate-800 > :not([hidden]) ~ :not([hidden]),
+.divide-slate-700 > :not([hidden]) ~ :not([hidden]) {
+  border-color: rgba(226, 232, 240, 0.8) !important;
+}
+
+/* More border shades */
+.border-slate-600 {
+  border-color: rgba(203, 213, 225, 0.8) !important;
+}
+
+/* Dark chip / badge backgrounds → light pastel equivalents */
+.bg-red-900\/50 { background-color: rgba(254, 242, 242, 0.95) !important; }
+.bg-red-900\/20, .bg-red-900\/30 { background-color: rgba(254, 242, 242, 0.7) !important; }
+.bg-orange-900\/50 { background-color: rgba(255, 247, 237, 0.95) !important; }
+.bg-orange-900\/20, .bg-orange-900\/30 { background-color: rgba(255, 247, 237, 0.7) !important; }
+.bg-yellow-900\/50 { background-color: rgba(254, 252, 232, 0.95) !important; }
+.bg-yellow-900\/20, .bg-yellow-900\/30 { background-color: rgba(254, 252, 232, 0.7) !important; }
+.bg-blue-900\/50 { background-color: rgba(239, 246, 255, 0.95) !important; }
+.bg-blue-900\/20, .bg-blue-900\/30 { background-color: rgba(239, 246, 255, 0.7) !important; }
+.bg-green-900\/50 { background-color: rgba(240, 253, 244, 0.95) !important; }
+
+/* Cyan-950 → light sky */
+.bg-cyan-950\/15 { background-color: rgba(240, 249, 255, 0.9) !important; }
+.bg-cyan-950\/20 { background-color: rgba(240, 249, 255, 0.95) !important; }
+.bg-cyan-950\/50, .bg-cyan-950\/60, .bg-cyan-950\/80 {
+  background-color: rgba(226, 239, 253, 0.98) !important;
+}
+
+/* Dark chip text → more visible on light backgrounds */
+.text-red-300 { color: #dc2626 !important; }
+.text-orange-300 { color: #ea580c !important; }
+.text-yellow-300 { color: #ca8a04 !important; }
+.text-blue-300 { color: #2563eb !important; }
+.text-cyan-300 { color: #0284c7 !important; }
+.text-green-300, .text-emerald-300 { color: #16a34a !important; }
+.text-purple-300 { color: #7c3aed !important; }
+.text-indigo-300 { color: #4338ca !important; }
+
+/* Dark panel/card backgrounds in Audit and similar pages */
+.bg-slate-900\/40 { background-color: rgba(248, 250, 252, 0.94) !important; }
+
+/* ─── Border-red/orange/yellow/blue on dark → keep on light ─────── */
+/* (These look fine on light bg - no override needed) */
+
+/* Dark shadows → remove or lighten */
+.shadow-blue-900\/50 { --tw-shadow-color: rgba(219, 234, 254, 0.5) !important; }
+.shadow-emerald-900\/50 { --tw-shadow-color: rgba(209, 250, 229, 0.5) !important; }
+.shadow-cyan-600\/20 { --tw-shadow-color: rgba(207, 250, 254, 0.2) !important; }
+.shadow-blue-900\/30 { --tw-shadow-color: rgba(219, 234, 254, 0.3) !important; }
 
 /* =========================================
    ENHANCED ANIMATIONS & MICRO-INTERACTIONS

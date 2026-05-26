@@ -788,13 +788,13 @@ export default function ActivityCalendar() {
 
     if (loading) {
         return (
-            <div className="myth-shell flex h-screen items-center justify-center bg-[#080705] text-white">
+            <div className="myth-shell flex h-screen items-center justify-center bg-[var(--myth-bg)]">
                 <div className="command-panel rounded-[2rem] px-8 py-7">
                     <div className="flex items-center gap-4">
-                        <i className="fas fa-circle-notch fa-spin text-3xl text-[var(--myth-cyan)]"></i>
+                        <i className="fas fa-circle-notch fa-spin text-3xl text-[var(--myth-ember)]"></i>
                         <div>
-                            <p className="legendary-title text-[11px] font-bold uppercase tracking-[0.35em] text-[var(--myth-cyan)]">Activity Sync</p>
-                            <h2 className="mt-1 text-2xl font-black uppercase tracking-[0.22em] text-white">Loading Calendar</h2>
+                            <p className="legendary-title text-[11px] font-bold uppercase tracking-[0.35em] text-[var(--myth-ember)]">Activity Sync</p>
+                            <h2 className="mt-1 text-2xl font-black uppercase tracking-[0.22em] text-[var(--myth-ink)]">Loading Calendar</h2>
                         </div>
                     </div>
                 </div>
@@ -803,13 +803,13 @@ export default function ActivityCalendar() {
     }
 
     return (
-        <div className="myth-shell min-h-screen bg-[#080705] px-4 py-6 text-white sm:px-6 sm:py-8">
+        <div className="myth-shell min-h-screen bg-[var(--myth-bg)] px-4 py-6 text-[var(--myth-ink)] sm:px-6 sm:py-8">
             <div className="mx-auto max-w-7xl">
                 <div className="command-panel mb-8 rounded-[2.2rem] p-6 sm:p-8">
                     <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
                         <div>
                             <p className="myth-kicker">Activity Calendar</p>
-                            <h1 className="mt-2 text-4xl text-white sm:text-5xl">Operational Daybook</h1>
+                            <h1 className="mt-2 text-4xl text-[var(--myth-ink)] sm:text-5xl">Operational Daybook</h1>
                             <p className="mt-4 max-w-3xl text-sm leading-relaxed text-[var(--myth-muted)] sm:text-base">
                                 Switch between day, week, and month views to see exactly what has been done across permits, incidents, health logs, inspections, emergency events, committee meetings, and CAPA actions.
                             </p>
