@@ -78,27 +78,40 @@ const FAQ = [
 /**
  * TUTORIALS — video card data.
  *
- * To make a video live, set ONE of:
- *   ytId:      YouTube video ID (e.g. 'dQw4w9WgXcQ')  → embeds YouTube player
- *   videoSrc:  Public path to a self-hosted MP4        → uses HTML5 <video>
- *              e.g. '/tutorials/onboarding.mp4'
- *              (copy the file from artifacts/videos/tutorials/ to public/tutorials/)
+ * videoSrc: public path served by Vite from the /public folder
+ * thumb:    screenshot extracted at 5s via ffmpeg-static (public/thumbnails/)
+ * ytId:     YouTube video ID when uploaded
  *
- * When both are null the card shows a "Coming Soon" badge and is not clickable.
+ * Coming-soon entries (ytId + videoSrc both null) show a "Soon" badge.
  */
 const TUTORIALS = [
+    // ── Featured ─────────────────────────────────────────────────────────────
+    {
+        id: 'platform-intro',
+        category: 'Getting Started',
+        title: 'OHSMS Enterprise — Full Platform Overview',
+        desc: 'A complete walkthrough of all 15+ EHS modules: incidents, HIRA, PTW, LOTO, inspections, training, contractors, audits, and more.',
+        duration: '8:00',
+        icon: 'fa-layer-group',
+        color: '#f97316',
+        featured: true,
+        ytId: null,
+        videoSrc: '/tutorials/intro.mp4',
+        thumb: '/thumbnails/intro.jpg',
+    },
+    // ── Getting Started ───────────────────────────────────────────────────────
     {
         id: 'onboarding',
         category: 'Getting Started',
         title: 'How to Onboard an Organisation',
-        desc: 'Step-by-step walkthrough: configure Firebase, create your workspace, and invite your team — all in under 5 minutes.',
+        desc: 'Configure your database, create your workspace, and invite your team — all in under 5 minutes.',
         duration: '5:20',
         icon: 'fa-rocket',
-        color: '#f97316',
-        featured: true,
+        color: '#fb923c',
+        featured: false,
         ytId: null,
-        videoSrc: null, // set to '/tutorials/onboarding.mp4' after running: npm run video:record:onboarding
-        thumb: null,    // set to a custom thumbnail image path if desired
+        videoSrc: null, // run: npm run video:record:onboarding → copy to public/tutorials/onboarding.mp4
+        thumb: null,
     },
     {
         id: 'firebase-setup',
@@ -113,6 +126,7 @@ const TUTORIALS = [
         videoSrc: null,
         thumb: null,
     },
+    // ── EHS Modules ───────────────────────────────────────────────────────────
     {
         id: 'incident-reporting',
         category: 'EHS Modules',
@@ -123,8 +137,21 @@ const TUTORIALS = [
         color: '#ef4444',
         featured: false,
         ytId: null,
-        videoSrc: null,
-        thumb: null,
+        videoSrc: '/tutorials/incident.mp4',
+        thumb: '/thumbnails/incident.jpg',
+    },
+    {
+        id: 'risk-hira',
+        category: 'EHS Modules',
+        title: 'Risk Assessment (HIRA)',
+        desc: 'Task-based HIRA with hazard scoring, ALARP review, revision history, and one-click PDF export.',
+        duration: '7:00',
+        icon: 'fa-shield-virus',
+        color: '#a855f7',
+        featured: false,
+        ytId: null,
+        videoSrc: '/tutorials/risk.mp4',
+        thumb: '/thumbnails/risk.jpg',
     },
     {
         id: 'ptw',
@@ -136,8 +163,8 @@ const TUTORIALS = [
         color: '#eab308',
         featured: false,
         ytId: null,
-        videoSrc: null,
-        thumb: null,
+        videoSrc: '/tutorials/ptw.mp4',
+        thumb: '/thumbnails/ptw.jpg',
     },
     {
         id: 'loto',
@@ -149,9 +176,23 @@ const TUTORIALS = [
         color: '#06b6d4',
         featured: false,
         ytId: null,
-        videoSrc: null,
-        thumb: null,
+        videoSrc: '/tutorials/loto.mp4',
+        thumb: '/thumbnails/loto.jpg',
     },
+    {
+        id: 'training',
+        category: 'EHS Modules',
+        title: 'Training Management',
+        desc: 'Certificates, expiry alerts, retraining triggers, contractor induction, and CAPA-linked courses.',
+        duration: '6:00',
+        icon: 'fa-person-chalkboard',
+        color: '#6366f1',
+        featured: false,
+        ytId: null,
+        videoSrc: '/tutorials/training.mp4',
+        thumb: '/thumbnails/training.jpg',
+    },
+    // ── Operations ────────────────────────────────────────────────────────────
     {
         id: 'inspections',
         category: 'Operations',
@@ -162,8 +203,34 @@ const TUTORIALS = [
         color: '#22c55e',
         featured: false,
         ytId: null,
-        videoSrc: null,
-        thumb: null,
+        videoSrc: '/tutorials/inspections.mp4',
+        thumb: '/thumbnails/inspections.jpg',
+    },
+    {
+        id: 'emergency-response',
+        category: 'Operations',
+        title: 'Emergency Response & Drills',
+        desc: 'Record mock drills, lessons learned, response times, action plans, and training links.',
+        duration: '5:15',
+        icon: 'fa-tower-broadcast',
+        color: '#f43f5e',
+        featured: false,
+        ytId: null,
+        videoSrc: '/tutorials/emergency.mp4',
+        thumb: '/thumbnails/emergency.jpg',
+    },
+    {
+        id: 'emergency-equipment',
+        category: 'Operations',
+        title: 'Emergency Equipment',
+        desc: 'Tag every extinguisher, AED, spill kit, and SCBA. Monthly inspection checklists with overdue alerts.',
+        duration: '4:50',
+        icon: 'fa-fire-extinguisher',
+        color: '#f59e0b',
+        featured: false,
+        ytId: null,
+        videoSrc: '/tutorials/emergency-equipment.mp4',
+        thumb: '/thumbnails/emergency-equipment.jpg',
     },
     {
         id: 'contractors',
@@ -175,8 +242,21 @@ const TUTORIALS = [
         color: '#84cc16',
         featured: false,
         ytId: null,
-        videoSrc: null,
-        thumb: null,
+        videoSrc: '/tutorials/contractors.mp4',
+        thumb: '/thumbnails/contractors.jpg',
+    },
+    {
+        id: 'vendor-portal',
+        category: 'Operations',
+        title: 'Vendor Portal',
+        desc: 'Contractor self-service area: view permits, upload documents, log incidents, and check worker records.',
+        duration: '4:30',
+        icon: 'fa-building-user',
+        color: '#10b981',
+        featured: false,
+        ytId: null,
+        videoSrc: '/tutorials/vendor-portal.mp4',
+        thumb: '/thumbnails/vendor-portal.jpg',
     },
     {
         id: 'audit-capa',
