@@ -16,7 +16,7 @@
  *  10. Footer                 — dark navy + contact details
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ChevronDown, ChevronUp } from 'lucide-react';
 
@@ -350,6 +350,14 @@ export default function LandingPage() {
             showToast(`"${tut.title}" is being recorded — subscribe for updates!`, tut.color);
         }
     };
+
+    // Close modal on Escape key
+    useEffect(() => {
+        if (!videoModal) return;
+        const onKey = (e) => { if (e.key === 'Escape') setVideoModal(null); };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+    }, [videoModal]);
 
     const toggleFaq = (i) => setActiveIndex(prev => (prev === i ? null : i));
     const scrollTo  = (id) => { document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' }); setMobileMenu(false); };
@@ -1213,58 +1221,97 @@ export default function LandingPage() {
             )}
 
             {/* ══════════════════════════════════════════════════
-                VIDEO MODAL — full-screen overlay
+                VIDEO MODAL — true full-screen player
+                Close: click ✕ button · press Escape · click backdrop
             ══════════════════════════════════════════════════ */}
             {videoModal && (
-                <div
-                    className="fixed inset-0 z-[99999] flex items-center justify-center p-4"
-                    style={{ background: 'rgba(0,0,0,0.88)', backdropFilter: 'blur(8px)' }}
-                    onClick={() => setVideoModal(null)}>
-                    <div
-                        className="w-full max-w-2xl rounded-2xl overflow-hidden relative"
-                        style={{ border: `1px solid ${videoModal.color}30`, boxShadow: `0 40px 100px rgba(0,0,0,0.7), 0 0 0 1px ${videoModal.color}15` }}
-                        onClick={e => e.stopPropagation()}>
+                <div className="fixed inset-0 z-[99999] flex flex-col" style={{ background: '#000' }}>
 
-                        {/* ── Video player: YouTube embed ── */}
+                    {/* ── floating close button (top-right) ── */}
+                    <button
+                        type="button"
+                        onClick={() => setVideoModal(null)}
+                        title="Close (Esc)"
+                        className="absolute top-4 right-4 z-10 w-11 h-11 rounded-full flex items-center justify-center border-none cursor-pointer transition-all duration-200 hover:scale-110 hover:bg-white/20"
+                        style={{
+                            background: 'rgba(0,0,0,0.6)',
+                            border: '1px solid rgba(255,255,255,0.25)',
+                            color: '#fff',
+                            backdropFilter: 'blur(10px)',
+                            boxShadow: '0 4px 20px rgba(0,0,0,0.5)',
+                        }}>
+                        <i className="fas fa-xmark text-lg" />
+                    </button>
+
+                    {/* ── Escape hint (top-left) ── */}
+                    <div className="absolute top-5 left-5 z-10 pointer-events-none">
+                        <span className="text-[11px] font-semibold px-3 py-1.5 rounded-full"
+                            style={{ background: 'rgba(0,0,0,0.55)', color: 'rgba(255,255,255,0.45)',
+                                border: '1px solid rgba(255,255,255,0.12)', backdropFilter: 'blur(8px)' }}>
+                            <i className="fas fa-keyboard mr-1.5 opacity-60" />Press <kbd style={{ fontFamily: 'inherit' }}>Esc</kbd> to close
+                        </span>
+                    </div>
+
+                    {/* ── video area — fills entire screen above the info bar ── */}
+                    <div className="flex-1 relative bg-black flex items-center justify-center overflow-hidden"
+                        onClick={() => setVideoModal(null)}>
+
+                        {/* YouTube embed */}
                         {videoModal.ytId && (
-                            <div className="relative" style={{ paddingBottom: '56.25%' }}>
-                                <iframe
-                                    className="absolute inset-0 w-full h-full"
-                                    src={`https://www.youtube.com/embed/${videoModal.ytId}?autoplay=1&rel=0`}
-                                    title={videoModal.title}
-                                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                                    allowFullScreen
-                                />
-                            </div>
+                            <iframe
+                                className="absolute inset-0 w-full h-full"
+                                src={`https://www.youtube.com/embed/${videoModal.ytId}?autoplay=1&rel=0&modestbranding=1`}
+                                title={videoModal.title}
+                                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen"
+                                allowFullScreen
+                                onClick={e => e.stopPropagation()}
+                                style={{ border: 'none' }}
+                            />
                         )}
 
-                        {/* ── Video player: self-hosted MP4 ── */}
+                        {/* Self-hosted MP4 */}
                         {!videoModal.ytId && videoModal.videoSrc && (
                             <video
-                                className="w-full block"
-                                style={{ maxHeight: '60vh', background: '#000' }}
+                                className="w-full h-full"
+                                style={{ objectFit: 'contain', background: '#000' }}
                                 src={videoModal.videoSrc}
                                 controls
                                 autoPlay
                                 playsInline
+                                onClick={e => e.stopPropagation()}
                             />
                         )}
+                    </div>
 
-                        {/* modal info bar */}
-                        <div className="px-6 py-4 flex items-center justify-between gap-4"
-                            style={{ background: '#0d1117', borderTop: '1px solid rgba(255,255,255,0.07)' }}>
+                    {/* ── info bar (bottom) ── */}
+                    <div className="flex-shrink-0 flex items-center justify-between gap-4 px-6 h-14"
+                        style={{ background: '#0a0d12', borderTop: `2px solid ${videoModal.color}35` }}>
+
+                        {/* left: module icon + title + meta */}
+                        <div className="flex items-center gap-3 min-w-0">
+                            <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
+                                style={{ background: `${videoModal.color}22`, border: `1px solid ${videoModal.color}40` }}>
+                                <i className={`fas ${videoModal.icon} text-sm`} style={{ color: videoModal.color }} />
+                            </div>
                             <div className="min-w-0">
-                                <p className="text-[0.85rem] font-bold text-white truncate">{videoModal.title}</p>
-                                <p className="text-[0.75rem] mt-0.5 truncate" style={{ color: 'rgba(255,255,255,0.38)' }}>
-                                    <i className="fas fa-clock mr-1" />{videoModal.duration} · {videoModal.category}
+                                <p className="text-[0.88rem] font-bold text-white truncate leading-tight">{videoModal.title}</p>
+                                <p className="text-[0.72rem] truncate leading-tight" style={{ color: 'rgba(255,255,255,0.4)' }}>
+                                    <i className="fas fa-clock mr-1 opacity-60" />{videoModal.duration}
+                                    <span className="mx-1.5 opacity-30">·</span>
+                                    {videoModal.category}
                                 </p>
                             </div>
-                            <button type="button" onClick={() => setVideoModal(null)}
-                                className="flex-shrink-0 w-8 h-8 rounded-lg flex items-center justify-center border-none cursor-pointer transition-all hover:bg-white/10"
-                                style={{ background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.55)' }}>
-                                <i className="fas fa-xmark" />
-                            </button>
                         </div>
+
+                        {/* right: close button */}
+                        <button type="button" onClick={() => setVideoModal(null)}
+                            className="flex-shrink-0 flex items-center gap-2 px-4 py-2 rounded-xl border-none cursor-pointer transition-all duration-200 hover:bg-white/10 text-[0.82rem] font-semibold"
+                            style={{ background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.55)',
+                                border: '1px solid rgba(255,255,255,0.1)' }}>
+                            <i className="fas fa-xmark" />
+                            Close
+                            <span className="text-[10px] opacity-40 ml-0.5 hidden sm:inline">ESC</span>
+                        </button>
                     </div>
                 </div>
             )}
