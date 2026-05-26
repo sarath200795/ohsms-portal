@@ -316,7 +316,7 @@ export default function AppExperienceShell({ children }) {
             )}
 
             {tutorialPrompt && (
-                <div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/85 p-4 backdrop-blur-sm">
+                <div className="fixed inset-0 z-[120] flex items-center justify-center p-4" style={{ background: 'rgba(15,23,42,0.7)' }}>
                     <div className="command-panel relative w-full max-w-4xl rounded-[2rem] p-5 sm:p-6">
                         <button
                             type="button"
@@ -328,11 +328,11 @@ export default function AppExperienceShell({ children }) {
 
                         <div className="pr-12">
                             <p className="myth-kicker">Module Tutorial</p>
-                            <h2 className="mt-2 text-3xl text-white">{tutorialPrompt.title}</h2>
+                            <h2 className="mt-2 text-2xl text-[var(--myth-ink)]">{tutorialPrompt.title}</h2>
                             <p className="mt-3 max-w-3xl text-sm leading-relaxed text-[var(--myth-muted)]">
                                 {tutorialPrompt.description}
                             </p>
-                            <p className="mt-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--myth-gold)]">
+                            <p className="mt-3 text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--myth-ember)]">
                                 This prompt appears once for this module.
                             </p>
                         </div>

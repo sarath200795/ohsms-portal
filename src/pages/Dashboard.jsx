@@ -101,7 +101,7 @@ const NavCard = ({ module, actions = [], onClick, index = 0 }) => {
                 style={{ background: `radial-gradient(circle at 12% 12%, ${tint}, transparent 68%)`, opacity: 0.7 }}
             />
 
-            <div className="absolute inset-x-6 top-0 h-px bg-gradient-to-r from-transparent via-[rgba(242,201,120,0.35)] to-transparent"></div>
+            <div className="absolute inset-x-6 top-0 h-px bg-gradient-to-r from-transparent via-[rgba(249,115,22,0.25)] to-transparent"></div>
 
             <div className="relative z-10 flex items-start justify-between gap-4">
                 <div className="flex items-start gap-4">
@@ -110,16 +110,16 @@ const NavCard = ({ module, actions = [], onClick, index = 0 }) => {
                     </div>
                     <div>
                         <p className="myth-kicker">{module.id}</p>
-                        <h3 className="mt-2 text-3xl text-white">{module.label}</h3>
+                        <h3 className="mt-2 text-2xl text-[var(--myth-ink)]">{module.label}</h3>
                     </div>
                 </div>
 
                 {actions.length > 0 ? (
-                    <span className="war-chip !border-[rgba(215,131,57,0.3)] !bg-[rgba(88,37,19,0.55)] !text-[var(--myth-ember)]">
+                    <span className="war-chip !border-[rgba(249,115,22,0.3)] !bg-[rgba(255,247,237,0.95)] !text-[var(--myth-ember)]">
                         {actions.length} active
                     </span>
                 ) : (
-                    <span className="war-chip !text-[var(--myth-muted)]">standby</span>
+                    <span className="war-chip !border-[rgba(203,213,225,0.6)] !bg-[rgba(248,250,252,0.9)] !text-[var(--myth-muted)]">standby</span>
                 )}
             </div>
 
@@ -129,7 +129,7 @@ const NavCard = ({ module, actions = [], onClick, index = 0 }) => {
                 </p>
 
                 {actions.length > 0 ? (
-                    <div className="mt-5 rounded-[1.3rem] border border-[rgba(242,201,120,0.12)] bg-[rgba(12,10,8,0.68)] p-4">
+                    <div className="mt-5 rounded-[1.3rem] border border-[rgba(249,115,22,0.12)] bg-[rgba(255,247,237,0.7)] p-4">
                         <p className="myth-kicker mb-3 text-[10px]">Priority Queue</p>
                         <div className="space-y-2">
                             {topActions.map((act, i) => (
@@ -146,11 +146,11 @@ const NavCard = ({ module, actions = [], onClick, index = 0 }) => {
                         </div>
                     </div>
                 ) : (
-                    <div className="mt-6 flex items-center justify-between border-t border-[rgba(242,201,120,0.12)] pt-4">
+                    <div className="mt-6 flex items-center justify-between border-t border-[rgba(249,115,22,0.1)] pt-4">
                         <span className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[var(--myth-muted)]">
                             No queued tasks
                         </span>
-                        <span className="flex h-10 w-10 items-center justify-center rounded-full border border-[rgba(242,201,120,0.14)] bg-[rgba(10,8,6,0.72)] text-[var(--myth-gold)] transition-all duration-300 group-hover:translate-x-1 group-hover:border-[rgba(242,201,120,0.3)]">
+                        <span className="flex h-10 w-10 items-center justify-center rounded-full border border-[rgba(249,115,22,0.2)] bg-[rgba(255,247,237,0.9)] text-[var(--myth-ember)] transition-all duration-300 group-hover:translate-x-1 group-hover:border-[rgba(249,115,22,0.4)]">
                             <i className="fas fa-arrow-right"></i>
                         </span>
                     </div>
@@ -503,12 +503,12 @@ export default function Dashboard() {
 
     if (localLoading) {
         return (
-            <div className="myth-shell flex h-screen flex-col items-center justify-center bg-[#031218] px-6 text-[var(--myth-ink)]">
+            <div className="myth-shell flex h-screen flex-col items-center justify-center px-6 text-[var(--myth-ink)]">
                 <div className="command-panel flex items-center gap-4 rounded-[1.8rem] px-8 py-6">
-                    <div className="h-12 w-12 animate-spin rounded-full border-4 border-[rgba(242,201,120,0.12)] border-t-[var(--myth-ember)]"></div>
+                    <div className="h-12 w-12 animate-spin rounded-full border-4 border-[rgba(249,115,22,0.15)] border-t-[var(--myth-ember)]"></div>
                     <div>
-                        <p className="myth-kicker">Command Sync</p>
-                        <p className="mt-1 text-lg font-semibold text-white">Loading Workspace</p>
+                        <p className="myth-kicker">Loading</p>
+                        <p className="mt-1 text-lg font-semibold text-[var(--myth-ink)]">Loading Workspace</p>
                     </div>
                 </div>
             </div>
@@ -522,7 +522,7 @@ export default function Dashboard() {
     const greeting = getDayGreeting();
 
     return (
-        <div className="myth-shell relative flex h-screen flex-col overflow-hidden bg-[#031218] text-white">
+        <div className="myth-shell relative flex h-screen flex-col overflow-hidden text-[var(--myth-ink)]">
 
             {/* FLOATING ACTION BUTTON */}
             <div className="fixed bottom-8 right-8 z-50 flex flex-col items-end gap-3">
@@ -636,7 +636,7 @@ export default function Dashboard() {
                             <select
                                 value={selectedSite}
                                 onChange={handleSiteChange}
-                                className="w-44 cursor-pointer bg-transparent text-sm font-bold text-white outline-none"
+                                className="w-44 cursor-pointer bg-transparent text-sm font-bold text-[var(--myth-ink)] outline-none"
                             >
                                 {isGlobalAdmin && <option value="GLOBAL">Global View (All Sites)</option>}
                                 {sites.map(s => <option key={s.code} value={s.code}>{s.name} ({s.code})</option>)}
@@ -650,8 +650,8 @@ export default function Dashboard() {
                             {myActions.length > 0 && <span className="absolute -right-1 -top-1 flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-[var(--myth-ember)] px-1 text-[10px] font-bold text-[#140e08]">{myActions.length}</span>}
                         </button>
                         <div className="myth-surface-soft hidden rounded-2xl px-4 py-2 text-right md:block">
-                            <p className="text-sm font-bold text-white">{session?.name || session?.email}</p>
-                            <p className="text-[10px] uppercase tracking-[0.22em] text-[var(--myth-cyan)]">{session?.role}</p>
+                            <p className="text-sm font-bold text-[var(--myth-ink)]">{session?.name || session?.email}</p>
+                            <p className="text-[10px] uppercase tracking-[0.1em] text-[var(--myth-ember)]">{session?.role}</p>
                         </div>
                         <button
                             type="button"
@@ -704,7 +704,7 @@ export default function Dashboard() {
                                             {myActions.length} action{myActions.length > 1 ? 's' : ''} required
                                         </button>
                                     ) : (
-                                        <span className="war-chip !bg-[rgba(18,45,31,0.48)] !text-[#8fd0aa] !border-[rgba(113,188,149,0.28)]">
+                                        <span className="war-chip !bg-[rgba(240,253,244,0.95)] !text-[#16a34a] !border-[rgba(34,197,94,0.3)]">
                                             All systems clear
                                         </span>
                                     )}
@@ -771,7 +771,7 @@ export default function Dashboard() {
                         <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
                             <div>
                                 <p className="myth-kicker">Operational Modules</p>
-                                <h3 className="text-4xl text-white">Command Stations</h3>
+                                <h3 className="text-4xl text-[var(--myth-ink)]">Command Stations</h3>
                                 <p className="text-sm text-[var(--myth-muted)]">
                                     Each station opens with your selected site context and live authorization state.
                                 </p>
@@ -782,7 +782,7 @@ export default function Dashboard() {
                                 <select
                                     value={selectedSite}
                                     onChange={handleSiteChange}
-                                    className="min-w-[180px] bg-transparent font-bold text-white outline-none"
+                                    className="min-w-[180px] bg-transparent font-bold text-[var(--myth-ink)] outline-none"
                                 >
                                     {isGlobalAdmin && <option value="GLOBAL">Global View (All Sites)</option>}
                                     {sites.map(s => <option key={s.code} value={s.code}>{s.name} ({s.code})</option>)}
