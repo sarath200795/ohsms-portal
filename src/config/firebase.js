@@ -12,7 +12,7 @@ const env = typeof import.meta !== 'undefined' ? import.meta.env : {};
 // We read that here at module-load time so the app switches databases on reload
 // without requiring a new build or environment-variable redeploy.
 //
-// Priority: localStorage → VITE_ env vars → built-in fallback defaults
+// Priority: localStorage → VITE_ env vars (no hardcoded fallback credentials)
 const _runtimeFirebaseConfig = (() => {
   try {
     const stored = localStorage.getItem('ohsms_firebase_config');
@@ -21,14 +21,26 @@ const _runtimeFirebaseConfig = (() => {
   return null;
 })();
 
+// ── Warn if no credentials are configured ───────────────────────────────────
+// This fires in the browser console when neither the /setup wizard nor the
+// VITE_FIREBASE_* environment variables have provided a Firebase project.
+if (typeof window !== 'undefined' && !env.VITE_FIREBASE_API_KEY && !_runtimeFirebaseConfig) {
+  console.warn(
+    '[OHSMS] No Firebase credentials found.\n' +
+    '  • Development: copy .env.example → .env and fill in your Firebase project values.\n' +
+    '  • Production:  set VITE_FIREBASE_* environment variables in your hosting provider.\n' +
+    '  • Or:          use the Database Setup wizard at /setup to connect via the UI.'
+  );
+}
+
 export const firebaseConfig = _runtimeFirebaseConfig || {
-  apiKey: env.VITE_FIREBASE_API_KEY || "AIzaSyBHqeQN4s9PA5UUDfLtAajVkoRK2BrRjwk",
-  authDomain: env.VITE_FIREBASE_AUTH_DOMAIN || "ohsms-3894f.firebaseapp.com",
-  databaseURL: env.VITE_FIREBASE_DATABASE_URL || "https://ohsms-3894f-default-rtdb.firebaseio.com/",
-  projectId: env.VITE_FIREBASE_PROJECT_ID || "ohsms-3894f",
-  storageBucket: env.VITE_FIREBASE_STORAGE_BUCKET || "ohsms-3894f.firebasestorage.app",
-  messagingSenderId: env.VITE_FIREBASE_MESSAGING_SENDER_ID || "871919638023",
-  appId: env.VITE_FIREBASE_APP_ID || "1:871919638023:web:69d325f99f71af7a337ca2"
+  apiKey:            env.VITE_FIREBASE_API_KEY             || '',
+  authDomain:        env.VITE_FIREBASE_AUTH_DOMAIN         || '',
+  databaseURL:       env.VITE_FIREBASE_DATABASE_URL        || '',
+  projectId:         env.VITE_FIREBASE_PROJECT_ID          || '',
+  storageBucket:     env.VITE_FIREBASE_STORAGE_BUCKET      || '',
+  messagingSenderId: env.VITE_FIREBASE_MESSAGING_SENDER_ID || '',
+  appId:             env.VITE_FIREBASE_APP_ID              || '',
 };
 
 // Initialize Firebase
@@ -47,7 +59,7 @@ if (typeof window !== 'undefined' && appCheckSiteKey) {
   }
 }
 
-// Initialize Authentication 
+// Initialize Authentication
 export const auth = getAuth(app);
 
 // Initialize Realtime Database
