@@ -110,8 +110,8 @@ const TUTORIALS = [
         color: '#fb923c',
         featured: false,
         ytId: null,
-        videoSrc: null, // run: npm run video:record:onboarding → copy to public/tutorials/onboarding.mp4
-        thumb: null,
+        videoSrc: '/tutorials/onboarding.mp4',
+        thumb: '/thumbnails/onboarding.jpg',
     },
     {
         id: 'firebase-setup',
@@ -123,8 +123,8 @@ const TUTORIALS = [
         color: '#fbbf24',
         featured: false,
         ytId: null,
-        videoSrc: null,
-        thumb: null,
+        videoSrc: '/tutorials/firebase-setup.mp4',
+        thumb: '/thumbnails/firebase-setup.jpg',
     },
     // ── EHS Modules ───────────────────────────────────────────────────────────
     {
@@ -268,8 +268,8 @@ const TUTORIALS = [
         color: '#0ea5e9',
         featured: false,
         ytId: null,
-        videoSrc: null,
-        thumb: null,
+        videoSrc: '/tutorials/audit-capa.mp4',
+        thumb: '/thumbnails/audit-capa.jpg',
     },
 ];
 
@@ -839,10 +839,10 @@ export default function LandingPage() {
                                                     </p>
                                                     <code className="text-[11px] block px-3 py-2 rounded-lg"
                                                         style={{ background: 'rgba(0,0,0,0.4)', color: '#fbbf24', fontFamily: '"JetBrains Mono",monospace', border: '1px solid rgba(249,115,22,0.2)' }}>
-                                                        npm run video:record:onboarding
+                                                        npm run video:record:requested-tutorials
                                                     </code>
                                                     <p className="text-[10px] mt-2" style={{ color: 'rgba(255,255,255,0.3)' }}>
-                                                        Then copy the MP4 to public/tutorials/onboarding.mp4
+                                                        Generated MP4s are copied into public/tutorials automatically.
                                                     </p>
                                                 </div>
                                             )}

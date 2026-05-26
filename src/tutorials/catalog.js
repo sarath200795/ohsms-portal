@@ -9,6 +9,24 @@ export const TUTORIAL_CATALOG = [
         routePrefixes: []
     },
     {
+        id: 'organization-onboarding',
+        title: 'Organisation Onboarding Tutorial',
+        description: 'Create the workspace, first Global Owner account, and team invitation path after setup.',
+        category: 'Platform',
+        duration: '02:30',
+        videoUrl: '/tutorial-videos/getting-started/organization-onboarding-tutorial.mp4',
+        routePrefixes: []
+    },
+    {
+        id: 'database-connection',
+        title: 'Database Connection Tutorial',
+        description: 'Choose Firebase or REST, paste configuration, publish rules, test the adapter, and continue setup.',
+        category: 'Platform',
+        duration: '02:30',
+        videoUrl: '/tutorial-videos/getting-started/database-connection-tutorial.mp4',
+        routePrefixes: []
+    },
+    {
         id: 'incidents',
         title: 'Incidents Module Tutorial',
         description: 'Report incidents, complete investigation steps, raise CAPA, and connect actions back to risk and training.',
@@ -52,6 +70,15 @@ export const TUTORIAL_CATALOG = [
         duration: '02:07',
         videoUrl: '/tutorial-videos/module-deep-dives/contractors-module-live-tutorial.mp4',
         routePrefixes: ['/contractors']
+    },
+    {
+        id: 'audit-capa',
+        title: 'Audit and CAPA Tutorial',
+        description: 'Plan audits, record findings, capture auditee responses, and manage follow-up in the CAPA register.',
+        category: 'Enterprise Modules',
+        duration: '02:30',
+        videoUrl: '/tutorial-videos/module-deep-dives/audit-capa-module-live-tutorial.mp4',
+        routePrefixes: ['/audit', '/capa']
     },
     {
         id: 'ptw',

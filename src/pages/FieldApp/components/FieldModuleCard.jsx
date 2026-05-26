@@ -29,7 +29,7 @@ export default function FieldModuleCard({ module, onOpen, siteLabel }) {
                             <span>{module.entryBadge}</span>
                         </div>
                     )}
-                    <h3 className="mb-2 text-4xl tracking-tight text-white transition-colors group-hover:text-white">
+                    <h3 className="mb-2 text-4xl tracking-tight text-[var(--myth-ink)] transition-colors">
                         {module.label}
                     </h3>
                     <p className="text-sm leading-relaxed text-[var(--myth-muted)]">

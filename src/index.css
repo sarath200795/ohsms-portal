@@ -847,6 +847,8 @@ table tbody tr:hover {
   background-color: #f8fafc !important;
 }
 
+.bg-slate-900\/20,
+.bg-slate-900\/30,
 .bg-slate-900\/40,
 .bg-slate-900\/50,
 .bg-slate-900\/60,
@@ -860,6 +862,8 @@ table tbody tr:hover {
   -webkit-backdrop-filter: none !important;
 }
 
+.bg-slate-900\/20,
+.bg-slate-900\/30,
 .bg-slate-900\/40 {
   background-color: rgba(248, 250, 252, 0.94) !important;
 }
@@ -871,6 +875,8 @@ table tbody tr:hover {
 
 .bg-slate-900\/80,
 .bg-slate-900\/90,
+.bg-slate-950\/30,
+.bg-slate-950\/40,
 .bg-slate-950\/50,
 .bg-slate-950\/60,
 .bg-slate-950\/70,
@@ -946,6 +952,8 @@ table tbody tr:hover {
 
 /* Dark divide → light */
 .divide-slate-800 > :not([hidden]) ~ :not([hidden]),
+.divide-slate-800\/80 > :not([hidden]) ~ :not([hidden]),
+.divide-slate-800\/50 > :not([hidden]) ~ :not([hidden]),
 .divide-slate-700 > :not([hidden]) ~ :not([hidden]) {
   border-color: rgba(226, 232, 240, 0.8) !important;
 }
@@ -954,6 +962,21 @@ table tbody tr:hover {
 .border-slate-600 {
   border-color: rgba(203, 213, 225, 0.8) !important;
 }
+
+/* Solid dark-900 chip backgrounds → light pastel equivalents */
+.bg-red-900     { background-color: rgba(254, 226, 226, 1) !important; }
+.bg-green-900   { background-color: rgba(220, 252, 231, 1) !important; }
+.bg-blue-900    { background-color: rgba(219, 234, 254, 1) !important; }
+.bg-purple-900  { background-color: rgba(243, 232, 255, 1) !important; }
+.bg-yellow-900  { background-color: rgba(254, 249, 195, 1) !important; }
+.bg-orange-900  { background-color: rgba(255, 237, 213, 1) !important; }
+.bg-emerald-900 { background-color: rgba(209, 250, 229, 1) !important; }
+.bg-cyan-900    { background-color: rgba(207, 250, 254, 1) !important; }
+.bg-indigo-900  { background-color: rgba(224, 231, 255, 1) !important; }
+.bg-teal-900    { background-color: rgba(204, 251, 241, 1) !important; }
+.bg-rose-900    { background-color: rgba(255, 228, 230, 1) !important; }
+.bg-amber-900   { background-color: rgba(254, 243, 199, 1) !important; }
+.bg-sky-900     { background-color: rgba(224, 242, 254, 1) !important; }
 
 /* Dark chip / badge backgrounds → light pastel equivalents */
 .bg-red-900\/50 { background-color: rgba(254, 242, 242, 0.95) !important; }
@@ -983,6 +1006,19 @@ table tbody tr:hover {
 .text-purple-300 { color: #7c3aed !important; }
 .text-indigo-300 { color: #4338ca !important; }
 
+/* Light-tinted colors → darken for better contrast on white backgrounds */
+.text-yellow-400 { color: #a16207 !important; }
+.text-yellow-300 { color: #854d0e !important; }
+.text-lime-400 { color: #4d7c0f !important; }
+.text-lime-300 { color: #3f6212 !important; }
+.text-amber-300 { color: #92400e !important; }
+.text-sky-300 { color: #0369a1 !important; }
+.text-teal-300 { color: #0f766e !important; }
+.text-rose-300 { color: #be123c !important; }
+.text-pink-300 { color: #9d174d !important; }
+.text-violet-300 { color: #5b21b6 !important; }
+.text-fuchsia-300 { color: #86198f !important; }
+
 /* Dark panel/card backgrounds in Audit and similar pages */
 .bg-slate-900\/40 { background-color: rgba(248, 250, 252, 0.94) !important; }
 
@@ -994,6 +1030,205 @@ table tbody tr:hover {
 .shadow-emerald-900\/50 { --tw-shadow-color: rgba(209, 250, 229, 0.5) !important; }
 .shadow-cyan-600\/20 { --tw-shadow-color: rgba(207, 250, 254, 0.2) !important; }
 .shadow-blue-900\/30 { --tw-shadow-color: rgba(219, 234, 254, 0.3) !important; }
+.shadow-red-900\/50 { --tw-shadow-color: rgba(254, 226, 226, 0.5) !important; }
+
+/* ─── hover:text-white / group-hover:text-white → dark on light bg (prevents invisible text on hover) ─── */
+.hover\:text-white:hover,
+.group:hover .group-hover\:text-white {
+  color: var(--myth-ink) !important;
+}
+
+/* Exception: elements that also get a colored bg on hover keep white text */
+.hover\:bg-red-600.hover\:text-white:hover,
+.hover\:bg-red-500.hover\:text-white:hover,
+.hover\:bg-blue-600.hover\:text-white:hover,
+.hover\:bg-blue-500.hover\:text-white:hover,
+.hover\:bg-emerald-600.hover\:text-white:hover,
+.hover\:bg-emerald-500.hover\:text-white:hover,
+.hover\:bg-orange-600.hover\:text-white:hover,
+.hover\:bg-orange-500.hover\:text-white:hover,
+.hover\:bg-indigo-600.hover\:text-white:hover,
+.hover\:bg-indigo-500.hover\:text-white:hover,
+.hover\:bg-purple-600.hover\:text-white:hover,
+.hover\:bg-purple-500.hover\:text-white:hover,
+.hover\:bg-teal-600.hover\:text-white:hover,
+.hover\:bg-teal-500.hover\:text-white:hover,
+.hover\:bg-cyan-600.hover\:text-white:hover,
+.hover\:bg-cyan-500.hover\:text-white:hover,
+.hover\:bg-amber-500.hover\:text-white:hover,
+.hover\:bg-amber-600.hover\:text-white:hover,
+.hover\:bg-sky-500.hover\:text-white:hover,
+.hover\:bg-sky-600.hover\:text-white:hover,
+.hover\:bg-rose-500.hover\:text-white:hover,
+.hover\:bg-rose-600.hover\:text-white:hover,
+.hover\:bg-violet-600.hover\:text-white:hover,
+.hover\:bg-green-600.hover\:text-white:hover,
+.hover\:bg-green-500.hover\:text-white:hover,
+.hover\:bg-lime-600.hover\:text-white:hover,
+.hover\:bg-fuchsia-600.hover\:text-white:hover,
+.hover\:bg-pink-600.hover\:text-white:hover,
+.hover\:bg-yellow-500.hover\:text-white:hover {
+  color: #ffffff !important;
+}
+
+/* ─── Additional missing rgba dark bg → light overrides ─── */
+.bg-\[rgba\(8\,7\,5\,0\.55\)\],
+.bg-\[rgba\(6\,5\,4\,0\.58\)\],
+.bg-\[rgba\(8\,7\,5\,0\.7\)\],
+.bg-\[rgba\(8\,7\,5\,0\.85\)\] {
+  background-color: rgba(241, 245, 249, 0.92) !important;
+}
+
+/* More slate-800 opacity variants */
+.bg-slate-800\/40 { background-color: rgba(226, 232, 240, 0.7) !important; }
+.bg-slate-800\/60 { background-color: rgba(226, 232, 240, 0.85) !important; }
+.bg-slate-800\/70 { background-color: rgba(226, 232, 240, 0.9) !important; }
+.bg-slate-800\/30 { background-color: rgba(226, 232, 240, 0.5) !important; }
+
+/* Emerald/green dark chip backgrounds */
+.bg-emerald-900\/30 { background-color: rgba(209, 250, 229, 0.7) !important; }
+.bg-emerald-900\/20 { background-color: rgba(209, 250, 229, 0.5) !important; }
+.bg-emerald-900\/50 { background-color: rgba(209, 250, 229, 0.85) !important; }
+.bg-green-900\/20 { background-color: rgba(220, 252, 231, 0.5) !important; }
+.bg-green-900\/30 { background-color: rgba(220, 252, 231, 0.7) !important; }
+
+/* Blue chip backgrounds */
+.bg-blue-900\/20 { background-color: rgba(219, 234, 254, 0.5) !important; }
+.bg-blue-900\/30 { background-color: rgba(219, 234, 254, 0.7) !important; }
+
+/* Purple chip backgrounds */
+.bg-purple-900\/20 { background-color: rgba(243, 232, 255, 0.5) !important; }
+.bg-purple-900\/30 { background-color: rgba(243, 232, 255, 0.7) !important; }
+
+/* Yellow/amber chip backgrounds */
+.bg-yellow-900\/20 { background-color: rgba(254, 249, 195, 0.5) !important; }
+.bg-yellow-900\/30 { background-color: rgba(254, 249, 195, 0.7) !important; }
+
+/* Rose/pink chip backgrounds */
+.bg-rose-900\/20 { background-color: rgba(255, 228, 230, 0.5) !important; }
+.bg-rose-900\/30 { background-color: rgba(255, 228, 230, 0.7) !important; }
+
+/* Teal chip backgrounds */
+.bg-teal-900\/20 { background-color: rgba(204, 251, 241, 0.5) !important; }
+.bg-teal-900\/30 { background-color: rgba(204, 251, 241, 0.7) !important; }
+
+/* Cyan chip backgrounds */
+.bg-cyan-900\/20 { background-color: rgba(207, 250, 254, 0.5) !important; }
+.bg-cyan-900\/30 { background-color: rgba(207, 250, 254, 0.7) !important; }
+
+/* Indigo chip backgrounds */
+.bg-indigo-900\/20 { background-color: rgba(224, 231, 255, 0.5) !important; }
+.bg-indigo-900\/30 { background-color: rgba(224, 231, 255, 0.7) !important; }
+
+/* Sky chip backgrounds */
+.bg-sky-900\/20 { background-color: rgba(224, 242, 254, 0.5) !important; }
+.bg-sky-900\/30 { background-color: rgba(224, 242, 254, 0.7) !important; }
+
+/* ─── *-950 dark backgrounds → light pastels ─── */
+/* Solid 950 */
+.bg-emerald-950  { background-color: rgba(209, 250, 229, 1) !important; }
+.bg-yellow-950   { background-color: rgba(254, 249, 195, 1) !important; }
+.bg-red-950      { background-color: rgba(254, 226, 226, 1) !important; }
+.bg-blue-950     { background-color: rgba(219, 234, 254, 1) !important; }
+.bg-cyan-950     { background-color: rgba(207, 250, 254, 1) !important; }
+.bg-indigo-950   { background-color: rgba(224, 231, 255, 1) !important; }
+.bg-purple-950   { background-color: rgba(243, 232, 255, 1) !important; }
+.bg-orange-950   { background-color: rgba(255, 237, 213, 1) !important; }
+.bg-rose-950     { background-color: rgba(255, 228, 230, 1) !important; }
+.bg-amber-950    { background-color: rgba(254, 243, 199, 1) !important; }
+.bg-teal-950     { background-color: rgba(204, 251, 241, 1) !important; }
+.bg-sky-950      { background-color: rgba(224, 242, 254, 1) !important; }
+.bg-green-950    { background-color: rgba(220, 252, 231, 1) !important; }
+.bg-lime-950     { background-color: rgba(236, 252, 203, 1) !important; }
+.bg-violet-950   { background-color: rgba(237, 233, 254, 1) !important; }
+.bg-fuchsia-950  { background-color: rgba(253, 244, 255, 1) !important; }
+
+/* /10 opacity variants (very light) */
+.bg-emerald-950\/10  { background-color: rgba(209, 250, 229, 0.4) !important; }
+.bg-yellow-950\/10   { background-color: rgba(254, 249, 195, 0.4) !important; }
+.bg-red-950\/10      { background-color: rgba(254, 226, 226, 0.4) !important; }
+.bg-cyan-950\/10     { background-color: rgba(207, 250, 254, 0.4) !important; }
+.bg-blue-950\/10     { background-color: rgba(219, 234, 254, 0.4) !important; }
+.bg-orange-950\/10   { background-color: rgba(255, 237, 213, 0.4) !important; }
+.bg-amber-950\/10    { background-color: rgba(254, 243, 199, 0.4) !important; }
+.bg-indigo-950\/10   { background-color: rgba(224, 231, 255, 0.4) !important; }
+.bg-purple-950\/10   { background-color: rgba(243, 232, 255, 0.4) !important; }
+
+/* /20 opacity variants */
+.bg-emerald-950\/20  { background-color: rgba(209, 250, 229, 0.6) !important; }
+.bg-yellow-950\/20   { background-color: rgba(254, 249, 195, 0.6) !important; }
+.bg-red-950\/20      { background-color: rgba(254, 226, 226, 0.6) !important; }
+.bg-blue-950\/20     { background-color: rgba(219, 234, 254, 0.6) !important; }
+.bg-orange-950\/20   { background-color: rgba(255, 237, 213, 0.6) !important; }
+
+/* /30 opacity variants */
+.bg-emerald-950\/30  { background-color: rgba(209, 250, 229, 0.75) !important; }
+.bg-yellow-950\/30   { background-color: rgba(254, 249, 195, 0.75) !important; }
+.bg-red-950\/30      { background-color: rgba(254, 226, 226, 0.75) !important; }
+.bg-blue-950\/30     { background-color: rgba(219, 234, 254, 0.75) !important; }
+.bg-cyan-950\/30     { background-color: rgba(207, 250, 254, 0.75) !important; }
+.bg-orange-950\/30   { background-color: rgba(255, 237, 213, 0.75) !important; }
+.bg-indigo-950\/30   { background-color: rgba(224, 231, 255, 0.75) !important; }
+
+/* /40 opacity variants */
+.bg-emerald-950\/40  { background-color: rgba(209, 250, 229, 0.85) !important; }
+.bg-yellow-950\/40   { background-color: rgba(254, 249, 195, 0.85) !important; }
+.bg-red-950\/40      { background-color: rgba(254, 226, 226, 0.85) !important; }
+.bg-blue-950\/40     { background-color: rgba(219, 234, 254, 0.85) !important; }
+.bg-cyan-950\/40     { background-color: rgba(207, 250, 254, 0.85) !important; }
+.bg-orange-950\/40   { background-color: rgba(255, 237, 213, 0.85) !important; }
+
+/* /70 opacity variants */
+.bg-red-950\/70      { background-color: rgba(254, 226, 226, 0.92) !important; }
+.bg-emerald-950\/70  { background-color: rgba(209, 250, 229, 0.92) !important; }
+
+/* 950 border overrides */
+.border-emerald-900  { border-color: rgba(167, 243, 208, 0.8) !important; }
+.border-yellow-900   { border-color: rgba(253, 230, 138, 0.8) !important; }
+.border-red-900      { border-color: rgba(252, 165, 165, 0.8) !important; }
+
+/* Gray-800/900 dark backgrounds */
+.bg-gray-900,
+.bg-gray-950,
+.bg-zinc-900,
+.bg-zinc-950,
+.bg-neutral-900 {
+  background-color: #f8fafc !important;
+}
+.bg-gray-800 { background-color: rgba(226, 232, 240, 1) !important; }
+
+/* More text color fixes for dark palette → light-theme readable */
+.text-gray-300 { color: #374151 !important; }
+.text-gray-200 { color: var(--myth-ink) !important; }
+.text-zinc-300 { color: #374151 !important; }
+.text-neutral-300 { color: #374151 !important; }
+.text-slate-500 { color: var(--myth-muted) !important; }
+
+/* Border fixes */
+.border-gray-700,
+.border-gray-800,
+.border-zinc-700,
+.border-zinc-800 {
+  border-color: rgba(226, 232, 240, 0.9) !important;
+}
+
+/* Input and form elements with dark bg */
+input.bg-slate-950,
+input.bg-slate-900,
+textarea.bg-slate-950,
+textarea.bg-slate-900,
+select.bg-slate-950,
+select.bg-slate-900 {
+  background-color: #ffffff !important;
+  color: var(--myth-ink) !important;
+  border-color: rgba(203, 213, 225, 0.8) !important;
+}
+
+/* Scrollbar styling for light theme */
+.custom-scroll::-webkit-scrollbar { width: 6px; }
+.custom-scroll::-webkit-scrollbar-track { background: rgba(241, 245, 249, 0.5); }
+.custom-scroll::-webkit-scrollbar-thumb { background: rgba(203, 213, 225, 0.9); border-radius: 3px; }
+.custom-scroll::-webkit-scrollbar-thumb:hover { background: rgba(148, 163, 184, 0.9); }
 
 /* =========================================
    ENHANCED ANIMATIONS & MICRO-INTERACTIONS
