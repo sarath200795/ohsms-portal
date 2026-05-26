@@ -394,7 +394,7 @@ const segments = [
       }
       if (count > 1) {
         await inputs.nth(1).click().catch(() => {});
-        await inputs.nth(1).type('AIzaSy-DemoKey-1234567890abcdef', { delay: 50 }).catch(() => {});
+        await inputs.nth(1).type('paste-your-api-key-here', { delay: 50 }).catch(() => {});
       }
       await showStepOverlay(page, {
         step: 3,
