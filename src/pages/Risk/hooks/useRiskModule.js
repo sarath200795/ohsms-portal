@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { dbGet, dbPush, dbUpdate, dbRemove } from '../../../services/db/index.js';
+import { writeActivityLog, buildActivityEntry } from '../../../utils/activityLog.js';
 import * as XLSX from 'xlsx';
 import { readOrgChild, readOrgChildren } from '../../../utils/orgData';
 import {
@@ -564,8 +565,13 @@ export function useRiskModule() {
         }));
 
         try {
-            if (formData.firebaseKey) await dbUpdate(`organizations/${session.orgId}/riskAssessments/${formData.firebaseKey}`, payload);
-            else await dbPush(`organizations/${session.orgId}/riskAssessments`, payload);
+            if (formData.firebaseKey) {
+                await dbUpdate(`organizations/${session.orgId}/riskAssessments/${formData.firebaseKey}`, payload);
+                writeActivityLog(session.orgId, buildActivityEntry({ session, action: 'risk.updated', module: 'Risk Assessment', collection: 'riskAssessments', recordId: formData.firebaseKey, recordTitle: payload.docId || payload.title || '', siteId: payload.siteId }));
+            } else {
+                const newKey = await dbPush(`organizations/${session.orgId}/riskAssessments`, payload);
+                writeActivityLog(session.orgId, buildActivityEntry({ session, action: 'risk.created', module: 'Risk Assessment', collection: 'riskAssessments', recordId: newKey, recordTitle: payload.docId || payload.title || '', siteId: payload.siteId }));
+            }
 
             alert('Risk Assessment Saved Successfully!');
             setShowChangeModal(false);
@@ -582,8 +588,10 @@ export function useRiskModule() {
     const deleteAssessment = async (firebaseKey) => {
         if (!permissions.canDelete) return alert('Security Error: Only Global Owners and Site Owners can delete Risk Assessments.');
         if (window.confirm('Permanently delete this Risk Assessment?')) {
+            const record = repo.find(r => r.firebaseKey === firebaseKey);
             await dbRemove(`organizations/${session.orgId}/riskAssessments/${firebaseKey}`);
             setRepo((prev) => prev.filter((record) => record.firebaseKey !== firebaseKey));
+            writeActivityLog(session.orgId, buildActivityEntry({ session, action: 'risk.deleted', module: 'Risk Assessment', collection: 'riskAssessments', recordId: firebaseKey, recordTitle: record?.docId || record?.title || '', siteId: record?.siteId }));
         }
     };
 

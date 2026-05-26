@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { dbGet, dbPush, dbUpdate } from '../../services/db/index.js';
+import { writeActivityLog, buildActivityEntry } from '../../utils/activityLog.js';
 import QRious from 'qrious';
 
 import { getFieldPortalLoginPath, getPortalAwareHomePath } from '../FieldApp/portalAuth';
@@ -1771,9 +1772,11 @@ export default function FullScreenPTW() {
             if (firebaseKey) {
                 await dbUpdate(`organizations/${session.orgId}/ptwRecords/${firebaseKey}`, payload);
                 setPermits((prev) => prev.map((permit) => (permit.id === formData.id ? normalizePermit({ ...payload, firebaseKey }) : permit)));
+                writeActivityLog(session.orgId, buildActivityEntry({ session, action: 'ptw.updated', module: 'OHS Tools', collection: 'ptwRecords', recordId: firebaseKey, recordTitle: payload.title || payload.id || '', siteId: payload.siteId }));
             } else {
                 const newId = await dbPush(`organizations/${session.orgId}/ptwRecords`, payload);
                 setPermits((prev) => [normalizePermit({ ...payload, firebaseKey: newId }), ...prev]);
+                writeActivityLog(session.orgId, buildActivityEntry({ session, action: 'ptw.created', module: 'OHS Tools', collection: 'ptwRecords', recordId: newId, recordTitle: payload.title || payload.id || '', siteId: payload.siteId }));
             }
 
             if (firebaseKey) {

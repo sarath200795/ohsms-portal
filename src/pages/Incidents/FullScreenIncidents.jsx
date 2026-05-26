@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { dbPush, dbRemove, dbUpdate } from '../../services/db/index.js';
+import { writeActivityLog, buildActivityEntry } from '../../utils/activityLog.js';
+import { compressImageToBlob, isStorageUrl, uploadAttachment } from '../../utils/storageUpload.js';
 import * as XLSX from 'xlsx';
 
 import { getFieldPortalVerificationMessage, getPortalAwareHomePath, isFieldPortalHomeContext } from '../FieldApp/portalAuth';
@@ -1656,9 +1658,28 @@ export default function Incidents() {
                 timestamp: saveTimestamp,
                 assumeLegacyCompletion: Boolean(data.firebaseKey)
             });
-            const persistedVideoEvidence = String(data.videoEvidence || '').startsWith('data:video/')
-                ? data.videoEvidence
-                : null;
+            // Upload pending video file to Firebase Storage (deferred from handleVideoUpload)
+            let persistedVideoEvidence = null;
+            if (videoEvidenceFile) {
+                try {
+                    const vidRecordId = data.firebaseKey || `tmp_${Date.now()}`;
+                    persistedVideoEvidence = await uploadAttachment(
+                        session.orgId, 'incidents', vidRecordId,
+                        videoEvidenceFile, 'video', videoEvidenceFile.name
+                    );
+                } catch (vidErr) {
+                    console.error('[IncidentVideo] upload failed:', vidErr);
+                    // Non-fatal: incident is saved without video if upload fails
+                }
+            } else if (isStorageUrl(data.videoEvidence)) {
+                // Already a Storage https:// URL from a prior save — keep it
+                persistedVideoEvidence = data.videoEvidence;
+            } else if (String(data.videoEvidence || '').startsWith('data:video/')) {
+                // Legacy base64 video — keep for backward compatibility
+                persistedVideoEvidence = data.videoEvidence;
+            }
+            // blob:// object URLs are transient — excluded (null)
+
             const payload = JSON.parse(JSON.stringify({
                 ...data,
                 id: incidentId,
@@ -1672,8 +1693,10 @@ export default function Incidents() {
 
             if (data.firebaseKey) {
                 await dbUpdate(`organizations/${session.orgId}/incidents/${data.firebaseKey}`, payload);
+                writeActivityLog(session.orgId, buildActivityEntry({ session, action: 'incident.updated', module: 'Incidents', collection: 'incidents', recordId: data.firebaseKey, recordTitle: data.title || data.id || '', siteId: data.siteId }));
             } else {
-                await dbPush(`organizations/${session.orgId}/incidents`, payload);
+                const newKey = await dbPush(`organizations/${session.orgId}/incidents`, payload);
+                writeActivityLog(session.orgId, buildActivityEntry({ session, action: 'incident.created', module: 'Incidents', collection: 'incidents', recordId: newKey, recordTitle: data.title || data.id || '', siteId: data.siteId }));
             }
 
             const refreshedIncidents = await readOrgChild(null, session.orgId, 'incidents');
@@ -1728,6 +1751,7 @@ export default function Incidents() {
         if (window.confirm('Permanently delete incident?')) {
             await dbRemove(`organizations/${session.orgId}/incidents/${incident.firebaseKey}`);
             setIncidentsList((prev) => prev.filter((i) => i.firebaseKey !== incident.firebaseKey));
+            writeActivityLog(session.orgId, buildActivityEntry({ session, action: 'incident.deleted', module: 'Incidents', collection: 'incidents', recordId: incident.firebaseKey, recordTitle: incident.title || incident.id || '', siteId: incident.siteId }));
         }
     };
 
@@ -1788,18 +1812,26 @@ export default function Incidents() {
     const handleImageUpload = async (e) => {
         const file = e.target.files[0];
         if (!file) return;
-        const base64 = await compressImage(file);
-        const next = { ...data, imageEvidence: base64, imageEvidenceName: file.name };
-        setData(next);
-        if (data.firebaseKey && session?.orgId) {
-            try {
+        e.target.value = '';
+
+        try {
+            // Compress to Blob (no data URL) then upload to Firebase Storage
+            const blob = await compressImageToBlob(file);
+            const recordId = data.firebaseKey || `tmp_${Date.now()}`;
+            const url = await uploadAttachment(
+                session.orgId, 'incidents', recordId, blob, 'image', file.name
+            );
+            const next = { ...data, imageEvidence: url, imageEvidenceName: file.name };
+            setData(next);
+            if (data.firebaseKey) {
                 await dbUpdate(`organizations/${session.orgId}/incidents/${data.firebaseKey}`, {
-                    imageEvidence: base64,
+                    imageEvidence: url,
                     imageEvidenceName: file.name,
                 });
-            } catch (err) {
-                console.error('[IncidentImage] auto-save failed', err);
             }
+        } catch (err) {
+            console.error('[IncidentImage] upload failed', err);
+            alert('Photo upload failed: ' + err.message);
         }
     };
 

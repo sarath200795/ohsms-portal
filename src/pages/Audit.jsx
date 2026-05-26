@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { dbPush, dbUpdate, dbSubscribe } from '../services/db/index.js';
+import { writeActivityLog, buildActivityEntry } from '../utils/activityLog.js';
 import { readOrgChildren } from '../utils/orgData';
 import {
     hasAccessibleModule,
@@ -128,6 +129,7 @@ const AuditScheduler = ({ setView, session }) => {
                 'Audit Plan Saved',
                 session.user || session.email || 'Unknown'
             );
+            writeActivityLog(session.orgId, buildActivityEntry({ session, action: 'audit.created', module: 'Internal Audit', collection: 'auditPlans', recordId: newId, recordTitle: `Audit Plan — ${plan.siteId || 'All Sites'}`, siteId: plan.siteId }));
             alert("Audit Plan Saved Successfully!");
             setView('hub');
         } catch (e) {
@@ -488,6 +490,7 @@ const AuditorWorkplace = ({ setView, session }) => {
                 'Audit Report Submitted to Auditee',
                 session.user || session.email || 'Unknown'
             );
+            writeActivityLog(session.orgId, buildActivityEntry({ session, action: 'audit.findings.created', module: 'Internal Audit', collection: 'auditFindings', recordId: newId, recordTitle: cleanTask.title || cleanTask.activity || 'Audit Findings', siteId: payload.siteId }));
             alert("Audit Saved & Sent to Auditee.");
             setView('hub');
         } catch (e) { alert("Error saving: " + e.message); }

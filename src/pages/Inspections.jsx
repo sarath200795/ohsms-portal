@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { dbPush, dbUpdate, dbRemove } from '../services/db/index.js';
+import { writeActivityLog, buildActivityEntry } from '../utils/activityLog.js';
 import { getFieldPortalVerificationMessage, getPortalAwareHomePath, isFieldPortalHomeContext } from './FieldApp/portalAuth';
 import { readOrgChildren } from '../utils/orgData';
 import { canEditCreateForRole, isGlobalOwnerRole } from '../utils/permissions';
@@ -419,8 +420,10 @@ export default function Inspections() {
 
             if (editTemplate.firebaseKey) {
                 await dbUpdate(`organizations/${session.orgId}/inspectionTemplates/${editTemplate.firebaseKey}`, payload);
+                writeActivityLog(session.orgId, buildActivityEntry({ session, action: 'inspection.template.updated', module: 'Inspections', collection: 'inspectionTemplates', recordId: editTemplate.firebaseKey, recordTitle: editTemplate.title || '', siteId: editTemplate.siteId }));
             } else {
-                await dbPush(`organizations/${session.orgId}/inspectionTemplates`, payload);
+                const newKey = await dbPush(`organizations/${session.orgId}/inspectionTemplates`, payload);
+                writeActivityLog(session.orgId, buildActivityEntry({ session, action: 'inspection.template.created', module: 'Inspections', collection: 'inspectionTemplates', recordId: newKey, recordTitle: payload.title || '', siteId: payload.siteId }));
             }
             alert("Inspection Form Saved Successfully!");
             setView('templates');
@@ -439,8 +442,10 @@ export default function Inspections() {
     const deleteTemplate = async (key) => {
         if (!window.confirm("Are you sure you want to permanently delete this inspection form?")) return;
         try {
+            const record = templates.find(t => t.firebaseKey === key);
             await dbRemove(`organizations/${session.orgId}/inspectionTemplates/${key}`);
             setTemplates(prev => prev.filter(t => t.firebaseKey !== key));
+            writeActivityLog(session.orgId, buildActivityEntry({ session, action: 'inspection.template.deleted', module: 'Inspections', collection: 'inspectionTemplates', recordId: key, recordTitle: record?.title || '', siteId: record?.siteId }));
         } catch {
             alert("Failed to delete template");
         }
@@ -685,6 +690,7 @@ export default function Inspections() {
 
             const newRecordId = await dbPush(`organizations/${session.orgId}/inspectionRecords`, recordPayload);
             setRecords(prev => [...prev, { firebaseKey: newRecordId, ...recordPayload }]);
+            writeActivityLog(session.orgId, buildActivityEntry({ session, action: 'inspection.record.created', module: 'Inspections', collection: 'inspectionRecords', recordId: newRecordId, recordTitle: executingTask.title || '', siteId: recordPayload.siteId }));
 
             // Fire-and-forget email notification to all org members
             notifyInspectionSubmitted(

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { dbUpdate, dbPush, dbRemove } from '../services/db/index.js';
+import { writeActivityLog, buildActivityEntry } from '../utils/activityLog.js';
 import { readOrgChild, readOrgChildren } from '../utils/orgData';
 import {
     canDeleteForRole,
@@ -438,9 +439,11 @@ export default function Improvement() {
         try {
             if (form.firebaseKey) {
                 await dbUpdate(`organizations/${session.orgId}/improvements/${form.firebaseKey}`, payload);
+                writeActivityLog(session.orgId, buildActivityEntry({ session, action: 'improvement.updated', module: 'Improvement', collection: 'improvements', recordId: form.firebaseKey, recordTitle: form.title || '', siteId: form.siteId }));
                 alert(form.horizontalDeployment ? "Horizontal Proposal Updated. CAPAs auto-synced!" : "Proposal Updated Successfully!");
             } else {
-                await dbPush(`organizations/${session.orgId}/improvements`, payload);
+                const newKey = await dbPush(`organizations/${session.orgId}/improvements`, payload);
+                writeActivityLog(session.orgId, buildActivityEntry({ session, action: 'improvement.created', module: 'Improvement', collection: 'improvements', recordId: newKey, recordTitle: form.title || '', siteId: form.siteId }));
                 alert(form.horizontalDeployment ? "Horizontal Proposal Created. CAPAs deployed globally!" : "Proposal Saved! Actions pushed to CAPA Manager.");
             }
 
@@ -453,8 +456,10 @@ export default function Improvement() {
 
     const handleDelete = async (key) => {
         if (window.confirm("Permanently delete this improvement proposal?")) {
+            const record = improvements.find(i => i.firebaseKey === key);
             await dbRemove(`organizations/${session.orgId}/improvements/${key}`);
             setImprovements(improvements.filter(i => i.firebaseKey !== key));
+            writeActivityLog(session.orgId, buildActivityEntry({ session, action: 'improvement.deleted', module: 'Improvement', collection: 'improvements', recordId: key, recordTitle: record?.title || '', siteId: record?.siteId }));
         }
     };
 

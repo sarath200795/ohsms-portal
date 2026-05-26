@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { dbUpdate } from '../services/db/index.js';
+import { writeActivityLog, buildActivityEntry } from '../utils/activityLog.js';
 import * as XLSX from 'xlsx';
 import { readOrgChildren } from '../utils/orgData';
 import {
@@ -373,6 +374,7 @@ export default function Capa() {
 
         try {
             await dbUpdate(action.dbPath, payload);
+            writeActivityLog(session.orgId, buildActivityEntry({ session, action: `capa.status.${newStatus.toLowerCase().replace(/\s+/g, '_')}`, module: 'CAPA Manager', collection: action.source?.toLowerCase() || 'capa', recordId: action.uid || '', recordTitle: action.title || action.description || '', siteId: action.siteId }));
             notifyCapaUpdated(
                 { ...action, status: newStatus },
                 users,

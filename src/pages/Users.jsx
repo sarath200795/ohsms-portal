@@ -22,7 +22,7 @@ import {
     normalizeStoredUserRecord,
     validateUserAccessPayload
 } from '../utils/userAccess';
-import { generateTemporaryPassword } from '../utils/security';
+// generateTemporaryPassword removed — password is now generated server-side in api/admin/users.js
 
 const ROLES = SUPPORTED_USER_ROLES;
 const USER_MANAGER_ROLES = [GLOBAL_OWNER_ROLE, SITE_OWNER_ROLE];
@@ -431,49 +431,42 @@ export default function Users() {
                     return;
                 }
 
-                const temporaryPassword = generateTemporaryPassword();
+                // Delegate to server-side Admin SDK endpoint — no client-side Auth manipulation
                 let newUid = null;
+                let temporaryPassword = null;
 
                 try {
-                    newUid = await authService.createUser(payload.email, temporaryPassword);
-
-                    const provisionedAt = new Date().toISOString();
-                    const newUserPayload = {
-                        ...payload,
-                        mustChangePassword: true,
-                        temporaryPasswordIssued: true,
-                        temporaryPasswordIssuedAt: provisionedAt,
-                        provisionedBy: session.name || session.email || 'Admin',
-                        createdAt: provisionedAt
-                    };
-
-                    await dbSet(`organizations/${session.orgId}/users/${newUid}`, newUserPayload);
-                    await dbSet(`organizations/${session.orgId}/userPasswordState/${newUid}`, {
-                        mustChangePassword: true,
-                        temporaryPasswordIssued: true,
-                        temporaryPasswordIssuedAt: provisionedAt,
-                        passwordUpdatedAt: ''
-                    });
-                    await dbSet(`userDirectory/${newUid}`, { orgId: session.orgId });
-
-                    setUsers(prev => [...prev, { ...newUserPayload, id: newUid }]);
-                    setProvisionedCredential({
+                    const result = await authService.createUser(payload.email, {
                         name: payload.name,
-                        email: payload.email,
-                        password: temporaryPassword
+                        role: payload.role,
+                        assignedSite: payload.assignedSite,
+                        accessibleSites: payload.accessibleSites,
+                        accessibleModules: payload.accessibleModules,
+                        orgId: session.orgId,
                     });
+                    newUid = result.uid;
+                    temporaryPassword = result.temporaryPassword;
                 } catch (provisionError) {
-                    if (newUid) {
-                        await dbRemove(`organizations/${session.orgId}/users/${newUid}`).catch(() => {});
-                        await dbRemove(`organizations/${session.orgId}/userPasswordState/${newUid}`).catch(() => {});
-                        await dbRemove(`userDirectory/${newUid}`).catch(() => {});
-                        await authService.deleteUser(newUid).catch(() => {});
-                    }
-                    if (provisionError.code === 'auth/email-already-in-use') {
-                        throw new Error('This email already has an existing login. Ask the user to use the existing organization registration flow or reset their password.');
-                    }
-                    throw provisionError;
+                    throw new Error('Could not create user: ' + provisionError.message);
                 }
+
+                // Build local payload (mirrors what the server wrote) for UI state
+                const provisionedAt = new Date().toISOString();
+                const newUserPayload = {
+                    ...payload,
+                    mustChangePassword: true,
+                    temporaryPasswordIssued: true,
+                    temporaryPasswordIssuedAt: provisionedAt,
+                    provisionedBy: session.name || session.email || 'Admin',
+                    createdAt: provisionedAt,
+                };
+
+                setUsers(prev => [...prev, { ...newUserPayload, id: newUid }]);
+                setProvisionedCredential({
+                    name: payload.name,
+                    email: payload.email,
+                    password: temporaryPassword,
+                });
 
                 await writeAccessAuditLog(
                     buildUserAccessAuditEntry({
@@ -502,7 +495,8 @@ export default function Users() {
         }
         if (window.confirm(`Are you sure you want to permanently remove access for ${email}?`)) {
             try {
-                await dbRemove(`organizations/${session.orgId}/users/${userId}`);
+                // Server-side: deletes Firebase Auth account + all RTDB records atomically
+                await authService.deleteUser(userId, session.orgId);
                 setUsers(prev => prev.filter(u => u.id !== userId));
             } catch (error) {
                 alert("Failed to delete user: " + error.message);

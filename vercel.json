@@ -3,6 +3,10 @@
     "api/v1.js": {
       "memory": 2048,
       "maxDuration": 300
+    },
+    "api/admin/users.js": {
+      "memory": 256,
+      "maxDuration": 30
     }
   },
   "headers": [
@@ -27,6 +31,7 @@
   ],
   "rewrites": [
     { "source": "/api/v1/(.*)", "destination": "/api/v1?path=$1" },
+    { "source": "/api/admin/users", "destination": "/api/admin/users" },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
 }

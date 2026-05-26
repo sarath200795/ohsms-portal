@@ -2,13 +2,14 @@
  * Firebase Authentication Adapter
  *
  * Wraps firebase/auth so no other file needs to import it directly.
+ *
+ * User provisioning (createUser / deleteUser) is delegated to the server-side
+ * /api/admin/users endpoint which uses Firebase Admin SDK.  This prevents
+ * client-side Auth manipulation with a stolen Global Owner token.
  */
 
 import {
-    createUserWithEmailAndPassword,
-    deleteUser as fbDeleteUser,
     EmailAuthProvider,
-    getAuth,
     onAuthStateChanged,
     reauthenticateWithCredential,
     sendPasswordResetEmail,
@@ -16,17 +17,7 @@ import {
     signOut as fbSignOut,
     updatePassword as fbUpdatePassword,
 } from 'firebase/auth';
-import { deleteApp, getApps, initializeApp } from 'firebase/app';
-import { auth, firebaseConfig } from '../../../config/firebase.js';
-
-// Secondary app used when an admin creates new users without destroying the
-// admin's own session (the standard Firebase multi-app pattern).
-const PROVISIONING_APP = 'ohsms-user-provisioning';
-
-const getProvisioningAuth = () => {
-    const existing = getApps().find((a) => a.name === PROVISIONING_APP);
-    return getAuth(existing || initializeApp(firebaseConfig, PROVISIONING_APP));
-};
+import { auth } from '../../../config/firebase.js';
 
 const firebaseAuthAdapter = {
     /**
@@ -66,39 +57,50 @@ const firebaseAuthAdapter = {
     },
 
     /**
-     * Create a new Firebase Auth account (using the secondary provisioning app
-     * so the admin's session is not affected).
-     * @returns {Promise<string>}  The new user's UID
+     * Create a new Firebase Auth account via the server-side Admin SDK endpoint.
+     * The browser never directly creates Auth accounts; all provisioning is
+     * delegated to /api/admin/users which verifies caller permissions server-side.
+     *
+     * @param {string} email
+     * @param {object} payload  { name, role, assignedSite, accessibleSites, accessibleModules, orgId }
+     * @returns {Promise<{uid: string, temporaryPassword: string}>}
      */
-    async createUser(email, password) {
-        const provAuth = getProvisioningAuth();
-        const cred = await createUserWithEmailAndPassword(provAuth, email, password);
-        const uid = cred.user.uid;
-        await fbSignOut(provAuth); // always sign out of the provisioning app
-        return uid;
+    async createUser(email, payload) {
+        const currentUser = auth.currentUser;
+        if (!currentUser) throw new Error('No authenticated admin session found.');
+
+        const idToken = await currentUser.getIdToken();
+        const res = await fetch('/api/admin/users', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ...payload, email, callerIdToken: idToken }),
+        });
+
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || `Server error ${res.status}`);
+        return data; // { uid, temporaryPassword }
     },
 
     /**
-     * Delete a user's Firebase Auth account.
-     * NOTE: Requires re-auth for the current user in some security models;
-     * for admin deletion we re-use the provisioning app approach.
-     * @param {string} uid  Not directly usable — Firebase can only delete the
-     *                      currently-signed-in user. Pass the provisioning auth
-     *                      user object from a prior createUser flow when possible.
+     * Delete a user's Firebase Auth account via the server-side Admin SDK endpoint.
+     * Also removes the RTDB user records server-side.
+     *
+     * @param {string} uid    Firebase Auth UID of the user to delete
+     * @param {string} orgId  Organisation ID (used to verify caller belongs to org)
      */
-    async deleteUser(userOrUid) {
-        if (typeof userOrUid === 'object' && userOrUid.delete) {
-            // Firebase User object passed directly
-            await fbDeleteUser(userOrUid);
-        } else {
-            // uid string — we can only delete the currently-signed-in user
-            const current = auth.currentUser;
-            if (current && current.uid === userOrUid) {
-                await fbDeleteUser(current);
-            } else {
-                console.warn('[auth:firebase] deleteUser: cannot delete other users from client side. Use Admin SDK on the server.');
-            }
-        }
+    async deleteUser(uid, orgId) {
+        const currentUser = auth.currentUser;
+        if (!currentUser) throw new Error('No authenticated admin session found.');
+
+        const idToken = await currentUser.getIdToken();
+        const res = await fetch('/api/admin/users', {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ uid, orgId, callerIdToken: idToken }),
+        });
+
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || `Server error ${res.status}`);
     },
 
     /**

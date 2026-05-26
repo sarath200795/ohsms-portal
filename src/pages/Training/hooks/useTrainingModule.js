@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { dbGet, dbPush, dbUpdate, dbRemove } from '../../../services/db/index.js';
+import { writeActivityLog, buildActivityEntry } from '../../../utils/activityLog.js';
 import * as XLSX from 'xlsx';
 import { readOrgChild, readOrgChildren } from '../../../utils/orgData';
 import {
@@ -534,8 +535,13 @@ export function useTrainingModule() {
         if (data.linkedCapa) payload.sourceCapaRef = data.linkedCapa.uid;
 
         try {
-            if (data.firebaseKey) await dbUpdate(`organizations/${session.orgId}/trainings/${data.firebaseKey}`, payload);
-            else await dbPush(`organizations/${session.orgId}/trainings`, payload);
+            if (data.firebaseKey) {
+                await dbUpdate(`organizations/${session.orgId}/trainings/${data.firebaseKey}`, payload);
+                writeActivityLog(session.orgId, buildActivityEntry({ session, action: 'training.updated', module: 'Training', collection: 'trainings', recordId: data.firebaseKey, recordTitle: data.topic || data.id || '', siteId: data.siteId }));
+            } else {
+                const newKey = await dbPush(`organizations/${session.orgId}/trainings`, payload);
+                writeActivityLog(session.orgId, buildActivityEntry({ session, action: 'training.created', module: 'Training', collection: 'trainings', recordId: newKey, recordTitle: data.topic || data.id || '', siteId: data.siteId }));
+            }
 
             if (data.targetAudience === 'Contractor' && data.contractorId) {
                 const contractorPath = `organizations/${session.orgId}/contractors/${data.contractorId}`;
@@ -572,6 +578,7 @@ export function useTrainingModule() {
         if (!window.confirm(`Permanently delete training record ${training.id || ''}?`)) return;
         await dbRemove(`organizations/${session.orgId}/trainings/${training.firebaseKey}`);
         setTrainings((prev) => prev.filter((item) => item.firebaseKey !== training.firebaseKey));
+        writeActivityLog(session.orgId, buildActivityEntry({ session, action: 'training.deleted', module: 'Training', collection: 'trainings', recordId: training.firebaseKey, recordTitle: training.topic || training.id || '', siteId: training.siteId }));
     };
 
     const triggerPrint = (record) => {

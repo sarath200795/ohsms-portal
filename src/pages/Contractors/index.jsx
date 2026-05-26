@@ -3,6 +3,7 @@ import { initializeApp } from 'firebase/app';
 import { createUserWithEmailAndPassword, getAuth, sendPasswordResetEmail, signInWithEmailAndPassword, signOut, updatePassword } from 'firebase/auth';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { dbGet, dbPush, dbRemove, dbSet, dbUpdate } from '../../services/db/index.js';
+import { writeActivityLog, buildActivityEntry } from '../../utils/activityLog.js';
 import { auth, firebaseConfig } from '../../config/firebase';
 import { fileToBase64, safeArr } from '../../utils/helpers';
 import { getMandatoryDocs, GOODS_TYPES, SERVICE_TYPES } from '../../utils/constants';
@@ -304,8 +305,10 @@ export default function Contractors() {
             const keyToUpdate = formData.firebaseKey;
             delete payload.firebaseKey;
 
-            if (keyToUpdate) await dbUpdate(`organizations/${session.orgId}/contractors/${keyToUpdate}`, payload);
-            else {
+            if (keyToUpdate) {
+                await dbUpdate(`organizations/${session.orgId}/contractors/${keyToUpdate}`, payload);
+                writeActivityLog(session.orgId, buildActivityEntry({ session, action: 'contractor.updated', module: 'Contractors', collection: 'contractors', recordId: keyToUpdate, recordTitle: payload.companyName || '', siteId: payload.siteId }));
+            } else {
                 const createdRef = await dbPush(`organizations/${session.orgId}/contractors`, payload);
                 createdVendor = {
                     ...payload,
@@ -317,6 +320,7 @@ export default function Contractors() {
                     incidents: safeArr(payload.incidents),
                     nonCompliances: safeArr(payload.nonCompliances)
                 };
+                writeActivityLog(session.orgId, buildActivityEntry({ session, action: 'contractor.created', module: 'Contractors', collection: 'contractors', recordId: createdRef.key, recordTitle: payload.companyName || '', siteId: payload.siteId }));
             }
 
             alert('Vendor Registered/Updated Successfully!');
@@ -885,6 +889,7 @@ export default function Contractors() {
             await dbRemove(`organizations/${session.orgId}/contractors/${activeVendor.firebaseKey}`);
 
             setContractors((prev) => prev.filter((contractor) => contractor.firebaseKey !== activeVendor.firebaseKey));
+            writeActivityLog(session.orgId, buildActivityEntry({ session, action: 'contractor.deleted', module: 'Contractors', collection: 'contractors', recordId: activeVendor.firebaseKey, recordTitle: activeVendor.companyName || '', siteId: activeVendor.siteId }));
             setActiveVendor(null);
             setEditingVendor(null);
             setModalType(null);
