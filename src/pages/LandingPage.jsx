@@ -98,6 +98,7 @@ const TUTORIALS = [
         featured: true,
         ytId: null,
         videoSrc: null, // set to '/tutorials/onboarding.mp4' after running: npm run video:record:onboarding
+        thumb: null,    // set to a custom thumbnail image path if desired
     },
     {
         id: 'firebase-setup',
@@ -110,6 +111,7 @@ const TUTORIALS = [
         featured: false,
         ytId: null,
         videoSrc: null,
+        thumb: null,
     },
     {
         id: 'incident-reporting',
@@ -122,6 +124,7 @@ const TUTORIALS = [
         featured: false,
         ytId: null,
         videoSrc: null,
+        thumb: null,
     },
     {
         id: 'ptw',
@@ -134,6 +137,7 @@ const TUTORIALS = [
         featured: false,
         ytId: null,
         videoSrc: null,
+        thumb: null,
     },
     {
         id: 'loto',
@@ -146,6 +150,7 @@ const TUTORIALS = [
         featured: false,
         ytId: null,
         videoSrc: null,
+        thumb: null,
     },
     {
         id: 'inspections',
@@ -158,6 +163,7 @@ const TUTORIALS = [
         featured: false,
         ytId: null,
         videoSrc: null,
+        thumb: null,
     },
     {
         id: 'contractors',
@@ -170,6 +176,7 @@ const TUTORIALS = [
         featured: false,
         ytId: null,
         videoSrc: null,
+        thumb: null,
     },
     {
         id: 'audit-capa',
@@ -182,11 +189,25 @@ const TUTORIALS = [
         featured: false,
         ytId: null,
         videoSrc: null,
+        thumb: null,
     },
 ];
 
 /** Returns true when a tutorial has playable video content. */
 const hasVideo = (t) => Boolean(t.ytId || t.videoSrc);
+
+/**
+ * Returns the CSS background value for a tutorial thumbnail.
+ *  - ytId   → YouTube HQ thumbnail image
+ *  - thumb  → custom image URL
+ *  - else   → vivid generated gradient (no image needed)
+ */
+const thumbBg = (t) => {
+    if (t.ytId)  return `url(https://img.youtube.com/vi/${t.ytId}/hqdefault.jpg) center/cover no-repeat`;
+    if (t.thumb) return `url(${t.thumb}) center/cover no-repeat`;
+    // Generated vivid thumbnail — each module gets its own colour story
+    return `linear-gradient(145deg, ${t.color}55 0%, ${t.color}28 45%, rgba(6,10,18,0.97) 100%)`;
+};
 
 // ─── floating PPE icons in the hero ──────────────────────────────────────────
 
@@ -623,49 +644,87 @@ export default function LandingPage() {
                                     style={{ border: `1px solid ${tut.color}${live ? '40' : '20'}`, boxShadow: `0 20px 60px rgba(0,0,0,0.5)` }}
                                     onClick={() => openTutorial(tut)}>
                                     <div className="grid sm:grid-cols-[1.6fr_1fr]">
-                                        {/* thumbnail */}
-                                        <div className="relative overflow-hidden" style={{ background: `linear-gradient(135deg,${tut.color}18,${tut.color}05)`, minHeight: '220px' }}>
+                                        {/* ── thumbnail ── */}
+                                        <div className="relative overflow-hidden" style={{ background: thumbBg(tut), minHeight: '240px' }}>
+
+                                            {/* dark scrim over real images so overlays stay readable */}
+                                            {(tut.ytId || tut.thumb) && (
+                                                <div className="absolute inset-0"
+                                                    style={{ background: 'linear-gradient(135deg,rgba(0,0,0,0.45),rgba(0,0,0,0.2))' }} />
+                                            )}
+
+                                            {/* for generated thumbnails: big icon watermark + coloured cross-hatch accent */}
+                                            {!tut.ytId && !tut.thumb && (
+                                                <>
+                                                    {/* large background icon */}
+                                                    <div className="absolute inset-0 flex items-end justify-end pr-5 pb-4 pointer-events-none select-none">
+                                                        <i className={`fas ${tut.icon}`}
+                                                            style={{ fontSize: '130px', color: tut.color, opacity: 0.18,
+                                                                filter: `drop-shadow(0 0 30px ${tut.color})` }} />
+                                                    </div>
+                                                    {/* subtle dot grid */}
+                                                    <div className="absolute inset-0 pointer-events-none"
+                                                        style={{
+                                                            backgroundImage: `radial-gradient(${tut.color}20 1px, transparent 1px)`,
+                                                            backgroundSize: '22px 22px',
+                                                        }} />
+                                                    {/* EHS text watermark */}
+                                                    <div className="absolute left-5 bottom-14 pointer-events-none select-none">
+                                                        <p className="text-[11px] font-black uppercase tracking-[0.35em] mb-1"
+                                                            style={{ color: `${tut.color}80` }}>OHSMS Enterprise</p>
+                                                        <p className="text-[22px] font-black leading-tight text-white"
+                                                            style={{ textShadow: `0 2px 12px rgba(0,0,0,0.6)`, maxWidth: '240px' }}>
+                                                            {tut.title}
+                                                        </p>
+                                                    </div>
+                                                </>
+                                            )}
+
+                                            {/* centred play button (live) or recording badge (coming soon) */}
                                             <div className="absolute inset-0 flex items-center justify-center">
                                                 {live ? (
                                                     <div className="w-20 h-20 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform duration-300"
-                                                        style={{ background: `${tut.color}35`, border: `2px solid ${tut.color}70`, boxShadow: `0 0 40px ${tut.color}30` }}>
+                                                        style={{ background: 'rgba(0,0,0,0.55)', border: `2.5px solid ${tut.color}`,
+                                                            boxShadow: `0 0 0 6px ${tut.color}25, 0 12px 40px rgba(0,0,0,0.5)` }}>
                                                         <i className="fas fa-play ml-1.5 text-3xl" style={{ color: tut.color }} />
                                                     </div>
                                                 ) : (
-                                                    <div className="flex flex-col items-center gap-3 text-center px-6">
-                                                        <div className="w-16 h-16 rounded-full flex items-center justify-center"
-                                                            style={{ background: `${tut.color}18`, border: `2px dashed ${tut.color}50` }}>
-                                                            <i className={`fas ${tut.icon} text-2xl`} style={{ color: `${tut.color}90` }} />
+                                                    <div className="flex flex-col items-center gap-2.5 text-center">
+                                                        <div className="w-14 h-14 rounded-full flex items-center justify-center"
+                                                            style={{ background: 'rgba(0,0,0,0.5)', border: `2px dashed ${tut.color}60` }}>
+                                                            <i className="fas fa-video text-xl" style={{ color: `${tut.color}90` }} />
                                                         </div>
-                                                        <span className="text-[11px] font-bold uppercase tracking-widest px-3 py-1 rounded-full"
-                                                            style={{ background: 'rgba(0,0,0,0.5)', color: 'rgba(255,255,255,0.5)', border: '1px dashed rgba(255,255,255,0.18)' }}>
-                                                            🎬 Recording in progress
-                                                        </span>
-                                                        <code className="text-[10px] px-3 py-1.5 rounded-lg block"
-                                                            style={{ background: 'rgba(0,0,0,0.55)', color: '#f97316', fontFamily: '"JetBrains Mono",monospace', border: '1px solid rgba(249,115,22,0.2)' }}>
+                                                        <code className="text-[10px] px-3 py-1.5 rounded-lg"
+                                                            style={{ background: 'rgba(0,0,0,0.6)', color: '#f97316',
+                                                                fontFamily: '"JetBrains Mono",monospace', border: '1px solid rgba(249,115,22,0.25)' }}>
                                                             npm run video:record:onboarding
                                                         </code>
                                                     </div>
                                                 )}
                                             </div>
-                                            <div className="absolute top-4 left-4 flex gap-2">
+
+                                            {/* top badge row */}
+                                            <div className="absolute top-4 left-4 flex gap-2 flex-wrap">
                                                 <span className="px-3 py-1 rounded-full text-[11px] font-bold uppercase tracking-widest"
-                                                    style={{ background: tut.color, color: '#fff' }}>★ Featured</span>
+                                                    style={{ background: tut.color, color: '#fff',
+                                                        boxShadow: `0 2px 10px ${tut.color}60` }}>★ Featured</span>
                                                 {!live && (
-                                                    <span className="px-3 py-1 rounded-full text-[11px] font-bold uppercase tracking-widest"
-                                                        style={{ background: 'rgba(0,0,0,0.6)', color: 'rgba(255,255,255,0.6)', border: '1px dashed rgba(255,255,255,0.2)' }}>
-                                                        Coming Soon
+                                                    <span className="px-3 py-1 rounded-full text-[11px] font-semibold"
+                                                        style={{ background: 'rgba(0,0,0,0.65)', color: 'rgba(255,255,255,0.55)',
+                                                            border: '1px dashed rgba(255,255,255,0.2)' }}>
+                                                        🎬 Coming Soon
                                                     </span>
                                                 )}
-                                                <span className="px-3 py-1 rounded-full text-[11px] font-semibold"
-                                                    style={{ background: 'rgba(0,0,0,0.55)', color: 'rgba(255,255,255,0.8)' }}>
-                                                    <i className="fas fa-clock mr-1" />{tut.duration}
-                                                </span>
                                             </div>
-                                            <div className="absolute bottom-0 left-0 right-0 h-16"
-                                                style={{ background: 'linear-gradient(transparent,rgba(0,0,0,0.45))' }} />
-                                            <div className="absolute bottom-3 right-4 text-[90px] opacity-[0.06] pointer-events-none select-none">
-                                                <i className={`fas ${tut.icon}`} style={{ color: tut.color }} />
+
+                                            {/* bottom: duration pill + gradient scrim */}
+                                            <div className="absolute bottom-0 left-0 right-0 h-20"
+                                                style={{ background: 'linear-gradient(transparent,rgba(0,0,0,0.7))' }} />
+                                            <div className="absolute bottom-3 right-4">
+                                                <span className="text-[11px] font-bold px-2.5 py-1 rounded-lg"
+                                                    style={{ background: 'rgba(0,0,0,0.75)', color: '#fff' }}>
+                                                    <i className="fas fa-clock mr-1 opacity-70" />{tut.duration}
+                                                </span>
                                             </div>
                                         </div>
                                         {/* text area */}
@@ -718,47 +777,78 @@ export default function LandingPage() {
                                         onClick={() => openTutorial(tut)}
                                         className={`rounded-2xl overflow-hidden group transition-all duration-200 ${live ? 'cursor-pointer hover:-translate-y-1.5' : 'cursor-default'}`}
                                         style={{ border: '1px solid rgba(255,255,255,0.07)', background: 'rgba(255,255,255,0.025)', boxShadow: '0 8px 28px rgba(0,0,0,0.35)' }}>
-                                        {/* thumbnail */}
-                                        <div className="relative overflow-hidden" style={{ height: '130px', background: `linear-gradient(135deg,${tut.color}18,${tut.color}05)` }}>
-                                            <div className="absolute inset-0 flex items-center justify-center">
-                                                {live ? (
-                                                    <div className="w-12 h-12 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform duration-300"
-                                                        style={{ background: `${tut.color}30`, border: `1.5px solid ${tut.color}60`, boxShadow: `0 0 20px ${tut.color}25` }}>
-                                                        <i className="fas fa-play ml-0.5 text-lg" style={{ color: tut.color }} />
-                                                    </div>
-                                                ) : (
-                                                    <div className="w-10 h-10 rounded-full flex items-center justify-center"
-                                                        style={{ background: `${tut.color}12`, border: `1.5px dashed ${tut.color}40` }}>
-                                                        <i className={`fas ${tut.icon} text-base`} style={{ color: `${tut.color}70` }} />
-                                                    </div>
-                                                )}
-                                            </div>
-                                            {/* coming soon ribbon */}
-                                            {!live && (
-                                                <div className="absolute top-0 right-0 overflow-hidden" style={{ width: '70px', height: '70px' }}>
-                                                    <div className="absolute text-[8px] font-black uppercase tracking-wide text-white text-center"
+                                        {/* ── thumbnail ── */}
+                                        <div className="relative overflow-hidden" style={{ height: '160px', background: thumbBg(tut) }}>
+
+                                            {/* dark scrim over real images */}
+                                            {(tut.ytId || tut.thumb) && (
+                                                <div className="absolute inset-0"
+                                                    style={{ background: 'linear-gradient(135deg,rgba(0,0,0,0.5),rgba(0,0,0,0.25))' }} />
+                                            )}
+
+                                            {/* generated thumbnail: dot grid + large icon + title text */}
+                                            {!tut.ytId && !tut.thumb && (
+                                                <>
+                                                    <div className="absolute inset-0 pointer-events-none"
                                                         style={{
-                                                            background: 'rgba(100,100,100,0.7)',
-                                                            width: '100px',
-                                                            padding: '3px 0',
-                                                            transform: 'rotate(45deg) translateX(20px) translateY(-10px)',
-                                                        }}>
-                                                        Soon
+                                                            backgroundImage: `radial-gradient(${tut.color}25 1px, transparent 1px)`,
+                                                            backgroundSize: '18px 18px',
+                                                        }} />
+                                                    {/* big icon lower-right */}
+                                                    <div className="absolute bottom-[-6px] right-[-4px] pointer-events-none select-none">
+                                                        <i className={`fas ${tut.icon}`}
+                                                            style={{ fontSize: '88px', color: tut.color, opacity: 0.22,
+                                                                filter: `drop-shadow(0 0 18px ${tut.color})` }} />
+                                                    </div>
+                                                    {/* module title at bottom-left */}
+                                                    <div className="absolute bottom-0 left-0 right-0 h-16"
+                                                        style={{ background: `linear-gradient(transparent,rgba(0,0,0,0.82))` }} />
+                                                    <div className="absolute bottom-7 left-3 right-10 pointer-events-none select-none">
+                                                        <p className="text-[11px] font-bold leading-snug text-white truncate"
+                                                            style={{ textShadow: '0 1px 6px rgba(0,0,0,0.8)' }}>
+                                                            {tut.title}
+                                                        </p>
+                                                    </div>
+                                                </>
+                                            )}
+
+                                            {/* centred play button (live) */}
+                                            {live && (
+                                                <div className="absolute inset-0 flex items-center justify-center">
+                                                    <div className="w-12 h-12 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform duration-300"
+                                                        style={{ background: 'rgba(0,0,0,0.55)', border: `2px solid ${tut.color}`,
+                                                            boxShadow: `0 0 0 4px ${tut.color}25` }}>
+                                                        <i className="fas fa-play ml-0.5 text-lg" style={{ color: tut.color }} />
                                                     </div>
                                                 </div>
                                             )}
+
+                                            {/* coming-soon badge (centre-top when no play button) */}
+                                            {!live && (
+                                                <div className="absolute top-3 left-1/2 -translate-x-1/2">
+                                                    <span className="text-[9px] font-black uppercase tracking-[0.2em] px-2.5 py-1 rounded-full whitespace-nowrap"
+                                                        style={{ background: 'rgba(0,0,0,0.65)', color: 'rgba(255,255,255,0.5)',
+                                                            border: '1px dashed rgba(255,255,255,0.2)' }}>
+                                                        🎬 Soon
+                                                    </span>
+                                                </div>
+                                            )}
+
+                                            {/* category pill top-left */}
                                             <div className="absolute top-2.5 left-2.5">
-                                                <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full"
-                                                    style={{ background: `${tut.color}25`, color: tut.color, border: `1px solid ${tut.color}35` }}>
+                                                <span className="text-[9px] font-bold px-2 py-0.5 rounded-full"
+                                                    style={{ background: `${tut.color}30`, color: tut.color,
+                                                        border: `1px solid ${tut.color}45`, backdropFilter: 'blur(4px)' }}>
                                                     {tut.category}
                                                 </span>
                                             </div>
-                                            <div className="absolute bottom-2 right-2.5 text-[9px] font-semibold px-2 py-0.5 rounded-full"
-                                                style={{ background: 'rgba(0,0,0,0.6)', color: 'rgba(255,255,255,0.6)' }}>
-                                                <i className="fas fa-clock mr-1" />{tut.duration}
-                                            </div>
-                                            <div className="absolute bottom-[-8px] right-[-8px] text-[72px] opacity-[0.06] pointer-events-none select-none">
-                                                <i className={`fas ${tut.icon}`} style={{ color: tut.color }} />
+
+                                            {/* duration pill bottom-right */}
+                                            <div className="absolute bottom-2 right-2.5">
+                                                <span className="text-[9px] font-bold px-2 py-0.5 rounded-md"
+                                                    style={{ background: 'rgba(0,0,0,0.75)', color: '#fff' }}>
+                                                    {tut.duration}
+                                                </span>
                                             </div>
                                         </div>
                                         {/* card body */}
