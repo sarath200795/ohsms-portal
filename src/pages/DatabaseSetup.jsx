@@ -369,10 +369,10 @@ export default function DatabaseSetup() {
         try {
             const userEmail = regEmail.trim().toLowerCase();
 
-            // 1. Create the Firebase Auth account via the provisioning app.
-            //    createUser uses a secondary app and signs OUT of it when done,
-            //    so the primary auth still has no current user at this point.
-            const uid = await authService.createUser(userEmail, regPassword);
+            // 1. Create the Firebase Auth account via the REST API.  This
+            //    does not touch the SDK's auth-state machinery, so the primary
+            //    auth still has no current user at this point.
+            const uid = await authService.register(userEmail, regPassword);
 
             // 2. Sign in to the PRIMARY auth instance so the Firebase security
             //    rules (auth != null) pass for all subsequent DB writes.

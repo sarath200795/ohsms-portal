@@ -293,8 +293,8 @@ export default function Login() {
         try {
             const joinEmail = regEmail.trim().toLowerCase();
 
-            // 1. Create Firebase Auth account (provisioning app signs out after — primary auth has no user yet).
-            const uid = await authService.createUser(joinEmail, regPassword);
+            // 1. Create Firebase Auth account (REST API — no SDK auth-state side-effects).
+            const uid = await authService.register(joinEmail, regPassword);
             createdUid = uid;
 
             // 2. Sign in to primary auth so DB reads/writes pass security rules (auth != null).

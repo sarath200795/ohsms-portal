@@ -94,6 +94,16 @@ const restAuthAdapter = {
         return result?.uid ?? null;
     },
 
+    /**
+     * Self-signup — same wire call as createUser for the REST backend, but
+     * exposed as a separate method to mirror the Firebase adapter's API
+     * (where register/createUser have distinct responsibilities).
+     */
+    async register(email, password) {
+        const result = await authRequest('POST', 'auth/users', { email, password });
+        return result?.uid ?? null;
+    },
+
     async deleteUser(uid) {
         await authRequest('DELETE', `auth/users/${uid}`);
     },

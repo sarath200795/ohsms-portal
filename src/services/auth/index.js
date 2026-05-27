@@ -11,7 +11,8 @@
  *
  *   await authService.signIn(email, password);
  *   await authService.signOut();
- *   const uid = await authService.createUser(email, password);
+ *   const uid = await authService.register(email, password);        // self-signup
+ *   const r   = await authService.createUser(email, payload);       // admin provisioning
  *   authService.onAuthStateChanged((user) => { ... });
  */
 

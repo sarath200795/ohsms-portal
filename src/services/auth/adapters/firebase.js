@@ -101,6 +101,27 @@ const firebaseAuthAdapter = {
         return { uid: cred.user.uid, email: cred.user.email };
     },
 
+    /**
+     * Self-signup: create a Firebase Auth account with a user-chosen password
+     * and return the new uid as a plain string.
+     *
+     * Used by the org-creation wizard (/setup) and the join-existing-org flow
+     * (Login page).  Differs from createUser():
+     *   - Caller chooses the password (createUser auto-generates a temp one)
+     *   - No RTDB records are written here — the caller writes them itself
+     *     under the new user's own auth (rules' self-write branches allow this)
+     *   - Returns a plain uid string, not { uid, temporaryPassword }
+     *
+     * Uses the REST API so the admin/parent session (if any) is undisturbed.
+     *
+     * @param {string} email
+     * @param {string} password
+     * @returns {Promise<string>}  new user's uid
+     */
+    async register(email, password) {
+        return createAuthAccountViaRest(email.trim().toLowerCase(), password);
+    },
+
     /** Sign out the current user. */
     async signOut() {
         await fbSignOut(auth);
