@@ -5,11 +5,12 @@
  *
  * User provisioning strategy
  * ──────────────────────────
- * createUser  — POSTs to /api/admin/users (Vercel serverless function).
- *               The Firebase Admin SDK on the server creates the Auth account
- *               and writes all three RTDB records atomically, bypassing all
- *               client-side RTDB security rules.  Requires env vars:
- *               FIREBASE_SERVICE_ACCOUNT_JSON + FIREBASE_DATABASE_URL (Vercel).
+ * createUser  — Tries the /api/admin/users Vercel serverless endpoint first.
+ *               If the endpoint is unavailable (app deployed to Firebase Hosting
+ *               without Vercel, or FIREBASE_SERVICE_ACCOUNT_JSON not set), falls
+ *               back to client-side provisioning: a secondary Firebase app creates
+ *               the Auth account, then the admin client writes the three RTDB
+ *               records directly (RTDB rules permit this for Global Owner / Site Owner).
  *
  * deleteUser  — tries the server-side /api/admin/users endpoint first so the
  *               Firebase Auth account is fully removed.  If the endpoint is not
@@ -19,8 +20,11 @@
  *               access without valid userDirectory / org records.
  */
 
+import { deleteApp, initializeApp } from 'firebase/app';
 import {
     EmailAuthProvider,
+    createUserWithEmailAndPassword,
+    getAuth,
     onAuthStateChanged,
     reauthenticateWithCredential,
     sendPasswordResetEmail,
@@ -29,7 +33,7 @@ import {
     updatePassword as fbUpdatePassword,
 } from 'firebase/auth';
 import { auth } from '../../../config/firebase.js';
-import { dbRemove } from '../../db/index.js';
+import { dbRemove, dbSet } from '../../db/index.js';
 
 // ── Adapter ──────────────────────────────────────────────────────────────────
 
@@ -69,12 +73,17 @@ const firebaseAuthAdapter = {
     },
 
     /**
-     * Create a new Firebase Auth account + RTDB records via the server-side
-     * /api/admin/users endpoint.
+     * Create a new Firebase Auth account + RTDB records.
      *
-     * The Admin SDK on the server bypasses RTDB security rules entirely, so
-     * the userDirectory mapping and org user record are written atomically
-     * without any client-side permission issues.
+     * Tries the server-side /api/admin/users endpoint first (Vercel). Falls back
+     * to client-side provisioning when the endpoint is unavailable — e.g. when
+     * the app is deployed to Firebase Hosting without Vercel, where the SPA
+     * catch-all rewrite returns 200 HTML instead of the expected JSON.
+     *
+     * Client-side fallback uses a secondary Firebase app to create the Auth account
+     * (same pattern as Contractors vendor portal), then writes the three RTDB
+     * records as the admin. RTDB rules permit this for Global Owner / Site Owner
+     * provided the org user record is written before the userDirectory entry.
      *
      * @param {string} email
      * @param {object} payload  { name, role, assignedSite, accessibleSites,
@@ -90,20 +99,100 @@ const firebaseAuthAdapter = {
 
         const idToken = await currentUser.getIdToken();
 
-        const res = await fetch('/api/admin/users', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ...payload, email, callerIdToken: idToken }),
-        });
+        // ── 1. Try server-side endpoint ─────────────────────────────────────
+        try {
+            const res = await fetch('/api/admin/users', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ...payload, email, callerIdToken: idToken }),
+            });
 
-        const data = await res.json().catch(() => ({}));
+            const data = await res.json().catch(() => null);
 
-        if (!res.ok) {
-            throw new Error(data.error || `Server error ${res.status}`);
+            if (res.ok && data?.uid) return data;
+
+            // Surface real business errors — do not fall back
+            if (!res.ok && data?.error && [400, 401, 403, 409].includes(res.status)) {
+                throw Object.assign(new Error(data.error), { _propagate: true });
+            }
+
+            // 404, 500 config error, or non-JSON 200 (Firebase Hosting SPA rewrite) — fall back
+            console.warn('[authService.createUser] Server endpoint unavailable; using client-side fallback.');
+        } catch (err) {
+            if (err._propagate || err.message?.includes('admin session')) throw err;
+            console.warn('[authService.createUser] Server error:', err.message);
         }
 
-        // data = { uid, temporaryPassword }
-        return data;
+        // ── 2. Client-side fallback ─────────────────────────────────────────
+        const charset = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789!@#$%';
+        const bytes = new Uint8Array(12);
+        crypto.getRandomValues(bytes);
+        const temporaryPassword = Array.from(bytes, (b) => charset[b % charset.length]).join('');
+        const provisionedAt = new Date().toISOString();
+
+        // Create Auth account via secondary app so the admin session is untouched
+        let newUid;
+        let tempApp;
+        try {
+            tempApp = initializeApp(auth.app.options, `ohsms-user-provisioning-${Date.now()}`);
+            const tempAuth = getAuth(tempApp);
+            const cred = await createUserWithEmailAndPassword(
+                tempAuth, email.trim().toLowerCase(), temporaryPassword
+            );
+            newUid = cred.user.uid;
+            await fbSignOut(tempAuth);
+        } catch (authErr) {
+            if (authErr.code === 'auth/email-already-in-use') {
+                throw new Error('This email already has an existing account. Ask the user to use the join code or reset their password.');
+            }
+            throw authErr;
+        } finally {
+            if (tempApp) await deleteApp(tempApp).catch(() => {});
+        }
+
+        const { name, role, assignedSite, accessibleSites, accessibleModules } = payload;
+        const newUserPayload = {
+            name: name.trim(),
+            email: email.trim().toLowerCase(),
+            role,
+            assignedSite: role === 'Global Owner' ? 'GLOBAL' : (assignedSite || ''),
+            accessibleSites: role === 'Global Owner' ? [] : (Array.isArray(accessibleSites) ? accessibleSites : []),
+            accessibleModules: role !== 'User' ? [] : (Array.isArray(accessibleModules) ? accessibleModules : []),
+            status: 'Active',
+            mustChangePassword: true,
+            temporaryPasswordIssued: true,
+            temporaryPasswordIssuedAt: provisionedAt,
+            provisionedBy: currentUser.uid,
+            createdAt: provisionedAt,
+        };
+
+        try {
+            // org user record must exist before userDirectory — RTDB rule dependency
+            await dbSet(`organizations/${orgId}/users/${newUid}`, newUserPayload);
+            await dbSet(`organizations/${orgId}/userPasswordState/${newUid}`, {
+                mustChangePassword: true,
+                temporaryPasswordIssued: true,
+                temporaryPasswordIssuedAt: provisionedAt,
+                passwordUpdatedAt: '',
+            });
+            await dbSet(`userDirectory/${newUid}`, { orgId });
+        } catch (dbErr) {
+            // Rollback RTDB records
+            await dbRemove(`organizations/${orgId}/users/${newUid}`).catch(() => {});
+            await dbRemove(`organizations/${orgId}/userPasswordState/${newUid}`).catch(() => {});
+            await dbRemove(`userDirectory/${newUid}`).catch(() => {});
+            // Best-effort: delete the orphaned Auth account
+            try {
+                const rbApp = initializeApp(auth.app.options, `ohsms-rollback-${Date.now()}`);
+                const rbAuth = getAuth(rbApp);
+                await signInWithEmailAndPassword(rbAuth, email.trim().toLowerCase(), temporaryPassword);
+                await rbAuth.currentUser.delete();
+                await deleteApp(rbApp).catch(() => {});
+            } catch { /* best-effort */ }
+            throw new Error('Failed to write user records to database. The Auth account was rolled back.');
+        }
+
+        return { uid: newUid, temporaryPassword };
     },
 
     /**
