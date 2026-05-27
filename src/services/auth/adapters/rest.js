@@ -104,6 +104,23 @@ const restAuthAdapter = {
         return result?.uid ?? null;
     },
 
+    /**
+     * Best-effort cleanup of an orphaned account created by register().
+     * Hits the same /auth/users/:uid endpoint as deleteUser but requires the
+     * caller to sign in first so the REST backend can authorise self-delete.
+     * Never throws.
+     */
+    async unregister(email, password) {
+        try {
+            const signInResult = await authRequest('POST', 'auth/login', { email, password });
+            if (!signInResult?.uid) return false;
+            await authRequest('DELETE', `auth/users/${signInResult.uid}`);
+            return true;
+        } catch {
+            return false;
+        }
+    },
+
     async deleteUser(uid) {
         await authRequest('DELETE', `auth/users/${uid}`);
     },

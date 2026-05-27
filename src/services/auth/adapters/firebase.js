@@ -89,6 +89,51 @@ const createAuthAccountViaRest = async (email, password) => {
     return data.localId;
 };
 
+/**
+ * Delete a Firebase Auth account using ONLY the user's own credentials.
+ *
+ * Firebase users always have permission to delete their own account, so this
+ * does not require Admin SDK / service-account access.  Uses two REST calls:
+ *
+ *   1. accounts:signInWithPassword  → returns an idToken for the account
+ *   2. accounts:delete              → deletes the account using that idToken
+ *
+ * Both calls go to the Firebase Auth REST API directly so the client SDK's
+ * auth-state is never touched (no spurious sign-in/sign-out side effects).
+ *
+ * Returns true on successful deletion, false if the account couldn't be
+ * authenticated (already deleted, wrong password, etc.) — caller treats
+ * failure as best-effort and continues without throwing.
+ */
+const deleteOwnAuthAccountViaRest = async (email, password) => {
+    const apiKey = firebaseConfig.apiKey;
+    if (!apiKey) return false;
+
+    // Step 1 — sign in via REST to get an idToken (no SDK side-effects).
+    const signInRes = await fetch(
+        `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${apiKey}`,
+        {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, password, returnSecureToken: true }),
+        }
+    );
+    if (!signInRes.ok) return false;
+    const { idToken } = await signInRes.json();
+    if (!idToken) return false;
+
+    // Step 2 — delete the account using the idToken.
+    const delRes = await fetch(
+        `https://identitytoolkit.googleapis.com/v1/accounts:delete?key=${apiKey}`,
+        {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ idToken }),
+        }
+    );
+    return delRes.ok;
+};
+
 // ── Adapter ──────────────────────────────────────────────────────────────────
 
 const firebaseAuthAdapter = {
@@ -120,6 +165,31 @@ const firebaseAuthAdapter = {
      */
     async register(email, password) {
         return createAuthAccountViaRest(email.trim().toLowerCase(), password);
+    },
+
+    /**
+     * Best-effort cleanup of a Firebase Auth account that was created by
+     * register() but is now orphaned (e.g., the surrounding self-signup flow
+     * failed before any RTDB records were written).
+     *
+     * Uses the user's own credentials — no admin privileges required, so this
+     * works without FIREBASE_SERVICE_ACCOUNT_JSON.  Never throws; returns true
+     * on success, false if the account couldn't be removed (caller should
+     * continue regardless — RTDB records, if any, were never written).
+     *
+     * @param {string} email
+     * @param {string} password
+     * @returns {Promise<boolean>}
+     */
+    async unregister(email, password) {
+        try {
+            return await deleteOwnAuthAccountViaRest(
+                email.trim().toLowerCase(),
+                password
+            );
+        } catch {
+            return false;
+        }
     },
 
     /** Sign out the current user. */

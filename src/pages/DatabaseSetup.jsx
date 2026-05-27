@@ -366,13 +366,14 @@ export default function DatabaseSetup() {
         if (regPassword.length < 6)     return setCreateError('Password must be at least 6 characters.');
 
         setCreateLoading(true);
+        const userEmail = regEmail.trim().toLowerCase();
+        let createdUid = null;
         try {
-            const userEmail = regEmail.trim().toLowerCase();
-
             // 1. Create the Firebase Auth account via the REST API.  This
             //    does not touch the SDK's auth-state machinery, so the primary
             //    auth still has no current user at this point.
             const uid = await authService.register(userEmail, regPassword);
+            createdUid = uid;
 
             // 2. Sign in to the PRIMARY auth instance so the Firebase security
             //    rules (auth != null) pass for all subsequent DB writes.
@@ -442,6 +443,14 @@ export default function DatabaseSetup() {
             setCreateSuccess(true);
             setTimeout(() => navigate('/dashboard'), 1500);
         } catch (err) {
+            // Best-effort cleanup of the orphan Auth account so the user can
+            // retry with the same email instead of being blocked by
+            // EMAIL_EXISTS.  unregister() uses the user's own credentials —
+            // no admin SDK required.
+            if (createdUid) {
+                await authService.signOut().catch(() => {});
+                await authService.unregister(userEmail, regPassword).catch(() => {});
+            }
             setCreateError(err.message || 'Something went wrong. Please try again.');
         } finally {
             setCreateLoading(false);

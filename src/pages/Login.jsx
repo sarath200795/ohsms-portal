@@ -290,9 +290,8 @@ export default function Login() {
 
         setLoading(true);
         let createdUid = null;
+        const joinEmail = regEmail.trim().toLowerCase();
         try {
-            const joinEmail = regEmail.trim().toLowerCase();
-
             // 1. Create Firebase Auth account (REST API — no SDK auth-state side-effects).
             const uid = await authService.register(joinEmail, regPassword);
             createdUid = uid;
@@ -302,7 +301,10 @@ export default function Login() {
 
             const existingOrgId = await dbGet(`joinRegistry/${code}`);
             if (!existingOrgId) {
-                await authService.deleteUser(uid);
+                // Sign out + remove the orphan Auth account so the user can retry.
+                await authService.signOut().catch(() => {});
+                await authService.unregister(joinEmail, regPassword);
+                createdUid = null; // already cleaned up
                 alert('This join code is invalid or has expired. Please ask your Organisation Admin to generate a fresh code from User Management.');
                 return;
             }
@@ -329,7 +331,14 @@ export default function Login() {
             setAuthMode('login');
             resetJoinFields();
         } catch (error) {
-            if (createdUid) await authService.deleteUser(createdUid).catch(() => {});
+            // Best-effort cleanup so the email isn't permanently blocked by an
+            // orphan Auth account when the user retries.  unregister() signs
+            // in with the user's own credentials to delete the account via
+            // REST — no admin SDK required.
+            if (createdUid) {
+                await authService.signOut().catch(() => {});
+                await authService.unregister(joinEmail, regPassword).catch(() => {});
+            }
             alert(`Join request failed: ${error.message}`);
         } finally {
             setLoading(false);
