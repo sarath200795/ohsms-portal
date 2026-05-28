@@ -431,47 +431,70 @@ export default function Contractors() {
             //   organizations/{orgId}/users/{portalUid}
             // using a vendor-portal payload (vendorPortal: true, etc.). If we
             // ever pick a NON-vendor user (e.g., a Global Owner / Site Owner
-            // whose email happens to match the contractor's email — extremely
-            // common during testing) as the "existing user", that update
-            // OVERWRITES their record:
-            //   • accessibleModules → reset to the contractor's empty list,
-            //     so the real user loses module access on next session reload
+            // whose email happens to match the contractor's email) as the
+            // "existing user", that update overwrites their record:
+            //   • accessibleModules → reset to the contractor's allocated
+            //     list (often empty), so the real user loses module access
+            //   • name → renamed to the vendor's contact-person name
             //   • vendorPortal → true, portalLinkedContractorId → vendor's id
-            //   • name → vendor's contact-person name
-            // The role is preserved by `existingOrgUser?.role || 'User'`, but
-            // accessibleModules and name damage is silent and confusing.
             //
-            // Refuse to provision if any matched user is a real (non-vendor)
-            // member of the organisation. Force the admin to use a distinct
-            // email for the vendor contact.
-            const nonVendorMatch = matchingOrgUsers.find((user) => (
-                user.vendorPortal !== true &&
-                user.status !== 'Deleted' &&
-                (!activeVendor.portalUid || user.firebaseKey !== activeVendor.portalUid)
-            ));
+            // Refuse to provision if any matched user looks like a real
+            // employee, AND in particular always refuse when the matched
+            // user holds an admin role (Global Owner / Site Owner) — those
+            // are never legitimate vendor portal identities, regardless of
+            // whether an EARLIER buggy provisioning corrupted the record
+            // by setting vendorPortal:true on it.
+            const nonVendorMatch = matchingOrgUsers.find((user) => {
+                // Allow re-provisioning the same vendor (portalUid matches
+                // the previously-linked uid).
+                if (activeVendor.portalUid && user.firebaseKey === activeVendor.portalUid) {
+                    return false;
+                }
+                if (user.status === 'Deleted') return false;
+
+                // ALWAYS refuse admin roles, even if the record currently has
+                // vendorPortal:true (which can happen on records damaged by
+                // an older buggy provisioning before this gate existed).
+                if (user.role === 'Global Owner' || user.role === 'Site Owner') {
+                    return true;
+                }
+
+                // For non-admin roles, only refuse if it's NOT already a
+                // vendor portal user (a legitimate vendor record can be
+                // reused safely).
+                return user.vendorPortal !== true;
+            });
             if (nonVendorMatch) {
+                const isAdminRole = nonVendorMatch.role === 'Global Owner' || nonVendorMatch.role === 'Site Owner';
                 alert(
                     `Cannot provision vendor portal access:\n\n` +
                     `The email "${vendorEmail}" already belongs to ` +
                     `"${nonVendorMatch.name || nonVendorMatch.email}" — a ${nonVendorMatch.role || 'regular'} ` +
                     `member of this organisation.\n\n` +
-                    `Reusing their identity for the vendor portal would overwrite ` +
-                    `their role-derived permissions and rename them to the vendor's contact person.\n\n` +
-                    `Please use a DIFFERENT email for this contractor (e.g., the contractor's ` +
-                    `own work email, not an internal employee's email).`
+                    (isAdminRole
+                        ? `Admin accounts (Global Owner, Site Owner) can never be reused as vendor portal identities. ` +
+                          `Please use a DIFFERENT email for this contractor — the contractor's own work email, not an internal admin email.`
+                        : `Reusing their identity for the vendor portal would overwrite their role-derived permissions ` +
+                          `and rename them to the vendor's contact person.\n\n` +
+                          `Please use a DIFFERENT email for this contractor.`)
                 );
                 setPortalProvisioning(false);
                 return;
             }
 
-            // Only "reuse" a record that's already a vendor portal user.
-            // Any other match (Active employee, Site Owner, etc.) is rejected
-            // above, so we know the matches here are either already-portal-
-            // users or the previously-linked portalUid.
+            // Only "reuse" a record that's already a vendor portal user
+            // AND NOT an admin role (paranoid: the gate above should have
+            // already rejected admin roles, but we double-check here so
+            // existingOrgUser can never be a Global Owner / Site Owner
+            // even if the gate logic ever drifts).
+            const isVendorReusable = (user) =>
+                user.vendorPortal === true &&
+                user.role !== 'Global Owner' &&
+                user.role !== 'Site Owner';
             const existingOrgUser =
-                matchingOrgUsers.find((user) => activeVendor.portalUid && user.firebaseKey === activeVendor.portalUid)
-                || matchingOrgUsers.find((user) => user.vendorPortal === true && user.status === 'Active')
-                || matchingOrgUsers.find((user) => user.vendorPortal === true)
+                matchingOrgUsers.find((user) => activeVendor.portalUid && user.firebaseKey === activeVendor.portalUid && isVendorReusable(user))
+                || matchingOrgUsers.find((user) => isVendorReusable(user) && user.status === 'Active')
+                || matchingOrgUsers.find((user) => isVendorReusable(user))
                 || null;
             const reusingExistingOrgIdentity = Boolean(existingOrgUser?.firebaseKey);
 
