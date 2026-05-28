@@ -404,6 +404,27 @@ export default function DatabaseSetup() {
     };
 
     // ── Create Org handler ─────────────────────────────────────────────────────
+
+    /**
+     * Wraps a promise with a timeout so RTDB writes don't hang forever
+     * when the WebSocket can't be established (blocked CSP, wrong DB URL, etc.).
+     */
+    const withDbTimeout = (promise, label = 'Database write') =>
+        Promise.race([
+            promise,
+            new Promise((_, reject) =>
+                setTimeout(() =>
+                    reject(new Error(
+                        `${label} timed out after 20 s. ` +
+                        'Check that your Firebase Realtime Database is enabled in the Firebase Console ' +
+                        'and that your Database URL is correct. ' +
+                        'Regional databases (europe-west1, asia-southeast1, etc.) are supported.'
+                    )),
+                    20000
+                )
+            ),
+        ]);
+
     const handleCreateOrg = async (e) => {
         e.preventDefault();
         setCreateError('');
@@ -427,10 +448,14 @@ export default function DatabaseSetup() {
             await authService.signIn(userEmail, regPassword);
 
             // 3. Now safe to write — auth.currentUser is set.
-            const orgId = await dbPush('organizations', null);
+            //    Wrap with a timeout: Firebase RTDB SDK writes queue forever
+            //    when the WebSocket is unreachable (wrong DB URL, blocked by
+            //    firewall/CSP, regional DB URL mismatch, etc.).  The timeout
+            //    surfaces a clear error instead of hanging indefinitely.
+            const orgId = await withDbTimeout(dbPush('organizations', null), 'Org ID generation');
             const code      = generateJoinCode();
 
-            await dbSet(`organizations/${orgId}`, {
+            await withDbTimeout(dbSet(`organizations/${orgId}`, {
                 details: {
                     name:               orgName.trim(),
                     createdAt:          new Date().toISOString(),
@@ -452,10 +477,10 @@ export default function DatabaseSetup() {
                         createdAt:        new Date().toISOString(),
                     },
                 },
-            });
+            }), 'Write organisation data');
 
-            await dbSet(`userDirectory/${uid}`, { orgId });
-            await dbSet(`joinRegistry/${code}`,  orgId);
+            await withDbTimeout(dbSet(`userDirectory/${uid}`, { orgId }), 'Write user directory');
+            await withDbTimeout(dbSet(`joinRegistry/${code}`,  orgId), 'Write join registry');
 
             const session = normalizeSessionPermissions({
                 uid,
