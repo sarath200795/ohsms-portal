@@ -10,6 +10,7 @@ import { hasAccessibleModule, isGlobalOwnerRole } from '../utils/permissions';
 import { readStoredSession, writeStoredSession } from '../utils/session';
 import { saveOrgToRegistry } from '../utils/orgRegistry.js';
 import { useReminders } from '../hooks/useReminders';
+import { rtdbRest, isFirebaseRestAvailable } from '../utils/rtdbRest.js';
 import NeedsAttentionPanel from '../components/NeedsAttentionPanel';
 
 const getDayGreeting = () => {
@@ -221,10 +222,42 @@ export default function Dashboard() {
         sessionStorage.setItem('isoCurrentSite', initialSite || 'GLOBAL');
 
         // --- PHASE 2 TARGETED FETCHING ENGINE ---
-        // Only pull the exact tables needed to calculate notifications and site lists
+        // Only pull the exact tables needed to calculate notifications and site lists.
+        //
+        // Critical path: use the Firebase RTDB REST API (plain HTTPS) instead of
+        // the SDK WebSocket when Firebase is the active adapter.  The WebSocket
+        // can hang indefinitely when blocked by CSP, network policy, or a
+        // regional database URL that isn't covered by the wildcard.  The REST
+        // API has a built-in 15-second AbortController timeout so `finally` is
+        // always reached and `localLoading` is always cleared.
         const fetchDashboardData = async () => {
+            const orgRef = `organizations/${sess.orgId}`;
+
+            if (isFirebaseRestAvailable()) {
+                // ── Fast path: HTTPS REST API (no WebSocket dependency) ──────
+                try {
+                    const idToken = await authService.getIdToken();
+                    const [details, sites, ptwRecords, incidents, permissionRequests] = await Promise.all([
+                        rtdbRest.get(`${orgRef}/details`, idToken),
+                        rtdbRest.get(`${orgRef}/sites`, idToken),
+                        rtdbRest.get(`${orgRef}/ptwRecords`, idToken),
+                        rtdbRest.get(`${orgRef}/incidents`, idToken),
+                        isGlobalAdmin ? rtdbRest.get(`${orgRef}/permissionRequests`, idToken) : Promise.resolve(null),
+                    ]);
+                    setLocalOrgData({ details, sites, ptwRecords, incidents, permissionRequests });
+                    if (details?.logoBase64) setLogoSrc(details.logoBase64);
+                } catch (err) {
+                    console.error('[Dashboard] REST fetch error:', err.message);
+                    // Leave localOrgData null — dashboard renders with defaults
+                } finally {
+                    setLocalLoading(false);
+                }
+                return;
+            }
+
+            // ── Fallback: SDK path for non-Firebase REST adapters ────────────
+            // Custom REST adapters use HTTP (not WebSocket) so they won't hang.
             try {
-                const orgRef = `organizations/${sess.orgId}`;
                 const [details, sites, ptwRecords, incidents, permissionRequests] = await Promise.all([
                     dbGet(`${orgRef}/details`),
                     dbGet(`${orgRef}/sites`),
@@ -232,12 +265,10 @@ export default function Dashboard() {
                     dbGet(`${orgRef}/incidents`),
                     isGlobalAdmin ? dbGet(`${orgRef}/permissionRequests`) : Promise.resolve(null),
                 ]);
-
                 setLocalOrgData({ details, sites, ptwRecords, incidents, permissionRequests });
-                // Apply org logo if one has been uploaded
                 if (details?.logoBase64) setLogoSrc(details.logoBase64);
             } catch (error) {
-                console.error("Dashboard Fetch Error:", error);
+                console.error('[Dashboard] SDK fetch error:', error);
             } finally {
                 setLocalLoading(false);
             }

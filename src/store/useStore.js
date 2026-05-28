@@ -39,9 +39,45 @@ const useStore = create((set, get) => ({
         // Keep the signed-in user's permission snapshot fresh.
         const userPath = orgPath(normalizedSession.orgId, 'users', normalizedSession.uid);
 
+        // Safety net: if the WebSocket subscription never delivers a value within
+        // 8 s (e.g. RTDB WebSocket blocked by CSP, network, or regional URL
+        // mismatch), unblock the UI using the session data already in the store
+        // so users aren't stuck on a loading screen forever.
+        // The real-time listener continues running in the background — if the
+        // connection is later established it will call clearTimeout (no-op once
+        // the timer has already fired) and refresh data normally.
+        const _fallbackTimer = setTimeout(() => {
+            if (!get().isDataLoading) return; // already resolved by the subscription
+            console.warn(
+                '[store] dbSubscribe did not fire within 8 s — unblocking UI with ' +
+                'session data. Real-time permission updates will resume once the ' +
+                'WebSocket connection is established.'
+            );
+            const s = get().session;
+            set({
+                orgData: {
+                    currentUser: {
+                        name:                    s?.name || '',
+                        role:                    s?.role || 'User',
+                        status:                  s?.status || 'Active',
+                        assignedSite:            s?.assignedSite || 'GLOBAL',
+                        accessibleSites:         s?.accessibleSites || [],
+                        accessibleModules:       s?.accessibleModules || [],
+                        mustChangePassword:      Boolean(s?.mustChangePassword),
+                        temporaryPasswordIssued: Boolean(s?.temporaryPasswordIssued),
+                        temporaryPasswordIssuedAt: s?.temporaryPasswordIssuedAt || '',
+                        passwordUpdatedAt:       s?.passwordUpdatedAt || '',
+                    },
+                },
+                isDataLoading: false,
+            });
+        }, 8000);
+
         const unsubscribe = dbSubscribe(
             userPath,
             (liveUser) => {
+                clearTimeout(_fallbackTimer);
+
                 if (!liveUser) {
                     set({ orgData: null, isDataLoading: false });
                     return;
@@ -83,20 +119,22 @@ const useStore = create((set, get) => ({
                 set({ orgData: { currentUser: liveUser }, isDataLoading: false });
             },
             (error) => {
+                clearTimeout(_fallbackTimer);
                 console.error('[store] DB subscription error:', error);
                 set({ isDataLoading: false });
             }
         );
 
-        // Store unsubscribe so clearSession can tear it down cleanly.
-        set({ _unsubscribe: unsubscribe });
+        // Store unsubscribe AND fallback timer so clearSession can tear both down.
+        set({ _unsubscribe: unsubscribe, _fallbackTimer });
     },
 
     // ─── 2. Call on logout ────────────────────────────────────────────────
     clearSession: () => {
-        const { _unsubscribe } = get();
+        const { _unsubscribe, _fallbackTimer } = get();
         if (typeof _unsubscribe === 'function') _unsubscribe();
-        set({ session: null, orgData: null, isDataLoading: true, listenerActive: false, _unsubscribe: null });
+        if (_fallbackTimer) clearTimeout(_fallbackTimer);
+        set({ session: null, orgData: null, isDataLoading: true, listenerActive: false, _unsubscribe: null, _fallbackTimer: null });
     },
 }));
 
