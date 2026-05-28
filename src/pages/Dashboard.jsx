@@ -315,11 +315,20 @@ export default function Dashboard() {
 
             if (localOrgData.ptwRecords) {
                 Object.values(localOrgData.ptwRecords).forEach(p => {
-                    const isPending = p.status === 'Pending Approval' || p.status === 'Pending Closure';
-                    const isMyTurn = (p.engApproverEmail && checkUserMatch(p.engApproverEmail) && p.engStatus.includes('Pending')) ||
-                        (p.prodApproverEmail && checkUserMatch(p.prodApproverEmail) && p.prodStatus.includes('Pending'));
+                    if (!p) return;
+                    // Defensive coercion — early-draft PTW records can be
+                    // missing engStatus/prodStatus, and calling .includes()
+                    // on undefined was crashing the whole useMemo (silently
+                    // — caught at the React boundary — leaving the Action
+                    // Queue stuck at 0).
+                    const status     = String(p.status     || '');
+                    const engStatus  = String(p.engStatus  || '');
+                    const prodStatus = String(p.prodStatus || '');
+                    const isPending = status === 'Pending Approval' || status === 'Pending Closure';
+                    const isMyTurn = (p.engApproverEmail  && checkUserMatch(p.engApproverEmail)  && engStatus.includes('Pending')) ||
+                                     (p.prodApproverEmail && checkUserMatch(p.prodApproverEmail) && prodStatus.includes('Pending'));
                     if (isPending && isMyTurn) {
-                        actions.push({ title: `Permit Auth: ${p.id}`, module: 'OHS Tools', path: `/ptw?site=${p.siteId}` });
+                        actions.push({ title: `Permit Auth: ${p.id || 'PTW'}`, module: 'OHS Tools', path: `/ptw?site=${p.siteId || 'All'}` });
                     }
                 });
             }
