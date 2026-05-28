@@ -6,7 +6,8 @@ export default function DeploymentsView({
     contractors,
     deploymentCompanyFilter,
     quickUpdateWorkerDeployment,
-    setDeploymentCompanyFilter
+    setDeploymentCompanyFilter,
+    visibleSites = []
 }) {
     return (
         <div className="space-y-6">
@@ -24,6 +25,21 @@ export default function DeploymentsView({
                 const contractorWorkers = safeArr(contractor.workers);
                 if (contractorWorkers.length === 0) return null;
 
+                // Same fallback pattern as AddWorkerModal: prefer the
+                // contractor's allocatedSites, but if none have been
+                // granted yet (typical for a freshly-approved self-
+                // registered vendor) fall back to the admin's full
+                // visibleSites list so the per-worker dropdown still has
+                // options the admin can pick.
+                const allocated = safeArr(contractor.allocatedSites).filter(Boolean);
+                const useAllocated = allocated.length > 0;
+                const sitesForDropdown = useAllocated
+                    ? allocated.map((code) => {
+                        const meta = safeArr(visibleSites).find((s) => s.code === code);
+                        return { code, name: meta?.name || code };
+                    })
+                    : safeArr(visibleSites).map((s) => ({ code: s.code, name: s.name || s.code }));
+
                 return (
                     <div key={contractor.firebaseKey} className="bg-slate-900/50 rounded-2xl border border-slate-700 p-6 shadow-xl mb-6">
                         <div className="flex justify-between items-start mb-6 border-b border-slate-800 pb-4">
@@ -31,8 +47,9 @@ export default function DeploymentsView({
                                 <h3 className="text-xl font-bold text-white mb-2">{contractor.companyName}</h3>
                                 <div className="flex flex-wrap gap-2 items-center">
                                     <span className="text-[10px] text-slate-400 uppercase tracking-widest mr-2">Authorized Sites:</span>
-                                    {safeArr(contractor.allocatedSites).map((site) => <span key={site} className="text-[10px] bg-indigo-900/30 text-indigo-400 border border-indigo-500/30 px-2 py-0.5 rounded font-bold">{site}</span>)}
-                                    {safeArr(contractor.allocatedSites).length === 0 && <span className="text-[10px] text-red-400">No Sites Allocated</span>}
+                                    {useAllocated
+                                        ? allocated.map((site) => <span key={site} className="text-[10px] bg-indigo-900/30 text-indigo-400 border border-indigo-500/30 px-2 py-0.5 rounded font-bold">{site}</span>)
+                                        : <span className="text-[10px] text-amber-300 italic">No sites granted yet — picker shows all sites visible to you. Lock down via Users → Edit.</span>}
                                 </div>
                             </div>
                             <div className="text-right">
@@ -61,7 +78,7 @@ export default function DeploymentsView({
                                             <td className="p-4 pr-6">
                                                 <select value={worker.deployedSite || ''} onChange={(event) => quickUpdateWorkerDeployment(contractor.firebaseKey, worker.id, event.target.value)} disabled={!canEdit} className={`w-full bg-slate-900 border rounded-lg text-xs p-2 outline-none transition-colors font-bold shadow-inner ${worker.deployedSite ? 'border-emerald-500/50 text-emerald-400 focus:border-emerald-500' : 'border-red-500/50 text-red-400 focus:border-red-500'}`}>
                                                     <option value="">Unassigned / Pending</option>
-                                                    {safeArr(contractor.allocatedSites).map((site) => <option key={site} value={site}>{site}</option>)}
+                                                    {sitesForDropdown.map((site) => <option key={site.code} value={site.code}>{site.name} ({site.code})</option>)}
                                                 </select>
                                             </td>
                                         </tr>

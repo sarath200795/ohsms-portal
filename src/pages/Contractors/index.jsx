@@ -1208,6 +1208,7 @@ export default function Contractors() {
                                 deploymentCompanyFilter={deploymentCompanyFilter}
                                 quickUpdateWorkerDeployment={quickUpdateWorkerDeployment}
                                 setDeploymentCompanyFilter={setDeploymentCompanyFilter}
+                                visibleSites={visibleSites}
                             />
                         )}
                     </div>
