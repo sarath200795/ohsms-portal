@@ -312,10 +312,16 @@ export default function Contractors() {
                 await dbUpdate(`organizations/${session.orgId}/contractors/${keyToUpdate}`, payload);
                 writeActivityLog(session.orgId, buildActivityEntry({ session, action: 'contractor.updated', module: 'Contractors', collection: 'contractors', recordId: keyToUpdate, recordTitle: payload.companyName || '', siteId: payload.siteId }));
             } else {
-                const createdRef = await dbPush(`organizations/${session.orgId}/contractors`, payload);
+                // dbPush returns the new key as a STRING (not a ref object) —
+                // see services/db/adapters/firebase.js. Previous code used
+                // createdRef.key which evaluated to undefined, so the vendor
+                // saved fine but createdVendor.firebaseKey was missing and
+                // the post-save Company Profile modal opened against an
+                // anonymous vendor, breaking provisioning.
+                const newKey = await dbPush(`organizations/${session.orgId}/contractors`, payload);
                 createdVendor = {
                     ...payload,
-                    firebaseKey: createdRef.key,
+                    firebaseKey: newKey,
                     allocatedSites: safeArr(payload.allocatedSites),
                     documents: safeArr(payload.documents),
                     workers: safeArr(payload.workers),
@@ -323,7 +329,7 @@ export default function Contractors() {
                     incidents: safeArr(payload.incidents),
                     nonCompliances: safeArr(payload.nonCompliances)
                 };
-                writeActivityLog(session.orgId, buildActivityEntry({ session, action: 'contractor.created', module: 'Contractors', collection: 'contractors', recordId: createdRef.key, recordTitle: payload.companyName || '', siteId: payload.siteId }));
+                writeActivityLog(session.orgId, buildActivityEntry({ session, action: 'contractor.created', module: 'Contractors', collection: 'contractors', recordId: newKey, recordTitle: payload.companyName || '', siteId: payload.siteId }));
             }
 
             alert('Vendor Registered/Updated Successfully!');
