@@ -84,6 +84,11 @@ export default function Contractors() {
     const [portalProvisioning, setPortalProvisioning] = useState(false);
     const [portalSuccess, setPortalSuccess] = useState(null);
 
+    // Vendor self-registration approval state
+    const [pendingRegistrations, setPendingRegistrations] = useState([]);
+    const [showPendingModal, setShowPendingModal] = useState(false);
+    const [approvalBusyId, setApprovalBusyId] = useState(null);
+
     useEffect(() => {
         const sess = readStoredSession();
         if (!sess) {
@@ -112,7 +117,18 @@ export default function Contractors() {
 
         const fetchData = async () => {
             try {
-                const data = await readOrgChildren(null, sess.orgId, ['contractors', 'users', 'sites', 'trainings', 'ptwRecords', 'incidents']);
+                const data = await readOrgChildren(null, sess.orgId, ['contractors', 'users', 'sites', 'trainings', 'ptwRecords', 'incidents', 'vendorRegistrationRequests']);
+                // Pull pending vendor self-registration requests so the modal
+                // can pop on load.  Non-blocking — if rules deny the read
+                // (e.g. user isn't Global Owner), the modal just stays empty.
+                if (data.vendorRegistrationRequests) {
+                    const requests = Object.entries(data.vendorRegistrationRequests)
+                        .map(([k, v]) => ({ firebaseKey: k, ...v }))
+                        .filter((r) => r.status === 'Pending')
+                        .sort((a, b) => new Date(b.requestedAt || 0) - new Date(a.requestedAt || 0));
+                    setPendingRegistrations(requests);
+                    if (requests.length > 0) setShowPendingModal(true);
+                }
 
                 if (data.contractors) setContractors(parseContractors(data.contractors));
                 if (data.users) {
@@ -412,6 +428,114 @@ export default function Contractors() {
             lastUpdated: new Date().toISOString()
         });
         setEditingVendor(null);
+    };
+
+    // ── Vendor self-registration: approve / reject ──────────────────────────
+    // Approve flow:
+    //   1. Create a contractor record from the request data (status: 'Active',
+    //      portalUid: requestUid so the portal links to this auth account).
+    //   2. Create vendorPortalUsers/{requestUid} with vendorPortal: true and
+    //      portalLinkedContractorId set to the new contractor key.
+    //   3. Write userDirectory/{requestUid} = { orgId } so the portal can
+    //      resolve the vendor's org on login.
+    //   4. Flip the request status to 'Approved' (for audit; could also delete).
+    // Reject flow: just flip the request status to 'Rejected'.
+    const approveVendorRegistration = async (request) => {
+        if (!request?.firebaseKey) return;
+        if (!isGlobalUser) return alert('Only the Global Owner can approve vendor registrations.');
+        setApprovalBusyId(request.firebaseKey);
+        try {
+            const nowIso = new Date().toISOString();
+            const contractorPayload = {
+                companyName: request.companyName || '',
+                contactPerson: request.contactPerson || '',
+                email: request.email,
+                phone: request.phone || '',
+                serviceType: request.serviceType || 'General / Housekeeping',
+                goodsType: 'PPE',
+                notes: '',
+                allocatedSites: [],
+                siteId: '',
+                status: 'Active',
+                documents: [],
+                workers: [],
+                trainings: [],
+                incidents: [],
+                nonCompliances: [],
+                portalUid: request.requestUid,
+                portalSharedIdentity: false,
+                portalBootstrapPending: false,
+                portalBootstrapEmail: '',
+                portalAssignedSite: '',
+                portalProvisionedAt: nowIso,
+                portalProvisionedBy: session.email,
+                portalSetupLinkSentAt: null,
+                portalSetupLinkSentBy: null,
+                portalPasswordRotatedAt: null,
+                portalPasswordRotatedBy: null,
+                portalCredentialEmailSentAt: null,
+                portalCredentialEmailSentBy: null,
+                vendorCode: 'VEN-' + Math.random().toString(36).slice(2, 8).toUpperCase(),
+                createdAt: nowIso,
+                lastUpdated: nowIso,
+                updatedBy: session.email,
+                createdViaVendorSelfRegistration: true
+            };
+            const contractorKey = await dbPush(`organizations/${session.orgId}/contractors`, contractorPayload);
+
+            await dbSet(`organizations/${session.orgId}/vendorPortalUsers/${request.requestUid}`, {
+                name: request.contactPerson || request.companyName || 'Vendor Portal User',
+                email: request.email,
+                role: 'User',
+                status: 'Active',
+                assignedSite: '',
+                accessibleSites: [],
+                accessibleModules: [],
+                vendorPortal: true,
+                portalLinkedContractorId: contractorKey,
+                portalBootstrapPending: false,
+                updatedBy: session.email,
+                updatedAt: nowIso,
+                createdAt: nowIso
+            });
+
+            await dbSet(`userDirectory/${request.requestUid}`, { orgId: session.orgId });
+
+            await dbUpdate(`organizations/${session.orgId}/vendorRegistrationRequests/${request.firebaseKey}`, {
+                status: 'Approved',
+                approvedAt: nowIso,
+                approvedBy: session.email,
+                approvedContractorId: contractorKey
+            });
+
+            setPendingRegistrations((prev) => prev.filter((r) => r.firebaseKey !== request.firebaseKey));
+            await refreshContractors();
+            alert(`Approved.\n\n${request.companyName} can now sign in to the vendor portal with the email + password they used to register.`);
+        } catch (err) {
+            console.error('[approveVendorRegistration] failed:', err);
+            alert('Approval failed: ' + (err?.message || err?.code || 'Unknown error'));
+        } finally {
+            setApprovalBusyId(null);
+        }
+    };
+
+    const rejectVendorRegistration = async (request) => {
+        if (!request?.firebaseKey) return;
+        if (!isGlobalUser) return alert('Only the Global Owner can reject vendor registrations.');
+        if (!window.confirm(`Reject the registration request from ${request.companyName} (${request.email})?\n\nThe vendor will be told their request was declined and can re-register with the same email later if needed.`)) return;
+        setApprovalBusyId(request.firebaseKey);
+        try {
+            await dbUpdate(`organizations/${session.orgId}/vendorRegistrationRequests/${request.firebaseKey}`, {
+                status: 'Rejected',
+                rejectedAt: new Date().toISOString(),
+                rejectedBy: session.email
+            });
+            setPendingRegistrations((prev) => prev.filter((r) => r.firebaseKey !== request.firebaseKey));
+        } catch (err) {
+            alert('Rejection failed: ' + (err?.message || err));
+        } finally {
+            setApprovalBusyId(null);
+        }
     };
 
     const provisionVendorPortalAccess = async () => {
@@ -1323,6 +1447,63 @@ export default function Contractors() {
                         onUploadAdditionalWorkerDoc={uploadAdditionalWorkerDoc}
                         setNewWorkerDocReq={setNewWorkerDocReq}
                     />
+                )}
+
+                {/* ── Pending vendor self-registration requests modal ─────────
+                    Pops automatically on Contractors page load when there are
+                    Pending rows in vendorRegistrationRequests. Admin can
+                    Approve (creates contractor + vendorPortalUsers +
+                    userDirectory in one go) or Reject. */}
+                {showPendingModal && pendingRegistrations.length > 0 && isGlobalUser && (
+                    <div className="fixed inset-0 bg-black/80 z-[120] flex items-center justify-center p-4 backdrop-blur-sm">
+                        <div className="bg-slate-900 border border-amber-500/40 rounded-3xl shadow-2xl max-w-2xl w-full max-h-[90vh] flex flex-col">
+                            <div className="p-6 border-b border-slate-800 flex items-start justify-between">
+                                <div>
+                                    <p className="text-[10px] uppercase font-bold text-amber-400 tracking-widest">Vendor Onboarding</p>
+                                    <h2 className="text-2xl font-black text-white mt-1">{pendingRegistrations.length} Pending Vendor Request{pendingRegistrations.length === 1 ? '' : 's'}</h2>
+                                    <p className="text-xs text-slate-400 mt-2 leading-relaxed">Vendors self-registered via the portal using your org's join code. Approving creates their contractor record and unlocks portal access immediately.</p>
+                                </div>
+                                <button onClick={() => setShowPendingModal(false)} className="text-slate-500 hover:text-white text-xl"><i className="fas fa-times"></i></button>
+                            </div>
+                            <div className="flex-1 overflow-y-auto p-6 space-y-3 custom-scroll">
+                                {pendingRegistrations.map((request) => (
+                                    <div key={request.firebaseKey} className="bg-slate-950 border border-slate-800 rounded-xl p-4">
+                                        <div className="flex items-start justify-between gap-3">
+                                            <div className="flex-1 min-w-0">
+                                                <div className="text-base font-bold text-white">{request.companyName}</div>
+                                                <div className="text-xs text-slate-400 mt-1 space-y-0.5">
+                                                    <div><i className="fas fa-envelope mr-2 text-slate-600"></i> <span className="font-mono">{request.email}</span></div>
+                                                    {request.contactPerson && <div><i className="fas fa-user mr-2 text-slate-600"></i> {request.contactPerson}</div>}
+                                                    {request.phone && <div><i className="fas fa-phone mr-2 text-slate-600"></i> {request.phone}</div>}
+                                                    {request.serviceType && <div><i className="fas fa-briefcase mr-2 text-slate-600"></i> {request.serviceType}</div>}
+                                                    {request.requestedAt && <div className="text-slate-600"><i className="fas fa-clock mr-2"></i> {new Date(request.requestedAt).toLocaleString()}</div>}
+                                                </div>
+                                            </div>
+                                            <div className="flex flex-col gap-2 shrink-0">
+                                                <button
+                                                    onClick={() => approveVendorRegistration(request)}
+                                                    disabled={approvalBusyId === request.firebaseKey}
+                                                    className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-lg text-[10px] font-bold uppercase tracking-widest transition disabled:opacity-50 flex items-center gap-2"
+                                                >
+                                                    <i className={`fas ${approvalBusyId === request.firebaseKey ? 'fa-spinner fa-spin' : 'fa-check'}`}></i> Approve
+                                                </button>
+                                                <button
+                                                    onClick={() => rejectVendorRegistration(request)}
+                                                    disabled={approvalBusyId === request.firebaseKey}
+                                                    className="bg-red-900/40 hover:bg-red-600 text-red-300 hover:text-white border border-red-500/30 px-4 py-2 rounded-lg text-[10px] font-bold uppercase tracking-widest transition disabled:opacity-50"
+                                                >
+                                                    Reject
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                            <div className="p-4 border-t border-slate-800 flex justify-end">
+                                <button onClick={() => setShowPendingModal(false)} className="bg-slate-800 hover:bg-slate-700 text-white font-bold px-6 py-2.5 rounded-lg text-xs uppercase tracking-widest transition">Close</button>
+                            </div>
+                        </div>
+                    </div>
                 )}
             </div>
         </>

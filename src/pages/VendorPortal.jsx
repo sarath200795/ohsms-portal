@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
+    createUserWithEmailAndPassword,
     EmailAuthProvider,
     onAuthStateChanged,
     reauthenticateWithCredential,
@@ -9,7 +10,7 @@ import {
     updatePassword
 } from 'firebase/auth';
 import { auth } from '../config/firebase';
-import { dbGet, dbSet, dbUpdate, dbQuery } from '../services/db/index.js';
+import { dbGet, dbPush, dbSet, dbUpdate, dbQuery } from '../services/db/index.js';
 import { safeDocumentHref } from '../utils/security';
 import {
     getOrgRegistry,
@@ -233,6 +234,22 @@ export default function VendorPortal() {
     const [loading, setLoading] = useState(true);
     const [isAuthenticated, setIsAuthenticated] = useState(false);
     const [loginData, setLoginData] = useState({ email: '', password: '' });
+    // Self-registration mode: when true, the sign-in form is replaced by a
+    // 'Request vendor account' form. Vendor enters a join code (admin shares
+    // it from Sites → Org settings) plus their company info; we create the
+    // Firebase Auth user and a row in vendorRegistrationRequests. Admin
+    // approves later from the Contractors tab.
+    const [registerMode, setRegisterMode] = useState(false);
+    const [registerData, setRegisterData] = useState({
+        joinCode: '',
+        companyName: '',
+        contactPerson: '',
+        email: '',
+        password: '',
+        phone: '',
+        serviceType: 'General / Housekeeping'
+    });
+    const [registerStage, setRegisterStage] = useState('form'); // 'form' | 'submitted'
     const [activeTab, setActiveTab] = useState('documentation');
     const [vendorSession, setVendorSession] = useState(null);
     const [vendor, setVendor] = useState(null);
@@ -616,6 +633,84 @@ export default function VendorPortal() {
             unsubscribe();
         };
     }, [fetchVendorData, resetPortalState]);
+
+    // Self-registration: vendor types in their own info + the org's join code,
+    // we create their Firebase Auth account and a pending row in
+    // vendorRegistrationRequests/{orgId}. Admin approves later from the
+    // Contractors page.  No userDirectory write here — that happens only on
+    // approval, which guarantees the vendor can't log into a portal until
+    // the admin says yes.
+    const handleVendorRegister = async (e) => {
+        e.preventDefault();
+        const code = String(registerData.joinCode || '').trim().toUpperCase();
+        const cleanEmail = normalizeEmail(registerData.email);
+        const cleanPassword = String(registerData.password || '');
+
+        if (!code) return alert('Please enter the join code provided by the client admin.');
+        if (!registerData.companyName.trim()) return alert('Company name is required.');
+        if (!cleanEmail) return alert('Please enter a valid email address.');
+        if (cleanPassword.length < 8) return alert('Password must be at least 8 characters.');
+
+        setLoading(true);
+        try {
+            // 1. Create the Firebase Auth account.  We need to be signed in as
+            //    this new user before we can read joinRegistry or write the
+            //    request row.
+            const userCredential = await createUserWithEmailAndPassword(auth, cleanEmail, cleanPassword);
+            const newUid = userCredential.user.uid;
+
+            // 2. Resolve the join code → orgId.  joinRegistry/$code.read is
+            //    open to authenticated users without a userDirectory entry,
+            //    so a brand-new vendor can do this.
+            let orgId = null;
+            try {
+                orgId = await dbGet(`joinRegistry/${code}`);
+            } catch (err) {
+                // Clean up the orphaned auth account so the vendor can retry
+                // without 'email-already-in-use'.
+                await userCredential.user.delete().catch(() => {});
+                throw new Error('Could not validate the join code — check that you typed it exactly as shared by your client admin.');
+            }
+            if (!orgId || typeof orgId !== 'string') {
+                await userCredential.user.delete().catch(() => {});
+                throw new Error('That join code is not valid. Ask your client admin for the current code from the workspace settings page.');
+            }
+
+            // 3. Write the registration request.  Rule requires
+            //    requestUid === auth.uid && email === token email && status === 'Pending'.
+            await dbPush(`organizations/${orgId}/vendorRegistrationRequests`, {
+                requestUid: newUid,
+                email: cleanEmail,
+                companyName: registerData.companyName.trim(),
+                contactPerson: registerData.contactPerson.trim(),
+                phone: registerData.phone.trim(),
+                serviceType: registerData.serviceType,
+                status: 'Pending',
+                requestedAt: new Date().toISOString()
+            });
+
+            // 4. Sign the vendor out so they can't accidentally bypass the
+            //    portal's "no userDirectory" gate. They'll sign in for real
+            //    once the admin approves.
+            await signOut(auth).catch(() => {});
+
+            setRegisterStage('submitted');
+        } catch (error) {
+            console.error('Vendor self-registration failed:', error);
+            const code = error?.code || '';
+            if (code === 'auth/email-already-in-use') {
+                alert('An account with that email already exists. Use Sign In instead, or use Forgot Password if you don\'t remember your password.');
+            } else if (code === 'auth/weak-password') {
+                alert('Password is too weak. Use at least 8 characters with a mix of letters and numbers.');
+            } else if (code === 'auth/invalid-email') {
+                alert('Please enter a valid email address.');
+            } else {
+                alert(error?.message || 'Could not submit your registration. Please try again.');
+            }
+        } finally {
+            setLoading(false);
+        }
+    };
 
     const handleLogin = async (e) => {
         e.preventDefault();
@@ -1147,7 +1242,100 @@ export default function VendorPortal() {
                             >
                                 {loading ? <i className="fas fa-circle-notch fa-spin"></i> : 'Access Vendor Portal'}
                             </button>
+
+                            {/* Self-registration entry point */}
+                            <div className="pt-3 border-t border-slate-800 mt-2">
+                                <button
+                                    type="button"
+                                    onClick={() => { setRegisterMode(true); setRegisterStage('form'); }}
+                                    className="w-full text-xs font-bold uppercase tracking-widest text-emerald-300 hover:text-white transition-colors"
+                                >
+                                    Don't have an account? Register here →
+                                </button>
+                            </div>
                         </form>
+                    )}
+
+                    {/* ── Vendor self-registration form ─────────────────────── */}
+                    {registerMode && registerStage === 'form' && (
+                        <form onSubmit={handleVendorRegister} className="space-y-4 mt-4 border-t border-slate-800 pt-6">
+                            <div className="rounded-2xl border border-emerald-500/25 bg-emerald-950/15 p-4 text-[11px] leading-relaxed text-emerald-100">
+                                <p className="font-bold text-emerald-200 uppercase tracking-widest text-[10px] mb-1.5">Register as a New Vendor</p>
+                                <p>Submit your details with the <span className="font-bold">join code</span> from the client admin. Your request goes to their Contractors tab for approval — once approved you can sign in to view performance and upload documents.</p>
+                            </div>
+                            <div>
+                                <label className="text-[10px] font-bold uppercase text-slate-400 tracking-widest block mb-2">Join Code *</label>
+                                <input type="text" required value={registerData.joinCode} onChange={e => setRegisterData({ ...registerData, joinCode: e.target.value.toUpperCase() })} placeholder="e.g. JOIN-7K3M" className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3.5 text-white font-mono uppercase outline-none focus:border-emerald-500 shadow-inner" />
+                            </div>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                <div>
+                                    <label className="text-[10px] font-bold uppercase text-slate-400 tracking-widest block mb-2">Company Name *</label>
+                                    <input type="text" required value={registerData.companyName} onChange={e => setRegisterData({ ...registerData, companyName: e.target.value })} placeholder="Acme Construction Ltd." className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3.5 text-white outline-none focus:border-emerald-500 shadow-inner" />
+                                </div>
+                                <div>
+                                    <label className="text-[10px] font-bold uppercase text-slate-400 tracking-widest block mb-2">Contact Person</label>
+                                    <input type="text" value={registerData.contactPerson} onChange={e => setRegisterData({ ...registerData, contactPerson: e.target.value })} placeholder="Supervisor / Manager" className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3.5 text-white outline-none focus:border-emerald-500 shadow-inner" />
+                                </div>
+                            </div>
+                            <div>
+                                <label className="text-[10px] font-bold uppercase text-slate-400 tracking-widest block mb-2">Email *</label>
+                                <input type="email" required value={registerData.email} onChange={e => setRegisterData({ ...registerData, email: e.target.value.toLowerCase() })} placeholder="contractor@company.com" className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3.5 text-white outline-none focus:border-emerald-500 shadow-inner" />
+                            </div>
+                            <div>
+                                <label className="text-[10px] font-bold uppercase text-slate-400 tracking-widest block mb-2">Password * <span className="font-normal text-slate-500 normal-case">(min 8 characters)</span></label>
+                                <input type="password" required value={registerData.password} onChange={e => setRegisterData({ ...registerData, password: e.target.value })} className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3.5 text-white outline-none focus:border-emerald-500 shadow-inner" />
+                            </div>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                <div>
+                                    <label className="text-[10px] font-bold uppercase text-slate-400 tracking-widest block mb-2">Phone</label>
+                                    <input type="tel" value={registerData.phone} onChange={e => setRegisterData({ ...registerData, phone: e.target.value })} placeholder="+91..." className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3.5 text-white outline-none focus:border-emerald-500 shadow-inner" />
+                                </div>
+                                <div>
+                                    <label className="text-[10px] font-bold uppercase text-slate-400 tracking-widest block mb-2">Service Type</label>
+                                    <select value={registerData.serviceType} onChange={e => setRegisterData({ ...registerData, serviceType: e.target.value })} className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3.5 text-white outline-none focus:border-emerald-500 shadow-inner">
+                                        <option>General / Housekeeping</option>
+                                        <option>Construction / Civil</option>
+                                        <option>Electrical / Mechanical</option>
+                                        <option>Goods Supplier</option>
+                                        <option>Specialist Services</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <button type="submit" disabled={loading} className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-4 rounded-xl uppercase tracking-widest text-sm transition-transform active:scale-95 shadow-lg shadow-emerald-900/50 disabled:opacity-50">
+                                {loading ? <i className="fas fa-circle-notch fa-spin"></i> : 'Submit Registration Request'}
+                            </button>
+                            <button type="button" onClick={() => setRegisterMode(false)} className="w-full text-xs font-bold uppercase tracking-widest text-slate-400 hover:text-white transition-colors">
+                                ← Back to Sign In
+                            </button>
+                        </form>
+                    )}
+
+                    {/* ── Post-submit success view ───────────────────────────── */}
+                    {registerMode && registerStage === 'submitted' && (
+                        <div className="space-y-5 mt-4 border-t border-slate-800 pt-6 text-center">
+                            <div className="w-16 h-16 rounded-2xl bg-emerald-900/30 border border-emerald-500/30 flex items-center justify-center text-emerald-400 text-3xl mx-auto">
+                                <i className="fas fa-paper-plane"></i>
+                            </div>
+                            <h3 className="text-xl font-black text-white">Registration Submitted</h3>
+                            <p className="text-sm text-slate-400 leading-relaxed">
+                                Your request is now visible to the client admin in their Contractors tab. Once they approve it, you'll be able to sign in with the email and password you just registered.
+                            </p>
+                            <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-4 text-[11px] leading-relaxed text-slate-400">
+                                <p><span className="font-bold text-slate-200">Registered email:</span> <span className="font-mono">{registerData.email}</span></p>
+                                <p className="mt-1.5">No further action is needed from you right now — you can close this tab.</p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setRegisterMode(false);
+                                    setRegisterStage('form');
+                                    setRegisterData({ joinCode: '', companyName: '', contactPerson: '', email: '', password: '', phone: '', serviceType: 'General / Housekeeping' });
+                                }}
+                                className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3 rounded-xl uppercase tracking-widest text-xs transition"
+                            >
+                                Back to Sign In
+                            </button>
+                        </div>
                     )}
                 </div>
             </div>
