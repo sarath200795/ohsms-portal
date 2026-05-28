@@ -259,6 +259,8 @@ export default function DatabaseSetup() {
         try {
             if (dbType === 'firebase') {
                 const cfg = getActiveFbConfig();
+
+                // ── field validation ──────────────────────────────────────────
                 if (!cfg.apiKey || !cfg.projectId) {
                     setTestState('error');
                     setTestMsg('Please fill in at least API Key and Project ID before testing.');
@@ -270,36 +272,45 @@ export default function DatabaseSetup() {
                     return;
                 }
 
-                // Test via Firebase REST API — a simple GET to the root with
-                // ?shallow=true&limitToFirst=1 returns quickly and tells us:
-                //   200  → credentials valid, database reachable
-                //   401  → API key invalid or database rules block unauthenticated reads
-                //          (rules are correct — this still confirms the DB is reachable)
-                //   404  → wrong databaseURL / project doesn't exist
-                //   network error → URL unreachable
-                const url = cfg.databaseURL.replace(/\/$/, '');
-                const res = await fetch(
-                    `${url}/.json?shallow=true&limitToFirst=1`,
-                    { signal: AbortSignal.timeout(10000) }
-                ).catch(err => {
-                    throw new Error(
-                        err.name === 'TimeoutError'
-                            ? 'Connection timed out. Check your Database URL and make sure the Realtime Database is created in your Firebase project.'
-                            : `Cannot reach the database: ${err.message}`
-                    );
-                });
+                // Normalise — strip trailing slash, ensure https:// prefix
+                let rawUrl = String(cfg.databaseURL).trim().replace(/\/$/, '');
+                if (!/^https?:\/\//i.test(rawUrl)) rawUrl = 'https://' + rawUrl;
 
-                if (res.status === 200 || res.status === 401) {
-                    // 200 = open rules (readable), 401 = locked rules (also valid — DB exists)
+                if (!/\.(firebaseio\.com|firebasedatabase\.app)$/i.test(rawUrl)) {
+                    setTestState('error');
+                    setTestMsg('Database URL format looks wrong. It should end in .firebaseio.com or .firebasedatabase.app — e.g. https://your-project-default-rtdb.firebaseio.com');
+                    return;
+                }
+
+                // ── REST ping — use AbortController for broad browser support ─
+                // GET {databaseURL}/.json?shallow=true
+                //   200 / 401 / 403 → DB reachable  ✅
+                //   404             → DB doesn't exist / wrong URL  ❌
+                //   network / abort → URL unreachable  ❌
+                const controller = new AbortController();
+                const timerId = setTimeout(() => controller.abort(), 8000);
+
+                let res;
+                try {
+                    res = await fetch(`${rawUrl}/.json?shallow=true`, {
+                        signal: controller.signal,
+                    });
+                } catch (fetchErr) {
+                    throw new Error(
+                        fetchErr.name === 'AbortError'
+                            ? 'Connection timed out after 8 s. Check your Database URL and make sure the Realtime Database is enabled in your Firebase project.'
+                            : `Cannot reach the database: ${fetchErr.message}`
+                    );
+                } finally {
+                    clearTimeout(timerId);
+                }
+
+                if (res.status === 200 || res.status === 401 || res.status === 403) {
                     setTestState('success');
-                    setTestMsg('✅ Firebase connected! Your credentials are valid and the Realtime Database is reachable.');
+                    setTestMsg('✅ Firebase connected! Database is reachable and your credentials are valid.');
                 } else if (res.status === 404) {
                     setTestState('error');
-                    setTestMsg('Database not found (404). Double-check your Database URL — it should end in .firebaseio.com and match your Firebase project.');
-                } else if (res.status === 403) {
-                    // 403 = rules deny but DB exists and API key is valid
-                    setTestState('success');
-                    setTestMsg('✅ Firebase connected! Database is reachable. (Security rules are active — that\'s expected.)');
+                    setTestMsg('Database not found (404). Double-check your Database URL — make sure the Realtime Database is created in the Firebase console for this project.');
                 } else {
                     setTestState('error');
                     setTestMsg(`Unexpected response (HTTP ${res.status}). Check your Firebase credentials and Database URL.`);
@@ -311,16 +322,23 @@ export default function DatabaseSetup() {
                     setTestMsg('Please enter your API base URL before testing.');
                     return;
                 }
-                const res = await fetch(`${url}/health`, {
-                    signal:  AbortSignal.timeout(8000),
-                    headers: { Accept: 'application/json' },
-                }).catch(err => {
+                const restController = new AbortController();
+                const restTimer = setTimeout(() => restController.abort(), 8000);
+                let res;
+                try {
+                    res = await fetch(`${url}/health`, {
+                        signal: restController.signal,
+                        headers: { Accept: 'application/json' },
+                    });
+                } catch (fetchErr) {
                     throw new Error(
-                        err.message.includes('Failed to fetch')
-                            ? `Cannot reach ${url}. Check the URL and make sure CORS is enabled for this domain.`
-                            : err.message
+                        fetchErr.name === 'AbortError'
+                            ? `Connection timed out. Is the server at ${url} running and publicly accessible?`
+                            : `Cannot reach ${url}. Check the URL and make sure CORS is enabled for this domain.`
                     );
-                });
+                } finally {
+                    clearTimeout(restTimer);
+                }
 
                 const ok = res.ok || res.status === 401 || res.status === 403 || res.status === 404;
                 if (ok) {
