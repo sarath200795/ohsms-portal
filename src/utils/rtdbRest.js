@@ -17,7 +17,7 @@
 
 import { firebaseConfig } from '../config/firebase.js';
 
-const TIMEOUT_MS = 15_000;
+const TIMEOUT_MS = 5_000;
 
 /** Resolve the active DB adapter ('firebase' | 'rest'). */
 const _getAdapter = () => {
@@ -70,7 +70,7 @@ const _fetch = async (url, options = {}) => {
     } catch (err) {
         if (err.name === 'AbortError') {
             throw new Error(
-                '[rtdbRest] Request timed out after 15 s. ' +
+                '[rtdbRest] Request timed out after 5 s. ' +
                 'Check that your Firebase Realtime Database is accessible and that ' +
                 'the database URL is correct.'
             );

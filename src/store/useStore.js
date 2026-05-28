@@ -49,7 +49,7 @@ const useStore = create((set, get) => ({
         const _fallbackTimer = setTimeout(() => {
             if (!get().isDataLoading) return; // already resolved by the subscription
             console.warn(
-                '[store] dbSubscribe did not fire within 8 s — unblocking UI with ' +
+                '[store] dbSubscribe did not fire within 5 s — unblocking UI with ' +
                 'session data. Real-time permission updates will resume once the ' +
                 'WebSocket connection is established.'
             );
@@ -71,7 +71,7 @@ const useStore = create((set, get) => ({
                 },
                 isDataLoading: false,
             });
-        }, 8000);
+        }, 5000);
 
         const unsubscribe = dbSubscribe(
             userPath,

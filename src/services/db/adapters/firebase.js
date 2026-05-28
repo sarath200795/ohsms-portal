@@ -41,14 +41,14 @@ const dbRef = (path) => ref(rtdb, path);
  * internal queue (no side effects for reads) and resolves silently if the
  * connection is later established.
  */
-const DB_READ_TIMEOUT_MS = 15_000;
+const DB_READ_TIMEOUT_MS = 5_000;
 
 const withReadTimeout = (sdkPromise) => {
     let timer;
     const timeoutP = new Promise((_, reject) => {
         timer = setTimeout(() => {
             reject(new Error(
-                '[db:firebase] read timed out after 15 s. ' +
+                '[db:firebase] read timed out after 5 s. ' +
                 'The WebSocket connection to Firebase Realtime Database may be ' +
                 'blocked. Check the database URL and Content Security Policy.'
             ));

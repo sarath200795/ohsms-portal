@@ -87,7 +87,7 @@ const getFirebaseDbUrl = () => String(firebaseConfig.databaseURL || '').replace(
 const rtdbRest = {
     async _fetch(url, options = {}) {
         const ctrl = new AbortController();
-        const timer = setTimeout(() => ctrl.abort(), 15000);
+        const timer = setTimeout(() => ctrl.abort(), 5000);
         try {
             const res = await fetch(url, { ...options, signal: ctrl.signal });
             const json = await res.json().catch(() => ({}));
@@ -114,7 +114,7 @@ const rtdbRest = {
         } catch (err) {
             if (err.name === 'AbortError') {
                 throw new Error(
-                    'Database connection timed out (15 s). ' +
+                    'Database connection timed out (5 s). ' +
                     'Your Firebase Realtime Database URL may be wrong or the database may not be enabled. ' +
                     'Go to /setup → Step 1 → Test Connection to verify.'
                 );
