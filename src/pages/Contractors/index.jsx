@@ -426,60 +426,42 @@ export default function Contractors() {
                 normalizeEmail(user.email) === vendorEmail
             ));
 
-            // ── SAFETY GATE ─────────────────────────────────────────────────
-            // The provisioning flow ends with a dbUpdate at
-            //   organizations/{orgId}/users/{portalUid}
-            // using a vendor-portal payload (vendorPortal: true, etc.). If we
-            // ever pick a NON-vendor user (e.g., a Global Owner / Site Owner
-            // whose email happens to match the contractor's email) as the
-            // "existing user", that update overwrites their record:
-            //   • accessibleModules → reset to the contractor's allocated
-            //     list (often empty), so the real user loses module access
-            //   • name → renamed to the vendor's contact-person name
-            //   • vendorPortal → true, portalLinkedContractorId → vendor's id
+            // ── Collision detection (informational only) ────────────────────
+            // After the vendorPortalUsers refactor, vendor records live in a
+            // SEPARATE collection from org members. Even when a vendor's
+            // email collides with an existing employee's email (Firebase Auth
+            // shares the uid), the vendor write goes to vendorPortalUsers/<uid>
+            // and physically cannot touch the employee's record at users/<uid>.
             //
-            // Refuse to provision if any matched user looks like a real
-            // employee, AND in particular always refuse when the matched
-            // user holds an admin role (Global Owner / Site Owner) — those
-            // are never legitimate vendor portal identities, regardless of
-            // whether an EARLIER buggy provisioning corrupted the record
-            // by setting vendorPortal:true on it.
-            const nonVendorMatch = matchingOrgUsers.find((user) => {
-                // Allow re-provisioning the same vendor (portalUid matches
-                // the previously-linked uid).
+            // So the old "refuse and block" gate is no longer necessary for
+            // data safety. We still detect collisions so we can WARN the
+            // admin (the vendor will share a sign-in password with the
+            // employee, which has UX implications) — but we do NOT block.
+            const collidingEmployee = matchingOrgUsers.find((user) => {
                 if (activeVendor.portalUid && user.firebaseKey === activeVendor.portalUid) {
                     return false;
                 }
                 if (user.status === 'Deleted') return false;
-
-                // ALWAYS refuse admin roles, even if the record currently has
-                // vendorPortal:true (which can happen on records damaged by
-                // an older buggy provisioning before this gate existed).
-                if (user.role === 'Global Owner' || user.role === 'Site Owner') {
-                    return true;
-                }
-
-                // For non-admin roles, only refuse if it's NOT already a
-                // vendor portal user (a legitimate vendor record can be
-                // reused safely).
+                // An admin-role match is always a colliding employee, even
+                // if a previous buggy provisioning set vendorPortal:true on
+                // them. A non-admin match is only colliding if it isn't
+                // already a vendor portal user.
+                if (user.role === 'Global Owner' || user.role === 'Site Owner') return true;
                 return user.vendorPortal !== true;
             });
-            if (nonVendorMatch) {
-                const isAdminRole = nonVendorMatch.role === 'Global Owner' || nonVendorMatch.role === 'Site Owner';
-                alert(
-                    `Cannot provision vendor portal access:\n\n` +
-                    `The email "${vendorEmail}" already belongs to ` +
-                    `"${nonVendorMatch.name || nonVendorMatch.email}" — a ${nonVendorMatch.role || 'regular'} ` +
-                    `member of this organisation.\n\n` +
-                    (isAdminRole
-                        ? `Admin accounts (Global Owner, Site Owner) can never be reused as vendor portal identities. ` +
-                          `Please use a DIFFERENT email for this contractor — the contractor's own work email, not an internal admin email.`
-                        : `Reusing their identity for the vendor portal would overwrite their role-derived permissions ` +
-                          `and rename them to the vendor's contact person.\n\n` +
-                          `Please use a DIFFERENT email for this contractor.`)
-                );
-                setPortalProvisioning(false);
-                return;
+            if (collidingEmployee) {
+                const adminRole = collidingEmployee.role === 'Global Owner' || collidingEmployee.role === 'Site Owner';
+                provisioningWarning =
+                    `Note: the vendor email "${vendorEmail}" matches an existing ` +
+                    `${collidingEmployee.role || 'organisation'} account ` +
+                    `("${collidingEmployee.name || collidingEmployee.email}"). ` +
+                    `The vendor's portal record is stored separately so the existing ` +
+                    `account's role and permissions are NOT touched, ` +
+                    (adminRole
+                        ? `but the vendor will share a Firebase sign-in password with that admin. ` +
+                          `Consider using a contractor-owned email for cleaner separation.`
+                        : `but the vendor will share a Firebase sign-in password with that user. ` +
+                          `Consider using a distinct email if that's a problem.`);
             }
 
             // Only "reuse" a record that's already a vendor portal user
@@ -654,24 +636,31 @@ export default function Contractors() {
                     portalSharedIdentity: reusingExistingOrgIdentity
                 };
 
-                await dbUpdate(`organizations/${session.orgId}/users/${portalUid}`, nextUserPayload);
+                // ── WRITE TO vendorPortalUsers — NOT users ──────────────────
+                // The vendor portal record now lives in its own isolated
+                // collection so it can NEVER overwrite an org member's record
+                // when the vendor's email collides with an employee's email
+                // (Firebase Auth shares the same uid across both contexts).
+                //
+                // The main app's user-management screen reads from `users` and
+                // is unaffected; vendor portal sign-in reads from
+                // `vendorPortalUsers` (with fallback to `users` for vendors
+                // provisioned before this refactor — see VendorPortal.jsx).
+                await dbUpdate(`organizations/${session.orgId}/vendorPortalUsers/${portalUid}`, nextUserPayload);
+                // userPasswordState path stays the same — it's keyed by uid,
+                // not collection-specific, and is read by both contexts. The
+                // password reset flow uses Firebase Auth directly so this is
+                // mostly cosmetic now.
                 await dbUpdate(`organizations/${session.orgId}/userPasswordState/${portalUid}`, {
                     mustChangePassword: nextUserPayload.mustChangePassword,
                     temporaryPasswordIssued: nextUserPayload.temporaryPasswordIssued,
                     temporaryPasswordIssuedAt: nextUserPayload.temporaryPasswordIssuedAt || '',
                     passwordUpdatedAt: nextUserPayload.passwordUpdatedAt || ''
                 });
-
-                if (existingOrgUser?.firebaseKey && existingOrgUser.firebaseKey !== portalUid) {
-                    await dbUpdate(`organizations/${session.orgId}/users/${existingOrgUser.firebaseKey}`, {
-                        status: 'Deleted',
-                        vendorPortal: false,
-                        portalLinkedContractorId: '',
-                        supersededByUid: portalUid,
-                        deletedAt: nowIso,
-                        deletedBy: session.email || session.name || 'Global Owner'
-                    });
-                }
+                // The "supersede previous user record" branch is no longer
+                // needed: we never wrote a stray vendor row into `users`
+                // in the first place. Existing legacy vendor rows in `users`
+                // will be cleaned up by a one-time migration if/when needed.
 
                 try {
                     await dbSet(`userDirectory/${portalUid}`, { orgId: session.orgId });

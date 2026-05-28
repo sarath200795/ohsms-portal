@@ -343,7 +343,11 @@ export default function VendorPortal() {
             createdAt: nowIso
         };
 
-        await dbSet(`organizations/${orgId}/users/${user.uid}`, bootstrapPayload);
+        // Vendor portal bootstrap writes go to the ISOLATED vendorPortalUsers
+        // collection — never to `users`. This guarantees a vendor whose email
+        // collides with an existing employee's email cannot overwrite the
+        // employee's role / permissions.
+        await dbSet(`organizations/${orgId}/vendorPortalUsers/${user.uid}`, bootstrapPayload);
         await dbSet(`userDirectory/${user.uid}`, { orgId });
         return { orgId, contractorId };
     }, [getBootstrapHints]);
@@ -378,16 +382,28 @@ export default function VendorPortal() {
                 throw new Error('This login belongs to a different organization than the saved portal session.');
             }
 
-            let orgUserSnap = await dbGet(`organizations/${orgId}/users/${user.uid}`);
-            if (!orgUserSnap !== null) {
+            // Read vendor record from vendorPortalUsers (the new, isolated
+            // collection). Fall back to the legacy users path so vendors
+            // provisioned before the refactor still work. Note: if a record
+            // exists at BOTH paths (vendor was provisioned both before and
+            // after the refactor), the new vendorPortalUsers wins.
+            let orgUserSnap = await dbGet(`organizations/${orgId}/vendorPortalUsers/${user.uid}`);
+            if (!orgUserSnap) {
+                orgUserSnap = await dbGet(`organizations/${orgId}/users/${user.uid}`);
+            }
+            if (!orgUserSnap) {
                 await ensureVendorBootstrapAccess({
                     user,
                     cleanEmail,
                     expectedOrgId: orgId,
                     expectedContractorId
                 });
-                orgUserSnap = await dbGet(`organizations/${orgId}/users/${user.uid}`);
-                if (!orgUserSnap !== null) {
+                // Re-read after bootstrap (which writes to vendorPortalUsers).
+                orgUserSnap = await dbGet(`organizations/${orgId}/vendorPortalUsers/${user.uid}`);
+                if (!orgUserSnap) {
+                    orgUserSnap = await dbGet(`organizations/${orgId}/users/${user.uid}`);
+                }
+                if (!orgUserSnap) {
                     throw new Error('Your authenticated account is missing from the organization directory.');
                 }
             }
