@@ -363,8 +363,16 @@ export default function VendorPortal() {
                 throw new Error('No authenticated portal session found. Please sign in again.');
             }
 
+            // BUG (now fixed): the predicate used to be `!userDirSnap !== null`,
+            // which parses as `(!userDirSnap) !== null` and is ALWAYS true
+            // (both true and false satisfy `!== null`). Result: the bootstrap
+            // branch ran for every login — and the post-bootstrap check threw
+            // immediately, so every vendor saw 'could not finish linking'
+            // even when the directory record existed and the password was
+            // correct.  Replaced with the intended "snap is missing → try
+            // bootstrap" check.
             let userDirSnap = await dbGet(`userDirectory/${user.uid}`);
-            if (!userDirSnap !== null) {
+            if (userDirSnap === null) {
                 await ensureVendorBootstrapAccess({
                     user,
                     cleanEmail,
@@ -372,7 +380,7 @@ export default function VendorPortal() {
                     expectedContractorId
                 });
                 userDirSnap = await dbGet(`userDirectory/${user.uid}`);
-                if (!userDirSnap !== null) {
+                if (userDirSnap === null) {
                     throw new Error('This vendor login could not finish linking to the organization. Ask your client admin to resend the setup link.');
                 }
             }
