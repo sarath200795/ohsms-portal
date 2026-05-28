@@ -65,6 +65,25 @@ export function saveOrgToRegistry(entry) {
     }
 }
 
+/**
+ * Remove an org entry from the local registry.  Does NOT touch the active
+ * Firebase / REST DB config in localStorage — the caller decides whether to
+ * also clear that (e.g. if the removed entry was the currently-active DB).
+ *
+ * @param {string} orgId
+ * @returns {OrgRegistryEntry[]} the updated registry
+ */
+export function removeOrgFromRegistry(orgId) {
+    try {
+        const next = getOrgRegistry().filter((e) => e.orgId !== orgId);
+        localStorage.setItem(REGISTRY_KEY, JSON.stringify(next));
+        return next;
+    } catch (err) {
+        console.warn('[orgRegistry] Failed to remove entry:', err);
+        return getOrgRegistry();
+    }
+}
+
 // ─── apply ────────────────────────────────────────────────────────────────
 
 /**

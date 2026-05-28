@@ -13,6 +13,7 @@ import { dbGet, dbSet, dbUpdate, dbQuery } from '../services/db/index.js';
 import { safeDocumentHref } from '../utils/security';
 import {
     getOrgRegistry,
+    removeOrgFromRegistry,
     applyOrgDbConfig,
     isCurrentDb,
     getDbTypeLabel,
@@ -255,6 +256,22 @@ export default function VendorPortal() {
 
     /** Return from the login form back to the org picker. */
     const handleBackToPicker = () => setPickedOrg(null);
+
+    /** Remove an org from the local picker (does not delete it in Firebase). */
+    const handleRemoveOrg = (event, entry) => {
+        event.stopPropagation();   // don't trigger the card's onClick
+        event.preventDefault();
+        const ok = window.confirm(
+            `Remove "${entry.orgName}" from this device's workspace picker?\n\n` +
+            `This only hides it from this browser — the organisation itself ` +
+            `and your vendor account in it are NOT deleted. You can re-add it ` +
+            `via the Setup Wizard or by clicking your client admin's workspace ` +
+            `setup link again.`
+        );
+        if (!ok) return;
+        const next = removeOrgFromRegistry(entry.orgId);
+        setOrgRegistry(next);
+    };
 
     const getBootstrapHints = useCallback(() => {
         const params = new URLSearchParams(window.location.search);
@@ -893,6 +910,21 @@ export default function VendorPortal() {
                                                     : 'border-slate-700 bg-slate-950/60 hover:border-indigo-500/40 hover:bg-slate-900/60'
                                             }`}
                                         >
+                                            {/* Remove from picker (top-right ×) */}
+                                            <span
+                                                role="button"
+                                                tabIndex={0}
+                                                aria-label={`Remove ${entry.orgName} from picker`}
+                                                title="Remove from this device"
+                                                onClick={(e) => handleRemoveOrg(e, entry)}
+                                                onKeyDown={(e) => {
+                                                    if (e.key === 'Enter' || e.key === ' ') handleRemoveOrg(e, entry);
+                                                }}
+                                                className="absolute right-2 top-2 flex h-6 w-6 items-center justify-center rounded-full border border-slate-700 bg-slate-950/80 text-xs font-bold text-slate-500 opacity-0 transition-opacity duration-150 hover:border-rose-400/60 hover:bg-rose-500/20 hover:text-rose-200 group-hover:opacity-100 focus:opacity-100"
+                                            >
+                                                ×
+                                            </span>
+
                                             {entry.logoBase64 ? (
                                                 <img src={entry.logoBase64} alt="" className="h-12 w-12 rounded-xl object-cover" />
                                             ) : (

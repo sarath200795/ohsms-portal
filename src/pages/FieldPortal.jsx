@@ -26,6 +26,7 @@ import {
 import { useAppTransition } from '../hooks/useAppTransition';
 import {
     getOrgRegistry,
+    removeOrgFromRegistry,
     applyOrgDbConfig,
     isCurrentDb,
     getDbTypeLabel,
@@ -116,6 +117,21 @@ export default function FieldPortal() {
 
     /** Go back to the org picker from the login form. */
     const handleBackToPicker = () => setPickedOrg(null);
+
+    /** Remove an org from the local picker (does not delete it in Firebase). */
+    const handleRemoveOrg = (event, entry) => {
+        event.stopPropagation();   // don't trigger the card's onClick
+        event.preventDefault();
+        const ok = window.confirm(
+            `Remove "${entry.orgName}" from this device's workspace picker?\n\n` +
+            `This only hides it from this browser — the organisation itself ` +
+            `and your account in it are NOT deleted. You can re-add it via ` +
+            `the Setup Wizard in the main app.`
+        );
+        if (!ok) return;
+        const next = removeOrgFromRegistry(entry.orgId);
+        setOrgRegistry(next);
+    };
 
     const finalizePortalContext = useCallback(({ sessionData, orgSites, showAlert = false }) => {
         const allowedSites = getVisibleSites(orgSites, sessionData);
@@ -409,6 +425,21 @@ export default function FieldPortal() {
                                                         : 'border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.03)] hover:border-[rgba(242,201,120,0.35)] hover:bg-[rgba(242,201,120,0.05)]'
                                                 }`}
                                             >
+                                                {/* Remove from picker (top-right ×) */}
+                                                <span
+                                                    role="button"
+                                                    tabIndex={0}
+                                                    aria-label={`Remove ${entry.orgName} from picker`}
+                                                    title="Remove from this device"
+                                                    onClick={(e) => handleRemoveOrg(e, entry)}
+                                                    onKeyDown={(e) => {
+                                                        if (e.key === 'Enter' || e.key === ' ') handleRemoveOrg(e, entry);
+                                                    }}
+                                                    className="absolute right-2 top-2 flex h-6 w-6 items-center justify-center rounded-full border border-[rgba(255,255,255,0.12)] bg-[rgba(0,0,0,0.35)] text-xs font-bold text-[rgba(255,255,255,0.55)] opacity-0 transition-opacity duration-150 hover:border-rose-400/60 hover:bg-rose-500/20 hover:text-rose-200 group-hover:opacity-100 focus:opacity-100"
+                                                >
+                                                    ×
+                                                </span>
+
                                                 {/* Logo / initial avatar */}
                                                 <div className="relative h-16 w-16 flex-shrink-0 overflow-hidden rounded-2xl border border-[rgba(255,255,255,0.1)] bg-[rgba(255,255,255,0.05)]">
                                                     {entry.logoBase64 ? (
