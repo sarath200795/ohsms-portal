@@ -508,18 +508,26 @@ export default function Contractors() {
                 const tempAuth = getAuth(tempApp);
 
                 try {
+                    // The vendor's first-login password is the Vendor Reference
+                    // Code — that's a value the admin already knows and can
+                    // share verbally / via WhatsApp / SMS, without depending on
+                    // Firebase's password-reset email landing in the vendor's
+                    // inbox.  Once they sign in, mustChangePassword is true so
+                    // the portal forces them to set their own password before
+                    // they can do anything else.
                     const rotatePortalPassword = async (credentialUser) => {
-                        const nextPortalPassword = generateVendorPortalPassword();
-                        await updatePassword(credentialUser, nextPortalPassword);
-                        issuedPortalPassword = nextPortalPassword;
-                        return nextPortalPassword;
+                        await updatePassword(credentialUser, vendorCode);
+                        issuedPortalPassword = vendorCode;
+                        return vendorCode;
                     };
 
                     if (portalUid) {
                         try {
                             const existingCredential = await signInWithEmailAndPassword(tempAuth, vendorEmail, vendorCode);
                             portalUid = existingCredential.user.uid;
-                            await rotatePortalPassword(existingCredential.user);
+                            // Already signed in with vendorCode — nothing to
+                            // rotate, just record what they'll use.
+                            issuedPortalPassword = vendorCode;
                         } catch (authError) {
                             const authCode = authError?.code || '';
                             if (
@@ -529,18 +537,21 @@ export default function Contractors() {
                                 authCode === 'auth/wrong-password'
                             ) {
                                 try {
-                                    const nextPortalPassword = generateVendorPortalPassword();
-                                    const userCredential = await createUserWithEmailAndPassword(tempAuth, vendorEmail, nextPortalPassword);
+                                    const userCredential = await createUserWithEmailAndPassword(tempAuth, vendorEmail, vendorCode);
                                     portalUid = userCredential.user.uid;
                                     createdPortalAuthUser = true;
-                                    issuedPortalPassword = nextPortalPassword;
+                                    issuedPortalPassword = vendorCode;
                                     provisioningWarning = existingOrgUser?.firebaseKey && existingOrgUser.firebaseKey !== portalUid
                                         ? 'The saved portal mapping was stale, so a fresh vendor auth account was recreated and linked automatically.'
                                         : provisioningWarning;
                                 } catch (createError) {
                                     if (createError?.code === 'auth/email-already-in-use') {
+                                        // Email exists with a different password — rotate it back to vendorCode.
+                                        // We can't sign in without the real password, but the admin can re-issue
+                                        // the vendor code by clicking "Send Password Reset Email" on the success
+                                        // modal afterwards.
                                         portalBootstrapPending = true;
-                                        provisioningWarning = 'This email already exists in Firebase Authentication. A secure setup link will be sent so the vendor can finish linking this contractor profile on first sign-in.';
+                                        provisioningWarning = 'This email already has a Firebase Auth account with a different password. Click "Send Password Reset Email" on the next screen so the vendor can choose a new one.';
                                     }
                                     else throw createError;
                                 }
@@ -552,7 +563,7 @@ export default function Contractors() {
                         try {
                             const existingCredential = await signInWithEmailAndPassword(tempAuth, vendorEmail, vendorCode);
                             portalUid = existingCredential.user.uid;
-                            await rotatePortalPassword(existingCredential.user);
+                            issuedPortalPassword = vendorCode;
                         } catch (authError) {
                             const authCode = authError?.code || '';
                             if (
@@ -562,15 +573,14 @@ export default function Contractors() {
                                 authCode === 'auth/wrong-password'
                             ) {
                                 try {
-                                    const nextPortalPassword = generateVendorPortalPassword();
-                                    const userCredential = await createUserWithEmailAndPassword(tempAuth, vendorEmail, nextPortalPassword);
+                                    const userCredential = await createUserWithEmailAndPassword(tempAuth, vendorEmail, vendorCode);
                                     portalUid = userCredential.user.uid;
                                     createdPortalAuthUser = true;
-                                    issuedPortalPassword = nextPortalPassword;
+                                    issuedPortalPassword = vendorCode;
                                 } catch (createError) {
                                     if (createError?.code === 'auth/email-already-in-use') {
                                         portalBootstrapPending = true;
-                                        provisioningWarning = 'This email already exists in Firebase Authentication. A secure setup link will be sent so the vendor can finish linking this contractor profile on first sign-in.';
+                                        provisioningWarning = 'This email already has a Firebase Auth account with a different password. Click "Send Password Reset Email" on the next screen so the vendor can choose a new one.';
                                     }
                                     else throw createError;
                                 }
@@ -617,7 +627,10 @@ export default function Contractors() {
             // Don't mark mustChangePassword — vendor will choose their own
             // password via the reset link, no need for the portal to force
             // another change immediately after.
-            const portalPasswordManaged = false;
+            // We did set the vendor's Firebase Auth password (to the Vendor
+            // Reference Code) so the portal must force a password change on
+            // first sign-in. The vendor portal honours mustChangePassword.
+            const portalPasswordManaged = Boolean(issuedPortalPassword);
             const setupEmailSent = false;
             const credentialEmailSent = false;
             const manualCredentialDraftUrl = '';
@@ -758,9 +771,11 @@ export default function Contractors() {
                 contractorId: activeVendor.firebaseKey,
                 siteId: primarySite,
                 orgId: session?.orgId,
-                // Temp password is intentionally NOT surfaced. Vendor will set
-                // their own password via Firebase's Forgot Password flow.
-                temporaryPassword: '',
+                // First-login password — the Vendor Reference Code. The portal
+                // forces a password change immediately after, so the value is
+                // single-use and disposable. Admin shares this verbally or via
+                // chat; no reliance on Firebase's email transport.
+                temporaryPassword: issuedPortalPassword || '',
                 linkedExisting: !createdPortalAuthUser,
                 sharedIdentity: reusingExistingOrgIdentity,
                 bootstrapPending: portalBootstrapPending,
@@ -770,10 +785,12 @@ export default function Contractors() {
                 manualCredentialDraftUrl,       // always '' in the new flow
                 setupEmailSent,                 // always false in the new flow
                 setupEmailSentAt: '',
-                firstLoginRequiresPasswordChange: portalPasswordManaged, // always false
-                // New flag the success modal keys off to render the Forgot
-                // Password instructions instead of legacy email/mailto UI.
-                resetFlowRequired: true,
+                firstLoginRequiresPasswordChange: portalPasswordManaged,
+                // Flag the success modal keys off to render the Forgot
+                // Password fallback instructions.  Only true when we couldn't
+                // set the vendor-code password (e.g., bootstrapPending or the
+                // auth account already existed with a different password).
+                resetFlowRequired: !issuedPortalPassword,
                 warning: provisioningWarning
             });
             // No more auto-open mailto — vendors use Firebase's own reset email

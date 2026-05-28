@@ -37,12 +37,19 @@ export default function PortalSuccessModal({ onClose, portalSuccess, onSendReset
         }
     };
 
-    // The provisioning flow no longer mails the vendor anything. The vendor
-    // self-services their password via Firebase's built-in Forgot Password
-    // reset email by clicking the link on the portal sign-in screen.
-    // `resetFlowRequired` is the new flag set by Contractors/index.jsx for
-    // every modern provisioning.
+    // Two possible first-login flows depending on what provisioning could do:
+    //
+    // • vendorCodeFlow (default) — provisioning set the vendor's Firebase Auth
+    //   password to the Vendor Reference Code. Admin shares the email + code
+    //   with the vendor. Vendor signs in once with those, and the portal
+    //   forces them to choose a real password before doing anything else.
+    //
+    // • resetFlow (fallback) — provisioning couldn't set a password (e.g.,
+    //   the email already had a Firebase Auth account with a different
+    //   password). Admin clicks "Send Password Reset Email" and the vendor
+    //   sets their password from the email link.
     const usesResetFlow = portalSuccess?.resetFlowRequired === true;
+    const vendorCodeFlow = !usesResetFlow && Boolean(portalSuccess?.temporaryPassword);
 
     return (
         <div className="fixed inset-0 z-[110] bg-black/80 flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in">
@@ -65,28 +72,52 @@ export default function PortalSuccessModal({ onClose, portalSuccess, onSendReset
                         <div className="text-sm font-bold text-white font-mono break-all">{portalSuccess.email}</div>
                     </div>
                     <div>
-                        <div className="text-[10px] uppercase font-bold tracking-widest text-slate-500 mb-1">Vendor Reference Code</div>
-                        <div className="text-sm font-bold text-white font-mono break-all">{portalSuccess.vendorCode || 'Available on the contractor profile header'}</div>
+                        <div className="text-[10px] uppercase font-bold tracking-widest text-slate-500 mb-1">
+                            {vendorCodeFlow ? 'First-Login Password (= Vendor Reference Code)' : 'Vendor Reference Code'}
+                        </div>
+                        <div className="text-sm font-bold text-emerald-300 font-mono break-all bg-emerald-900/15 border border-emerald-500/30 rounded-lg px-3 py-2">
+                            {portalSuccess.vendorCode || portalSuccess.temporaryPassword || 'Available on the contractor profile header'}
+                        </div>
+                        {vendorCodeFlow && (
+                            <p className="text-[10px] text-slate-500 mt-2 italic">
+                                Share this with the vendor. They use it once to sign in, then the portal forces them to set their own password.
+                            </p>
+                        )}
                     </div>
                 </div>
 
-                {/* First-login instructions — the admin reads this and shares
-                    the gist with the vendor (along with the portal URL). No
-                    emails are sent from this app; Firebase handles password
-                    reset delivery via its own transport. */}
+                {/* Vendor-code flow — primary path. */}
+                {vendorCodeFlow && (
+                    <div className="rounded-2xl border border-emerald-500/30 bg-emerald-950/20 p-5 text-xs leading-relaxed text-emerald-100 mb-6">
+                        <p className="font-bold text-emerald-200 uppercase tracking-widest text-[10px] mb-2">
+                            Tell the vendor how to log in
+                        </p>
+                        <ol className="space-y-1.5 list-decimal list-inside marker:text-emerald-400">
+                            <li>Open the <span className="font-bold">Portal URL</span> below (the correct database is already selected).</li>
+                            <li>Enter the <span className="font-bold">registered email</span> shown above.</li>
+                            <li>Enter the <span className="font-bold">Vendor Reference Code</span> as the password.</li>
+                            <li>The portal will immediately ask the vendor to <span className="font-bold">set a new password</span> for future use.</li>
+                        </ol>
+                        <p className="mt-3 text-emerald-300/80">
+                            No email delivery required — the admin shares the code verbally or via chat. The code only works once; after the vendor sets a new password it stops being a valid login.
+                        </p>
+                    </div>
+                )}
+
+                {/* Reset-link fallback flow (email account already existed). */}
                 {usesResetFlow && (
                     <div className="rounded-2xl border border-sky-500/30 bg-sky-950/20 p-5 text-xs leading-relaxed text-sky-100 mb-6">
                         <p className="font-bold text-sky-200 uppercase tracking-widest text-[10px] mb-2">
                             Tell the vendor how to log in
                         </p>
                         <ol className="space-y-1.5 list-decimal list-inside marker:text-sky-400">
-                            <li>Open the <span className="font-bold">Portal URL</span> below.</li>
-                            <li>Enter the <span className="font-bold">registered email</span> shown above.</li>
-                            <li>Click <span className="font-bold">"Forgot Password"</span> — Firebase will email a reset link directly to that mailbox.</li>
-                            <li>Set a new password from the reset link, then sign in.</li>
+                            <li>Click <span className="font-bold">"Send Password Reset Email"</span> below.</li>
+                            <li>Vendor opens the email from <span className="font-mono">noreply@&lt;project-id&gt;.firebaseapp.com</span> (check spam).</li>
+                            <li>Vendor clicks the reset link and chooses a new password.</li>
+                            <li>Vendor signs in to the portal with their new password.</li>
                         </ol>
                         <p className="mt-3 text-sky-300/80">
-                            No temporary password is shared here — the vendor sets their own on first sign-in.
+                            This path is the fallback — the vendor's email already had a Firebase Auth account that we couldn't take over directly.
                         </p>
                     </div>
                 )}
