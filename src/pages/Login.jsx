@@ -19,6 +19,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import authService from '../services/auth/index.js';
 import { dbGet, dbSet } from '../services/db/index.js';
+import { firebaseConfig } from '../config/firebase.js';
 import { normalizeSessionPermissions } from '../utils/permissions';
 import {
     ACCOUNT_STATUS,
@@ -66,44 +67,75 @@ const normalizeJoinCode = (v) => v.toUpperCase().trim().replace(/[^A-Z0-9-]/g, '
 // ─── helpers ───────────────────────────────────────────────────────────────────
 
 /**
- * Return the active Firebase RTDB URL from localStorage or env vars.
- * Used by the REST-based login/join flows so we never touch the SDK WebSocket.
+ * Return the active Firebase RTDB URL.
+ *
+ * firebaseConfig is already resolved by src/config/firebase.js in priority order:
+ *   localStorage('ohsms_firebase_config') → VITE_FIREBASE_DATABASE_URL env var
+ * So firebaseConfig.databaseURL is always the correct URL — we don't need to
+ * re-read localStorage or env vars here.
  */
-const getFirebaseDbUrl = () => {
-    try {
-        const stored = JSON.parse(localStorage.getItem('ohsms_firebase_config') || '{}');
-        if (stored.databaseURL) return String(stored.databaseURL).replace(/\/$/, '');
-    } catch {}
-    return String(import.meta.env.VITE_FIREBASE_DATABASE_URL || '').replace(/\/$/, '');
-};
+const getFirebaseDbUrl = () => String(firebaseConfig.databaseURL || '').replace(/\/$/, '');
 
 /**
- * Thin Firebase RTDB REST API wrapper.
- * Uses plain HTTPS — no WebSocket, no CSP dependency, works with
- * regional Firebase databases (europe-west1, asia-southeast1, etc.).
+ * Thin Firebase RTDB REST API wrapper with a 15-second timeout per call.
+ *
+ * Uses plain HTTPS — no WebSocket, no CSP dependency, works with all
+ * Firebase database regions (europe-west1, asia-southeast1, us-central1, …).
+ * Gives a real HTTP error code on auth/permission failures instead of hanging.
  */
 const rtdbRest = {
+    async _fetch(url, options = {}) {
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), 15000);
+        try {
+            const res = await fetch(url, { ...options, signal: ctrl.signal });
+            const json = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                const msg = json?.error || `HTTP ${res.status}`;
+                if (msg.includes('Permission denied') || msg.includes('PERMISSION_DENIED')) {
+                    throw new Error(
+                        'Firebase permission denied. Check your Realtime Database security rules — ' +
+                        'they must allow authenticated users to read their own userDirectory entry.'
+                    );
+                }
+                if (res.status === 401) {
+                    throw new Error('Firebase authentication token rejected. Please sign in again.');
+                }
+                if (res.status === 404) {
+                    throw new Error(
+                        'Firebase database not found (404). Double-check your Database URL — ' +
+                        'make sure the Realtime Database is created in the Firebase Console.'
+                    );
+                }
+                throw new Error(`Database error: ${msg}`);
+            }
+            return json;
+        } catch (err) {
+            if (err.name === 'AbortError') {
+                throw new Error(
+                    'Database connection timed out (15 s). ' +
+                    'Your Firebase Realtime Database URL may be wrong or the database may not be enabled. ' +
+                    'Go to /setup → Step 1 → Test Connection to verify.'
+                );
+            }
+            throw err;
+        } finally {
+            clearTimeout(timer);
+        }
+    },
+
     async get(dbUrl, path, idToken) {
         const url = `${dbUrl}/${path}.json?auth=${encodeURIComponent(idToken)}`;
-        const res = await fetch(url);
-        if (!res.ok) {
-            const err = await res.json().catch(() => ({}));
-            throw new Error(err?.error || `Database read error ${res.status}`);
-        }
-        return res.json(); // null when the path doesn't exist
+        return this._fetch(url);
     },
+
     async set(dbUrl, path, data, idToken) {
         const url = `${dbUrl}/${path}.json?auth=${encodeURIComponent(idToken)}`;
-        const res = await fetch(url, {
+        return this._fetch(url, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(data),
         });
-        if (!res.ok) {
-            const err = await res.json().catch(() => ({}));
-            throw new Error(err?.error || `Database write error ${res.status}`);
-        }
-        return res.json();
     },
 };
 
@@ -216,19 +248,21 @@ export default function Login() {
             // 1. Authenticate via Firebase Auth (HTTPS — never hangs)
             const user = await authService.signIn(email.trim().toLowerCase(), password);
 
-            // 2–3. Read from RTDB via REST API instead of the Firebase SDK.
-            //      The SDK uses a WebSocket which can be silently blocked by
-            //      CSP rules or firewalls (especially with regional DB URLs like
-            //      project.europe-west1.firebasedatabase.app).  The REST API is
-            //      plain HTTPS and always works.
+            // 2–3. Read from RTDB via REST API (plain HTTPS, no WebSocket).
+            //      The Firebase SDK WebSocket can be silently blocked by CSP rules
+            //      or firewalls, causing every dbGet/dbSet to hang indefinitely.
+            //      The REST API avoids that entirely and returns real HTTP errors.
             const dbUrl = getFirebaseDbUrl();
-            // Only fetch the ID token when we have a Firebase DB URL to use it with.
-            const idToken = dbUrl ? await authService.getIdToken() : '';
+            if (!dbUrl) {
+                throw new Error(
+                    'Firebase Database URL is not configured. ' +
+                    'Go to /setup → Step 1 and re-enter your Firebase credentials, then click "Save & Continue".'
+                );
+            }
+            const idToken = await authService.getIdToken();
 
             // 2. Find which organisation this user belongs to
-            const userDirData = dbUrl
-                ? await rtdbRest.get(dbUrl, `userDirectory/${user.uid}`, idToken)
-                : await dbGet(`userDirectory/${user.uid}`);
+            const userDirData = await rtdbRest.get(dbUrl, `userDirectory/${user.uid}`, idToken);
 
             if (!userDirData) {
                 await authService.signOut();
@@ -245,15 +279,9 @@ export default function Login() {
 
             // 3. Load user record, password state, and org details in parallel
             const [userData, passwordState, orgDetails] = await Promise.all([
-                dbUrl
-                    ? rtdbRest.get(dbUrl, `organizations/${userOrgId}/users/${user.uid}`, idToken)
-                    : dbGet(`organizations/${userOrgId}/users/${user.uid}`),
-                dbUrl
-                    ? rtdbRest.get(dbUrl, `organizations/${userOrgId}/userPasswordState/${user.uid}`, idToken)
-                    : dbGet(`organizations/${userOrgId}/userPasswordState/${user.uid}`),
-                dbUrl
-                    ? rtdbRest.get(dbUrl, `organizations/${userOrgId}/details`, idToken)
-                    : dbGet(`organizations/${userOrgId}/details`),
+                rtdbRest.get(dbUrl, `organizations/${userOrgId}/users/${user.uid}`, idToken),
+                rtdbRest.get(dbUrl, `organizations/${userOrgId}/userPasswordState/${user.uid}`, idToken),
+                rtdbRest.get(dbUrl, `organizations/${userOrgId}/details`, idToken),
             ]);
 
             if (!userData) {
@@ -360,11 +388,15 @@ export default function Login() {
 
             // Use REST API for all RTDB reads/writes — avoids WebSocket/CSP issues.
             const dbUrl = getFirebaseDbUrl();
-            const idToken = dbUrl ? await authService.getIdToken() : '';
+            if (!dbUrl) {
+                throw new Error(
+                    'Firebase Database URL is not configured. ' +
+                    'Go to /setup and re-enter your Firebase credentials.'
+                );
+            }
+            const idToken = await authService.getIdToken();
 
-            const existingOrgId = dbUrl
-                ? await rtdbRest.get(dbUrl, `joinRegistry/${code}`, idToken)
-                : await dbGet(`joinRegistry/${code}`);
+            const existingOrgId = await rtdbRest.get(dbUrl, `joinRegistry/${code}`, idToken);
 
             if (!existingOrgId) {
                 // Sign out + remove the orphan Auth account so the user can retry.
@@ -375,33 +407,18 @@ export default function Login() {
                 return;
             }
 
-            if (dbUrl) {
-                await rtdbRest.set(dbUrl, `organizations/${existingOrgId}/users/${uid}`, {
-                    name:              userName.trim(),
-                    email:             joinEmail,
-                    role:              'User',
-                    assignedSite:      '',
-                    accessibleSites:   [],
-                    accessibleModules: [],
-                    status:            ACCOUNT_STATUS.PENDING,
-                    joinCode:          code,
-                    createdAt:         new Date().toISOString(),
-                }, idToken);
-                await rtdbRest.set(dbUrl, `userDirectory/${uid}`, { orgId: existingOrgId }, idToken);
-            } else {
-                await dbSet(`organizations/${existingOrgId}/users/${uid}`, {
-                    name:              userName.trim(),
-                    email:             joinEmail,
-                    role:              'User',
-                    assignedSite:      '',
-                    accessibleSites:   [],
-                    accessibleModules: [],
-                    status:            ACCOUNT_STATUS.PENDING,
-                    joinCode:          code,
-                    createdAt:         new Date().toISOString(),
-                });
-                await dbSet(`userDirectory/${uid}`, { orgId: existingOrgId });
-            }
+            await rtdbRest.set(dbUrl, `organizations/${existingOrgId}/users/${uid}`, {
+                name:              userName.trim(),
+                email:             joinEmail,
+                role:              'User',
+                assignedSite:      '',
+                accessibleSites:   [],
+                accessibleModules: [],
+                status:            ACCOUNT_STATUS.PENDING,
+                joinCode:          code,
+                createdAt:         new Date().toISOString(),
+            }, idToken);
+            await rtdbRest.set(dbUrl, `userDirectory/${uid}`, { orgId: existingOrgId }, idToken);
             await authService.signOut();
 
             alert(
