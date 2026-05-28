@@ -474,7 +474,14 @@ export default function Inspections() {
 
                         {/* Completed inspections — blue tiles showing score */}
                         {completedToday.map((r, idx) => {
-                            const centerLabel = r.centerName || r.centerCode || '';
+                            // Always prefer the human-readable center name. Newer
+                            // records carry it directly; older ones get the name
+                            // resolved from the site's centers list, falling back
+                            // to the bare code only if the center was deleted.
+                            const resolvedCenterName = r.centerCode
+                                ? (findCentersForSite(sites, r.siteId).find((c) => c.code === r.centerCode)?.name || '')
+                                : '';
+                            const centerLabel = r.centerName || resolvedCenterName || r.centerCode || '';
                             const scoreNum = typeof r.score === 'number'
                                 ? r.score
                                 : (() => {
@@ -1504,75 +1511,6 @@ export default function Inspections() {
                             </div>
                         )}
 
-                        {/* ── Floating progress + submit bar (visible only while
-                              executing an inspection so the inspector can see their
-                              running score and submit without scrolling). ── */}
-                        {view === 'execute' && executingTask && (() => {
-                            const liveScore = multipleChoiceStats.pass + multipleChoiceStats.fail === 0
-                                ? 100
-                                : Math.round((multipleChoiceStats.pass / (multipleChoiceStats.pass + multipleChoiceStats.fail)) * 100);
-                            const liveResult = liveScore >= 90 ? 'PASS' : 'FAIL';
-                            const progressPct = multipleChoiceStats.total === 0
-                                ? 0
-                                : Math.round((multipleChoiceStats.answered / multipleChoiceStats.total) * 100);
-                            return (
-                                <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[80] w-[min(95vw,960px)]">
-                                    <div className="rounded-2xl border border-blue-500/40 bg-slate-950/95 backdrop-blur-md shadow-2xl shadow-blue-900/40 p-3 md:p-4">
-                                        <div className="flex flex-col md:flex-row md:items-center gap-3 md:gap-4">
-                                            {/* Live stats */}
-                                            <div className="flex-1 grid grid-cols-5 gap-2">
-                                                <div className="rounded-lg border border-slate-700 bg-slate-900/80 px-2 py-1.5 text-center">
-                                                    <div className="text-[8.5px] uppercase tracking-widest text-slate-500 font-bold">Done</div>
-                                                    <div className="text-sm font-black text-white leading-tight">{multipleChoiceStats.answered}/{multipleChoiceStats.total}</div>
-                                                </div>
-                                                <div className="rounded-lg border border-emerald-500/40 bg-emerald-950/30 px-2 py-1.5 text-center">
-                                                    <div className="text-[8.5px] uppercase tracking-widest text-emerald-300 font-bold">Pass</div>
-                                                    <div className="text-sm font-black text-emerald-300 leading-tight">{multipleChoiceStats.pass}</div>
-                                                </div>
-                                                <div className="rounded-lg border border-red-500/40 bg-red-950/30 px-2 py-1.5 text-center">
-                                                    <div className="text-[8.5px] uppercase tracking-widest text-red-300 font-bold">Fail</div>
-                                                    <div className="text-sm font-black text-red-300 leading-tight">{multipleChoiceStats.fail}</div>
-                                                </div>
-                                                <div className="rounded-lg border border-slate-600 bg-slate-900/80 px-2 py-1.5 text-center">
-                                                    <div className="text-[8.5px] uppercase tracking-widest text-slate-400 font-bold">N/A</div>
-                                                    <div className="text-sm font-black text-slate-200 leading-tight">{multipleChoiceStats.na}</div>
-                                                </div>
-                                                <div className={`rounded-lg border px-2 py-1.5 text-center ${liveResult === 'PASS' ? 'border-blue-500/40 bg-blue-950/30' : 'border-red-500/40 bg-red-950/30'}`}>
-                                                    <div className={`text-[8.5px] uppercase tracking-widest font-bold ${liveResult === 'PASS' ? 'text-blue-300' : 'text-red-300'}`}>Score</div>
-                                                    <div className={`text-sm font-black leading-tight ${liveResult === 'PASS' ? 'text-blue-200' : 'text-red-200'}`}>
-                                                        {liveScore}% <span className="text-[9px] font-bold align-middle ml-0.5">{liveResult}</span>
-                                                    </div>
-                                                </div>
-                                            </div>
-
-                                            {/* Action buttons */}
-                                            <div className="flex gap-2 shrink-0">
-                                                <button
-                                                    onClick={() => setView('calendar')}
-                                                    className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-white font-bold rounded-lg text-[10px] uppercase tracking-widest transition"
-                                                >
-                                                    Discard
-                                                </button>
-                                                <button
-                                                    onClick={requestInspectionSubmit}
-                                                    className="px-5 py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-black uppercase tracking-widest rounded-lg text-[10px] shadow-lg shadow-blue-600/30 transition flex items-center gap-2"
-                                                >
-                                                    <i className="fas fa-check-double"></i> Sign &amp; Submit
-                                                </button>
-                                            </div>
-                                        </div>
-
-                                        {/* Slim progress bar */}
-                                        <div className="mt-2.5 h-1.5 w-full rounded-full bg-slate-800 overflow-hidden">
-                                            <div
-                                                className="h-full bg-gradient-to-r from-blue-500 to-emerald-500 transition-all duration-300"
-                                                style={{ width: `${progressPct}%` }}
-                                            />
-                                        </div>
-                                    </div>
-                                </div>
-                            );
-                        })()}
 
                         {/* --- HISTORY VIEW --- */}
                         {view === 'history' && (
@@ -1653,31 +1591,60 @@ export default function Inspections() {
                     </div>
                 </main>
 
-                {view === 'execute' && executingTask && (
-                    <div className="fixed bottom-4 left-1/2 z-40 w-[min(92vw,860px)] -translate-x-1/2 rounded-2xl border border-blue-500/30 bg-slate-950/95 p-4 shadow-2xl shadow-blue-950/40 backdrop-blur-md print:hidden">
-                        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-                            <div className="flex-1">
-                                <div className="flex flex-wrap items-center gap-3 text-[10px] font-bold uppercase tracking-[0.22em] text-slate-400">
-                                    <span>Response Progress</span>
-                                    <span className="text-white">{inspectionProgress.answered}/{inspectionProgress.total} Answered</span>
-                                    {inspectionProgress.photoMandatory > 0 && (
-                                        <span className="text-amber-300">{inspectionProgress.photoSatisfied}/{inspectionProgress.photoMandatory} Mandatory Photos</span>
+                {view === 'execute' && executingTask && (() => {
+                    const liveScore = (multipleChoiceStats.pass + multipleChoiceStats.fail) === 0
+                        ? 100
+                        : Math.round((multipleChoiceStats.pass / (multipleChoiceStats.pass + multipleChoiceStats.fail)) * 100);
+                    const liveResult = liveScore >= 90 ? 'PASS' : 'FAIL';
+                    return (
+                        <div className="fixed bottom-4 left-1/2 z-40 w-[min(95vw,1040px)] -translate-x-1/2 rounded-2xl border border-blue-500/30 bg-slate-950/95 p-3 md:p-4 shadow-2xl shadow-blue-950/40 backdrop-blur-md print:hidden">
+                            <div className="flex flex-col gap-3">
+                                {/* Top row: progress bar + stat pills + actions */}
+                                <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                                    <div className="flex-1 min-w-0">
+                                        <div className="flex flex-wrap items-center gap-3 text-[10px] font-bold uppercase tracking-[0.22em] text-slate-400">
+                                            <span>Progress</span>
+                                            <span className="text-white">{inspectionProgress.answered}/{inspectionProgress.total} Done</span>
+                                            {inspectionProgress.photoMandatory > 0 && (
+                                                <span className="text-amber-300">{inspectionProgress.photoSatisfied}/{inspectionProgress.photoMandatory} Photos</span>
+                                            )}
+                                        </div>
+                                        <div className="mt-2 h-2.5 overflow-hidden rounded-full bg-slate-800">
+                                            <div className="h-full rounded-full bg-gradient-to-r from-blue-500 via-cyan-400 to-emerald-400 transition-all duration-300" style={{ width: `${inspectionProgress.percent}%` }}></div>
+                                        </div>
+                                    </div>
+
+                                    {isMultipleChoiceInspection && (
+                                        <div className="flex flex-wrap items-center gap-2 text-[11px] font-bold">
+                                            <span className="rounded-full bg-emerald-500/15 border border-emerald-500/30 px-3 py-1 text-emerald-300">{multipleChoiceStats.pass} Pass</span>
+                                            <span className="rounded-full bg-red-500/15 border border-red-500/30 px-3 py-1 text-red-300">{multipleChoiceStats.fail} Fail</span>
+                                            <span className="rounded-full bg-slate-800 border border-slate-700 px-3 py-1 text-slate-300">{multipleChoiceStats.na} N/A</span>
+                                            <span className={`rounded-full border px-3 py-1 font-black ${liveResult === 'PASS' ? 'bg-blue-500/15 border-blue-500/40 text-blue-200' : 'bg-red-500/15 border-red-500/40 text-red-200'}`}>
+                                                Score {liveScore}% · {liveResult}
+                                            </span>
+                                        </div>
                                     )}
-                                </div>
-                                <div className="mt-3 h-3 overflow-hidden rounded-full bg-slate-800">
-                                    <div className="h-full rounded-full bg-gradient-to-r from-blue-500 via-cyan-400 to-emerald-400 transition-all duration-300" style={{ width: `${inspectionProgress.percent}%` }}></div>
+
+                                    {/* Action buttons */}
+                                    <div className="flex gap-2 shrink-0">
+                                        <button
+                                            onClick={() => setView('calendar')}
+                                            className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white font-bold rounded-lg text-[10px] uppercase tracking-widest transition"
+                                        >
+                                            Discard
+                                        </button>
+                                        <button
+                                            onClick={requestInspectionSubmit}
+                                            className="px-5 py-2 bg-blue-600 hover:bg-blue-500 text-white font-black uppercase tracking-widest rounded-lg text-[10px] shadow-lg shadow-blue-600/30 transition flex items-center gap-2"
+                                        >
+                                            <i className="fas fa-check-double"></i> Sign &amp; Submit
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
-                            {isMultipleChoiceInspection && (
-                                <div className="flex items-center gap-2 text-[11px] font-bold">
-                                    <span className="rounded-full bg-emerald-500/15 px-3 py-1 text-emerald-300">{multipleChoiceStats.pass} Pass</span>
-                                    <span className="rounded-full bg-red-500/15 px-3 py-1 text-red-300">{multipleChoiceStats.fail} Fail</span>
-                                    <span className="rounded-full bg-slate-800 px-3 py-1 text-slate-300">{multipleChoiceStats.na} N/A</span>
-                                </div>
-                            )}
                         </div>
-                    </div>
-                )}
+                    );
+                })()}
 
                 {submitDetailsModalOpen && executingTask && (
                     <div className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-950/80 p-4 backdrop-blur-md print:hidden">
