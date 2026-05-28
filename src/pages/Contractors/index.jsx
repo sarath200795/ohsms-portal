@@ -416,6 +416,10 @@ export default function Contractors() {
 
         setPortalProvisioning(true);
 
+        // Declared early so the collision-detection branch below can append
+        // to it without hitting a TDZ error.
+        let provisioningWarning = '';
+
         try {
             const nowIso = new Date().toISOString();
             const allocatedSites = safeArr(activeVendor.allocatedSites);
@@ -482,10 +486,10 @@ export default function Contractors() {
 
             let portalUid = activeVendor.portalUid || existingOrgUser?.firebaseKey || '';
             let createdPortalAuthUser = false;
-            let provisioningWarning = '';
-            // Random throwaway password — Firebase Auth requires *some* password
-            // at account creation. The vendor never sees this; they set their
-            // own via the Forgot Password reset flow on first sign-in.
+            // First-login password we set on the vendor's Firebase Auth
+            // account. Reset on every provisioning attempt — currently the
+            // Vendor Reference Code, used once before the portal forces a
+            // password change. See the rotatePortalPassword closure below.
             let issuedPortalPassword = '';
             let portalBootstrapPending = false;
             const baseUserPayload = {
