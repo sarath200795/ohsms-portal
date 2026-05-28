@@ -175,6 +175,15 @@ export default function Login() {
 
     // Join-org fields
     const [joinCode,     setJoinCode]           = useState('');
+    // Unified onboarding: regular employees vs external vendors.  When
+    // accountType is 'Vendor' we collect three additional fields and
+    // mark the pending users record so the admin can spot it from the
+    // Users page and so the vendor portal recognises the record on
+    // sign-in.
+    const [accountType,  setAccountType]        = useState('Employee'); // 'Employee' | 'Vendor'
+    const [vendorCompany, setVendorCompany]     = useState('');
+    const [vendorPhone,   setVendorPhone]       = useState('');
+    const [vendorService, setVendorService]     = useState('General / Housekeeping');
     const [userName,     setUserName]           = useState('');
     const [regEmail,     setRegEmail]           = useState('');
     const [regPassword,  setRegPassword]        = useState('');
@@ -195,6 +204,8 @@ export default function Login() {
 
     const resetJoinFields = () => {
         setRegEmail(''); setRegPassword(''); setUserName(''); setJoinCode('');
+        setAccountType('Employee');
+        setVendorCompany(''); setVendorPhone(''); setVendorService('General / Housekeeping');
     };
 
     // ── org picker ────────────────────────────────────────────────────────────
@@ -435,6 +446,11 @@ export default function Login() {
         const code = normalizeJoinCode(joinCode);
         if (!code) return alert('Please enter the workspace join code provided by your admin.');
 
+        const isVendorJoin = accountType === 'Vendor';
+        if (isVendorJoin && !vendorCompany.trim()) {
+            return alert('Please enter your company name.');
+        }
+
         setLoading(true);
         let createdUid = null;
         const joinEmail = regEmail.trim().toLowerCase();
@@ -467,8 +483,12 @@ export default function Login() {
                 return;
             }
 
-            await rtdbRest.set(dbUrl, `organizations/${existingOrgId}/users/${uid}`, {
-                name:              userName.trim(),
+            // Build the pending users record.  Vendors get extra fields
+            // (vendorPortal flag + vendorMeta) so the admin can spot them
+            // on the Users page and so the vendor portal recognises the
+            // record after approval.
+            const userPayload = {
+                name:              isVendorJoin ? (vendorCompany.trim() + (userName.trim() ? ` — ${userName.trim()}` : '')) : userName.trim(),
                 email:             joinEmail,
                 role:              'User',
                 assignedSite:      '',
@@ -477,13 +497,24 @@ export default function Login() {
                 status:            ACCOUNT_STATUS.PENDING,
                 joinCode:          code,
                 createdAt:         new Date().toISOString(),
-            }, idToken);
+            };
+            if (isVendorJoin) {
+                userPayload.vendorPortal = true;
+                userPayload.vendorMeta = {
+                    companyName: vendorCompany.trim(),
+                    contactPerson: userName.trim(),
+                    phone: vendorPhone.trim(),
+                    serviceType: vendorService
+                };
+            }
+            await rtdbRest.set(dbUrl, `organizations/${existingOrgId}/users/${uid}`, userPayload, idToken);
             await rtdbRest.set(dbUrl, `userDirectory/${uid}`, { orgId: existingOrgId }, idToken);
             await authService.signOut();
 
             alert(
-                'Access request submitted.\n\n' +
-                'Your account is now Pending. Please ask your Organisation Admin to approve your access from User Management.'
+                isVendorJoin
+                    ? 'Vendor registration submitted.\n\nYour request is now Pending. Once the client admin approves it from the Users page, you can sign in at the Vendor Portal with the email and password you just registered.'
+                    : 'Access request submitted.\n\nYour account is now Pending. Please ask your Organisation Admin to approve your access from User Management.'
             );
             setAuthMode('login');
             resetJoinFields();
@@ -958,9 +989,31 @@ export default function Login() {
                                     <div className="rounded-xl border border-sky-200 bg-sky-50 p-3">
                                         <p className="legendary-title text-[10px] text-[var(--myth-ember)]">Admin Approval Required</p>
                                         <p className="mt-1 text-[11px] leading-snug text-[var(--myth-muted)]">
-                                            This creates a pending user in an existing organisation.
-                                            Access starts only after admin approval.
+                                            {accountType === 'Vendor'
+                                                ? 'This creates a pending vendor profile. The client admin approves it from the Users page; after that, sign in at the Vendor Portal.'
+                                                : 'This creates a pending user in an existing organisation. Access starts only after admin approval.'}
                                         </p>
+                                    </div>
+
+                                    {/* Account Type toggle — Employee vs Vendor */}
+                                    <div>
+                                        <label className="legendary-title mb-1.5 block text-[10px] text-[var(--myth-ember)]">Account Type</label>
+                                        <div className="grid grid-cols-2 gap-2">
+                                            <button
+                                                type="button"
+                                                onClick={() => setAccountType('Employee')}
+                                                className={`rounded-xl border px-3 py-2.5 text-xs font-bold uppercase tracking-widest transition ${accountType === 'Employee' ? 'bg-[var(--myth-ember)] text-white border-[var(--myth-ember)]' : 'bg-white text-[var(--myth-muted)] border-slate-200 hover:border-[var(--myth-ember)]'}`}
+                                            >
+                                                <i className="fas fa-user-tie mr-1.5"></i> Employee
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => setAccountType('Vendor')}
+                                                className={`rounded-xl border px-3 py-2.5 text-xs font-bold uppercase tracking-widest transition ${accountType === 'Vendor' ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-[var(--myth-muted)] border-slate-200 hover:border-emerald-500'}`}
+                                            >
+                                                <i className="fas fa-hard-hat mr-1.5"></i> Vendor
+                                            </button>
+                                        </div>
                                     </div>
 
                                     <div>
@@ -1008,9 +1061,49 @@ export default function Login() {
                                         />
                                     </div>
 
+                                    {/* Vendor-only extras */}
+                                    {accountType === 'Vendor' && (
+                                        <div className="space-y-3 rounded-xl border border-emerald-200 bg-emerald-50 p-3">
+                                            <p className="legendary-title text-[10px] text-emerald-700">Vendor Details</p>
+                                            <div>
+                                                <label className="legendary-title mb-1.5 block text-[10px] text-[var(--myth-ember)]">Company Name *</label>
+                                                <input
+                                                    type="text" required={accountType === 'Vendor'}
+                                                    value={vendorCompany} onChange={(e) => setVendorCompany(e.target.value)}
+                                                    className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm outline-none transition focus:border-emerald-500"
+                                                    placeholder="Acme Construction Ltd."
+                                                />
+                                            </div>
+                                            <div className="grid gap-3 sm:grid-cols-2">
+                                                <div>
+                                                    <label className="legendary-title mb-1.5 block text-[10px] text-[var(--myth-ember)]">Phone</label>
+                                                    <input
+                                                        type="tel"
+                                                        value={vendorPhone} onChange={(e) => setVendorPhone(e.target.value)}
+                                                        className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm outline-none transition focus:border-emerald-500"
+                                                        placeholder="+91..."
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <label className="legendary-title mb-1.5 block text-[10px] text-[var(--myth-ember)]">Service Type</label>
+                                                    <select
+                                                        value={vendorService} onChange={(e) => setVendorService(e.target.value)}
+                                                        className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm outline-none transition focus:border-emerald-500"
+                                                    >
+                                                        <option>General / Housekeeping</option>
+                                                        <option>Construction / Civil</option>
+                                                        <option>Electrical / Mechanical</option>
+                                                        <option>Goods Supplier</option>
+                                                        <option>Specialist Services</option>
+                                                    </select>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+
                                     <button type="submit" disabled={loading}
                                         className="myth-button myth-button-primary mt-2 w-full px-4 py-3 text-sm">
-                                        {loading ? 'Processing…' : 'Submit Access Request'}
+                                        {loading ? 'Processing…' : (accountType === 'Vendor' ? 'Submit Vendor Registration' : 'Submit Access Request')}
                                     </button>
 
                                     <div className="text-center">
