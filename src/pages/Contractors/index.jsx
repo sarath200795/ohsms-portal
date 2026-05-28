@@ -622,6 +622,13 @@ export default function Contractors() {
             const credentialEmailSent = false;
             const manualCredentialDraftUrl = '';
             if (portalUid) {
+                // The new flow does NOT send any emails from this app — the
+                // vendor uses Firebase's Forgot Password reset link from the
+                // portal sign-in screen. So credentialEmailSent and the
+                // setupEmail "did we mail them?" flag are both always false,
+                // and references to the old credentialDispatch / setupEmail
+                // objects were left dangling — re-using the existing
+                // record's timestamps keeps the audit columns coherent.
                 const nextUserPayload = {
                     ...baseUserPayload,
                     status: 'Active',
@@ -629,10 +636,10 @@ export default function Contractors() {
                     temporaryPasswordIssued: portalPasswordManaged,
                     temporaryPasswordIssuedAt: portalPasswordManaged ? nowIso : null,
                     passwordUpdatedAt: portalPasswordManaged ? null : (existingOrgUser?.passwordUpdatedAt || null),
-                    portalCredentialEmailSentAt: credentialEmailSent ? credentialDispatch.sentAt : (existingOrgUser?.portalCredentialEmailSentAt || null),
-                    portalCredentialEmailSentBy: credentialEmailSent ? (session.email || session.name || 'Global Owner') : (existingOrgUser?.portalCredentialEmailSentBy || null),
-                    portalSetupLinkSentAt: setupEmail?.sentAt || existingOrgUser?.portalSetupLinkSentAt || null,
-                    portalSetupLinkSentBy: setupEmail?.sentAt ? (session.email || session.name || 'Global Owner') : (existingOrgUser?.portalSetupLinkSentBy || null),
+                    portalCredentialEmailSentAt: existingOrgUser?.portalCredentialEmailSentAt || null,
+                    portalCredentialEmailSentBy: existingOrgUser?.portalCredentialEmailSentBy || null,
+                    portalSetupLinkSentAt: existingOrgUser?.portalSetupLinkSentAt || null,
+                    portalSetupLinkSentBy: existingOrgUser?.portalSetupLinkSentBy || null,
                     portalSharedIdentity: reusingExistingOrgIdentity
                 };
 
@@ -691,10 +698,13 @@ export default function Contractors() {
                     portalAssignedSite: primarySite,
                     portalProvisionedAt: nowIso,
                     portalProvisionedBy: session.email,
-                    portalCredentialEmailSentAt: credentialEmailSent ? credentialDispatch.sentAt : (activeVendor.portalCredentialEmailSentAt || null),
-                    portalCredentialEmailSentBy: credentialEmailSent ? (session.email || session.name || 'Global Owner') : (activeVendor.portalCredentialEmailSentBy || null),
-                    portalSetupLinkSentAt: setupEmail?.sentAt || activeVendor.portalSetupLinkSentAt || null,
-                    portalSetupLinkSentBy: setupEmail?.sentAt ? (session.email || session.name || 'Global Owner') : (activeVendor.portalSetupLinkSentBy || null),
+                    // No emails are sent from this app in the new flow —
+                    // keep whatever timestamps the previous record had so the
+                    // audit columns don't lie.
+                    portalCredentialEmailSentAt: activeVendor.portalCredentialEmailSentAt || null,
+                    portalCredentialEmailSentBy: activeVendor.portalCredentialEmailSentBy || null,
+                    portalSetupLinkSentAt: activeVendor.portalSetupLinkSentAt || null,
+                    portalSetupLinkSentBy: activeVendor.portalSetupLinkSentBy || null,
                     portalPasswordRotatedAt: portalPasswordManaged ? nowIso : (activeVendor.portalPasswordRotatedAt || null),
                     portalPasswordRotatedBy: portalPasswordManaged ? session.email : (activeVendor.portalPasswordRotatedBy || null)
                 });
@@ -729,10 +739,11 @@ export default function Contractors() {
                     portalAssignedSite: primarySite,
                     portalProvisionedAt: nowIso,
                     portalProvisionedBy: session.email,
-                    portalCredentialEmailSentAt: credentialEmailSent ? credentialDispatch.sentAt : (activeVendor.portalCredentialEmailSentAt || null),
-                    portalCredentialEmailSentBy: credentialEmailSent ? (session.email || session.name || 'Global Owner') : (activeVendor.portalCredentialEmailSentBy || null),
-                    portalSetupLinkSentAt: setupEmail?.sentAt || activeVendor.portalSetupLinkSentAt || null,
-                    portalSetupLinkSentBy: setupEmail?.sentAt ? (session.email || session.name || 'Global Owner') : (activeVendor.portalSetupLinkSentBy || null),
+                    // Same as above: new flow doesn't send emails from here.
+                    portalCredentialEmailSentAt: activeVendor.portalCredentialEmailSentAt || null,
+                    portalCredentialEmailSentBy: activeVendor.portalCredentialEmailSentBy || null,
+                    portalSetupLinkSentAt: activeVendor.portalSetupLinkSentAt || null,
+                    portalSetupLinkSentBy: activeVendor.portalSetupLinkSentBy || null,
                     portalPasswordRotatedAt: null,
                     portalPasswordRotatedBy: null
                 });
