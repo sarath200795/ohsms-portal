@@ -26,8 +26,17 @@ import {
     resolveInitialSite
 } from './FieldApp/utils';
 import { useAppTransition } from '../hooks/useAppTransition';
+import {
+    getOrgRegistry,
+    applyOrgDbConfig,
+    isCurrentDb,
+    getDbTypeLabel,
+} from '../utils/orgRegistry.js';
 
 const { fieldAuth } = getFieldPortalFirebase();
+
+/** sessionStorage key used to survive the DB-switch page reload */
+const FIELD_PORTAL_PICKED_ORG_KEY = 'field_portal_picked_org';
 
 const normalizeEmail = (value) => String(value || '').trim().toLowerCase();
 const getDayGreeting = () => {
@@ -51,6 +60,11 @@ export default function FieldPortal() {
     const [scannerOpen, setScannerOpen] = useState(false);
     const manualLoginRef = useRef(false);
 
+    // ── Database / org selection (Step 1 before login) ────────────────────────
+    const [orgRegistry, setOrgRegistry] = useState([]);
+    const [pickedOrg, setPickedOrg] = useState(null);   // null = show picker
+    const [currentOrgId, setCurrentOrgId] = useState(null);
+
     const visibleSites = useMemo(() => getVisibleSites(sites, portalSession), [sites, portalSession]);
     const visibleModules = useMemo(() => getVisibleFieldModules(portalSession), [portalSession]);
     const isGlobalUser = isGlobalRole(portalSession?.role);
@@ -69,6 +83,41 @@ export default function FieldPortal() {
             setLoginData({ email: '', password: '' });
         }
     };
+
+    // ── Load org registry + restore pickedOrg after a DB-switch reload ────────
+    useEffect(() => {
+        const registry = getOrgRegistry();
+        setOrgRegistry(registry);
+
+        // Read the current field portal session's orgId so the active indicator
+        // shows only the correct org when multiple orgs share the same Firebase project.
+        const fieldSession = readFieldPortalSession();
+        if (fieldSession?.orgId) setCurrentOrgId(fieldSession.orgId);
+
+        // After a DB-switch reload the picked org is stashed in sessionStorage.
+        const pending = sessionStorage.getItem(FIELD_PORTAL_PICKED_ORG_KEY);
+        if (pending) {
+            try { setPickedOrg(JSON.parse(pending)); } catch {}
+            sessionStorage.removeItem(FIELD_PORTAL_PICKED_ORG_KEY);
+        }
+    }, []);
+
+    /** User clicked an org card in the DB picker. */
+    const handleOrgPick = (entry) => {
+        if (isCurrentDb(entry, currentOrgId)) {
+            // Already the active database — just advance to the login form.
+            setPickedOrg(entry);
+        } else {
+            // Different database: write config to localStorage and reload so
+            // the Firebase SDK re-initialises with the correct credentials.
+            applyOrgDbConfig(entry);
+            sessionStorage.setItem(FIELD_PORTAL_PICKED_ORG_KEY, JSON.stringify(entry));
+            window.location.reload();
+        }
+    };
+
+    /** Go back to the org picker from the login form. */
+    const handleBackToPicker = () => setPickedOrg(null);
 
     const finalizePortalContext = useCallback(({ sessionData, orgSites, showAlert = false }) => {
         const allowedSites = getVisibleSites(orgSites, sessionData);
@@ -287,6 +336,137 @@ export default function FieldPortal() {
     }
 
     if (!isAuthenticated) {
+        // ── STEP 1: Database / org picker ─────────────────────────────────────
+        // Show when the registry has registered orgs AND the user hasn't picked
+        // one yet (pickedOrg is null).
+        const showOrgPicker = orgRegistry.length > 0 && pickedOrg === null;
+
+        if (showOrgPicker) {
+            return (
+                <div className="myth-shell min-h-screen overflow-hidden bg-[var(--myth-bg)] text-[var(--myth-ink)]">
+                    <div className="relative z-10 flex min-h-screen items-center justify-center px-4 py-10">
+                        <div className="grid w-full max-w-6xl grid-cols-1 gap-6 lg:grid-cols-[1.15fr_0.85fr]">
+
+                            {/* Left hero panel — same as login screen */}
+                            <section className="hero-banner flex flex-col justify-between rounded-[2.2rem] p-8 lg:p-10">
+                                <img src="/safety-transition.svg" alt="" className="hero-safety-visual hidden lg:block" aria-hidden="true" />
+                                <div>
+                                    <p className="hud-chip mb-5">Standalone Portal</p>
+                                    <h1 className="text-6xl text-white sm:text-7xl">Field Command</h1>
+                                    <p className="mt-4 max-w-2xl text-base leading-relaxed text-[var(--myth-muted)] sm:text-lg">
+                                        Separate operational access for mobile teams executing inspections, permits, isolations, incidents, and emergency tasks in live site conditions.
+                                    </p>
+                                </div>
+                                <div className="grid gap-4 md:grid-cols-3">
+                                    <div className="command-panel rounded-[1.5rem] p-5">
+                                        <p className="myth-kicker">Rapid Entry</p>
+                                        <h3 className="mt-2 text-3xl text-white">Scan QR</h3>
+                                        <p className="mt-2 text-sm text-[var(--myth-muted)]">Jump straight into PTW, LOTO, or equipment tasks.</p>
+                                    </div>
+                                    <div className="command-panel rounded-[1.5rem] p-5">
+                                        <p className="myth-kicker">Field Ready</p>
+                                        <h3 className="mt-2 text-3xl text-white">Operate</h3>
+                                        <p className="mt-2 text-sm text-[var(--myth-muted)]">Use the same live records without the enterprise dashboard.</p>
+                                    </div>
+                                    <div className="command-panel rounded-[1.5rem] p-5">
+                                        <p className="myth-kicker">Secure Role Sync</p>
+                                        <h3 className="mt-2 text-3xl text-white">Auth Bridge</h3>
+                                        <p className="mt-2 text-sm text-[var(--myth-muted)]">Permissions follow the employee account automatically.</p>
+                                    </div>
+                                </div>
+                            </section>
+
+                            {/* Right panel — org/db picker */}
+                            <section className="command-panel rounded-[2.2rem] p-8 shadow-2xl">
+                                <div className="mb-8 text-center">
+                                    <div className="myth-icon-frame mx-auto mb-5 flex h-20 w-20 items-center justify-center rounded-[1.75rem] text-3xl text-[var(--myth-cyan)] shadow-xl">
+                                        <i className="fas fa-database"></i>
+                                    </div>
+                                    <p className="myth-kicker mb-2">
+                                        <span className="inline-flex items-center gap-1.5">
+                                            <span className="flex h-4 w-4 items-center justify-center rounded-full bg-[var(--myth-cyan)] text-[9px] font-black text-[var(--myth-bg)]">1</span>
+                                            Step 1 of 2
+                                        </span>
+                                    </p>
+                                    <h2 className="text-5xl text-white">Select Workspace</h2>
+                                    <p className="mt-3 text-sm leading-relaxed text-[var(--myth-muted)]">
+                                        Choose the organisation database to connect to, then sign in with your employee credentials.
+                                    </p>
+                                </div>
+
+                                {/* Org cards */}
+                                <div className={`grid gap-3 ${orgRegistry.length === 1 ? 'grid-cols-1' : 'grid-cols-2'}`}>
+                                    {orgRegistry.map((entry) => {
+                                        const isCurrent = isCurrentDb(entry, currentOrgId);
+                                        return (
+                                            <button
+                                                key={entry.orgId}
+                                                type="button"
+                                                onClick={() => handleOrgPick(entry)}
+                                                className={`group relative flex flex-col items-center gap-3 rounded-2xl border p-5 text-center transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-[rgba(99,236,212,0.3)] ${
+                                                    isCurrent
+                                                        ? 'border-[rgba(99,236,212,0.4)] bg-[rgba(99,236,212,0.06)] hover:bg-[rgba(99,236,212,0.11)]'
+                                                        : 'border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.03)] hover:border-[rgba(242,201,120,0.35)] hover:bg-[rgba(242,201,120,0.05)]'
+                                                }`}
+                                            >
+                                                {/* Logo / initial avatar */}
+                                                <div className="relative h-16 w-16 flex-shrink-0 overflow-hidden rounded-2xl border border-[rgba(255,255,255,0.1)] bg-[rgba(255,255,255,0.05)]">
+                                                    {entry.logoBase64 ? (
+                                                        <img src={entry.logoBase64} alt={entry.orgName} className="h-full w-full object-cover" />
+                                                    ) : (
+                                                        <div className="flex h-full w-full items-center justify-center text-2xl font-black text-[var(--myth-cyan)]">
+                                                            {(entry.orgName || '?').charAt(0).toUpperCase()}
+                                                        </div>
+                                                    )}
+                                                    {/* Active indicator dot */}
+                                                    {isCurrent && (
+                                                        <div
+                                                            className="absolute -right-1 -top-1 h-3.5 w-3.5 rounded-full border-2 border-[#06090d] bg-emerald-400 shadow"
+                                                            title="Currently connected"
+                                                        />
+                                                    )}
+                                                </div>
+
+                                                {/* Org name + DB type */}
+                                                <div className="min-w-0 w-full">
+                                                    <p className="truncate text-sm font-bold text-white">{entry.orgName}</p>
+                                                    <p className={`mt-0.5 text-[10px] font-bold uppercase tracking-wide ${
+                                                        entry.dbAdapter === 'firebase' ? 'text-orange-400' : 'text-[var(--myth-cyan)]'
+                                                    }`}>
+                                                        {entry.dbAdapter === 'firebase' ? '🔥 Firebase' : `🖥️ ${getDbTypeLabel(entry)}`}
+                                                    </p>
+                                                    {isCurrent && (
+                                                        <p className="mt-0.5 text-[10px] font-bold text-emerald-400">✓ Active</p>
+                                                    )}
+                                                </div>
+
+                                                {/* CTA label */}
+                                                <span className={`text-[10px] font-bold uppercase tracking-widest transition-colors ${
+                                                    isCurrent
+                                                        ? 'text-[var(--myth-cyan)] group-hover:text-white'
+                                                        : 'text-[var(--myth-muted)] group-hover:text-[var(--myth-gold)]'
+                                                }`}>
+                                                    {isCurrent ? 'Sign In →' : 'Switch & Sign In →'}
+                                                </span>
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+
+                                <p className="mt-5 text-center text-[11px] leading-relaxed text-[var(--myth-muted)]">
+                                    Don't see your workspace?{' '}
+                                    <span className="font-semibold text-[var(--myth-gold)]">
+                                        Register it via the Setup Wizard in the main enterprise portal.
+                                    </span>
+                                </p>
+                            </section>
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        // ── STEP 2: Email / password login ────────────────────────────────────
         return (
             <div className="myth-shell min-h-screen overflow-hidden bg-[var(--myth-bg)] text-[var(--myth-ink)]">
                 <div className="relative z-10 flex min-h-screen items-center justify-center px-4 py-10">
@@ -325,48 +505,79 @@ export default function FieldPortal() {
                                 <div className="myth-icon-frame mx-auto mb-5 flex h-20 w-20 items-center justify-center rounded-[1.75rem] text-3xl text-[var(--myth-cyan)] shadow-xl">
                                     <i className="fas fa-mobile-screen-button"></i>
                                 </div>
-                                <p className="myth-kicker mb-2">Portal Authentication</p>
+                                <p className="myth-kicker mb-2">
+                                    {orgRegistry.length > 0 ? (
+                                        <span className="inline-flex items-center gap-1.5">
+                                            <span className="flex h-4 w-4 items-center justify-center rounded-full bg-[var(--myth-cyan)] text-[9px] font-black text-[var(--myth-bg)]">2</span>
+                                            Step 2 of 2
+                                        </span>
+                                    ) : 'Portal Authentication'}
+                                </p>
                                 <h2 className="text-5xl text-white">Field Portal</h2>
                                 <p className="mt-3 text-sm leading-relaxed text-[var(--myth-muted)]">
                                     Secure field access for inspections, permits, isolations, incidents, and emergency tools.
                                 </p>
                             </div>
 
+                            {/* Selected workspace banner (shown when org was picked in Step 1) */}
+                            {pickedOrg && (
+                                <div className="mb-5 flex items-center gap-3 rounded-2xl border border-[rgba(99,236,212,0.25)] bg-[rgba(99,236,212,0.06)] px-4 py-3">
+                                    {pickedOrg.logoBase64 ? (
+                                        <img src={pickedOrg.logoBase64} alt="" className="h-9 w-9 flex-shrink-0 rounded-xl object-cover" />
+                                    ) : (
+                                        <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-[rgba(99,236,212,0.12)] text-base font-black text-[var(--myth-cyan)]">
+                                            {(pickedOrg.orgName || '?').charAt(0).toUpperCase()}
+                                        </div>
+                                    )}
+                                    <div className="flex-1 min-w-0">
+                                        <p className="truncate text-xs font-bold text-white">{pickedOrg.orgName}</p>
+                                        <p className="text-[10px] text-emerald-400">✓ Workspace connected</p>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={handleBackToPicker}
+                                        className="flex-shrink-0 text-[10px] font-bold uppercase tracking-widest text-[var(--myth-muted)] transition-colors hover:text-[var(--myth-gold)]"
+                                    >
+                                        ← Change
+                                    </button>
+                                </div>
+                            )}
+
                             <form onSubmit={handleLogin} className="space-y-5">
-                            <div>
-                                <label className="myth-kicker mb-2 block text-[10px]">Email</label>
-                                <input
-                                    type="email"
-                                    value={loginData.email}
-                                    onChange={(event) => setLoginData((prev) => ({ ...prev, email: event.target.value }))}
-                                    className="w-full rounded-2xl border px-4 py-3 text-white outline-none transition-colors"
-                                    placeholder="you@company.com"
-                                />
-                            </div>
+                                <div>
+                                    <label className="myth-kicker mb-2 block text-[10px]">Email</label>
+                                    <input
+                                        type="email"
+                                        value={loginData.email}
+                                        onChange={(event) => setLoginData((prev) => ({ ...prev, email: event.target.value }))}
+                                        className="w-full rounded-2xl border px-4 py-3 text-white outline-none transition-colors"
+                                        placeholder="you@company.com"
+                                    />
+                                </div>
 
-                            <div>
-                                <label className="myth-kicker mb-2 block text-[10px]">Password</label>
-                                <input
-                                    type="password"
-                                    value={loginData.password}
-                                    onChange={(event) => setLoginData((prev) => ({ ...prev, password: event.target.value }))}
-                                    className="w-full rounded-2xl border px-4 py-3 text-white outline-none transition-colors"
-                                    placeholder="Enter your employee password"
-                                />
-                            </div>
+                                <div>
+                                    <label className="myth-kicker mb-2 block text-[10px]">Password</label>
+                                    <input
+                                        type="password"
+                                        value={loginData.password}
+                                        onChange={(event) => setLoginData((prev) => ({ ...prev, password: event.target.value }))}
+                                        className="w-full rounded-2xl border px-4 py-3 text-white outline-none transition-colors"
+                                        placeholder="Enter your employee password"
+                                    />
+                                </div>
 
-                            <div className="myth-surface-soft rounded-2xl p-4 text-[11px] leading-relaxed text-[var(--myth-muted)]">
-                                Use the same employee email and password that you use for the main WE EHS workspace. Your field module permissions are applied automatically after sign-in.
-                            </div>
+                                <div className="myth-surface-soft rounded-2xl p-4 text-[11px] leading-relaxed text-[var(--myth-muted)]">
+                                    Use the same employee email and password that you use for the main WE EHS workspace. Your field module permissions are applied automatically after sign-in.
+                                </div>
 
-                            <button
-                                type="submit"
-                                className="myth-button myth-button-cyan flex w-full items-center justify-center gap-2 px-4 py-3.5 text-sm"
-                            >
-                                <i className="fas fa-right-to-bracket"></i>
-                                Access Field Portal
-                            </button>
-                        </form>
+                                <button
+                                    type="submit"
+                                    className="myth-button myth-button-cyan flex w-full items-center justify-center gap-2 px-4 py-3.5 text-sm"
+                                >
+                                    <i className="fas fa-right-to-bracket"></i>
+                                    Access Field Portal
+                                </button>
+                            </form>
                         </section>
                     </div>
                 </div>
