@@ -8,12 +8,10 @@ import { installAlertBridge } from './utils/toast';
 // Route all native alert() calls to non-blocking toasts (reversible).
 installAlertBridge();
 
-// Register the PWA service worker (installability + offline app-shell fallback).
-if ('serviceWorker' in navigator) {
-    window.addEventListener('load', () => {
-        navigator.serviceWorker.register('/sw.js').catch(() => {});
-    });
-}
+// Service worker registration is intentionally DISABLED — see main.jsx for
+// the full explanation.  /sw.js is still served as a self-destructing
+// kill-switch so any browser that registered the OLD shell-caching SW
+// wipes itself clean on the next visit.
 
 ReactDOM.createRoot(document.getElementById('root')).render(
     <React.StrictMode>
