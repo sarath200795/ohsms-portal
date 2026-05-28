@@ -146,53 +146,80 @@ const resolveLinkedContractor = async ({
     user
 }) => {
     const preferredContractorId = expectedContractorId || orgUser?.portalLinkedContractorId || '';
+    // Diagnostic log so the admin can see in the console exactly what link
+    // the portal is following.  Helps when a vendor with provisioning gaps
+    // hits "not linked to any contractor profile" — the next two lines
+    // tell you whether the portal-user record had a link, what the URL
+    // expected, and whose email/code combination the portal is trying.
+    // eslint-disable-next-line no-console
+    console.log('[vendor-portal] resolveLinkedContractor →', {
+        preferredContractorId,
+        orgUserPortalLinkedContractorId: orgUser?.portalLinkedContractorId || '(missing)',
+        expectedContractorId: expectedContractorId || '(none from URL)',
+        userUid: user.uid,
+        cleanEmail,
+        cleanVendorCode: cleanVendorCode || '(no code from URL)'
+    });
+
     if (preferredContractorId) {
         try {
             const directSnap = await dbGet(`organizations/${orgId}/contractors/${preferredContractorId}`);
             if (directSnap !== null) {
+                // eslint-disable-next-line no-console
+                console.log('[vendor-portal] direct contractor read OK:', { preferredContractorId, email: directSnap?.email, portalUid: directSnap?.portalUid });
                 return [preferredContractorId, directSnap];
             }
+            // eslint-disable-next-line no-console
+            console.warn('[vendor-portal] direct contractor read returned null — falling back to collection scan');
         } catch (error) {
             if (!isPermissionDeniedError(error)) {
                 throw error;
             }
-            console.warn('Direct linked contractor read blocked, falling back to collection scan.', error);
+            // eslint-disable-next-line no-console
+            console.warn('[vendor-portal] direct linked contractor read blocked by rules, falling back to collection scan.', error);
         }
     }
 
-    // Same double-negation footgun that was in fetchVendorData. The original
-    // predicate `!contractorSnap !== null` parses as `(!x) !== null` which is
-    // ALWAYS true for any value of x, so the throw fired on every vendor
-    // sign-in regardless of whether contractor records existed.  Use the
-    // straightforward null check instead.
     const contractorSnap = await dbGet(`organizations/${orgId}/contractors`);
     if (contractorSnap === null) {
         throw new Error('No contractor records were found for this organization.');
     }
 
+    const contractorKeys = Object.keys(contractorSnap);
+    // eslint-disable-next-line no-console
+    console.log('[vendor-portal] contractor collection keys:', contractorKeys);
+
     const matchedEntry = Object.entries(contractorSnap).find(([contractorKey, contractor]) => {
         const contractorEmail = normalizeEmail(contractor?.email);
         const contractorCode = normalizeVendorCode(contractor?.vendorCode);
         const contractorPortalUid = contractor?.portalUid || '';
-        if (expectedContractorId && contractorKey === expectedContractorId) {
-            return true;
-        }
-        if (orgUser?.portalLinkedContractorId && orgUser.portalLinkedContractorId === contractorKey) {
-            return true;
-        }
-        if (contractorPortalUid === user.uid) {
-            return true;
-        }
-        if (cleanVendorCode && contractorCode === cleanVendorCode && contractorEmail === cleanEmail) {
-            return true;
-        }
+        if (expectedContractorId && contractorKey === expectedContractorId) return true;
+        if (orgUser?.portalLinkedContractorId && orgUser.portalLinkedContractorId === contractorKey) return true;
+        if (contractorPortalUid === user.uid) return true;
+        if (cleanVendorCode && contractorCode === cleanVendorCode && contractorEmail === cleanEmail) return true;
         return contractorEmail === cleanEmail;
     });
 
     if (!matchedEntry) {
-        throw new Error('The signed-in account is not linked to any contractor profile. Ask your client admin to verify the portal email, contractor link, and portal access setup.');
+        // eslint-disable-next-line no-console
+        console.error('[vendor-portal] no contractor matched any criterion. Dump:',
+            Object.entries(contractorSnap).map(([k, v]) => ({
+                key: k,
+                email: normalizeEmail(v?.email),
+                vendorCode: normalizeVendorCode(v?.vendorCode),
+                portalUid: v?.portalUid || ''
+            }))
+        );
+        throw new Error(
+            'The signed-in account is not linked to any contractor profile. ' +
+            'Ask your client admin to (1) re-open the contractor profile, ' +
+            '(2) click Provision & Email Login again, and (3) check the browser console ' +
+            'on this page — the contractor list dump there shows what the portal can see.'
+        );
     }
 
+    // eslint-disable-next-line no-console
+    console.log('[vendor-portal] matched contractor via collection scan:', matchedEntry[0]);
     return matchedEntry;
 };
 
@@ -422,6 +449,15 @@ export default function VendorPortal() {
             }
 
             const orgUser = orgUserSnap;
+            // eslint-disable-next-line no-console
+            console.log('[vendor-portal] orgUser loaded:', {
+                source: 'vendorPortalUsers fallback users',
+                status: orgUser.status,
+                vendorPortal: orgUser.vendorPortal,
+                portalLinkedContractorId: orgUser.portalLinkedContractorId || '(missing)',
+                role: orgUser.role,
+                assignedSite: orgUser.assignedSite
+            });
             const passwordState = await readOptionalPasswordState({ orgId, uid: user.uid });
             if (orgUser.status === 'Pending') {
                 throw new Error('Your portal account is still pending approval. Ask your client admin to activate it.');
@@ -454,25 +490,40 @@ export default function VendorPortal() {
             const normalizedVendor = buildVendorState(firebaseKey, vendorData);
             const resolvedVendorCode = normalizeVendorCode(vendorData.vendorCode || cleanVendorCode);
 
+            // CRITICAL PERFORMANCE NOTE — incidents + ptwRecords used to be
+            // awaited INLINE here, but vendors in vendorPortalUsers have no
+            // valid path through those collections' read rules. Firebase's
+            // permission-denied response can take the full 15s read-timeout
+            // to surface — so the login was hanging for up to 30 seconds
+            // before the password-change modal could fire (and most users
+            // would close the tab thinking it was broken). Fire-and-forget
+            // them in the background so the login completes immediately;
+            // they'll populate the relevant tabs whenever they resolve.
             let matchedIncidents = [];
-            try {
-                const incidentData = await readVendorSiteCollection({ orgId, childName: 'incidents', orgUser });
-                matchedIncidents = safeArrWithKeys(incidentData)
-                    .filter(i => i.contractorId === firebaseKey || (i.contractorName && i.contractorName.toLowerCase() === (vendorData.companyName || '').toLowerCase()))
-                    .sort((a, b) => new Date(b.incidentDate || b.date || 0) - new Date(a.incidentDate || a.date || 0));
-            } catch (error) {
-                console.warn('Incident fetch blocked or unavailable.', error);
-            }
-
             let matchedPermits = [];
-            try {
-                const permitData = await readVendorSiteCollection({ orgId, childName: 'ptwRecords', orgUser });
-                matchedPermits = safeArrWithKeys(permitData)
-                    .filter(p => p.contractorId === firebaseKey || (p.contractorName && p.contractorName.toLowerCase() === (vendorData.companyName || '').toLowerCase()))
-                    .sort((a, b) => new Date(b.createdAt || b.validFromDate || 0) - new Date(a.createdAt || a.validFromDate || 0));
-            } catch (error) {
-                console.warn('PTW fetch blocked or unavailable.', error);
-            }
+            const backgroundFetchIncidents = readVendorSiteCollection({ orgId, childName: 'incidents', orgUser })
+                .then((incidentData) => {
+                    const list = safeArrWithKeys(incidentData)
+                        .filter(i => i.contractorId === firebaseKey || (i.contractorName && i.contractorName.toLowerCase() === (vendorData.companyName || '').toLowerCase()))
+                        .sort((a, b) => new Date(b.incidentDate || b.date || 0) - new Date(a.incidentDate || a.date || 0));
+                    setVendorIncidents(list);
+                })
+                .catch((error) => {
+                    console.warn('Incident fetch blocked or unavailable.', error);
+                });
+            const backgroundFetchPermits = readVendorSiteCollection({ orgId, childName: 'ptwRecords', orgUser })
+                .then((permitData) => {
+                    const list = safeArrWithKeys(permitData)
+                        .filter(p => p.contractorId === firebaseKey || (p.contractorName && p.contractorName.toLowerCase() === (vendorData.companyName || '').toLowerCase()))
+                        .sort((a, b) => new Date(b.createdAt || b.validFromDate || 0) - new Date(a.createdAt || a.validFromDate || 0));
+                    setVendorPermits(list);
+                })
+                .catch((error) => {
+                    console.warn('PTW fetch blocked or unavailable.', error);
+                });
+            // Reference them so the linter doesn't strip the promises.
+            void backgroundFetchIncidents;
+            void backgroundFetchPermits;
 
             const nextSession = {
                 email: cleanEmail,
