@@ -682,7 +682,8 @@ export default function MockDrill() {
                                     <button onClick={() => setForm({ ...form, eventType: 'Mock Drill' })} className={`px-5 py-2 rounded-lg text-xs font-bold uppercase tracking-widest transition-colors ${form.eventType === 'Mock Drill' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-500 hover:text-white'}`}>Mock Drill</button>
                                     <button onClick={() => setForm({ ...form, eventType: 'Real Emergency' })} className={`px-5 py-2 rounded-lg text-xs font-bold uppercase tracking-widest transition-colors ${form.eventType === 'Real Emergency' ? 'bg-red-600 text-white shadow-lg shadow-red-900/50' : 'text-slate-500 hover:text-white'}`}>Real Emergency</button>
                                 </div>
-                                <button onClick={() => setSelectedDrill(null)} className="text-slate-400 hover:text-white bg-slate-800 hover:bg-slate-700 w-10 h-10 rounded-xl flex items-center justify-center transition-colors"><i className="fas fa-times text-xl"></i></button>
+                                <button onClick={handleSubmit} className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold px-5 py-2.5 rounded-xl text-xs uppercase tracking-widest shadow-lg shadow-blue-900/30 transition flex items-center gap-2"><i className="fas fa-save"></i> Save</button>
+                                <button onClick={() => setSelectedDrill(null)} className="text-slate-400 hover:text-white bg-slate-800 hover:bg-slate-700 w-10 h-10 rounded-xl flex items-center justify-center transition-colors" title="Close"><i className="fas fa-times text-xl"></i></button>
                             </div>
                         </div>
 

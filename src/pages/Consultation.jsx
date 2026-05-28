@@ -695,6 +695,9 @@ export default function Consultation() {
                                 <div className="flex gap-3">
                                     <button type="button" onClick={() => setView('list')} className="text-slate-400 hover:text-white px-5 py-2.5 rounded-xl font-bold text-sm transition-colors">Cancel</button>
                                     {formData.firebaseKey && <button type="button" onClick={() => triggerPrint(formData)} className="bg-slate-800 hover:bg-slate-700 text-white px-6 py-2.5 rounded-xl font-bold text-sm shadow-lg transition-colors flex items-center gap-2"><i className="fas fa-print"></i> Print</button>}
+                                    {canEditForm && (
+                                        <button type="button" onClick={saveRecord} disabled={saving} className="bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-500 hover:to-emerald-500 text-white font-bold px-6 py-2.5 rounded-xl text-sm shadow-lg shadow-teal-900/30 transition-transform active:scale-95 flex items-center gap-2 disabled:opacity-50"><i className={`fas ${saving ? 'fa-spinner fa-spin' : 'fa-save'}`}></i> Save</button>
+                                    )}
                                 </div>
                             </div>
 

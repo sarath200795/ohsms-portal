@@ -13,7 +13,12 @@ export default function IncidentStepReview({
 }) {
     return (
         <div className="bg-slate-900/40 backdrop-blur-md border border-slate-800 rounded-3xl p-8 shadow-2xl animate-in slide-in-from-right-8 duration-300">
-            <h2 className="text-xl font-bold text-emerald-400 mb-8 flex items-center gap-3 border-b border-emerald-500/20 pb-4 uppercase tracking-widest"><i className="fas fa-link text-2xl"></i> 5. Review & HIRA Connection</h2>
+            <div className="flex items-center justify-between mb-8 border-b border-emerald-500/20 pb-4">
+                <h2 className="text-xl font-bold text-emerald-400 flex items-center gap-3 uppercase tracking-widest"><i className="fas fa-link text-2xl"></i> 5. Review & HIRA Connection</h2>
+                {canEditForm && (
+                    <button type="button" onClick={() => saveData('investigation-final')} disabled={saving} className="bg-gradient-to-r from-red-600 to-orange-600 hover:from-red-500 hover:to-orange-500 text-white font-bold px-5 py-2.5 rounded-xl text-xs uppercase tracking-widest shadow-lg shadow-red-900/30 transition flex items-center gap-2 disabled:opacity-50"><i className={`fas ${saving ? 'fa-spinner fa-spin' : 'fa-cloud-arrow-up'}`}></i> Submit</button>
+                )}
+            </div>
 
             <div className="bg-slate-950/50 p-8 rounded-2xl border border-slate-800 shadow-inner mb-8">
                 <div className="flex justify-between items-center mb-6">

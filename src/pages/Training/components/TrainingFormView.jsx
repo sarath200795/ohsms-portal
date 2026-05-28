@@ -25,7 +25,12 @@ export default function TrainingFormView({
             <div className="glass-panel p-8 rounded-3xl border border-slate-700 shadow-2xl">
                 <div className="flex justify-between items-center mb-8 border-b border-slate-700 pb-4">
                     <h2 className="text-3xl font-bold text-emerald-400 flex items-center gap-3"><i className="fas fa-chalkboard-teacher"></i> {data.firebaseKey ? 'Edit Training Session' : 'Log Training Session'}</h2>
-                    <button type="button" onClick={onCancel} className="text-slate-400 hover:text-white font-bold text-sm transition-colors flex items-center gap-2"><i className="fas fa-times"></i> Cancel</button>
+                    <div className="flex items-center gap-3">
+                        {canEditForm && (
+                            <button type="button" onClick={onSave} disabled={saving} className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-5 py-2.5 rounded-xl text-sm shadow-lg shadow-emerald-900/30 transition flex items-center gap-2 disabled:opacity-50"><i className={`fas ${saving ? 'fa-spinner fa-spin' : 'fa-save'}`}></i> Save</button>
+                        )}
+                        <button type="button" onClick={onCancel} className="text-slate-400 hover:text-white font-bold text-sm transition-colors flex items-center gap-2"><i className="fas fa-times"></i> Cancel</button>
+                    </div>
                 </div>
 
                 <div className="flex gap-4 mb-8 bg-slate-900/50 p-2 rounded-2xl border border-slate-800 w-fit shadow-inner">

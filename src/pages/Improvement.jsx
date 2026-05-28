@@ -620,10 +620,15 @@ export default function Improvement() {
 
                     {view === 'form' && (
                         <div className="glass-panel p-8 md:p-10 rounded-3xl animate-in slide-in-from-bottom-8 duration-500 shadow-2xl border border-slate-700 mb-20">
-                            <h2 className="text-3xl font-bold text-white mb-8 flex items-center gap-4 border-b border-slate-800 pb-5">
-                                <span className="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-600 flex items-center justify-center text-2xl shadow-lg"><i className="fas fa-lightbulb text-white"></i></span>
-                                {form.firebaseKey ? (canEditForm ? 'Edit Improvement Proposal' : 'View Improvement Proposal') : 'Submit Improvement Proposal'}
-                            </h2>
+                            <div className="flex items-center justify-between gap-4 mb-8 border-b border-slate-800 pb-5">
+                                <h2 className="text-3xl font-bold text-white flex items-center gap-4">
+                                    <span className="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-600 flex items-center justify-center text-2xl shadow-lg"><i className="fas fa-lightbulb text-white"></i></span>
+                                    {form.firebaseKey ? (canEditForm ? 'Edit Improvement Proposal' : 'View Improvement Proposal') : 'Submit Improvement Proposal'}
+                                </h2>
+                                {canEditForm && (
+                                    <button type="button" onClick={handleSubmit} disabled={saving} className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold px-6 py-2.5 rounded-xl text-sm shadow-lg shadow-blue-900/30 transition-transform active:scale-95 flex items-center gap-2 disabled:opacity-50"><i className={`fas ${saving ? 'fa-spinner fa-spin' : 'fa-save'}`}></i> Save</button>
+                                )}
+                            </div>
 
                             <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8 bg-slate-900/50 p-6 rounded-2xl border border-slate-800 shadow-inner">
                                 <div className="col-span-1">

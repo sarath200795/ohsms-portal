@@ -1043,7 +1043,12 @@ export default function HealthDashboard() {
                                     <h2 className="text-3xl font-bold text-white mb-2 flex items-center gap-3"><i className="fas fa-head-side-cough text-amber-500"></i> Occupational Illness Report</h2>
                                     <p className="text-xs text-slate-400 font-mono bg-slate-900 inline-block px-3 py-1.5 rounded-lg border border-slate-700">Record ID: {illnessForm.id}</p>
                                 </div>
-                                <button onClick={printIllness} className="bg-slate-700 hover:bg-slate-600 text-white px-5 py-2.5 rounded-xl text-sm font-bold transition flex items-center gap-2 shadow-lg"><i className="fas fa-print"></i> Print Report</button>
+                                <div className="flex items-center gap-2">
+                                    {permissions.canEditCreate && (
+                                        <button onClick={handleSaveIllness} className="bg-gradient-to-r from-amber-600 to-orange-500 hover:from-amber-500 hover:to-orange-400 text-white font-bold px-5 py-2.5 rounded-xl text-sm shadow-lg transition flex items-center gap-2"><i className="fas fa-save"></i> Save</button>
+                                    )}
+                                    <button onClick={printIllness} className="bg-slate-700 hover:bg-slate-600 text-white px-5 py-2.5 rounded-xl text-sm font-bold transition flex items-center gap-2 shadow-lg"><i className="fas fa-print"></i> Print Report</button>
+                                </div>
                             </div>
 
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
@@ -1161,7 +1166,12 @@ export default function HealthDashboard() {
                                     <h2 className="text-2xl font-bold text-white mb-2 flex items-center gap-3"><i className="fas fa-stethoscope text-indigo-400"></i> Medical Surveillance Event</h2>
                                     <p className="text-xs text-slate-400 font-mono bg-slate-900 inline-block px-3 py-1.5 rounded-lg border border-slate-700">Record ID: {survForm.id}</p>
                                 </div>
-                                <button onClick={printSurveillance} className="bg-slate-700 hover:bg-slate-600 text-white px-5 py-2.5 rounded-xl text-sm font-bold transition flex items-center gap-2 shadow-lg"><i className="fas fa-print"></i> Print Roster</button>
+                                <div className="flex items-center gap-2">
+                                    {permissions.canEditCreate && (
+                                        <button onClick={handleSaveSurveillance} className="bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-bold px-5 py-2.5 rounded-xl text-sm shadow-lg transition flex items-center gap-2"><i className="fas fa-save"></i> Save</button>
+                                    )}
+                                    <button onClick={printSurveillance} className="bg-slate-700 hover:bg-slate-600 text-white px-5 py-2.5 rounded-xl text-sm font-bold transition flex items-center gap-2 shadow-lg"><i className="fas fa-print"></i> Print Roster</button>
+                                </div>
                             </div>
 
                             <div className="grid grid-cols-2 md:grid-cols-4 gap-6 mb-8 bg-slate-900/50 p-6 rounded-2xl border border-slate-700 shadow-inner">
@@ -1280,7 +1290,12 @@ export default function HealthDashboard() {
                                     <h2 className="text-3xl font-bold text-white mb-2 flex items-center gap-3"><i className="fas fa-syringe text-cyan-400"></i> Vaccination Record Event</h2>
                                     <p className="text-xs text-slate-400 font-mono bg-slate-900 inline-block px-3 py-1.5 rounded-lg border border-slate-700">Record ID: {vaccForm.id}</p>
                                 </div>
-                                <button onClick={printVaccination} className="bg-slate-700 hover:bg-slate-600 text-white px-5 py-2.5 rounded-xl text-sm font-bold transition flex items-center gap-2 shadow-lg"><i className="fas fa-print"></i> Print Register</button>
+                                <div className="flex items-center gap-2">
+                                    {permissions.canEditCreate && (
+                                        <button onClick={handleSaveVaccination} className="bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white font-bold px-5 py-2.5 rounded-xl text-sm shadow-lg transition flex items-center gap-2"><i className="fas fa-save"></i> Save</button>
+                                    )}
+                                    <button onClick={printVaccination} className="bg-slate-700 hover:bg-slate-600 text-white px-5 py-2.5 rounded-xl text-sm font-bold transition flex items-center gap-2 shadow-lg"><i className="fas fa-print"></i> Print Register</button>
+                                </div>
                             </div>
 
                             <div className="grid grid-cols-2 md:grid-cols-4 gap-6 mb-10 bg-slate-900/50 p-6 rounded-2xl border border-slate-700 shadow-inner">

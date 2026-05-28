@@ -1254,7 +1254,10 @@ export default function EmergencyEquipment() {
                         <div className="max-w-4xl mx-auto bg-slate-900/80 p-6 md:p-8 rounded-3xl border border-slate-700 shadow-2xl animate-in slide-in-from-bottom-8 duration-300">
                             <div className="flex justify-between items-center mb-8 border-b border-slate-800 pb-4">
                                 <h3 className="text-xl font-bold text-white"><i className="fas fa-clipboard-list text-orange-500 mr-2"></i> {formData.firebaseKey ? 'Edit Equipment' : 'Register New Equipment'}</h3>
-                                <button onClick={() => setView('list')} className="text-slate-500 hover:text-white"><i className="fas fa-times text-xl"></i></button>
+                                <div className="flex items-center gap-2">
+                                    <button onClick={handleSave} className="bg-orange-600 hover:bg-orange-500 text-white font-bold px-4 py-2 rounded-lg text-xs uppercase tracking-widest shadow-md shadow-orange-900/30 transition flex items-center gap-2"><i className="fas fa-save"></i> Save</button>
+                                    <button onClick={() => setView('list')} className="text-slate-500 hover:text-white" title="Close"><i className="fas fa-times text-xl"></i></button>
+                                </div>
                             </div>
 
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
