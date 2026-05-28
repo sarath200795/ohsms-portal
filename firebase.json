@@ -44,7 +44,7 @@
             },
             {
               "key": "Content-Security-Policy",
-              "value": "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'self'; img-src 'self' data: blob: https:; font-src 'self' https://cdnjs.cloudflare.com https://fonts.gstatic.com data:; style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://fonts.googleapis.com; script-src 'self'; connect-src 'self' https://*.googleapis.com https://*.firebaseio.com https://*.firebasedatabase.app https://*.*.firebasedatabase.app wss://*.firebaseio.com wss://*.firebasedatabase.app wss://*.*.firebasedatabase.app https://*.blob.vercel-storage.com https://api.emailjs.com; worker-src 'self' blob:"
+              "value": "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'self'; img-src 'self' data: blob: https:; font-src 'self' https://cdnjs.cloudflare.com https://fonts.gstatic.com data:; style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://fonts.googleapis.com; script-src 'self' https://*.firebaseio.com https://*.firebasedatabase.app https://*.*.firebasedatabase.app; script-src-elem 'self' https://*.firebaseio.com https://*.firebasedatabase.app https://*.*.firebasedatabase.app; connect-src 'self' https://*.googleapis.com https://*.firebaseio.com https://*.firebasedatabase.app https://*.*.firebasedatabase.app wss://*.firebaseio.com wss://*.firebasedatabase.app wss://*.*.firebasedatabase.app https://*.blob.vercel-storage.com https://api.emailjs.com; worker-src 'self' blob:"
             }
           ]
         },
@@ -103,7 +103,7 @@
             },
             {
               "key": "Content-Security-Policy",
-              "value": "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'self'; img-src 'self' data: blob: https:; font-src 'self' https://cdnjs.cloudflare.com https://fonts.gstatic.com data:; style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://fonts.googleapis.com; script-src 'self'; connect-src 'self' https://*.googleapis.com https://*.firebaseio.com https://*.firebasedatabase.app https://*.*.firebasedatabase.app wss://*.firebaseio.com wss://*.firebasedatabase.app wss://*.*.firebasedatabase.app https://*.blob.vercel-storage.com https://api.emailjs.com; worker-src 'self' blob:"
+              "value": "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'self'; img-src 'self' data: blob: https:; font-src 'self' https://cdnjs.cloudflare.com https://fonts.gstatic.com data:; style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://fonts.googleapis.com; script-src 'self' https://*.firebaseio.com https://*.firebasedatabase.app https://*.*.firebasedatabase.app; script-src-elem 'self' https://*.firebaseio.com https://*.firebasedatabase.app https://*.*.firebasedatabase.app; connect-src 'self' https://*.googleapis.com https://*.firebaseio.com https://*.firebasedatabase.app https://*.*.firebasedatabase.app wss://*.firebaseio.com wss://*.firebasedatabase.app wss://*.*.firebasedatabase.app https://*.blob.vercel-storage.com https://api.emailjs.com; worker-src 'self' blob:"
             }
           ]
         },
