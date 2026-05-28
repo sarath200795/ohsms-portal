@@ -286,9 +286,32 @@ export default function Dashboard() {
 
         if (session && localOrgData) {
             const isGlobalAdmin = isGlobalOwnerRole(session.role);
-            const myEmail = session.email?.toLowerCase().trim();
-            const myName = session.name?.toLowerCase().trim();
-            const checkUserMatch = (val) => val?.toLowerCase().trim() === myEmail || val?.toLowerCase().trim() === myName;
+            const myEmail = String(session.email || '').toLowerCase().trim();
+            const myName  = String(session.name  || '').toLowerCase().trim();
+            const myUid   = String(session.uid   || '');
+
+            // Owner match — accepts the field as a plain string OR as an
+            // object that contains a name/email/uid (some forms save
+            // { name, email, uid }, others save a raw string).  Previously
+            // only matched exact email or exact name as a string, so items
+            // saved as uid or as an object were silently dropped from the
+            // Action Queue count.
+            const checkUserMatch = (val) => {
+                if (val === null || val === undefined) return false;
+
+                if (typeof val === 'object') {
+                    return checkUserMatch(val.email)
+                        || checkUserMatch(val.name)
+                        || checkUserMatch(val.uid)
+                        || checkUserMatch(val.assignedTo);
+                }
+
+                const norm = String(val).toLowerCase().trim();
+                if (!norm) return false;
+                return norm === myEmail
+                    || norm === myName
+                    || norm === myUid.toLowerCase();
+            };
 
             if (localOrgData.details?.name) orgName = localOrgData.details.name;
 
@@ -346,6 +369,26 @@ export default function Dashboard() {
                 { key: 'inspectionRecords', siteFrom: 'record' }
             ];
 
+            // Parse common non-ISO date formats too — Indian forms often
+            // save DD-MM-YYYY or DD/MM/YYYY, which `new Date(text)` reads
+            // as Invalid Date (or worse, as MM/DD in US locale) — silently
+            // dropping legitimate items from the queue.
+            const parseDateLenient = (raw) => {
+                const native = parseDate(raw);
+                if (native) return native;
+                const text = String(raw || '').trim();
+                if (!text) return null;
+                // DD-MM-YYYY or DD/MM/YYYY → YYYY-MM-DD
+                const m = text.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{2,4})$/);
+                if (m) {
+                    const [, d, mm, y] = m;
+                    const year = y.length === 2 ? `20${y}` : y;
+                    const iso = `${year}-${mm.padStart(2, '0')}-${d.padStart(2, '0')}`;
+                    return parseDate(iso);
+                }
+                return null;
+            };
+
             CAPA_SOURCES.forEach(({ key }) => {
                 const collection = localOrgData[key];
                 if (!collection) return;
@@ -355,9 +398,12 @@ export default function Dashboard() {
                     if (!capas) return;
                     Object.values(capas).forEach((act) => {
                         if (!act || isCapaDone(act.status)) return;
-                        if (!checkUserMatch(act.owner || act.own || act.assignedTo)) return;
+                        // Global Owners see EVERY org-wide pending action in
+                        // the queue (they're accountable for everything).
+                        // Other roles see only items assigned to them.
+                        if (!isGlobalAdmin && !checkUserMatch(act.owner || act.own || act.assignedTo)) return;
 
-                        const dueDate = parseDate(act.dueDate || act.due || act.targetDate);
+                        const dueDate = parseDateLenient(act.dueDate || act.due || act.targetDate);
                         const severity = classifySeverity(dueDate, todayForActions, { dueSoonDays: 7, upcomingDays: 30 });
                         // Show overdue + due-within-7-days. Items with no due
                         // date OR due > 7 days out are skipped from the queue.
