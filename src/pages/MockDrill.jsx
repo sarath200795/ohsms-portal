@@ -264,9 +264,14 @@ export default function MockDrill() {
     const [form, setForm] = useState({
         siteId: initialSiteFilter !== 'All' ? initialSiteFilter : ((session?.assignedSite !== 'GLOBAL') ? session?.assignedSite || '' : ''),
         eventType: 'Mock Drill', date: new Date().toISOString().split('T')[0], time: '',
-        shift: 'Day', commander: '', evacTime: '', ertResponseTime: '', headCount: '', debrief: '', capa: [],
+        shift: 'Day',
+        commander: '',          // legacy single-name field (kept synced as the comma-joined display string)
+        commanders: [],         // new: multiple commanders / drill leads
+        evacTime: '', ertResponseTime: '', headCount: '', debrief: '', capa: [],
         fireSource: '', medicalIncidentType: ''
     });
+    const [selectedCommanderFromDb, setSelectedCommanderFromDb] = useState('');
+    const [manualCommanderName, setManualCommanderName] = useState('');
     const [checks, setChecks] = useState({});
     const [teamChecks, setTeamChecks] = useState({});
     const [actionLog, setActionLog] = useState([{ time: '', action: '', observation: '' }]);
@@ -379,8 +384,11 @@ export default function MockDrill() {
             eventType: 'Mock Drill',
             time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }),
             headCount: '', debrief: '', evacTime: '', ertResponseTime: '', capa: [],
-            fireSource: '', medicalIncidentType: ''
+            fireSource: '', medicalIncidentType: '',
+            commander: '', commanders: []
         });
+        setSelectedCommanderFromDb('');
+        setManualCommanderName('');
         setChecks({});
         setTeamChecks({});
         setActionLog([{ time: '', action: '', observation: '' }]);
@@ -395,6 +403,39 @@ export default function MockDrill() {
         setActionLog(newLog);
     };
 
+    // COMMANDER LIST FUNCTIONS
+    // The drill commander field accepts multiple names: pick from the
+    // directory dropdown OR type a free-text name (e.g. a visiting safety
+    // officer not yet in the user table).  We keep `commander` (the legacy
+    // single string) synced as the comma-joined display value so the
+    // registry list and printable report continue to render.
+    const addCommander = (source) => {
+        let name = '';
+        if (source === 'db') {
+            const target = users.find((u) => u.id === selectedCommanderFromDb);
+            name = (target?.name || target?.email || '').trim();
+        } else if (source === 'manual') {
+            name = manualCommanderName.trim();
+        }
+        if (!name) return;
+        const existing = Array.isArray(form.commanders) ? form.commanders : [];
+        const isDuplicate = existing.some((n) => n.trim().toLowerCase() === name.toLowerCase());
+        if (isDuplicate) {
+            if (source === 'db') setSelectedCommanderFromDb('');
+            else setManualCommanderName('');
+            return;
+        }
+        const next = [...existing, name];
+        setForm({ ...form, commanders: next, commander: next.join(', ') });
+        if (source === 'db') setSelectedCommanderFromDb('');
+        else setManualCommanderName('');
+    };
+    const removeCommander = (idx) => {
+        const existing = Array.isArray(form.commanders) ? form.commanders : [];
+        const next = existing.filter((_, i) => i !== idx);
+        setForm({ ...form, commanders: next, commander: next.join(', ') });
+    };
+
     // CAPA FUNCTIONS
     const addCapa = () => setForm({ ...form, capa: [...form.capa, { action: '', owner: '', due: '', status: 'Open' }] });
     const updateCapa = (idx, field, val) => {
@@ -407,7 +448,10 @@ export default function MockDrill() {
     const handleSubmit = async () => {
         if (!permissions.canEditCreate) return alert("Security Error: You do not have permission to save reports.");
         if (!form.siteId) return alert("Please select a Site ID.");
-        if (!form.commander) return alert("Please select an Incident Commander.");
+        const commandersList = Array.isArray(form.commanders) ? form.commanders.filter((n) => String(n || '').trim()) : [];
+        if (commandersList.length === 0 && !String(form.commander || '').trim()) {
+            return alert("Please add at least one Incident Commander.");
+        }
         if (selectedDrill?.title === 'Fire Emergency' && !form.fireSource) return alert("Please select the source of the fire.");
         if (selectedDrill?.title === 'Medical Emergency' && !form.medicalIncidentType) return alert("Please select the type of medical incident.");
 
@@ -651,17 +695,94 @@ export default function MockDrill() {
                                         {visibleSites.map(s => <option key={s.code} value={s.code}>{s.name} ({s.code})</option>)}
                                     </select>
                                 </div>
-                                <div>
-                                    <label className="text-[10px] uppercase text-slate-500 font-bold block mb-2 tracking-widest ml-1">Commander</label>
-                                    <select className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-sm text-white outline-none focus:border-blue-500" value={form.commander} onChange={e => setForm({ ...form, commander: e.target.value })} disabled={!form.siteId}>
-                                        <option value="">Select...</option>
-                                        {availableCommanders.map(u => <option key={u.id} value={u.name || u.email}>{u.name || u.email} ({u.role})</option>)}
-                                    </select>
-                                </div>
                                 <div><label className="text-[10px] uppercase text-slate-500 font-bold block mb-2 tracking-widest ml-1">Date</label><input type="date" className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-sm text-white outline-none focus:border-blue-500 font-mono" value={form.date} onChange={e => setForm({ ...form, date: e.target.value })} /></div>
                                 <div><label className="text-[10px] uppercase text-slate-500 font-bold block mb-2 tracking-widest ml-1">Time</label><input type="time" className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-sm text-white outline-none focus:border-blue-500 font-mono" value={form.time} onChange={e => setForm({ ...form, time: e.target.value })} /></div>
-                                <div className="col-span-1 md:col-start-2"><label className="text-[10px] uppercase text-pink-400 font-bold block mb-2 tracking-widest ml-1">Evac Time (min)</label><input type="number" className="w-full bg-slate-950 border border-pink-900/50 rounded-xl p-3 text-sm text-white outline-none focus:border-pink-500 text-center font-bold" value={form.evacTime} onChange={e => setForm({ ...form, evacTime: e.target.value })} /></div>
+                                <div className="col-span-1"><label className="text-[10px] uppercase text-pink-400 font-bold block mb-2 tracking-widest ml-1">Evac Time (min)</label><input type="number" className="w-full bg-slate-950 border border-pink-900/50 rounded-xl p-3 text-sm text-white outline-none focus:border-pink-500 text-center font-bold" value={form.evacTime} onChange={e => setForm({ ...form, evacTime: e.target.value })} /></div>
                                 <div className="col-span-1"><label className="text-[10px] uppercase text-blue-400 font-bold block mb-2 tracking-widest ml-1">ERT Response (min)</label><input type="number" className="w-full bg-slate-950 border border-blue-900/50 rounded-xl p-3 text-sm text-white outline-none focus:border-blue-500 text-center font-bold" value={form.ertResponseTime} onChange={e => setForm({ ...form, ertResponseTime: e.target.value })} /></div>
+                            </div>
+
+                            {/* Commanders — supports multiple names, either picked from the
+                                user directory or typed in freely. */}
+                            <div className="bg-slate-900/50 p-6 rounded-2xl border border-slate-700 shadow-inner">
+                                <div className="flex items-center justify-between mb-3">
+                                    <label className="text-[10px] uppercase text-slate-400 font-bold tracking-widest"><i className="fas fa-user-shield mr-2 text-blue-400"></i> Incident Commanders</label>
+                                    <span className="text-[10px] font-bold text-slate-500">{(form.commanders || []).length} added</span>
+                                </div>
+
+                                {Array.isArray(form.commanders) && form.commanders.length > 0 && (
+                                    <div className="mb-4 flex flex-wrap gap-2">
+                                        {form.commanders.map((name, idx) => (
+                                            <span
+                                                key={`${name}-${idx}`}
+                                                className="inline-flex items-center gap-2 rounded-full border border-blue-500/40 bg-blue-500/10 px-3 py-1.5 text-xs font-semibold text-blue-200"
+                                            >
+                                                <i className="fas fa-user-shield text-[10px]"></i>
+                                                <span>{name}</span>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => removeCommander(idx)}
+                                                    className="ml-1 flex h-5 w-5 items-center justify-center rounded-full bg-red-500/20 text-red-300 transition-colors hover:bg-red-500 hover:text-white"
+                                                    aria-label={`Remove ${name}`}
+                                                >
+                                                    <i className="fas fa-times text-[10px]"></i>
+                                                </button>
+                                            </span>
+                                        ))}
+                                    </div>
+                                )}
+
+                                <div className="grid gap-3 md:grid-cols-2">
+                                    <div>
+                                        <p className="text-[10px] uppercase font-bold text-slate-500 mb-1.5 tracking-widest">Pick From Directory</p>
+                                        <div className="flex gap-2">
+                                            <select
+                                                value={selectedCommanderFromDb}
+                                                onChange={(e) => setSelectedCommanderFromDb(e.target.value)}
+                                                disabled={!form.siteId}
+                                                className="flex-1 bg-slate-950 border border-slate-800 rounded-xl p-3 text-sm text-white outline-none focus:border-blue-500 disabled:opacity-50"
+                                            >
+                                                <option value="">{form.siteId ? 'Select user…' : 'Select site first…'}</option>
+                                                {availableCommanders.map((u) => (
+                                                    <option key={u.id} value={u.id}>{u.name || u.email} ({u.role})</option>
+                                                ))}
+                                            </select>
+                                            <button
+                                                type="button"
+                                                onClick={() => addCommander('db')}
+                                                disabled={!selectedCommanderFromDb}
+                                                className="rounded-xl bg-blue-600 px-4 py-3 text-xs font-bold uppercase tracking-widest text-white transition-colors hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
+                                            >
+                                                <i className="fas fa-plus"></i>
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <p className="text-[10px] uppercase font-bold text-slate-500 mb-1.5 tracking-widest">Or Type A Name</p>
+                                        <div className="flex gap-2">
+                                            <input
+                                                type="text"
+                                                value={manualCommanderName}
+                                                onChange={(e) => setManualCommanderName(e.target.value)}
+                                                onKeyDown={(e) => {
+                                                    if (e.key === 'Enter') {
+                                                        e.preventDefault();
+                                                        addCommander('manual');
+                                                    }
+                                                }}
+                                                placeholder="Name and press Enter…"
+                                                className="flex-1 bg-slate-950 border border-slate-800 rounded-xl p-3 text-sm text-white outline-none focus:border-blue-500"
+                                            />
+                                            <button
+                                                type="button"
+                                                onClick={() => addCommander('manual')}
+                                                disabled={!manualCommanderName.trim()}
+                                                className="rounded-xl bg-slate-700 px-4 py-3 text-xs font-bold uppercase tracking-widest text-white transition-colors hover:bg-slate-600 disabled:cursor-not-allowed disabled:opacity-50"
+                                            >
+                                                <i className="fas fa-plus"></i>
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
 
                             {selectedDrill.title === 'Fire Emergency' && (

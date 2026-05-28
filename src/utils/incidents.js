@@ -202,11 +202,39 @@ const normalizeExternalPersons = (incident) => {
     return [];
 };
 
+// Normalise the affectedPersons list (internal staff + contractor workers).
+// Legacy records stored a single {affectedPersonId, affectedPersonName} —
+// seed the array with that pair so the editor renders the chip UI.
+const normalizeAffectedPersons = (incident) => {
+    const list = Array.isArray(incident?.affectedPersons) ? incident.affectedPersons : [];
+    const cleaned = list
+        .map((p) => ({
+            id: String(p?.id || '').trim(),
+            name: String(p?.name || '').trim(),
+            role: String(p?.role || '').trim()
+        }))
+        .filter((p) => p.name);
+    if (cleaned.length > 0) return cleaned;
+
+    const isInternalOrContractor =
+        incident?.affectedPersonType === 'Internal' ||
+        incident?.affectedPersonType === 'Contractor';
+    if (isInternalOrContractor) {
+        const legacyName = String(incident?.affectedPersonName || '').trim();
+        const legacyId = String(incident?.affectedPersonId || '').trim();
+        if (legacyName) {
+            return [{ id: legacyId, name: legacyName, role: '' }];
+        }
+    }
+    return [];
+};
+
 export const buildEditableIncidentData = (initialDataState, incident, createId = () => Date.now()) => ({
     ...initialDataState,
     ...incident,
     horizontalDeployment: incident?.horizontalDeployment || false,
     externalPersons: normalizeExternalPersons(incident),
+    affectedPersons: normalizeAffectedPersons(incident),
     reporting: resolveIncidentReportingState(incident),
     investigation: {
         ...(incident?.investigation || {}),

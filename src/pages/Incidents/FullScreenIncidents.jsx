@@ -61,6 +61,11 @@ const createInitialDataState = () => ({
     // as the comma-joined display string so the registry and exports
     // continue to render without changes.
     externalPersons: [],
+    // Multiple internal staff or contractor workers picked from the users
+    // / contractor-workers dropdowns.  Each item is { id, name, role }.
+    // Same backward-compat strategy: affectedPersonName is the comma-
+    // joined display string for the registry & exports.
+    affectedPersons: [],
     imageEvidence: null,
     imageEvidenceName: '',
     videoEvidence: null,
@@ -477,6 +482,11 @@ export default function Incidents() {
     const [videoEvidenceFile, setVideoEvidenceFile] = useState(null);
     const [imageUploading, setImageUploading] = useState(false);
     const [newExternalPersonName, setNewExternalPersonName] = useState('');
+    // Pickers for the Internal/Contractor affected-persons section.
+    // selectedAffectedFromDb = id chosen in the user/worker dropdown,
+    // manualAffectedName     = free-text name for a person not in the directory.
+    const [selectedAffectedFromDb, setSelectedAffectedFromDb] = useState('');
+    const [manualAffectedName, setManualAffectedName] = useState('');
 
     const initialDataState = useMemo(() => createInitialDataState(), []);
     const [data, setData] = useState(() => createInitialDataState());
@@ -521,6 +531,69 @@ export default function Incidents() {
             };
         });
         setNewExternalPersonName('');
+    };
+
+    // Add an internal staff / contractor worker to the affectedPersons list.
+    // Source 'db' = the person is picked from the users / contractor-workers
+    // dropdown (selectedAffectedFromDb holds the id).
+    // Source 'manual' = free-text name typed in manualAffectedName.  This is
+    // important because real incidents often involve people not in the user
+    // directory yet (new hires, visiting employees from other sites,
+    // contractor workers booked in the same day, etc.).
+    const addAffectedPerson = (source) => {
+        let person = null;
+
+        if (source === 'db') {
+            if (!selectedAffectedFromDb) return;
+            const target = activePersonnelList.find((p) => p.id === selectedAffectedFromDb);
+            if (!target) return;
+            person = {
+                id: target.id,
+                name: target.name || target.email || '',
+                role: target.role || ''
+            };
+        } else if (source === 'manual') {
+            const trimmed = manualAffectedName.trim();
+            if (!trimmed) return;
+            person = { id: '', name: trimmed, role: 'Manual entry' };
+        }
+
+        if (!person || !person.name) return;
+
+        setData((prev) => {
+            const existing = Array.isArray(prev.affectedPersons) ? prev.affectedPersons : [];
+            const isDuplicate = existing.some((p) =>
+                (person.id && p.id && p.id === person.id) ||
+                (p.name || '').trim().toLowerCase() === person.name.trim().toLowerCase()
+            );
+            if (isDuplicate) return prev;
+            const next = [...existing, person];
+            return {
+                ...prev,
+                affectedPersons: next,
+                // Keep legacy single-value fields populated with the FIRST
+                // person so registry rows, Excel exports, and the contractor
+                // safety-passport linkage still resolve cleanly.
+                affectedPersonId: next[0].id || '',
+                affectedPersonName: next.map((p) => p.name).join(', ')
+            };
+        });
+
+        if (source === 'db') setSelectedAffectedFromDb('');
+        else setManualAffectedName('');
+    };
+
+    const removeAffectedPerson = (index) => {
+        setData((prev) => {
+            const existing = Array.isArray(prev.affectedPersons) ? prev.affectedPersons : [];
+            const next = existing.filter((_, i) => i !== index);
+            return {
+                ...prev,
+                affectedPersons: next,
+                affectedPersonId: next[0]?.id || '',
+                affectedPersonName: next.map((p) => p.name).join(', ')
+            };
+        });
     };
 
     const resetTransientEvidence = (nextVideoPreview = null) => {
@@ -1702,22 +1775,37 @@ export default function Incidents() {
             }
             // blob:// object URLs are transient — excluded (null)
 
-            // Defensive sync: for External Non-Employee incidents, derive the
-            // single-string affectedPersonName from externalPersons.  This
-            // keeps the registry list/Excel export rendering correctly even
-            // if the user added names without us having captured the latest
-            // setData() callback.
+            // Defensive sync: rebuild the comma-joined affectedPersonName at
+            // save time so the registry/Excel/print views render correctly
+            // even if a setData() callback hadn't propagated yet.
             let payloadExternalPersons = Array.isArray(data.externalPersons) ? data.externalPersons : [];
             payloadExternalPersons = payloadExternalPersons.map((n) => String(n || '').trim()).filter(Boolean);
-            const payloadAffectedPersonName = data.affectedPersonType === 'External Non-Employee' && payloadExternalPersons.length > 0
-                ? payloadExternalPersons.join(', ')
-                : (data.affectedPersonName || '');
+
+            let payloadAffectedPersons = Array.isArray(data.affectedPersons) ? data.affectedPersons : [];
+            payloadAffectedPersons = payloadAffectedPersons
+                .map((p) => ({
+                    id: String(p?.id || '').trim(),
+                    name: String(p?.name || '').trim(),
+                    role: String(p?.role || '').trim()
+                }))
+                .filter((p) => p.name);
+
+            let payloadAffectedPersonName = data.affectedPersonName || '';
+            let payloadAffectedPersonId = data.affectedPersonId || '';
+            if (data.affectedPersonType === 'External Non-Employee' && payloadExternalPersons.length > 0) {
+                payloadAffectedPersonName = payloadExternalPersons.join(', ');
+            } else if ((data.affectedPersonType === 'Internal' || data.affectedPersonType === 'Contractor') && payloadAffectedPersons.length > 0) {
+                payloadAffectedPersonName = payloadAffectedPersons.map((p) => p.name).join(', ');
+                payloadAffectedPersonId = payloadAffectedPersons[0].id || '';
+            }
 
             const payload = JSON.parse(JSON.stringify({
                 ...data,
                 id: incidentId,
                 videoEvidence: persistedVideoEvidence,
                 externalPersons: payloadExternalPersons,
+                affectedPersons: payloadAffectedPersons,
+                affectedPersonId: payloadAffectedPersonId,
                 affectedPersonName: payloadAffectedPersonName,
                 reporting,
                 capa: capaWithVerificationActions,
@@ -2260,16 +2348,16 @@ export default function Incidents() {
                                         <div className="space-y-4">
                                             <div className="flex gap-4">
                                                 <label className="flex items-center gap-2 cursor-pointer text-sm font-bold text-slate-300">
-                                                    <input type="radio" name="pType" value="Internal" checked={data.affectedPersonType === 'Internal'} onChange={() => setData({ ...data, affectedPersonType: 'Internal', contractorId: '', affectedPersonId: '', affectedPersonName: '', externalPersons: [] })} disabled={!canEditForm} className="accent-indigo-500 w-4 h-4" /> Internal Staff
+                                                    <input type="radio" name="pType" value="Internal" checked={data.affectedPersonType === 'Internal'} onChange={() => setData({ ...data, affectedPersonType: 'Internal', contractorId: '', affectedPersonId: '', affectedPersonName: '', externalPersons: [], affectedPersons: [] })} disabled={!canEditForm} className="accent-indigo-500 w-4 h-4" /> Internal Staff
                                                 </label>
                                                 <label className="flex items-center gap-2 cursor-pointer text-sm font-bold text-slate-300">
-                                                    <input type="radio" name="pType" value="Contractor" checked={data.affectedPersonType === 'Contractor'} onChange={() => setData({ ...data, affectedPersonType: 'Contractor', affectedPersonId: '', affectedPersonName: '', externalPersons: [] })} disabled={!canEditForm} className="accent-indigo-500 w-4 h-4" /> Contractor
+                                                    <input type="radio" name="pType" value="Contractor" checked={data.affectedPersonType === 'Contractor'} onChange={() => setData({ ...data, affectedPersonType: 'Contractor', affectedPersonId: '', affectedPersonName: '', externalPersons: [], affectedPersons: [] })} disabled={!canEditForm} className="accent-indigo-500 w-4 h-4" /> Contractor
                                                 </label>
                                                 <label className="flex items-center gap-2 cursor-pointer text-sm font-bold text-slate-300">
-                                                    <input type="radio" name="pType" value="External Non-Employee" checked={data.affectedPersonType === 'External Non-Employee'} onChange={() => setData({ ...data, affectedPersonType: 'External Non-Employee', contractorId: '', affectedPersonId: 'external-non-employee', affectedPersonName: '', externalPersons: [] })} disabled={!canEditForm} className="accent-indigo-500 w-4 h-4" /> External Non-Employee
+                                                    <input type="radio" name="pType" value="External Non-Employee" checked={data.affectedPersonType === 'External Non-Employee'} onChange={() => setData({ ...data, affectedPersonType: 'External Non-Employee', contractorId: '', affectedPersonId: 'external-non-employee', affectedPersonName: '', externalPersons: [], affectedPersons: [] })} disabled={!canEditForm} className="accent-indigo-500 w-4 h-4" /> External Non-Employee
                                                 </label>
                                                 <label className="flex items-center gap-2 cursor-pointer text-sm font-bold text-slate-300">
-                                                    <input type="radio" name="pType" value="None" checked={data.affectedPersonType === 'None'} onChange={() => setData({ ...data, affectedPersonType: 'None', contractorId: '', affectedPersonId: '', affectedPersonName: '', externalPersons: [] })} disabled={!canEditForm} className="accent-indigo-500 w-4 h-4" /> None (Property/Env)
+                                                    <input type="radio" name="pType" value="None" checked={data.affectedPersonType === 'None'} onChange={() => setData({ ...data, affectedPersonType: 'None', contractorId: '', affectedPersonId: '', affectedPersonName: '', externalPersons: [], affectedPersons: [] })} disabled={!canEditForm} className="accent-indigo-500 w-4 h-4" /> None (Property/Env)
                                                 </label>
                                             </div>
 
@@ -2354,20 +2442,103 @@ export default function Incidents() {
 
                                             {(data.affectedPersonType === 'Internal' || data.affectedPersonType === 'Contractor') && (
                                                 <div>
-                                                    <label className="text-[10px] uppercase font-bold text-indigo-300 block mb-2">Select Individual Worker</label>
-                                                    <select
-                                                        value={data.affectedPersonId}
-                                                        onChange={(e) => {
-                                                            const target = activePersonnelList.find((x) => x.id === e.target.value);
-                                                            setData({ ...data, affectedPersonId: e.target.value, affectedPersonName: target ? (target.name || target.email) : '' });
-                                                        }}
-                                                        disabled={!canEditForm || (data.affectedPersonType === 'Contractor' && !data.contractorId)}
-                                                        className="w-full bg-slate-900 border border-indigo-500/50 rounded-xl p-3 text-white outline-none focus:border-indigo-400 font-bold"
-                                                    >
-                                                        <option value="">Select Person...</option>
-                                                        {activePersonnelList.map((u) => <option key={u.id} value={u.id}>{u.name || u.email} {u.role ? `(${u.role})` : ''}</option>)}
-                                                    </select>
-                                                    <p className="text-[10px] text-slate-500 mt-2 italic">Note: Selecting a contractor worker here will automatically sync this incident to their permanent ISO 45001 Safety Passport.</p>
+                                                    <label className="text-[10px] uppercase font-bold text-indigo-300 block mb-2">
+                                                        {data.affectedPersonType === 'Internal' ? 'Affected Internal Staff' : 'Affected Contractor Workers'}
+                                                    </label>
+
+                                                    {/* Chips: people already added to the list */}
+                                                    {Array.isArray(data.affectedPersons) && data.affectedPersons.length > 0 && (
+                                                        <div className="mb-3 flex flex-wrap gap-2">
+                                                            {data.affectedPersons.map((person, idx) => (
+                                                                <span
+                                                                    key={`${person.id || 'manual'}-${idx}`}
+                                                                    className="inline-flex items-center gap-2 rounded-full border border-indigo-500/40 bg-indigo-500/10 px-3 py-1.5 text-xs font-semibold text-indigo-200"
+                                                                >
+                                                                    <i className="fas fa-user text-[10px]"></i>
+                                                                    <span>
+                                                                        {person.name}
+                                                                        {person.role && <span className="ml-2 text-indigo-300/70 font-normal">({person.role})</span>}
+                                                                    </span>
+                                                                    {canEditForm && (
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => removeAffectedPerson(idx)}
+                                                                            className="ml-1 flex h-5 w-5 items-center justify-center rounded-full bg-red-500/20 text-red-300 transition-colors hover:bg-red-500 hover:text-white"
+                                                                            aria-label={`Remove ${person.name}`}
+                                                                        >
+                                                                            <i className="fas fa-times text-[10px]"></i>
+                                                                        </button>
+                                                                    )}
+                                                                </span>
+                                                            ))}
+                                                        </div>
+                                                    )}
+
+                                                    {canEditForm && (
+                                                        <>
+                                                            {/* Add from directory dropdown */}
+                                                            <div className="mb-2">
+                                                                <p className="text-[10px] uppercase font-bold text-indigo-300/70 block mb-1.5">Pick From Directory</p>
+                                                                <div className="flex gap-2">
+                                                                    <select
+                                                                        value={selectedAffectedFromDb}
+                                                                        onChange={(e) => setSelectedAffectedFromDb(e.target.value)}
+                                                                        disabled={data.affectedPersonType === 'Contractor' && !data.contractorId}
+                                                                        className="flex-1 bg-slate-900 border border-indigo-500/50 rounded-xl p-3 text-white outline-none focus:border-indigo-400 disabled:opacity-50"
+                                                                    >
+                                                                        <option value="">
+                                                                            {data.affectedPersonType === 'Contractor' && !data.contractorId
+                                                                                ? 'Select contractor company first…'
+                                                                                : 'Select person from directory…'}
+                                                                        </option>
+                                                                        {activePersonnelList.map((u) => (
+                                                                            <option key={u.id} value={u.id}>
+                                                                                {u.name || u.email} {u.role ? `(${u.role})` : ''}
+                                                                            </option>
+                                                                        ))}
+                                                                    </select>
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => addAffectedPerson('db')}
+                                                                        disabled={!selectedAffectedFromDb}
+                                                                        className="rounded-xl bg-indigo-500 px-4 py-3 text-xs font-bold uppercase tracking-widest text-white transition-colors hover:bg-indigo-400 disabled:cursor-not-allowed disabled:opacity-50"
+                                                                    >
+                                                                        <i className="fas fa-plus mr-1"></i> Add
+                                                                    </button>
+                                                                </div>
+                                                            </div>
+
+                                                            {/* Free-text manual name entry */}
+                                                            <div>
+                                                                <p className="text-[10px] uppercase font-bold text-indigo-300/70 block mb-1.5">Or Type A Name (Not In Directory)</p>
+                                                                <div className="flex gap-2">
+                                                                    <input
+                                                                        type="text"
+                                                                        value={manualAffectedName}
+                                                                        onChange={(e) => setManualAffectedName(e.target.value)}
+                                                                        onKeyDown={(e) => {
+                                                                            if (e.key === 'Enter') {
+                                                                                e.preventDefault();
+                                                                                addAffectedPerson('manual');
+                                                                            }
+                                                                        }}
+                                                                        placeholder="Type employee or contractor worker name and press Enter"
+                                                                        className="flex-1 bg-slate-900 border border-indigo-500/50 rounded-xl p-3 text-white outline-none focus:border-indigo-400"
+                                                                    />
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => addAffectedPerson('manual')}
+                                                                        disabled={!manualAffectedName.trim()}
+                                                                        className="rounded-xl bg-slate-700 px-4 py-3 text-xs font-bold uppercase tracking-widest text-white transition-colors hover:bg-slate-600 disabled:cursor-not-allowed disabled:opacity-50"
+                                                                    >
+                                                                        <i className="fas fa-plus mr-1"></i> Add
+                                                                    </button>
+                                                                </div>
+                                                            </div>
+                                                        </>
+                                                    )}
+
+                                                    <p className="text-[10px] text-slate-500 mt-2 italic">Note: People picked from the directory will sync to their permanent ISO 45001 Safety Passport. Manually-typed names are stored on the incident record only.</p>
                                                 </div>
                                             )}
                                         </div>
