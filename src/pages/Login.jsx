@@ -21,6 +21,7 @@ import authService from '../services/auth/index.js';
 import { dbGet, dbSet } from '../services/db/index.js';
 import { firebaseConfig } from '../config/firebase.js';
 import { normalizeSessionPermissions } from '../utils/permissions';
+import { SERVICE_TYPES, getMandatoryDocs } from '../utils/constants';
 import {
     ACCOUNT_STATUS,
     canAuthenticateStatus,
@@ -1090,11 +1091,7 @@ export default function Login() {
                                                         value={vendorService} onChange={(e) => setVendorService(e.target.value)}
                                                         className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm outline-none transition focus:border-emerald-500"
                                                     >
-                                                        <option>General / Housekeeping</option>
-                                                        <option>Construction / Civil</option>
-                                                        <option>Electrical / Mechanical</option>
-                                                        <option>Goods Supplier</option>
-                                                        <option>Specialist Services</option>
+                                                        {SERVICE_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
                                                     </select>
                                                 </div>
                                             </div>

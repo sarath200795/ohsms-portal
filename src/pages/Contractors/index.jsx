@@ -57,7 +57,7 @@ export default function Contractors() {
 
     const [session, setSession] = useState(null);
     const [loading, setLoading] = useState(true);
-    const [view, setView] = useState('register');
+    const [view, setView] = useState('companies');
 
     const [contractors, setContractors] = useState([]);
     const [orgUsers, setOrgUsers] = useState([]);
@@ -157,7 +157,9 @@ export default function Contractors() {
     const canEdit = canEditCreateForRole(session?.role);
 
     useEffect(() => {
-        if (session && !canEdit && view === 'register') {
+        // Legacy redirect — Register Vendor view no longer exists.  Kept
+        // the effect in case any deep link tries to land on it.
+        if (session && view === 'register') {
             setView('companies');
         }
     }, [canEdit, session, view]);
@@ -1140,7 +1142,9 @@ export default function Contractors() {
                         <h1 className="text-base font-bold text-white hidden md:block uppercase tracking-wide">Contractor Safety</h1>
                     </div>
                     <div className="flex bg-slate-900 border border-slate-800 p-1.5 rounded-xl shadow-inner gap-1 overflow-x-auto custom-scroll">
-                        {canEdit && <button type="button" onClick={() => { setFormData(createEmptyVendorForm()); setView('register'); }} className={`px-4 py-2 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all whitespace-nowrap ${view === 'register' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}><i className="fas fa-user-plus mr-1"></i> Register Vendor</button>}
+                        {/* Register Vendor tab removed — vendors self-register
+                            via /login (Account Type = Vendor) and are
+                            approved from the Users page. */}
                         <button type="button" onClick={() => setView('companies')} className={`px-4 py-2 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all whitespace-nowrap ${view === 'companies' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}><i className="fas fa-building mr-1"></i> Company Profiles</button>
                         <button type="button" onClick={() => setView('workers')} className={`px-4 py-2 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all whitespace-nowrap ${view === 'workers' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}><i className="fas fa-id-badge mr-1"></i> Worker Profiles</button>
                         <button type="button" onClick={() => setView('deployments')} className={`px-4 py-2 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all whitespace-nowrap ${view === 'deployments' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}><i className="fas fa-map-marker-alt mr-1"></i> Deployments</button>
@@ -1168,21 +1172,8 @@ export default function Contractors() {
                             </div>
                         )}
 
-                        {view === 'register' && (
-                            <ContractorBuilder
-                                canEdit={canEdit}
-                                formData={formData}
-                                goodsTypes={GOODS_TYPES}
-                                onGoodsTypeChange={handleGoodsTypeChange}
-                                onServiceTypeChange={handleServiceTypeChange}
-                                onSubmit={saveVendorRegistration}
-                                saving={saving}
-                                serviceTypes={SERVICE_TYPES}
-                                setFormData={setFormData}
-                                toggleAllocatedSite={toggleAllocatedSite}
-                                visibleSites={visibleSites}
-                            />
-                        )}
+                        {/* The register view (ContractorBuilder) was removed —
+                            vendors self-register via /login. */}
 
                         {view === 'companies' && (
                             <ContractorRegistry

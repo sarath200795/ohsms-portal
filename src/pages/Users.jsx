@@ -23,6 +23,7 @@ import {
     validateUserAccessPayload
 } from '../utils/userAccess';
 // generateTemporaryPassword removed — password is now generated server-side in api/admin/users.js
+import { getMandatoryDocs } from '../utils/constants';
 
 const ROLES = SUPPORTED_USER_ROLES;
 const USER_MANAGER_ROLES = [GLOBAL_OWNER_ROLE, SITE_OWNER_ROLE];
@@ -427,19 +428,31 @@ export default function Users() {
                             if (match) contractorKey = match[0];
                         }
 
+                        // Sites flow from the user's accessibleSites — the
+                        // admin grants sites via the standard permissions
+                        // modal and those become the contractor's
+                        // allocatedSites.  First site is the primary siteId.
+                        const seededSites = Array.isArray(savePayload.accessibleSites)
+                            ? savePayload.accessibleSites.filter((s) => s && s !== 'GLOBAL')
+                            : [];
+                        const serviceType = meta.serviceType || 'General / Housekeeping';
+
                         if (!contractorKey) {
                             const contractorPayload = {
                                 companyName: meta.companyName || savePayload.name || 'Vendor',
                                 contactPerson: meta.contactPerson || '',
                                 email: savePayload.email,
                                 phone: meta.phone || '',
-                                serviceType: meta.serviceType || 'General / Housekeeping',
+                                serviceType,
                                 goodsType: 'PPE',
                                 notes: '',
-                                allocatedSites: [],
-                                siteId: '',
+                                allocatedSites: seededSites,
+                                siteId: seededSites[0] || '',
                                 status: 'Active',
-                                documents: [],
+                                // Mandatory document checklist seeded from
+                                // utils/constants.js getMandatoryDocs (Indian
+                                // legal requirements vary by service type).
+                                documents: getMandatoryDocs(serviceType, 'PPE'),
                                 workers: [],
                                 trainings: [],
                                 incidents: [],
@@ -447,7 +460,7 @@ export default function Users() {
                                 portalUid: editingUserId,
                                 portalSharedIdentity: false,
                                 portalBootstrapPending: false,
-                                portalAssignedSite: '',
+                                portalAssignedSite: seededSites[0] || '',
                                 portalProvisionedAt: nowIso,
                                 portalProvisionedBy: session.email,
                                 vendorCode: 'VEN-' + Math.random().toString(36).slice(2, 8).toUpperCase(),
@@ -457,6 +470,20 @@ export default function Users() {
                                 createdViaVendorSelfRegistration: true
                             };
                             contractorKey = await dbPush(`organizations/${session.orgId}/contractors`, contractorPayload);
+                        } else {
+                            // Contractor already exists — sync the user's
+                            // current accessibleSites into allocatedSites
+                            // so the AddWorker site picker has options and
+                            // ContractorRegistry shows the right deployment
+                            // scope.
+                            await dbUpdate(`organizations/${session.orgId}/contractors/${contractorKey}`, {
+                                allocatedSites: seededSites,
+                                siteId: seededSites[0] || '',
+                                lastUpdated: nowIso,
+                                updatedBy: session.email
+                            }).catch((syncErr) => {
+                                console.warn('[Users.handleSaveUser] could not sync contractor allocatedSites:', syncErr);
+                            });
                         }
 
                         // vendorPortalUsers — the isolated collection the vendor
@@ -643,18 +670,29 @@ export default function Users() {
                 if (match) contractorKey = match[0];
             }
             if (!contractorKey) {
+                // Sites flow from the user's accessibleSites (set in the
+                // Users edit modal after approval, or pre-filled if the
+                // admin granted them before approving).  First site is
+                // the primary.
+                const seededSites = Array.isArray(vendorUser.accessibleSites)
+                    ? vendorUser.accessibleSites.filter((s) => s && s !== 'GLOBAL')
+                    : [];
+                const serviceType = meta.serviceType || 'General / Housekeeping';
                 const contractorPayload = {
                     companyName: meta.companyName || vendorUser.name || 'Vendor',
                     contactPerson: meta.contactPerson || '',
                     email: vendorUser.email,
                     phone: meta.phone || '',
-                    serviceType: meta.serviceType || 'General / Housekeeping',
+                    serviceType,
                     goodsType: 'PPE',
                     notes: '',
-                    allocatedSites: [],
-                    siteId: '',
+                    allocatedSites: seededSites,
+                    siteId: seededSites[0] || '',
                     status: 'Active',
-                    documents: [],
+                    // Auto-seed the mandatory document checklist for this
+                    // service type (Indian legal requirements — see
+                    // utils/constants.js getMandatoryDocs).
+                    documents: getMandatoryDocs(serviceType, 'PPE'),
                     workers: [],
                     trainings: [],
                     incidents: [],
@@ -662,7 +700,7 @@ export default function Users() {
                     portalUid: vendorUser.id,
                     portalSharedIdentity: false,
                     portalBootstrapPending: false,
-                    portalAssignedSite: '',
+                    portalAssignedSite: seededSites[0] || '',
                     portalProvisionedAt: nowIso,
                     portalProvisionedBy: session.email,
                     vendorCode: 'VEN-' + Math.random().toString(36).slice(2, 8).toUpperCase(),
