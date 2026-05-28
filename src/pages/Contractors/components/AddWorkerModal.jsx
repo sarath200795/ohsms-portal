@@ -8,7 +8,12 @@ export default function AddWorkerModal({
     onSubmit,
     setAddWorkerData,
     visibleContractors,
-    visibleSites = []
+    visibleSites = [],
+    allSites = []          // ULTIMATE fallback — raw org-wide site list, used
+                           // when both the contractor's allocatedSites and the
+                           // session-scoped visibleSites end up empty (which
+                           // can happen if the admin's session permissions
+                           // were corrupted by an earlier bug).
 }) {
     return (
         <div className="fixed inset-0 z-[100] bg-black/80 flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in">
@@ -43,19 +48,30 @@ export default function AddWorkerModal({
                     {addWorkerData.contractorId && (() => {
                         const selectedContractor = contractors.find((contractor) => contractor.firebaseKey === addWorkerData.contractorId);
                         const allocated = safeArr(selectedContractor?.allocatedSites).filter(Boolean);
-                        // Prefer the contractor's allocatedSites (the scope the
-                        // admin granted them in Users → permissions), but fall
-                        // back to ALL visible sites when the contractor has
-                        // none yet — otherwise the picker is empty and
-                        // submission is blocked. The deployedSite written on
-                        // the worker is informational; rules don't constrain it.
+                        // Tiered fallback so the picker is never empty:
+                        //   1. Contractor's allocatedSites — the scope the
+                        //      admin granted them in Users → permissions.
+                        //   2. Session-scoped visibleSites — the admin's
+                        //      accessible sites, used when the contractor
+                        //      doesn't have allocatedSites set yet.
+                        //   3. allSites — the raw org-wide site list,
+                        //      used if visibleSites is somehow empty too
+                        //      (e.g., session permissions were corrupted
+                        //      by an earlier bug, leaving accessibleSites
+                        //      empty on a record that's still flagged
+                        //      Global Owner).
+                        // The deployedSite written on the worker is
+                        // informational; RTDB rules don't constrain it.
                         const useAllocated = allocated.length > 0;
+                        const fallbackSites = safeArr(visibleSites).length > 0
+                            ? safeArr(visibleSites)
+                            : safeArr(allSites);
                         const sitesToShow = useAllocated
                             ? allocated.map((code) => {
-                                const meta = visibleSites.find((s) => s.code === code);
+                                const meta = fallbackSites.find((s) => s.code === code) || visibleSites.find((s) => s.code === code);
                                 return { code, name: meta?.name || code };
                             })
-                            : safeArr(visibleSites).map((s) => ({ code: s.code, name: s.name || s.code }));
+                            : fallbackSites.map((s) => ({ code: s.code, name: s.name || s.code }));
 
                         return (
                             <div className="pt-2">
@@ -77,9 +93,14 @@ export default function AddWorkerModal({
                                         No sites available — register at least one site in the Sites module first, then come back here.
                                     </p>
                                 )}
-                                {!useAllocated && sitesToShow.length > 0 && (
+                                {!useAllocated && sitesToShow.length > 0 && safeArr(visibleSites).length > 0 && (
                                     <p className="mt-2 text-[10px] text-amber-300 italic">
-                                        This contractor has no allocated sites yet — picking from your full site list. Grant them sites via Users → Edit if you want to lock deployment to a subset.
+                                        This contractor has no allocated sites yet — picking from your full site list. Grant them sites via Contractors → Edit if you want to lock deployment to a subset.
+                                    </p>
+                                )}
+                                {!useAllocated && sitesToShow.length > 0 && safeArr(visibleSites).length === 0 && safeArr(allSites).length > 0 && (
+                                    <p className="mt-2 text-[10px] text-amber-300 italic">
+                                        Showing the full org site list. (Your account's session-scoped site list came back empty — if this is a regular admin account, refresh after re-logging in.)
                                     </p>
                                 )}
                             </div>

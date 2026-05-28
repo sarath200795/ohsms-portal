@@ -1223,6 +1223,7 @@ export default function Contractors() {
                         setAddWorkerData={setAddWorkerData}
                         visibleContractors={visibleContractors}
                         visibleSites={visibleSites}
+                        allSites={sites}
                     />
                 )}
 
