@@ -987,10 +987,12 @@ export default function LandingPage() {
                                 All 15+ modules, your database, your data — set up in under 5 minutes.
                             </p>
                             <button onClick={() => navigate('/setup')}
-                                className="bg-neutral-900 text-white font-semibold cursor-pointer border-none text-[0.95rem] transition-all duration-200 hover:-translate-y-0.5 relative z-10"
+                                className="font-semibold cursor-pointer border-none text-[0.95rem] transition-all duration-200 hover:-translate-y-0.5 relative z-10"
                                 style={{
                                     padding: '14px 32px',
                                     borderRadius: '12px',
+                                    background: '#0f172a',
+                                    color: '#ffffff',
                                     boxShadow: btnShadow ? '0 14px 30px rgba(0,0,0,0.45)' : '0 10px 20px rgba(0,0,0,0.3)',
                                 }}
                                 onMouseEnter={() => setBtnShadow(true)}
