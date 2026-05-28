@@ -1548,9 +1548,19 @@ export default function Inspections() {
                                                     ? r.score
                                                     : ((passes + fails) === 0 ? 100 : Math.round((passes / (passes + fails)) * 100));
                                                 const result = r.passFailResult || (scoreNum >= 90 ? 'PASS' : 'FAIL');
-                                                const centerLabel = r.centerName
-                                                    ? `${r.centerName}${r.centerCode ? ` (${r.centerCode})` : ''}`
-                                                    : (r.centerCode || '—');
+                                                // Resolve the centre name. Newer records carry it
+                                                // directly; older ones get it looked up from the
+                                                // site's centers list so the history never shows
+                                                // just a bare code if the site still has the centre.
+                                                const resolvedCenterName = r.centerName
+                                                    || (r.centerCode
+                                                        ? (findCentersForSite(sites, r.siteId).find((c) => c.code === r.centerCode)?.name || '')
+                                                        : '');
+                                                const centerLabel = r.centerCode
+                                                    ? (resolvedCenterName
+                                                        ? `${resolvedCenterName} (${r.centerCode})`
+                                                        : r.centerCode)
+                                                    : '—';
                                                 return (
                                                     <tr key={r.firebaseKey} className="hover:bg-slate-800/40 transition-colors">
                                                         <td className="p-4 pl-6 font-mono text-xs">{new Date(r.completedAt).toLocaleString()}</td>
