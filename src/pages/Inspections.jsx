@@ -1503,12 +1503,81 @@ export default function Inspections() {
                                     ))}
                                 </div>
 
-                                <div className="flex justify-end gap-4 pt-6 border-t border-slate-800">
-                                    <button onClick={() => setView('calendar')} className="px-8 py-4 bg-slate-800 text-white font-bold rounded-xl text-xs uppercase tracking-widest hover:bg-slate-700 transition">Discard</button>
-                                    <button onClick={requestInspectionSubmit} className="px-10 py-4 bg-blue-600 text-white font-black uppercase tracking-widest rounded-xl shadow-lg shadow-blue-600/20 hover:bg-blue-500 transition flex items-center gap-2"><i className="fas fa-check-double text-lg"></i> Sign & Submit Report</button>
-                                </div>
+                                {/* Spacer so the floating bar at the bottom of the viewport
+                                    doesn't sit on top of the last question while scrolling. */}
+                                <div className="h-28"></div>
                             </div>
                         )}
+
+                        {/* ── Floating progress + submit bar (visible only while
+                              executing an inspection so the inspector can see their
+                              running score and submit without scrolling). ── */}
+                        {view === 'execute' && executingTask && (() => {
+                            const liveScore = multipleChoiceStats.pass + multipleChoiceStats.fail === 0
+                                ? 100
+                                : Math.round((multipleChoiceStats.pass / (multipleChoiceStats.pass + multipleChoiceStats.fail)) * 100);
+                            const liveResult = liveScore >= 90 ? 'PASS' : 'FAIL';
+                            const progressPct = multipleChoiceStats.total === 0
+                                ? 0
+                                : Math.round((multipleChoiceStats.answered / multipleChoiceStats.total) * 100);
+                            return (
+                                <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[80] w-[min(95vw,960px)]">
+                                    <div className="rounded-2xl border border-blue-500/40 bg-slate-950/95 backdrop-blur-md shadow-2xl shadow-blue-900/40 p-3 md:p-4">
+                                        <div className="flex flex-col md:flex-row md:items-center gap-3 md:gap-4">
+                                            {/* Live stats */}
+                                            <div className="flex-1 grid grid-cols-5 gap-2">
+                                                <div className="rounded-lg border border-slate-700 bg-slate-900/80 px-2 py-1.5 text-center">
+                                                    <div className="text-[8.5px] uppercase tracking-widest text-slate-500 font-bold">Done</div>
+                                                    <div className="text-sm font-black text-white leading-tight">{multipleChoiceStats.answered}/{multipleChoiceStats.total}</div>
+                                                </div>
+                                                <div className="rounded-lg border border-emerald-500/40 bg-emerald-950/30 px-2 py-1.5 text-center">
+                                                    <div className="text-[8.5px] uppercase tracking-widest text-emerald-300 font-bold">Pass</div>
+                                                    <div className="text-sm font-black text-emerald-300 leading-tight">{multipleChoiceStats.pass}</div>
+                                                </div>
+                                                <div className="rounded-lg border border-red-500/40 bg-red-950/30 px-2 py-1.5 text-center">
+                                                    <div className="text-[8.5px] uppercase tracking-widest text-red-300 font-bold">Fail</div>
+                                                    <div className="text-sm font-black text-red-300 leading-tight">{multipleChoiceStats.fail}</div>
+                                                </div>
+                                                <div className="rounded-lg border border-slate-600 bg-slate-900/80 px-2 py-1.5 text-center">
+                                                    <div className="text-[8.5px] uppercase tracking-widest text-slate-400 font-bold">N/A</div>
+                                                    <div className="text-sm font-black text-slate-200 leading-tight">{multipleChoiceStats.na}</div>
+                                                </div>
+                                                <div className={`rounded-lg border px-2 py-1.5 text-center ${liveResult === 'PASS' ? 'border-blue-500/40 bg-blue-950/30' : 'border-red-500/40 bg-red-950/30'}`}>
+                                                    <div className={`text-[8.5px] uppercase tracking-widest font-bold ${liveResult === 'PASS' ? 'text-blue-300' : 'text-red-300'}`}>Score</div>
+                                                    <div className={`text-sm font-black leading-tight ${liveResult === 'PASS' ? 'text-blue-200' : 'text-red-200'}`}>
+                                                        {liveScore}% <span className="text-[9px] font-bold align-middle ml-0.5">{liveResult}</span>
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            {/* Action buttons */}
+                                            <div className="flex gap-2 shrink-0">
+                                                <button
+                                                    onClick={() => setView('calendar')}
+                                                    className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-white font-bold rounded-lg text-[10px] uppercase tracking-widest transition"
+                                                >
+                                                    Discard
+                                                </button>
+                                                <button
+                                                    onClick={requestInspectionSubmit}
+                                                    className="px-5 py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-black uppercase tracking-widest rounded-lg text-[10px] shadow-lg shadow-blue-600/30 transition flex items-center gap-2"
+                                                >
+                                                    <i className="fas fa-check-double"></i> Sign &amp; Submit
+                                                </button>
+                                            </div>
+                                        </div>
+
+                                        {/* Slim progress bar */}
+                                        <div className="mt-2.5 h-1.5 w-full rounded-full bg-slate-800 overflow-hidden">
+                                            <div
+                                                className="h-full bg-gradient-to-r from-blue-500 to-emerald-500 transition-all duration-300"
+                                                style={{ width: `${progressPct}%` }}
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
+                            );
+                        })()}
 
                         {/* --- HISTORY VIEW --- */}
                         {view === 'history' && (
