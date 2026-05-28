@@ -397,6 +397,90 @@ export default function Users() {
                     throw writeErr;
                 }
 
+                // ── Vendor onboarding side-effects ──────────────────────
+                // If this approval is for a vendor self-registration (the
+                // pending users record carries vendorPortal: true), also
+                // create the contractor record and the vendorPortalUsers
+                // entry so the vendor portal recognises them on sign-in.
+                // Safe to call multiple times — dbSet on vendorPortalUsers
+                // is idempotent, and the contractor push is gated on a
+                // missing portalUid link so re-approving doesn't duplicate.
+                const isVendorApproval =
+                    isApprovingPending &&
+                    (editingUser?.vendorPortal === true || savePayload.vendorPortal === true);
+                if (isVendorApproval) {
+                    try {
+                        const meta = editingUser?.vendorMeta || savePayload.vendorMeta || {};
+                        const nowIso = new Date().toISOString();
+
+                        // Check if a contractor record already exists for this vendor
+                        // (lookup by portalUid === editingUserId).  Only create a
+                        // new one if none exists.
+                        const existingContractors = await dbGet(`organizations/${session.orgId}/contractors`).catch(() => null);
+                        let contractorKey = null;
+                        if (existingContractors && typeof existingContractors === 'object') {
+                            const match = Object.entries(existingContractors).find(([, c]) => c?.portalUid === editingUserId);
+                            if (match) contractorKey = match[0];
+                        }
+
+                        if (!contractorKey) {
+                            const contractorPayload = {
+                                companyName: meta.companyName || savePayload.name || 'Vendor',
+                                contactPerson: meta.contactPerson || '',
+                                email: savePayload.email,
+                                phone: meta.phone || '',
+                                serviceType: meta.serviceType || 'General / Housekeeping',
+                                goodsType: 'PPE',
+                                notes: '',
+                                allocatedSites: [],
+                                siteId: '',
+                                status: 'Active',
+                                documents: [],
+                                workers: [],
+                                trainings: [],
+                                incidents: [],
+                                nonCompliances: [],
+                                portalUid: editingUserId,
+                                portalSharedIdentity: false,
+                                portalBootstrapPending: false,
+                                portalAssignedSite: '',
+                                portalProvisionedAt: nowIso,
+                                portalProvisionedBy: session.email,
+                                vendorCode: 'VEN-' + Math.random().toString(36).slice(2, 8).toUpperCase(),
+                                createdAt: nowIso,
+                                lastUpdated: nowIso,
+                                updatedBy: session.email,
+                                createdViaVendorSelfRegistration: true
+                            };
+                            contractorKey = await dbPush(`organizations/${session.orgId}/contractors`, contractorPayload);
+                        }
+
+                        // vendorPortalUsers — the isolated collection the vendor
+                        // portal reads from. Mirror the user record but with the
+                        // contractor link.
+                        await dbSet(`organizations/${session.orgId}/vendorPortalUsers/${editingUserId}`, {
+                            name: meta.contactPerson || savePayload.name || meta.companyName || 'Vendor Portal User',
+                            email: savePayload.email,
+                            role: 'User',
+                            status: 'Active',
+                            assignedSite: '',
+                            accessibleSites: [],
+                            accessibleModules: [],
+                            vendorPortal: true,
+                            portalLinkedContractorId: contractorKey,
+                            portalBootstrapPending: false,
+                            updatedBy: session.email,
+                            updatedAt: nowIso,
+                            createdAt: nowIso
+                        });
+                    } catch (vendorErr) {
+                        // Non-fatal — the user is still approved as a regular
+                        // user, just the vendor-side wiring needs manual
+                        // attention. Surface in the console for diagnosis.
+                        console.warn('[Users.handleSaveUser] vendor side-effects failed (user is still approved):', vendorErr);
+                    }
+                }
+
                 const requestUpdates = buildPermissionRequestUpdates({
                     permissionRequests,
                     email: payload.email,
@@ -690,8 +774,18 @@ export default function Users() {
                                     {visibleUsers.map(u => (
                                         <tr key={u.id} className="hover:bg-slate-800/40 transition-colors">
                                             <td className="p-5 pl-8">
-                                                <div className="font-bold text-white text-base">{u.name}</div>
+                                                <div className="flex items-center gap-2">
+                                                    <div className="font-bold text-white text-base">{u.name}</div>
+                                                    {u.vendorPortal === true && (
+                                                        <span className="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded border bg-emerald-900/30 text-emerald-300 border-emerald-500/40" title={u.vendorMeta?.companyName ? `Vendor: ${u.vendorMeta.companyName}` : 'Vendor portal user'}>
+                                                            <i className="fas fa-hard-hat mr-1"></i> Vendor
+                                                        </span>
+                                                    )}
+                                                </div>
                                                 <div className="text-[10px] text-slate-400 mt-1">{u.email}</div>
+                                                {u.vendorPortal === true && u.vendorMeta?.companyName && (
+                                                    <div className="text-[10px] text-emerald-300/80 mt-0.5"><i className="fas fa-briefcase mr-1"></i> {u.vendorMeta.companyName}</div>
+                                                )}
                                             </td>
                                             <td className="p-5">
                                                 <span className={`text-[10px] font-bold uppercase tracking-widest px-2 py-1 rounded border shadow-sm ${normalizeRole(u.role) === GLOBAL_OWNER_ROLE ? 'bg-purple-900/30 text-purple-400 border-purple-500/30' : normalizeRole(u.role) === SITE_OWNER_ROLE ? 'bg-blue-900/30 text-blue-400 border-blue-500/30' : 'bg-emerald-900/30 text-emerald-400 border-emerald-500/30'}`}>
