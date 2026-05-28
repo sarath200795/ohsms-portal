@@ -613,6 +613,35 @@ export default function Inspections() {
         }
     };
 
+    // Delete one completed inspection record from history.  Gated to
+    // Global Owners only — destructive, removes the canonical record of an
+    // inspection that's already been submitted (and any CAPAs spawned from
+    // it stay where they are, since they live on their own collections).
+    const deleteRecord = async (record) => {
+        if (!record?.firebaseKey) return;
+        if (!isGlobalUser) {
+            alert("Only Global Owners can delete submitted inspection records.");
+            return;
+        }
+        const confirmText = `Permanently delete this inspection record?\n\n• ${record.templateTitle}\n• Site ${record.siteId}\n• Completed ${new Date(record.completedAt).toLocaleString()}\n\nThis action cannot be undone. Any CAPAs raised by this inspection remain in the CAPA register.`;
+        if (!window.confirm(confirmText)) return;
+        try {
+            await dbRemove(`organizations/${session.orgId}/inspectionRecords/${record.firebaseKey}`);
+            setRecords(prev => prev.filter(r => r.firebaseKey !== record.firebaseKey));
+            writeActivityLog(session.orgId, buildActivityEntry({
+                session,
+                action: 'inspection.record.deleted',
+                module: 'Inspections',
+                collection: 'inspectionRecords',
+                recordId: record.firebaseKey,
+                recordTitle: record.templateTitle || '',
+                siteId: record.siteId
+            }));
+        } catch (err) {
+            alert("Failed to delete inspection record: " + err.message);
+        }
+    };
+
     // --- BULK EXCEL QUESTION IMPORT ---
     const downloadQuestionTemplate = () => {
         const workbook = XLSX.utils.book_new();
@@ -1602,7 +1631,12 @@ export default function Inspections() {
                                                             }
                                                         </td>
                                                         <td className="p-4 pr-6 text-right">
-                                                            <button onClick={() => { setViewingRecord(r); setView('view-record'); }} className="bg-slate-800 hover:bg-slate-700 text-white px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-widest transition shadow"><i className="fas fa-eye"></i></button>
+                                                            <div className="inline-flex gap-2">
+                                                                <button onClick={() => { setViewingRecord(r); setView('view-record'); }} className="bg-slate-800 hover:bg-slate-700 text-white px-3 py-2 rounded-lg text-xs font-bold uppercase tracking-widest transition shadow" title="View / Print"><i className="fas fa-eye"></i></button>
+                                                                {isGlobalUser && (
+                                                                    <button onClick={() => deleteRecord(r)} className="bg-red-900/20 hover:bg-red-600 text-red-500 hover:text-white px-3 py-2 rounded-lg text-xs font-bold uppercase tracking-widest transition border border-red-500/30" title="Delete record"><i className="fas fa-trash-alt"></i></button>
+                                                                )}
+                                                            </div>
                                                         </td>
                                                     </tr>
                                                 )
@@ -1682,7 +1716,21 @@ export default function Inspections() {
                             {/* Control Bar (Hidden on Print) */}
                             <div className="flex justify-between items-center mb-8 print:hidden bg-slate-900 p-4 rounded-2xl border border-slate-800 shadow-xl sticky top-4 z-50">
                                 <button onClick={() => setView('history')} className="text-slate-400 hover:text-white font-bold flex items-center gap-2"><i className="fas fa-arrow-left"></i> Back</button>
-                                <button onClick={() => window.print()} className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-2.5 rounded-xl font-bold uppercase tracking-widest shadow flex items-center gap-2 transition-transform active:scale-95"><i className="fas fa-print"></i> Save as PDF</button>
+                                <div className="flex items-center gap-2">
+                                    {isGlobalUser && (
+                                        <button
+                                            onClick={async () => {
+                                                await deleteRecord(viewingRecord);
+                                                setView('history');
+                                                setViewingRecord(null);
+                                            }}
+                                            className="bg-red-900/20 hover:bg-red-600 text-red-400 hover:text-white px-4 py-2.5 rounded-xl font-bold uppercase tracking-widest shadow border border-red-500/30 flex items-center gap-2 transition"
+                                        >
+                                            <i className="fas fa-trash-alt"></i> Delete
+                                        </button>
+                                    )}
+                                    <button onClick={() => window.print()} className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-2.5 rounded-xl font-bold uppercase tracking-widest shadow flex items-center gap-2 transition-transform active:scale-95"><i className="fas fa-print"></i> Save as PDF</button>
+                                </div>
                             </div>
 
                             {/* Formal Report Layout */}
