@@ -1,6 +1,22 @@
-import React from 'react';
+import React, { useState } from 'react';
 
-export default function PortalSuccessModal({ onClose, portalSuccess }) {
+export default function PortalSuccessModal({ onClose, portalSuccess, onSendResetEmail }) {
+    const [sendingReset, setSendingReset] = useState(false);
+    const [resetSentAt, setResetSentAt] = useState(null);
+
+    const handleSendReset = async () => {
+        if (!onSendResetEmail) return;
+        setSendingReset(true);
+        try {
+            await onSendResetEmail();
+            setResetSentAt(new Date());
+        } catch {
+            // alert already handled in parent
+        } finally {
+            setSendingReset(false);
+        }
+    };
+
     const copyPortalLink = async () => {
         if (!portalSuccess?.portalUrl) return;
         try {
@@ -77,15 +93,32 @@ export default function PortalSuccessModal({ onClose, portalSuccess }) {
 
                 {portalSuccess.warning && <div className="rounded-2xl border border-amber-500/30 bg-amber-950/20 p-4 text-xs leading-relaxed text-amber-200 mb-6">{portalSuccess.warning}</div>}
 
-                {/* Primary action — opening the portal lets the admin verify or, in a pinch, sign in as the vendor for testing. */}
+                {/* Two primary actions:
+                    • Send password reset — Firebase mails the vendor a reset
+                      link directly, so they never need the admin's help to
+                      pick a password.
+                    • Sign in to vendor portal — opens the portal URL (with the
+                      orgId pre-pinned so the DB selector is already set). */}
+                {onSendResetEmail && (
+                    <button
+                        type="button"
+                        onClick={handleSendReset}
+                        disabled={sendingReset}
+                        className="mb-3 flex items-center justify-center gap-2 w-full bg-sky-600 hover:bg-sky-500 disabled:opacity-60 text-white px-4 py-3.5 rounded-xl text-sm font-bold uppercase tracking-widest transition-colors shadow-lg shadow-sky-600/30"
+                    >
+                        <i className={`fas ${sendingReset ? 'fa-spinner fa-spin' : 'fa-key'}`}></i>
+                        {resetSentAt ? `Reset Email Sent · ${resetSentAt.toLocaleTimeString()}` : 'Send Password Reset Email'}
+                    </button>
+                )}
+
                 <a
                     href={portalSuccess.portalUrl}
                     target="_blank"
                     rel="noreferrer"
                     className="mb-3 flex items-center justify-center gap-2 w-full bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-3.5 rounded-xl text-sm font-bold uppercase tracking-widest transition-colors shadow-lg shadow-emerald-600/30"
                 >
-                    <i className="fas fa-external-link-alt"></i>
-                    Open Vendor Portal
+                    <i className="fas fa-sign-in-alt"></i>
+                    Sign In To Vendor Portal
                 </a>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

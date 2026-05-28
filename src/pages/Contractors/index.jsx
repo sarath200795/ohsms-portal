@@ -680,6 +680,11 @@ export default function Contractors() {
                 await updateVendorDB(activeVendor.firebaseKey, {
                     email: vendorEmail,
                     portalUid,
+                    // Provisioning succeeded → vendor profile is Active so the
+                    // contractor can show up in pickers, reports, and the
+                    // contractor safety-passport flow. Was previously left at
+                    // whatever the admin had set when the profile was created.
+                    status: 'Active',
                     portalSharedIdentity: reusingExistingOrgIdentity,
                     portalBootstrapPending: false,
                     portalBootstrapEmail: '',
@@ -737,6 +742,11 @@ export default function Contractors() {
                 companyName: activeVendor.companyName,
                 email: vendorEmail,
                 vendorCode,
+                // Carry scope so the reset-email button on the success modal
+                // builds the same actionCodeSettings URL we'd use elsewhere.
+                contractorId: activeVendor.firebaseKey,
+                siteId: primarySite,
+                orgId: session?.orgId,
                 // Temp password is intentionally NOT surfaced. Vendor will set
                 // their own password via Firebase's Forgot Password flow.
                 temporaryPassword: '',
@@ -1195,7 +1205,32 @@ export default function Contractors() {
                     />
                 )}
 
-                {portalSuccess && <PortalSuccessModal onClose={() => setPortalSuccess(null)} portalSuccess={portalSuccess} />}
+                {portalSuccess && (
+                    <PortalSuccessModal
+                        onClose={() => setPortalSuccess(null)}
+                        portalSuccess={portalSuccess}
+                        onSendResetEmail={async () => {
+                            // Trigger Firebase's built-in password reset email.
+                            // After clicking the link the vendor will be bounced
+                            // back into the right org (the actionCodeSettings URL
+                            // carries the orgId so the DB selector is already
+                            // pinned when they land on the portal sign-in page).
+                            try {
+                                const result = await sendVendorPortalSetupLink({
+                                    vendorEmail: portalSuccess.email,
+                                    contractorId: portalSuccess.contractorId || '',
+                                    siteId: portalSuccess.siteId || '',
+                                    bootstrap: false
+                                });
+                                alert(`Password-reset email sent to ${portalSuccess.email}.`);
+                                return result;
+                            } catch (err) {
+                                alert('Could not send the reset email: ' + (err?.message || err));
+                                throw err;
+                            }
+                        }}
+                    />
+                )}
 
                 {activeWorker && modalType === 'worker_profile' && (
                     <WorkerProfileModal
