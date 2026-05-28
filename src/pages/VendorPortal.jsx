@@ -160,8 +160,13 @@ const resolveLinkedContractor = async ({
         }
     }
 
+    // Same double-negation footgun that was in fetchVendorData. The original
+    // predicate `!contractorSnap !== null` parses as `(!x) !== null` which is
+    // ALWAYS true for any value of x, so the throw fired on every vendor
+    // sign-in regardless of whether contractor records existed.  Use the
+    // straightforward null check instead.
     const contractorSnap = await dbGet(`organizations/${orgId}/contractors`);
-    if (!contractorSnap !== null) {
+    if (contractorSnap === null) {
         throw new Error('No contractor records were found for this organization.');
     }
 

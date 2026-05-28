@@ -332,8 +332,15 @@ export default function Contractors() {
                 writeActivityLog(session.orgId, buildActivityEntry({ session, action: 'contractor.created', module: 'Contractors', collection: 'contractors', recordId: newKey, recordTitle: payload.companyName || '', siteId: payload.siteId }));
             }
 
-            alert('Vendor Registered/Updated Successfully!');
-            await refreshContractors();
+            // At this point the dbPush/dbUpdate has succeeded and the vendor
+            // is on disk. Everything below is post-save UI plumbing; failures
+            // there must NOT bubble up as 'Save failed' or the admin will
+            // think nothing happened and try to register again, creating
+            // duplicates. Catch + log each step so the success path is
+            // unambiguous.
+            try { await refreshContractors(); } catch (refreshErr) {
+                console.warn('Vendor saved but contractor list refresh failed:', refreshErr);
+            }
             setView('companies');
             setFormData(createEmptyVendorForm());
 
@@ -342,8 +349,9 @@ export default function Contractors() {
                 setEditingVendor(null);
                 setModalType('company_profile');
             }
+            alert('Vendor Registered/Updated Successfully!');
         } catch (error) {
-            alert('Save failed: ' + error.message);
+            alert('Save failed: ' + (error?.message || error?.code || 'Unknown error') + '\n\nIf the vendor name now appears in the registry, the save did succeed — only the post-save UI hit an error. Refresh the page to confirm before re-registering.');
         }
         setSaving(false);
     };
