@@ -436,6 +436,25 @@ export default function Inspections() {
     const firstDayOfMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 1).getDay();
     const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
+    // Index completed inspection records by their completion-day string so
+    // each calendar cell can show them next to (or instead of) the pending
+    // task tiles.  Filtered by region + site visibility like the pending
+    // tiles already are.
+    const completedTilesByDay = useMemo(() => {
+        const map = new Map();
+        const visibleSiteCodes = new Set(filteredVisibleSites.map((s) => s.code));
+        records.forEach((r) => {
+            if (!r || !r.completedAt) return;
+            if (regionFilter !== 'All' && !matchesRegionFilter(r.siteId, sites, regionFilter)) return;
+            if (siteFilter !== 'All' && r.siteId !== siteFilter) return;
+            if (!visibleSiteCodes.has(r.siteId)) return;
+            const dayString = String(r.completedAt).slice(0, 10);
+            if (!map.has(dayString)) map.set(dayString, []);
+            map.get(dayString).push(r);
+        });
+        return map;
+    }, [records, regionFilter, siteFilter, sites, filteredVisibleSites]);
+
     const renderCalendar = () => {
         let days = [];
         const todayString = formatDateOnly(new Date());
@@ -446,11 +465,53 @@ export default function Inspections() {
             const isToday = new Date().toISOString().split('T')[0] === dateStr;
 
             const tasksToday = scheduledTasks.filter(t => t.dueString === dateStr);
+            const completedToday = completedTilesByDay.get(dateStr) || [];
 
             days.push(
                 <div key={day} className={`p-2 border border-slate-700 min-h-[100px] flex flex-col ${isToday ? 'bg-blue-900/20' : 'bg-slate-900/60'}`}>
                     <div className={`text-right text-xs font-bold mb-1 ${isToday ? 'text-blue-400' : 'text-slate-500'}`}>{day}</div>
                     <div className="flex-1 space-y-1 overflow-y-auto custom-scroll pr-1">
+
+                        {/* Completed inspections — blue tiles showing score */}
+                        {completedToday.map((r, idx) => {
+                            const centerLabel = r.centerName || r.centerCode || '';
+                            const scoreNum = typeof r.score === 'number'
+                                ? r.score
+                                : (() => {
+                                    // Back-compat: older records have no .score saved.
+                                    const passes = Object.values(r.responses || {}).filter((x) => x?.answer === 'Pass').length;
+                                    const fails = Object.values(r.responses || {}).filter((x) => x?.answer === 'Fail').length;
+                                    const denom = passes + fails;
+                                    return denom === 0 ? 100 : Math.round((passes / denom) * 100);
+                                })();
+                            const result = r.passFailResult || (scoreNum >= 90 ? 'PASS' : 'FAIL');
+                            const tooltip = [
+                                r.templateTitle,
+                                centerLabel ? `Center: ${centerLabel}` : '',
+                                `Site: ${r.siteId}`,
+                                `Inspector: ${r.inspector || 'Unknown'}`,
+                                `Score: ${scoreNum}% (${result})`,
+                                `Completed: ${new Date(r.completedAt).toLocaleString()}`
+                            ].filter(Boolean).join(' | ');
+                            return (
+                                <div
+                                    key={`done-${r.firebaseKey}-${idx}`}
+                                    onClick={() => { setViewingRecord(r); setView('view-record'); }}
+                                    className={`text-[9px] p-1.5 rounded cursor-pointer font-bold shadow-sm transition-transform hover:scale-105 text-white ${result === 'PASS' ? 'bg-blue-600' : 'bg-blue-900 border border-red-500/40'}`}
+                                    title={tooltip}
+                                >
+                                    <div className="flex items-center justify-between gap-1">
+                                        <span className="truncate"><i className="fas fa-check-circle mr-1"></i>{r.templateTitle}</span>
+                                        <span className={`shrink-0 px-1 rounded text-[8px] font-black ${result === 'PASS' ? 'bg-emerald-400 text-slate-900' : 'bg-red-500 text-white'}`}>{scoreNum}%</span>
+                                    </div>
+                                    {centerLabel && (
+                                        <div className="truncate font-normal opacity-80 text-[8.5px] mt-0.5">
+                                            <i className="fas fa-map-marker-alt mr-0.5"></i> {centerLabel}
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        })}
 
                         {tasksToday.map((t, idx) => {
                             const alertStart = t.assignmentStart && t.alertStartString < t.assignmentStart ? t.assignmentStart : t.alertStartString;
@@ -756,24 +817,39 @@ export default function Inspections() {
             setSubmittingInspection(true);
             const completedAt = new Date().toISOString();
 
+            // CAPAs are raised only when a question was marked Fail AND the
+            // inspector ticked "Raise CAPA" AND wrote an observation.  Pass
+            // and N/A answers never produce a CAPA, even if the box was
+            // ticked, because they don't describe a defect.
             const generatedCapas = [];
             executingTask.template.fields.forEach(f => {
                 const response = inspectionForm[f.id];
-                if (response.raiseCapa && response.observation) {
-                    const actionText = `[Inspection: ${executingTask.title}] ${f.label} - ${response.observation}`;
-                    generatedCapas.push({
-                        act: actionText, action: actionText, desc: actionText,
-                        siteId: executingTask.siteId,
-                        own: response.capaOwner || 'Unassigned', owner: response.capaOwner || 'Unassigned',
-                        due: response.capaDue || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-                        dueDate: response.capaDue || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-                        status: 'Open',
-                        source: 'Inspection Form',
-                        module: 'Inspections',
-                        date: new Date().toISOString().split('T')[0]
-                    });
-                }
+                if (!response) return;
+                if (response.answer !== 'Fail') return;
+                if (!response.raiseCapa || !response.observation) return;
+                const actionText = `[Inspection: ${executingTask.title}] ${f.label} - ${response.observation}`;
+                generatedCapas.push({
+                    act: actionText, action: actionText, desc: actionText,
+                    siteId: executingTask.siteId,
+                    own: response.capaOwner || 'Unassigned', owner: response.capaOwner || 'Unassigned',
+                    due: response.capaDue || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+                    dueDate: response.capaDue || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+                    status: 'Open',
+                    source: 'Inspection Form',
+                    module: 'Inspections',
+                    date: new Date().toISOString().split('T')[0]
+                });
             });
+
+            // Score = percentage of binary (Pass/Fail) answers that came back
+            // Pass.  Text/Number answers don't contribute to the score.  If
+            // there are no binary answers (e.g. an all-text checklist) we
+            // treat that as 100 since there are no fails to count against.
+            const passCount = Object.values(inspectionForm).filter((r) => r?.answer === 'Pass').length;
+            const failCount = Object.values(inspectionForm).filter((r) => r?.answer === 'Fail').length;
+            const binaryTotal = passCount + failCount;
+            const score = binaryTotal === 0 ? 100 : Math.round((passCount / binaryTotal) * 100);
+            const passFailResult = score >= 90 ? 'PASS' : 'FAIL';
 
             // Save Record.  If the user kicked off this inspection from a
             // one-off assignment, the assignment's pre-picked center wins
@@ -781,11 +857,18 @@ export default function Inspections() {
             // assignmentId on the record so we can mark the assignment
             // Completed below.
             const effectiveCenterCode = inspectionCenterCode || executingTask.centerCode || '';
+            // Resolve the human-readable centre name once at write time so
+            // the registry / PDF / calendar tile never have to look it up
+            // (and don't break if the centre is later removed off the site).
+            const centerName = effectiveCenterCode
+                ? (findCentersForSite(sites, executingTask.siteId).find((c) => c.code === effectiveCenterCode)?.name || '')
+                : '';
             const recordPayload = {
                 templateId: executingTask.templateId,
                 templateTitle: executingTask.title,
                 siteId: executingTask.siteId,
                 centerCode: effectiveCenterCode,
+                centerName,
                 ...(executingTask.assignmentId ? { assignmentId: executingTask.assignmentId } : {}),
                 inspector: session.name,
                 completedAt: completedAt,
@@ -796,7 +879,9 @@ export default function Inspections() {
                 assignmentEnd: executingTask.assignmentEnd || '',
                 responses: inspectionForm,
                 additionalFindings: additionalFindingsDraft,
-                capa: generatedCapas
+                capa: generatedCapas,
+                score,
+                passFailResult
             };
 
             const newRecordId = await dbPush(`organizations/${session.orgId}/inspectionRecords`, recordPayload);
@@ -805,7 +890,7 @@ export default function Inspections() {
 
             // Fire-and-forget email notification to all org members
             notifyInspectionSubmitted(
-                { ...recordPayload, firebaseKey: newRecordRef.key, templateName: executingTask.title },
+                { ...recordPayload, firebaseKey: newRecordId, templateName: executingTask.title },
                 users,
                 session.name || session.email || 'Unknown'
             );
@@ -1296,40 +1381,6 @@ export default function Inspections() {
                                     </div>
                                 </div>
 
-                                {currentTaskLastRecord && (
-                                    <div className="mb-8 rounded-2xl border border-cyan-500/30 bg-cyan-950/10 p-6 shadow-inner">
-                                        <div className="flex flex-col md:flex-row md:justify-between md:items-start gap-6">
-                                            <div className="flex-1">
-                                                <div className="text-[10px] font-bold uppercase tracking-[0.24em] text-cyan-300 mb-2">Last Inspection Details</div>
-                                                <div className="text-sm text-slate-300">
-                                                    {new Date(currentTaskLastRecord.completedAt).toLocaleString()} | Inspector: <span className="text-white font-bold">{currentTaskLastRecord.inspector}</span>
-                                                </div>
-                                                {currentTaskLastRecord.additionalFindings && (
-                                                    <div className="mt-4 bg-slate-950/70 border border-cyan-500/20 rounded-xl p-4 text-sm text-slate-200">
-                                                        <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-cyan-300 mb-2">Additional Findings</div>
-                                                        {currentTaskLastRecord.additionalFindings}
-                                                    </div>
-                                                )}
-                                            </div>
-                                            <div className="md:w-[320px] bg-slate-950/70 border border-slate-800 rounded-2xl p-4">
-                                                <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-slate-400 mb-3">Previous Findings</div>
-                                                <div className="space-y-3">
-                                                    {currentTaskFindings.slice(0, 4).map((finding, index) => (
-                                                        <div key={`${finding.label}-${index}`} className="rounded-xl border border-slate-800 bg-slate-900/60 p-3">
-                                                            <div className="text-xs font-bold text-white">{finding.label}</div>
-                                                            <div className={`mt-1 text-[10px] font-bold uppercase tracking-[0.2em] ${finding.answer === 'Fail' ? 'text-red-400' : 'text-blue-300'}`}>{finding.answer}</div>
-                                                            {finding.observation && <div className="mt-2 text-xs text-slate-400">{finding.observation}</div>}
-                                                        </div>
-                                                    ))}
-                                                    {currentTaskFindings.length === 0 && (
-                                                        <div className="text-xs italic text-slate-500">No detailed findings were logged in the previous inspection.</div>
-                                                    )}
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                )}
-
                                 {isMultipleChoiceInspection && (
                                     <div className="mb-8 grid grid-cols-2 md:grid-cols-4 gap-4">
                                         <div className="rounded-2xl border border-slate-700 bg-slate-950/70 p-4">
@@ -1418,22 +1469,29 @@ export default function Inspections() {
                                                         </div>
                                                     )}
 
-                                                    <label className="flex items-center gap-2 cursor-pointer mb-3">
-                                                        <input type="checkbox" checked={inspectionForm[f.id]?.raiseCapa || false} onChange={e => updateInspectionResponse(f.id, { raiseCapa: e.target.checked, observationOpen: true })} className="w-4 h-4 accent-orange-500" />
-                                                        <span className="text-xs font-bold text-white">Raise Corrective Action (CAPA)</span>
-                                                    </label>
+                                                    {/* CAPA workflow appears ONLY when the answer is Fail.
+                                                        Pass / N/A items don't describe a defect, so they
+                                                        can't raise a corrective action. */}
+                                                    {inspectionForm[f.id]?.answer === 'Fail' && (
+                                                        <>
+                                                            <label className="flex items-center gap-2 cursor-pointer mb-3">
+                                                                <input type="checkbox" checked={inspectionForm[f.id]?.raiseCapa || false} onChange={e => updateInspectionResponse(f.id, { raiseCapa: e.target.checked, observationOpen: true })} className="w-4 h-4 accent-orange-500" />
+                                                                <span className="text-xs font-bold text-white">Raise Corrective Action (CAPA)</span>
+                                                            </label>
 
-                                                    {inspectionForm[f.id]?.raiseCapa && (
-                                                        <div className="flex gap-4 p-3 bg-slate-900 rounded-lg border border-slate-700">
-                                                            <div className="flex-1">
-                                                                <label className="text-[9px] uppercase font-bold text-slate-500 block mb-1">Assign To</label>
-                                                                <UserSelect users={users} value={inspectionForm[f.id]?.capaOwner || ''} onChange={v => updateInspectionResponse(f.id, { capaOwner: v })} disabled={false} />
-                                                            </div>
-                                                            <div className="w-1/3">
-                                                                <label className="text-[9px] uppercase font-bold text-slate-500 block mb-1">Due Date</label>
-                                                                <input type="date" value={inspectionForm[f.id]?.capaDue || ''} onChange={e => updateInspectionResponse(f.id, { capaDue: e.target.value })} className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-xs text-white outline-none focus:border-orange-500 font-mono" />
-                                                            </div>
-                                                        </div>
+                                                            {inspectionForm[f.id]?.raiseCapa && (
+                                                                <div className="flex gap-4 p-3 bg-slate-900 rounded-lg border border-slate-700">
+                                                                    <div className="flex-1">
+                                                                        <label className="text-[9px] uppercase font-bold text-slate-500 block mb-1">Assign To</label>
+                                                                        <UserSelect users={users} value={inspectionForm[f.id]?.capaOwner || ''} onChange={v => updateInspectionResponse(f.id, { capaOwner: v })} disabled={false} />
+                                                                    </div>
+                                                                    <div className="w-1/3">
+                                                                        <label className="text-[9px] uppercase font-bold text-slate-500 block mb-1">Due Date</label>
+                                                                        <input type="date" value={inspectionForm[f.id]?.capaDue || ''} onChange={e => updateInspectionResponse(f.id, { capaDue: e.target.value })} className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-xs text-white outline-none focus:border-orange-500 font-mono" />
+                                                                    </div>
+                                                                </div>
+                                                            )}
+                                                        </>
                                                     )}
                                                 </div>
                                             )}
@@ -1465,7 +1523,17 @@ export default function Inspections() {
                                 <div className="bg-slate-900/50 rounded-2xl border border-slate-700 overflow-hidden shadow-xl">
                                     <table className="w-full text-left text-sm text-slate-300">
                                         <thead className="bg-slate-950 border-b border-slate-800 text-[10px] uppercase tracking-widest font-bold text-slate-500">
-                                            <tr><th className="p-4 pl-6">Date</th><th className="p-4">Inspection Type</th><th className="p-4">Site</th><th className="p-4">Inspector</th><th className="p-4 text-center">Score / Issues</th><th className="p-4 pr-6 text-right">Actions</th></tr>
+                                            <tr>
+                                                <th className="p-4 pl-6">Date</th>
+                                                <th className="p-4">Inspection Type</th>
+                                                <th className="p-4">Site</th>
+                                                <th className="p-4">Center</th>
+                                                <th className="p-4">Inspector</th>
+                                                <th className="p-4 text-center">Score</th>
+                                                <th className="p-4 text-center">Result</th>
+                                                <th className="p-4 text-center">Findings</th>
+                                                <th className="p-4 pr-6 text-right">Actions</th>
+                                            </tr>
                                         </thead>
                                         <tbody className="divide-y divide-slate-800/50">
                                 {records.filter(r => {
@@ -1473,16 +1541,29 @@ export default function Inspections() {
                                     return siteFilter === 'All' || r.siteId === siteFilter;
                                 }).sort((a, b) => new Date(b.completedAt) - new Date(a.completedAt)).map(r => {
                                                 const fails = Object.values(r.responses || {}).filter(res => res.answer === 'Fail').length;
+                                                const passes = Object.values(r.responses || {}).filter(res => res.answer === 'Pass').length;
+                                                const scoreNum = typeof r.score === 'number'
+                                                    ? r.score
+                                                    : ((passes + fails) === 0 ? 100 : Math.round((passes / (passes + fails)) * 100));
+                                                const result = r.passFailResult || (scoreNum >= 90 ? 'PASS' : 'FAIL');
+                                                const centerLabel = r.centerName
+                                                    ? `${r.centerName}${r.centerCode ? ` (${r.centerCode})` : ''}`
+                                                    : (r.centerCode || '—');
                                                 return (
                                                     <tr key={r.firebaseKey} className="hover:bg-slate-800/40 transition-colors">
                                                         <td className="p-4 pl-6 font-mono text-xs">{new Date(r.completedAt).toLocaleString()}</td>
                                                         <td className="p-4 font-bold text-white">{r.templateTitle}</td>
                                                         <td className="p-4">{r.siteId}</td>
+                                                        <td className="p-4 text-xs text-slate-300">{centerLabel}</td>
                                                         <td className="p-4 text-xs font-bold text-blue-400"><i className="fas fa-user-circle mr-1"></i> {r.inspector}</td>
+                                                        <td className="p-4 text-center font-bold font-mono text-white">{scoreNum}%</td>
+                                                        <td className="p-4 text-center">
+                                                            <span className={`px-3 py-1 rounded-lg text-xs font-black ${result === 'PASS' ? 'bg-emerald-900/30 text-emerald-400 border border-emerald-500/30' : 'bg-red-900/30 text-red-400 border border-red-500/30'}`}>{result}</span>
+                                                        </td>
                                                         <td className="p-4 text-center">
                                                             {fails > 0
-                                                                ? <span className="bg-red-900/30 text-red-400 border border-red-500/30 px-3 py-1 rounded-lg text-xs font-bold">{fails} Issues</span>
-                                                                : <span className="bg-emerald-900/30 text-emerald-400 border border-emerald-500/30 px-3 py-1 rounded-lg text-xs font-bold">100% Pass</span>
+                                                                ? <span className="bg-red-900/30 text-red-400 border border-red-500/30 px-3 py-1 rounded-lg text-xs font-bold">{fails}</span>
+                                                                : <span className="text-slate-500 text-xs">—</span>
                                                             }
                                                         </td>
                                                         <td className="p-4 pr-6 text-right">
@@ -1494,7 +1575,7 @@ export default function Inspections() {
                                 {records.filter(r => {
                                     if (regionFilter !== 'All' && !matchesRegionFilter(r.siteId, sites, regionFilter)) return false;
                                     return siteFilter === 'All' || r.siteId === siteFilter;
-                                }).length === 0 && <tr><td colSpan="6" className="p-8 text-center italic text-slate-500">No inspection history found.</td></tr>}
+                                }).length === 0 && <tr><td colSpan="9" className="p-8 text-center italic text-slate-500">No inspection history found.</td></tr>}
                                         </tbody>
                                     </table>
                                 </div>
@@ -1581,30 +1662,61 @@ export default function Inspections() {
                                     </div>
                                 </div>
 
-                                <div className="grid grid-cols-2 gap-6 mb-10 text-sm border-2 border-black p-6 bg-gray-50">
-                                    <div>
-                                        <p className="text-gray-500 font-bold uppercase text-[10px] tracking-widest mb-1">Facility / Site</p>
-                                        <p className="font-black text-lg m-0">{viewingRecord.siteId}</p>
-                                    </div>
-                                    <div>
-                                        <p className="text-gray-500 font-bold uppercase text-[10px] tracking-widest mb-1">Inspection Date</p>
-                                        <p className="font-mono font-bold text-base m-0">{new Date(viewingRecord.completedAt).toLocaleString()}</p>
-                                    </div>
-                                    <div>
-                                        <p className="text-gray-500 font-bold uppercase text-[10px] tracking-widest mb-1">Inspector</p>
-                                        <p className="font-bold text-base m-0">{viewingRecord.inspector}</p>
-                                    </div>
-                                    <div>
-                                        <p className="text-gray-500 font-bold uppercase text-[10px] tracking-widest mb-1">Result Summary</p>
-                                        <p className="font-bold text-base m-0">
-                                            {Object.values(viewingRecord.responses || {}).filter(r => r.answer === 'Fail').length} Defects Found
-                                        </p>
-                                    </div>
-                                    <div>
-                                        <p className="text-gray-500 font-bold uppercase text-[10px] tracking-widest mb-1">Evidence Photos</p>
-                                        <p className="font-bold text-base m-0">{getQuestionPhotoCount(viewingRecord.responses || {})}</p>
-                                    </div>
-                                </div>
+                                {(() => {
+                                    // Derive the score + result locally so old records (saved
+                                    // before .score was added) still render correctly.
+                                    const failCount = Object.values(viewingRecord.responses || {}).filter((r) => r?.answer === 'Fail').length;
+                                    const passCount = Object.values(viewingRecord.responses || {}).filter((r) => r?.answer === 'Pass').length;
+                                    const binaryTotal = failCount + passCount;
+                                    const scoreNum = typeof viewingRecord.score === 'number'
+                                        ? viewingRecord.score
+                                        : (binaryTotal === 0 ? 100 : Math.round((passCount / binaryTotal) * 100));
+                                    const result = viewingRecord.passFailResult || (scoreNum >= 90 ? 'PASS' : 'FAIL');
+                                    const centerLine = viewingRecord.centerCode
+                                        ? `${viewingRecord.centerName || viewingRecord.centerCode}${viewingRecord.centerName && viewingRecord.centerCode ? ` (${viewingRecord.centerCode})` : ''}`
+                                        : '—';
+                                    return (
+                                        <div className="grid grid-cols-2 gap-6 mb-10 text-sm border-2 border-black p-6 bg-gray-50">
+                                            <div>
+                                                <p className="text-gray-500 font-bold uppercase text-[10px] tracking-widest mb-1">Facility / Site</p>
+                                                <p className="font-black text-lg m-0">{viewingRecord.siteId}</p>
+                                            </div>
+                                            <div>
+                                                <p className="text-gray-500 font-bold uppercase text-[10px] tracking-widest mb-1">Center / Point</p>
+                                                <p className="font-bold text-base m-0">{centerLine}</p>
+                                            </div>
+                                            <div>
+                                                <p className="text-gray-500 font-bold uppercase text-[10px] tracking-widest mb-1">Inspection Date</p>
+                                                <p className="font-mono font-bold text-base m-0">{new Date(viewingRecord.completedAt).toLocaleString()}</p>
+                                            </div>
+                                            <div>
+                                                <p className="text-gray-500 font-bold uppercase text-[10px] tracking-widest mb-1">Inspector</p>
+                                                <p className="font-bold text-base m-0">{viewingRecord.inspector}</p>
+                                            </div>
+                                            <div>
+                                                <p className="text-gray-500 font-bold uppercase text-[10px] tracking-widest mb-1">Score</p>
+                                                <p className="font-mono font-black text-2xl m-0">{scoreNum}%</p>
+                                            </div>
+                                            <div>
+                                                <p className="text-gray-500 font-bold uppercase text-[10px] tracking-widest mb-1">Overall Result</p>
+                                                <p className={`font-black text-2xl m-0 ${result === 'PASS' ? 'text-green-700' : 'text-red-700'}`}>
+                                                    {result}
+                                                    <span className="text-[10px] font-bold text-gray-500 ml-2 align-middle">(threshold ≥ 90%)</span>
+                                                </p>
+                                            </div>
+                                            <div>
+                                                <p className="text-gray-500 font-bold uppercase text-[10px] tracking-widest mb-1">Findings</p>
+                                                <p className="font-bold text-base m-0">
+                                                    {failCount} Defect{failCount === 1 ? '' : 's'} / {binaryTotal} Check{binaryTotal === 1 ? '' : 's'}
+                                                </p>
+                                            </div>
+                                            <div>
+                                                <p className="text-gray-500 font-bold uppercase text-[10px] tracking-widest mb-1">Evidence Photos</p>
+                                                <p className="font-bold text-base m-0">{getQuestionPhotoCount(viewingRecord.responses || {})}</p>
+                                            </div>
+                                        </div>
+                                    );
+                                })()}
 
                                 {viewingRecord.additionalFindings && (
                                     <div className="mb-10 border-2 border-black bg-gray-50 p-6">
