@@ -1,6 +1,12 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import CenterSelect from '../../components/CenterSelect';
 import { findCentersForSite } from '../../utils/centers';
+import {
+    ASSIGNMENT_FREQUENCIES,
+    downloadAssignmentsTemplate,
+    parseAssignmentsWorkbook,
+    planAssignmentsImport
+} from '../../utils/inspectionAssignmentsImport';
 
 /**
  * Modal for managing one-off inspection assignments tied to a template.
@@ -27,7 +33,12 @@ export default function InspectionAssignmentsModal({
     isGlobalUser,
     currentUserEmail,
     onClose,
-    onSave
+    onSave,
+    // Optional bulk-import callback — receives the per-template plan from
+    // planAssignmentsImport and applies it atomically. When provided, the
+    // modal exposes a "Bulk Upload" button.
+    onBulkImport,
+    templates
 }) {
     const isGlobalTemplate = template.siteId === 'GLOBAL';
     const todayIso = new Date().toISOString().slice(0, 10);
@@ -52,6 +63,8 @@ export default function InspectionAssignmentsModal({
     const [newSiteId, setNewSiteId] = useState(defaultSite);
     const [newCenterCode, setNewCenterCode] = useState('');
     const [newDate, setNewDate] = useState('');
+    const [newEndDate, setNewEndDate] = useState('');
+    const [newFrequency, setNewFrequency] = useState('One-off');
     const [newNotes, setNewNotes] = useState('');
     const [busy, setBusy] = useState(false);
 
@@ -60,6 +73,13 @@ export default function InspectionAssignmentsModal({
     const [rescheduleId, setRescheduleId] = useState(null);
     const [rescheduleDate, setRescheduleDate] = useState('');
     const [rescheduleReason, setRescheduleReason] = useState('');
+
+    // Bulk-upload preview state
+    const bulkFileRef = useRef(null);
+    const [bulkPlan, setBulkPlan] = useState(null);     // Map<templateKey, [assignment]>
+    const [bulkErrors, setBulkErrors] = useState([]);
+    const [bulkRowCount, setBulkRowCount] = useState(0);
+    const [bulkBusy, setBulkBusy] = useState(false);
 
     const existing = useMemo(
         () => (Array.isArray(template.assignments) ? template.assignments : []),
@@ -79,13 +99,17 @@ export default function InspectionAssignmentsModal({
 
     const handleAdd = async () => {
         if (!newSiteId) return alert('Please pick a site.');
-        if (!newDate) return alert('Please pick a scheduled date.');
+        if (!newDate) return alert('Please pick a start date.');
+        if (newEndDate && newEndDate < newDate) return alert('End date is before start date.');
 
         const assignment = {
             id: `asn-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
             siteId: newSiteId,
             centerCode: newCenterCode || '',
             scheduledDate: newDate,
+            // Recurring metadata. Empty frequency = one-off (existing behaviour).
+            frequency: newFrequency === 'One-off' ? '' : newFrequency,
+            endDate: newEndDate || '',
             status: 'Pending',
             notes: newNotes.trim(),
             createdAt: new Date().toISOString(),
@@ -97,9 +121,53 @@ export default function InspectionAssignmentsModal({
         // Reset add-form
         setNewCenterCode('');
         setNewDate('');
+        setNewEndDate('');
+        setNewFrequency('One-off');
         setNewNotes('');
         // Keep site selected if it's a site-bound template (only one option anyway)
         if (isGlobalTemplate) setNewSiteId(defaultSite);
+    };
+
+    // ── Bulk import ──────────────────────────────────────────────────────
+
+    const handleBulkFile = async (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        try {
+            const rows = await parseAssignmentsWorkbook(file);
+            const { perTemplate, errors } = planAssignmentsImport(rows, { templates: templates || [], sites });
+            setBulkRowCount(rows.length);
+            setBulkPlan(perTemplate);
+            setBulkErrors(errors);
+        } catch (err) {
+            alert('Could not read the file: ' + err.message);
+        } finally {
+            if (bulkFileRef.current) bulkFileRef.current.value = '';
+        }
+    };
+
+    const handleApplyBulk = async () => {
+        if (!bulkPlan || bulkPlan.size === 0) {
+            alert('Nothing to import — every row was rejected. Fix the errors and re-upload.');
+            return;
+        }
+        if (!onBulkImport) {
+            alert('Bulk import not wired up in this context.');
+            return;
+        }
+        setBulkBusy(true);
+        try {
+            await onBulkImport(bulkPlan);
+            const added = Array.from(bulkPlan.values()).reduce((a, b) => a + b.length, 0);
+            alert(`Imported ${added} assignment${added === 1 ? '' : 's'} across ${bulkPlan.size} template${bulkPlan.size === 1 ? '' : 's'}.`);
+            setBulkPlan(null);
+            setBulkErrors([]);
+            setBulkRowCount(0);
+        } catch (err) {
+            alert('Bulk import failed: ' + err.message);
+        } finally {
+            setBulkBusy(false);
+        }
     };
 
     const handleReschedule = async (assignment) => {
@@ -187,6 +255,70 @@ export default function InspectionAssignmentsModal({
                     <button onClick={onClose} className="text-slate-500 hover:text-white text-xl"><i className="fas fa-times"></i></button>
                 </div>
 
+                {/* Bulk upload (CSV / XLSX) */}
+                {onBulkImport && (
+                    <div className="p-6 border-b border-slate-800 bg-sky-950/20">
+                        <div className="flex items-start justify-between gap-3 mb-3">
+                            <div>
+                                <p className="text-[10px] uppercase font-bold text-sky-400 tracking-widest">Bulk Upload</p>
+                                <p className="text-xs text-slate-400 mt-1">Schedule center-level assignments in batches. Each row can target any template + site + center + frequency.</p>
+                            </div>
+                            <div className="flex gap-2">
+                                <button
+                                    onClick={downloadAssignmentsTemplate}
+                                    className="bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 px-3 py-2 rounded-lg text-[10px] font-bold uppercase tracking-widest transition"
+                                >
+                                    <i className="fas fa-download mr-1"></i> Template
+                                </button>
+                                <label className="bg-sky-600 hover:bg-sky-500 text-white px-3 py-2 rounded-lg text-[10px] font-bold uppercase tracking-widest transition cursor-pointer">
+                                    <i className="fas fa-file-import mr-1"></i> Choose File
+                                    <input
+                                        ref={bulkFileRef}
+                                        type="file"
+                                        accept=".csv,.xlsx,.xls"
+                                        onChange={handleBulkFile}
+                                        className="hidden"
+                                    />
+                                </label>
+                            </div>
+                        </div>
+
+                        {bulkRowCount > 0 && (
+                            <div className="text-xs text-slate-400 mb-2">
+                                {bulkRowCount} row{bulkRowCount === 1 ? '' : 's'} read ·{' '}
+                                {bulkPlan ? Array.from(bulkPlan.values()).reduce((a, b) => a + b.length, 0) : 0} ready ·{' '}
+                                <span className={bulkErrors.length ? 'text-red-400' : ''}>{bulkErrors.length} error{bulkErrors.length === 1 ? '' : 's'}</span>
+                            </div>
+                        )}
+
+                        {bulkErrors.length > 0 && (
+                            <div className="bg-red-900/20 border border-red-500/30 rounded-lg p-3 mb-2 max-h-32 overflow-y-auto custom-scroll">
+                                <p className="text-[10px] font-bold uppercase tracking-widest text-red-300 mb-1.5">Skipped rows</p>
+                                <ul className="text-[11px] text-red-300 space-y-1">
+                                    {bulkErrors.map((e, i) => (
+                                        <li key={i}><span className="font-mono">Row {e.row}:</span> {e.message}</li>
+                                    ))}
+                                </ul>
+                            </div>
+                        )}
+
+                        {bulkPlan && bulkPlan.size > 0 && (
+                            <div className="flex items-center justify-between gap-3 bg-emerald-900/15 border border-emerald-500/30 rounded-lg p-3">
+                                <div className="text-xs text-emerald-200">
+                                    Ready to import <strong>{Array.from(bulkPlan.values()).reduce((a, b) => a + b.length, 0)}</strong> assignment{Array.from(bulkPlan.values()).reduce((a, b) => a + b.length, 0) === 1 ? '' : 's'} across <strong>{bulkPlan.size}</strong> template{bulkPlan.size === 1 ? '' : 's'}.
+                                </div>
+                                <button
+                                    onClick={handleApplyBulk}
+                                    disabled={bulkBusy}
+                                    className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 px-4 py-2 rounded-lg text-[10px] font-bold uppercase tracking-widest disabled:opacity-50 disabled:cursor-not-allowed transition"
+                                >
+                                    {bulkBusy ? 'Importing…' : 'Apply Import'}
+                                </button>
+                            </div>
+                        )}
+                    </div>
+                )}
+
                 {/* Add new assignment */}
                 <div className="p-6 border-b border-slate-800 bg-slate-900/40">
                     <p className="text-[10px] uppercase font-bold text-slate-400 tracking-widest mb-3">Schedule A New Inspection</p>
@@ -214,7 +346,19 @@ export default function InspectionAssignmentsModal({
                             />
                         </div>
                         <div>
-                            <label className="text-[10px] uppercase font-bold text-slate-500 block mb-1">Scheduled Date *</label>
+                            <label className="text-[10px] uppercase font-bold text-slate-500 block mb-1">Frequency</label>
+                            <select
+                                value={newFrequency}
+                                onChange={(e) => setNewFrequency(e.target.value)}
+                                className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-sm text-white outline-none focus:border-lime-500"
+                            >
+                                {ASSIGNMENT_FREQUENCIES.map((f) => <option key={f} value={f}>{f}</option>)}
+                            </select>
+                        </div>
+                        <div>
+                            <label className="text-[10px] uppercase font-bold text-slate-500 block mb-1">
+                                {newFrequency === 'One-off' ? 'Scheduled Date *' : 'Start Date *'}
+                            </label>
                             <input
                                 type="date"
                                 value={newDate}
@@ -223,13 +367,25 @@ export default function InspectionAssignmentsModal({
                                 className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-sm text-white outline-none focus:border-lime-500 font-mono"
                             />
                         </div>
-                        <div className="flex items-end">
+                        {newFrequency !== 'One-off' && (
+                            <div>
+                                <label className="text-[10px] uppercase font-bold text-slate-500 block mb-1">End Date (optional)</label>
+                                <input
+                                    type="date"
+                                    value={newEndDate}
+                                    min={newDate || todayIso}
+                                    onChange={(e) => setNewEndDate(e.target.value)}
+                                    className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-sm text-white outline-none focus:border-lime-500 font-mono"
+                                />
+                            </div>
+                        )}
+                        <div className={`flex items-end ${newFrequency !== 'One-off' ? '' : 'md:col-start-4'}`}>
                             <button
                                 onClick={handleAdd}
                                 disabled={busy || !newSiteId || !newDate}
                                 className="w-full bg-lime-500 hover:bg-lime-400 text-slate-950 font-bold px-4 py-2.5 rounded-lg text-xs uppercase tracking-widest disabled:opacity-50 disabled:cursor-not-allowed transition"
                             >
-                                <i className="fas fa-plus mr-1"></i> Add Assignment
+                                <i className="fas fa-plus mr-1"></i> Add
                             </button>
                         </div>
                         <div className="md:col-span-4">
@@ -271,6 +427,12 @@ export default function InspectionAssignmentsModal({
                                                 </div>
                                                 <div className="text-sm text-white">
                                                     <strong className="font-mono text-lime-400">{a.scheduledDate}</strong>
+                                                    {a.frequency && (
+                                                        <span className="ml-2 text-[10px] font-bold uppercase tracking-widest text-sky-300 bg-sky-500/10 border border-sky-500/30 px-2 py-0.5 rounded">
+                                                            <i className="fas fa-repeat mr-1"></i> {a.frequency}
+                                                            {a.endDate && <span className="ml-1 text-slate-400 font-normal">until {a.endDate}</span>}
+                                                        </span>
+                                                    )}
                                                     <span className="text-slate-500 mx-2">·</span>
                                                     <span>{lookupSiteName(a.siteId)} <span className="text-slate-500 font-mono text-xs">({a.siteId})</span></span>
                                                     {a.centerCode && (

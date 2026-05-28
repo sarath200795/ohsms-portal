@@ -10,6 +10,7 @@ import { buildRegionOptions, filterSitesByRegion, matchesRegionFilter, normalize
 import * as XLSX from 'xlsx';
 import { notifyInspectionSubmitted } from '../utils/reportNotificationEmail';
 import CenterSelect from '../components/CenterSelect';
+import { findCentersForSite } from '../utils/centers';
 import InspectionAssignmentsModal from './Inspections/InspectionAssignmentsModal';
 
 const FREQUENCIES = ['Daily', 'Weekly', 'Monthly', 'Quarterly', 'Bi-Annually', 'Annually'];
@@ -353,11 +354,12 @@ export default function Inspections() {
             });
         });
 
-        // One-off assignments — independent of frequency-based scheduling.
-        // Surface every Pending assignment whose target site is visible to
-        // the user.  These show on the calendar like frequency tasks but
-        // carry an assignmentId so submitInspection can mark the assignment
-        // Completed when the record is saved.
+        // Centre-level assignments — coexists with the frequency-based
+        // scheduling above.  Two flavours:
+        //   • One-off  (a.frequency is empty) → single occurrence on a.scheduledDate
+        //   • Recurring (a.frequency is set)  → expand using the same
+        //     getPendingOccurrences helper that powers template scheduling,
+        //     filtered by past records that carry this assignmentId.
         const visibleSiteCodes = new Set(filteredVisibleSites.map((s) => s.code));
         templates.forEach((t) => {
             const assignments = Array.isArray(t.assignments) ? t.assignments : [];
@@ -368,24 +370,60 @@ export default function Inspections() {
                 if (siteFilter !== 'All' && a.siteId !== siteFilter) return;
                 if (!visibleSiteCodes.has(a.siteId)) return;
 
-                tasks.push({
+                const isRecurring = Boolean(a.frequency);
+                const taskBase = {
                     templateId: t.firebaseKey,
                     title: t.title,
                     siteId: a.siteId,
                     centerCode: a.centerCode || '',
-                    frequency: 'One-off',
-                    dueDate: parseDateOnly(a.scheduledDate),
-                    dueString: a.scheduledDate,
-                    alertStartString: a.scheduledDate,
-                    originalDueString: a.scheduledDate,
-                    isDeferred: Array.isArray(a.history) && a.history.length > 0,
                     isAssignment: true,
                     assignmentId: a.id,
                     assignmentNotes: a.notes || '',
-                    lastCompleted: 'Never',
                     assignmentStart: a.scheduledDate,
-                    assignmentEnd: a.scheduledDate,
+                    assignmentEnd: a.endDate || '',
                     template: t
+                };
+
+                if (!isRecurring) {
+                    tasks.push({
+                        ...taskBase,
+                        frequency: 'One-off',
+                        dueDate: parseDateOnly(a.scheduledDate),
+                        dueString: a.scheduledDate,
+                        alertStartString: a.scheduledDate,
+                        originalDueString: a.scheduledDate,
+                        isDeferred: Array.isArray(a.history) && a.history.length > 0,
+                        lastCompleted: 'Never'
+                    });
+                    return;
+                }
+
+                // Recurring centre-level assignment.  Past records keyed by
+                // assignmentId (set on submitInspection) determine which
+                // occurrences are still outstanding.
+                const pastRecordsForAssignment = records
+                    .filter((r) => r.assignmentId === a.id)
+                    .sort((x, y) => new Date(y.completedAt) - new Date(x.completedAt));
+
+                const occurrences = getPendingOccurrences({
+                    assignedFrom: a.scheduledDate,
+                    assignedTo: a.endDate,
+                    frequency: a.frequency,
+                    pastRecords: pastRecordsForAssignment,
+                    rangeEnd
+                });
+
+                occurrences.forEach((occ) => {
+                    tasks.push({
+                        ...taskBase,
+                        frequency: a.frequency,
+                        dueDate: occ.date,
+                        dueString: occ.dateString,
+                        alertStartString: occ.alertStartString,
+                        originalDueString: occ.originalDateString,
+                        isDeferred: false,
+                        lastCompleted: pastRecordsForAssignment[0]?.completedAt || 'Never'
+                    });
                 });
             });
         });
@@ -418,9 +456,27 @@ export default function Inspections() {
                             const alertStart = t.assignmentStart && t.alertStartString < t.assignmentStart ? t.assignmentStart : t.alertStartString;
                             const isOverdue = todayString > t.dueString;
                             const isDueWindow = todayString >= alertStart;
+                            // Resolve the center name (falls back to the code
+                            // if the center has since been deleted off the
+                            // site) so the calendar tile tells the reporter
+                            // exactly which area to inspect.
+                            const centerName = t.centerCode
+                                ? (findCentersForSite(sites, t.siteId).find((c) => c.code === t.centerCode)?.name || t.centerCode)
+                                : '';
+                            const tooltip = [
+                                t.title,
+                                centerName ? `Center: ${centerName}` : '',
+                                `Site: ${t.siteId}`,
+                                `Due: ${t.dueString}`
+                            ].filter(Boolean).join(' | ');
                             return (
-                                <div key={`due-${idx}`} onClick={() => startInspection(t)} className={`text-[9px] p-1.5 rounded cursor-pointer truncate font-bold shadow-sm transition-transform hover:scale-105 ${isOverdue || isDueWindow ? 'bg-red-500 text-white' : 'bg-lime-500 text-slate-950'}`} title={`${t.title} | Due: ${t.dueString}`}>
-                                    {t.title} {t.isDeferred && ' (Def)'}
+                                <div key={`due-${idx}`} onClick={() => startInspection(t)} className={`text-[9px] p-1.5 rounded cursor-pointer font-bold shadow-sm transition-transform hover:scale-105 ${isOverdue || isDueWindow ? 'bg-red-500 text-white' : 'bg-lime-500 text-slate-950'}`} title={tooltip}>
+                                    <div className="truncate">{t.title} {t.isDeferred && ' (Def)'}</div>
+                                    {centerName && (
+                                        <div className="truncate font-normal opacity-80 text-[8.5px] mt-0.5">
+                                            <i className="fas fa-map-marker-alt mr-0.5"></i> {centerName}
+                                        </div>
+                                    )}
                                 </div>
                             );
                         })}
@@ -1009,10 +1065,11 @@ export default function Inspections() {
                             </div>
                         )}
 
-                        {/* --- ASSIGNMENTS MODAL (one-off scheduled inspections) --- */}
+                        {/* --- ASSIGNMENTS MODAL (one-off + recurring) --- */}
                         {assignmentsTemplate && (
                             <InspectionAssignmentsModal
                                 template={assignmentsTemplate}
+                                templates={templates}
                                 sites={sites}
                                 allowedSites={filteredVisibleSites}
                                 isGlobalUser={isGlobalUser}
@@ -1026,6 +1083,32 @@ export default function Inspections() {
                                     });
                                     setTemplates((prev) => prev.map((t) => t.firebaseKey === assignmentsTemplate.firebaseKey ? { ...t, assignments: nextAssignments } : t));
                                     setAssignmentsTemplate((prev) => prev ? { ...prev, assignments: nextAssignments } : prev);
+                                }}
+                                onBulkImport={async (perTemplate) => {
+                                    // perTemplate: Map<templateKey, [assignment]>
+                                    // Apply each template's additions atomically (one dbUpdate per template).
+                                    const updatedAt = new Date().toISOString();
+                                    const updatedBy = session.email || session.name || '';
+                                    const writes = [];
+                                    const nextTemplates = templates.map((tpl) => {
+                                        const additions = perTemplate.get(tpl.firebaseKey);
+                                        if (!additions || additions.length === 0) return tpl;
+                                        const merged = [...(Array.isArray(tpl.assignments) ? tpl.assignments : []), ...additions];
+                                        writes.push(dbUpdate(`organizations/${session.orgId}/inspectionTemplates/${tpl.firebaseKey}`, {
+                                            assignments: merged,
+                                            updatedAt,
+                                            updatedBy
+                                        }));
+                                        return { ...tpl, assignments: merged };
+                                    });
+                                    await Promise.all(writes);
+                                    setTemplates(nextTemplates);
+                                    // Refresh the open modal's view of its template
+                                    setAssignmentsTemplate((prev) => {
+                                        if (!prev) return prev;
+                                        const next = nextTemplates.find((t) => t.firebaseKey === prev.firebaseKey);
+                                        return next || prev;
+                                    });
                                 }}
                             />
                         )}
