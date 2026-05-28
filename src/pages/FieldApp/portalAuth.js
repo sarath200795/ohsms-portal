@@ -1,7 +1,54 @@
 import { dbGet } from '../../services/db/index.js';
-import { auth } from '../../config/firebase';
+import { auth, firebaseConfig } from '../../config/firebase';
 import { getVisibleFieldModules } from './utils';
 import { ACCOUNT_STATUS, canAuthenticateStatus, isPendingStatus, normalizeSessionData, readStoredSession } from '../../utils/session';
+
+/**
+ * Quick HTTPS probe of the configured databaseURL — fails in <3s with a
+ * clear, actionable error instead of letting the 15s RTDB read-timeout
+ * fire for an unreachable host (typically caused by a wrong databaseURL
+ * saved to localStorage by the org picker).
+ *
+ * Firebase's REST endpoint at /<path>.json responds even without auth:
+ *   • 401/403 → URL is correct, just unauthorized (treat as reachable)
+ *   • any 2xx → URL is correct and the path is public
+ *   • network error / timeout → URL is wrong, DB doesn't exist, or region mismatch
+ */
+const probeDatabaseUrl = async () => {
+    const url = firebaseConfig?.databaseURL;
+    if (!url) {
+        throw new Error(
+            'Firebase databaseURL is not configured. Open /setup or pick an ' +
+            'organisation from the field portal home to connect a database.'
+        );
+    }
+
+    const controller = new AbortController();
+    const t = setTimeout(() => controller.abort(), 3000);
+    try {
+        const res = await fetch(`${url.replace(/\/$/, '')}/.json?shallow=true`, {
+            method: 'GET',
+            signal: controller.signal,
+            // Anonymous probe — no auth headers; 401/403 still proves reachability.
+            mode: 'cors',
+        });
+        // Any HTTP response (even 401/403) means the host is reachable.
+        return res.status;
+    } catch {
+        throw new Error(
+            `Cannot reach Firebase Realtime Database at ${url}.\n\n` +
+            'Likely causes:\n' +
+            '  • The databaseURL is wrong (typo) — check Firebase Console → Realtime Database.\n' +
+            '  • The database is in a different region — the URL should include the region for non-US databases ' +
+            '(e.g. https://<project>-default-rtdb.asia-southeast1.firebasedatabase.app).\n' +
+            '  • The RTDB has not been created in this Firebase project yet.\n' +
+            '  • A CSP/network policy is blocking the host.\n\n' +
+            'Fix: open /setup or re-pick the organisation with the correct database URL.'
+        );
+    } finally {
+        clearTimeout(t);
+    }
+};
 
 export const FIELD_PORTAL_APP_NAME = 'field-portal-app';
 export const FIELD_PORTAL_SESSION_KEY = 'fieldPortalSession';
@@ -112,6 +159,12 @@ export const fetchFieldPortalContext = async ({ user, expectedOrgId = '' }) => {
     if (!user?.uid || !user?.email) {
         throw new Error('No authenticated field portal session found. Please sign in again.');
     }
+
+    // Fail fast (<3s) with a clear, actionable error if the configured
+    // databaseURL is unreachable — typical when the org picker has saved a
+    // wrong URL to localStorage.  Without this probe, the WebSocket retries
+    // silently and the user waits the full 15s for a vague timeout.
+    await probeDatabaseUrl();
 
     // Pre-warm the auth token so the RTDB WebSocket has a credential to
     // present on its first read.  Without this, signInWithEmailAndPassword
