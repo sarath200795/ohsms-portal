@@ -1074,7 +1074,89 @@ export default function VendorPortal() {
                         <p className="text-xs text-slate-400 mt-2 tracking-widest uppercase">Secure Compliance Gateway</p>
                     </div>
 
-                    {showOrgPicker ? (
+                    {/* Self-registration takes priority over both org-picker
+                        AND sign-in steps — when the vendor clicks "Register
+                        here" from either step they land on the registration
+                        form regardless of which step they were on. */}
+                    {registerMode ? (
+                        registerStage === 'form' ? (
+                            <form onSubmit={handleVendorRegister} className="space-y-4">
+                                <div className="rounded-2xl border border-emerald-500/25 bg-emerald-950/15 p-4 text-[11px] leading-relaxed text-emerald-100">
+                                    <p className="font-bold text-emerald-200 uppercase tracking-widest text-[10px] mb-1.5">Register as a New Vendor</p>
+                                    <p>Submit your details with the <span className="font-bold">join code</span> from the client admin. Your request goes to their Contractors tab for approval — once approved you can sign in to view performance and upload documents.</p>
+                                </div>
+                                <div>
+                                    <label className="text-[10px] font-bold uppercase text-slate-400 tracking-widest block mb-2">Join Code *</label>
+                                    <input type="text" required value={registerData.joinCode} onChange={e => setRegisterData({ ...registerData, joinCode: e.target.value.toUpperCase() })} placeholder="e.g. JOIN-7K3M" className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3.5 text-white font-mono uppercase outline-none focus:border-emerald-500 shadow-inner" />
+                                </div>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                    <div>
+                                        <label className="text-[10px] font-bold uppercase text-slate-400 tracking-widest block mb-2">Company Name *</label>
+                                        <input type="text" required value={registerData.companyName} onChange={e => setRegisterData({ ...registerData, companyName: e.target.value })} placeholder="Acme Construction Ltd." className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3.5 text-white outline-none focus:border-emerald-500 shadow-inner" />
+                                    </div>
+                                    <div>
+                                        <label className="text-[10px] font-bold uppercase text-slate-400 tracking-widest block mb-2">Contact Person</label>
+                                        <input type="text" value={registerData.contactPerson} onChange={e => setRegisterData({ ...registerData, contactPerson: e.target.value })} placeholder="Supervisor / Manager" className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3.5 text-white outline-none focus:border-emerald-500 shadow-inner" />
+                                    </div>
+                                </div>
+                                <div>
+                                    <label className="text-[10px] font-bold uppercase text-slate-400 tracking-widest block mb-2">Email *</label>
+                                    <input type="email" required value={registerData.email} onChange={e => setRegisterData({ ...registerData, email: e.target.value.toLowerCase() })} placeholder="contractor@company.com" className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3.5 text-white outline-none focus:border-emerald-500 shadow-inner" />
+                                </div>
+                                <div>
+                                    <label className="text-[10px] font-bold uppercase text-slate-400 tracking-widest block mb-2">Password * <span className="font-normal text-slate-500 normal-case">(min 8 characters)</span></label>
+                                    <input type="password" required value={registerData.password} onChange={e => setRegisterData({ ...registerData, password: e.target.value })} className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3.5 text-white outline-none focus:border-emerald-500 shadow-inner" />
+                                </div>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                    <div>
+                                        <label className="text-[10px] font-bold uppercase text-slate-400 tracking-widest block mb-2">Phone</label>
+                                        <input type="tel" value={registerData.phone} onChange={e => setRegisterData({ ...registerData, phone: e.target.value })} placeholder="+91..." className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3.5 text-white outline-none focus:border-emerald-500 shadow-inner" />
+                                    </div>
+                                    <div>
+                                        <label className="text-[10px] font-bold uppercase text-slate-400 tracking-widest block mb-2">Service Type</label>
+                                        <select value={registerData.serviceType} onChange={e => setRegisterData({ ...registerData, serviceType: e.target.value })} className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3.5 text-white outline-none focus:border-emerald-500 shadow-inner">
+                                            <option>General / Housekeeping</option>
+                                            <option>Construction / Civil</option>
+                                            <option>Electrical / Mechanical</option>
+                                            <option>Goods Supplier</option>
+                                            <option>Specialist Services</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <button type="submit" disabled={loading} className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-4 rounded-xl uppercase tracking-widest text-sm transition-transform active:scale-95 shadow-lg shadow-emerald-900/50 disabled:opacity-50">
+                                    {loading ? <i className="fas fa-circle-notch fa-spin"></i> : 'Submit Registration Request'}
+                                </button>
+                                <button type="button" onClick={() => setRegisterMode(false)} className="w-full text-xs font-bold uppercase tracking-widest text-slate-400 hover:text-white transition-colors">
+                                    ← Back to Sign In
+                                </button>
+                            </form>
+                        ) : (
+                            <div className="space-y-5 text-center">
+                                <div className="w-16 h-16 rounded-2xl bg-emerald-900/30 border border-emerald-500/30 flex items-center justify-center text-emerald-400 text-3xl mx-auto">
+                                    <i className="fas fa-paper-plane"></i>
+                                </div>
+                                <h3 className="text-xl font-black text-white">Registration Submitted</h3>
+                                <p className="text-sm text-slate-400 leading-relaxed">
+                                    Your request is now visible to the client admin in their Contractors tab. Once they approve it, you'll be able to sign in with the email and password you just registered.
+                                </p>
+                                <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-4 text-[11px] leading-relaxed text-slate-400 text-left">
+                                    <p><span className="font-bold text-slate-200">Registered email:</span> <span className="font-mono">{registerData.email}</span></p>
+                                    <p className="mt-1.5">No further action is needed from you right now — you can close this tab.</p>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setRegisterMode(false);
+                                        setRegisterStage('form');
+                                        setRegisterData({ joinCode: '', companyName: '', contactPerson: '', email: '', password: '', phone: '', serviceType: 'General / Housekeeping' });
+                                    }}
+                                    className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3 rounded-xl uppercase tracking-widest text-xs transition"
+                                >
+                                    Back to Sign In
+                                </button>
+                            </div>
+                        )
+                    ) : showOrgPicker ? (
                         // ── Step 1: pick the organisation database ──────────────
                         <div className="space-y-5">
                             <div className="text-center">
@@ -1168,6 +1250,21 @@ export default function VendorPortal() {
                             <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-4 text-[11px] leading-relaxed text-slate-400">
                                 Don't see your workspace? Ask your client admin to share the workspace setup link — opening it once registers the org here so it appears in this picker.
                             </div>
+
+                            {/* Self-registration entry point — also surfaced
+                                here so vendors who land on the picker can
+                                jump straight to registration without first
+                                having to choose a workspace they may not
+                                even be in yet. */}
+                            <div className="pt-3 border-t border-slate-800">
+                                <button
+                                    type="button"
+                                    onClick={() => { setRegisterMode(true); setRegisterStage('form'); }}
+                                    className="w-full text-xs font-bold uppercase tracking-widest text-emerald-300 hover:text-white transition-colors"
+                                >
+                                    Don't have an account? Register here →
+                                </button>
+                            </div>
                         </div>
                     ) : (
                         // ── Step 2: sign in against the picked database ─────────
@@ -1254,88 +1351,6 @@ export default function VendorPortal() {
                                 </button>
                             </div>
                         </form>
-                    )}
-
-                    {/* ── Vendor self-registration form ─────────────────────── */}
-                    {registerMode && registerStage === 'form' && (
-                        <form onSubmit={handleVendorRegister} className="space-y-4 mt-4 border-t border-slate-800 pt-6">
-                            <div className="rounded-2xl border border-emerald-500/25 bg-emerald-950/15 p-4 text-[11px] leading-relaxed text-emerald-100">
-                                <p className="font-bold text-emerald-200 uppercase tracking-widest text-[10px] mb-1.5">Register as a New Vendor</p>
-                                <p>Submit your details with the <span className="font-bold">join code</span> from the client admin. Your request goes to their Contractors tab for approval — once approved you can sign in to view performance and upload documents.</p>
-                            </div>
-                            <div>
-                                <label className="text-[10px] font-bold uppercase text-slate-400 tracking-widest block mb-2">Join Code *</label>
-                                <input type="text" required value={registerData.joinCode} onChange={e => setRegisterData({ ...registerData, joinCode: e.target.value.toUpperCase() })} placeholder="e.g. JOIN-7K3M" className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3.5 text-white font-mono uppercase outline-none focus:border-emerald-500 shadow-inner" />
-                            </div>
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                <div>
-                                    <label className="text-[10px] font-bold uppercase text-slate-400 tracking-widest block mb-2">Company Name *</label>
-                                    <input type="text" required value={registerData.companyName} onChange={e => setRegisterData({ ...registerData, companyName: e.target.value })} placeholder="Acme Construction Ltd." className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3.5 text-white outline-none focus:border-emerald-500 shadow-inner" />
-                                </div>
-                                <div>
-                                    <label className="text-[10px] font-bold uppercase text-slate-400 tracking-widest block mb-2">Contact Person</label>
-                                    <input type="text" value={registerData.contactPerson} onChange={e => setRegisterData({ ...registerData, contactPerson: e.target.value })} placeholder="Supervisor / Manager" className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3.5 text-white outline-none focus:border-emerald-500 shadow-inner" />
-                                </div>
-                            </div>
-                            <div>
-                                <label className="text-[10px] font-bold uppercase text-slate-400 tracking-widest block mb-2">Email *</label>
-                                <input type="email" required value={registerData.email} onChange={e => setRegisterData({ ...registerData, email: e.target.value.toLowerCase() })} placeholder="contractor@company.com" className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3.5 text-white outline-none focus:border-emerald-500 shadow-inner" />
-                            </div>
-                            <div>
-                                <label className="text-[10px] font-bold uppercase text-slate-400 tracking-widest block mb-2">Password * <span className="font-normal text-slate-500 normal-case">(min 8 characters)</span></label>
-                                <input type="password" required value={registerData.password} onChange={e => setRegisterData({ ...registerData, password: e.target.value })} className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3.5 text-white outline-none focus:border-emerald-500 shadow-inner" />
-                            </div>
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                <div>
-                                    <label className="text-[10px] font-bold uppercase text-slate-400 tracking-widest block mb-2">Phone</label>
-                                    <input type="tel" value={registerData.phone} onChange={e => setRegisterData({ ...registerData, phone: e.target.value })} placeholder="+91..." className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3.5 text-white outline-none focus:border-emerald-500 shadow-inner" />
-                                </div>
-                                <div>
-                                    <label className="text-[10px] font-bold uppercase text-slate-400 tracking-widest block mb-2">Service Type</label>
-                                    <select value={registerData.serviceType} onChange={e => setRegisterData({ ...registerData, serviceType: e.target.value })} className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3.5 text-white outline-none focus:border-emerald-500 shadow-inner">
-                                        <option>General / Housekeeping</option>
-                                        <option>Construction / Civil</option>
-                                        <option>Electrical / Mechanical</option>
-                                        <option>Goods Supplier</option>
-                                        <option>Specialist Services</option>
-                                    </select>
-                                </div>
-                            </div>
-                            <button type="submit" disabled={loading} className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-4 rounded-xl uppercase tracking-widest text-sm transition-transform active:scale-95 shadow-lg shadow-emerald-900/50 disabled:opacity-50">
-                                {loading ? <i className="fas fa-circle-notch fa-spin"></i> : 'Submit Registration Request'}
-                            </button>
-                            <button type="button" onClick={() => setRegisterMode(false)} className="w-full text-xs font-bold uppercase tracking-widest text-slate-400 hover:text-white transition-colors">
-                                ← Back to Sign In
-                            </button>
-                        </form>
-                    )}
-
-                    {/* ── Post-submit success view ───────────────────────────── */}
-                    {registerMode && registerStage === 'submitted' && (
-                        <div className="space-y-5 mt-4 border-t border-slate-800 pt-6 text-center">
-                            <div className="w-16 h-16 rounded-2xl bg-emerald-900/30 border border-emerald-500/30 flex items-center justify-center text-emerald-400 text-3xl mx-auto">
-                                <i className="fas fa-paper-plane"></i>
-                            </div>
-                            <h3 className="text-xl font-black text-white">Registration Submitted</h3>
-                            <p className="text-sm text-slate-400 leading-relaxed">
-                                Your request is now visible to the client admin in their Contractors tab. Once they approve it, you'll be able to sign in with the email and password you just registered.
-                            </p>
-                            <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-4 text-[11px] leading-relaxed text-slate-400">
-                                <p><span className="font-bold text-slate-200">Registered email:</span> <span className="font-mono">{registerData.email}</span></p>
-                                <p className="mt-1.5">No further action is needed from you right now — you can close this tab.</p>
-                            </div>
-                            <button
-                                type="button"
-                                onClick={() => {
-                                    setRegisterMode(false);
-                                    setRegisterStage('form');
-                                    setRegisterData({ joinCode: '', companyName: '', contactPerson: '', email: '', password: '', phone: '', serviceType: 'General / Housekeeping' });
-                                }}
-                                className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3 rounded-xl uppercase tracking-widest text-xs transition"
-                            >
-                                Back to Sign In
-                            </button>
-                        </div>
                     )}
                 </div>
             </div>
