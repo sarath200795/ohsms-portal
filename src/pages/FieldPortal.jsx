@@ -1,8 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-    browserSessionPersistence,
     onAuthStateChanged,
-    setPersistence,
     signInWithEmailAndPassword,
     signOut
 } from 'firebase/auth';
@@ -153,11 +151,13 @@ export default function FieldPortal() {
         let unsubscribe = () => {};
 
         const init = async () => {
-            try {
-                await setPersistence(fieldAuth, browserSessionPersistence);
-            } catch (error) {
-                console.warn('Field portal auth persistence setup failed.', error);
-            }
+            // NOTE: fieldAuth is now the PRIMARY auth instance (see portalAuth.js
+            // getFieldPortalFirebase) so that dbGet() calls in fetchFieldPortalContext
+            // inherit an authenticated context.  We intentionally skip
+            // setPersistence() here — overriding the primary auth's default
+            // browserLocalPersistence to session-only would log the main-app user
+            // out on every browser restart whenever they had also opened the
+            // field portal in the same browser.
 
             unsubscribe = onAuthStateChanged(fieldAuth, async (user) => {
                 if (cancelled || manualLoginRef.current) return;

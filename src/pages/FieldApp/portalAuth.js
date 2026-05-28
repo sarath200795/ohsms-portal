@@ -1,5 +1,3 @@
-import { getApps, initializeApp } from 'firebase/app';
-import { getAuth } from 'firebase/auth';
 import { dbGet } from '../../services/db/index.js';
 import { auth } from '../../config/firebase';
 import { getVisibleFieldModules } from './utils';
@@ -9,11 +7,24 @@ export const FIELD_PORTAL_APP_NAME = 'field-portal-app';
 export const FIELD_PORTAL_SESSION_KEY = 'fieldPortalSession';
 export const FIELD_MODULE_HOME_CONTEXT_KEY = 'fieldModuleHomeContext';
 
+/**
+ * Return the auth instance the field portal should use for sign-in.
+ *
+ * IMPORTANT — we deliberately return the PRIMARY app's auth (not a secondary
+ * "field-portal-app" instance) so that the RTDB connection used by dbGet()
+ * inherits the field-portal user's auth token.  Without this, every RTDB
+ * read in fetchFieldPortalContext() runs as unauthenticated against rules
+ * that require `auth != null`, leaving the request indefinitely stalled
+ * while the SDK waits for an auth token — which surfaces to the user as
+ * "[db:firebase] read timed out after 5 s".
+ *
+ * Trade-off: signing into the field portal on the same browser as the main
+ * app will sign out the main-app session.  This is acceptable because the
+ * field portal is intended for dedicated mobile devices, and the main app
+ * detects auth-state changes and redirects to /login automatically.
+ */
 export const getFieldPortalFirebase = () => {
-    const existingApp = getApps().find((app) => app.name === FIELD_PORTAL_APP_NAME);
-    const portalApp = existingApp || initializeApp(auth.app.options, FIELD_PORTAL_APP_NAME);
-
-    return { fieldAuth: getAuth(portalApp) };
+    return { fieldAuth: auth };
 };
 
 export const readFieldPortalSession = () => {
