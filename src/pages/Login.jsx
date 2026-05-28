@@ -32,6 +32,8 @@ import {
 import {
     getOrgRegistry,
     saveOrgToRegistry,
+    hideOrgInRegistry,
+    unhideOrgInRegistry,
     applyOrgDbConfig,
     isCurrentDb,
     getDbTypeLabel,
@@ -185,6 +187,9 @@ export default function Login() {
     const [orgRegistry, setOrgRegistry]         = useState([]);
     const [pickedOrg,   setPickedOrg]           = useState(null); // null = show picker when registry has entries
     const [currentOrgId, setCurrentOrgId]       = useState(null); // orgId of the signed-in session (if any)
+    // When true, the picker also renders entries with `hidden: true` so the
+    // user can un-hide them. Toggled by the "Show hidden (N)" link below.
+    const [showHidden, setShowHidden]           = useState(false);
 
     const isJoinMode = authMode === 'join';
 
@@ -204,6 +209,26 @@ export default function Login() {
             sessionStorage.setItem('ohsms_picked_org', JSON.stringify(entry));
             window.location.reload();
         }
+    };
+
+    /**
+     * Hide an org from the picker (soft-delete). The entry stays in the
+     * registry with `hidden: true` so it can be restored later via the
+     * "Show hidden" toggle. Nothing is actually deleted.
+     */
+    const handleHideOrg = (event, entry) => {
+        event.stopPropagation();    // don't trigger the card's onClick
+        event.preventDefault();
+        const next = hideOrgInRegistry(entry.orgId);
+        setOrgRegistry(next);
+    };
+
+    /** Reverse of handleHideOrg — restore a hidden entry to the picker. */
+    const handleUnhideOrg = (event, entry) => {
+        event.stopPropagation();
+        event.preventDefault();
+        const next = unhideOrgInRegistry(entry.orgId);
+        setOrgRegistry(next);
     };
 
     // ── load org registry + restore pickedOrg after a DB-switch reload ──────────
@@ -570,70 +595,130 @@ export default function Login() {
                             </div>
 
                             {orgRegistry.length > 0 ? (
-                                /* ── Registered org cards ── */
-                                <div className={`mt-4 grid gap-3 ${orgRegistry.length === 1 ? 'grid-cols-1' : 'grid-cols-2'}`}>
-                                    {orgRegistry.map((entry) => {
-                                        // Pass the active orgId so that when multiple orgs share
-                                        // the same Firebase project only the correct one is marked.
-                                        const isCurrent = isCurrentDb(entry, currentOrgId);
-                                        return (
-                                            <button
-                                                key={entry.orgId}
-                                                type="button"
-                                                onClick={() => handleOrgPick(entry)}
-                                                className={`group relative flex flex-col items-center gap-3 rounded-2xl border p-5 text-center transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-orange-400/30 ${
-                                                    isCurrent
-                                                        ? 'border-sky-300 bg-sky-50 hover:border-sky-400 hover:bg-sky-100/80'
-                                                        : 'border-slate-200 bg-white hover:border-orange-300 hover:bg-orange-50/80'
-                                                }`}
-                                            >
-                                                {/* Logo or initial avatar */}
-                                                <div className="relative h-20 w-20 flex-shrink-0 overflow-hidden rounded-2xl border border-slate-200 bg-slate-100">
-                                                    {entry.logoBase64 ? (
-                                                        <img
-                                                            src={entry.logoBase64}
-                                                            alt={entry.orgName}
-                                                            className="h-full w-full object-cover"
-                                                        />
+                                /* ── Registered org cards ──
+                                   Split entries into visible vs hidden. Default
+                                   only shows visible; the "Show N hidden" toggle
+                                   below reveals hidden entries with a restore
+                                   button so they can be brought back. */
+                                (() => {
+                                    const visibleRegistry = orgRegistry.filter((e) => !e.hidden);
+                                    const hiddenRegistry  = orgRegistry.filter((e) =>  e.hidden);
+                                    const pickerEntries   = showHidden ? orgRegistry : visibleRegistry;
+                                    return (
+                                <>
+                                    <div className={`mt-4 grid gap-3 ${pickerEntries.length === 1 ? 'grid-cols-1' : 'grid-cols-2'}`}>
+                                        {pickerEntries.map((entry) => {
+                                            // Pass the active orgId so that when multiple orgs share
+                                            // the same Firebase project only the correct one is marked.
+                                            const isCurrent = isCurrentDb(entry, currentOrgId);
+                                            const isHidden  = Boolean(entry.hidden);
+                                            return (
+                                                <button
+                                                    key={entry.orgId}
+                                                    type="button"
+                                                    onClick={() => handleOrgPick(entry)}
+                                                    className={`group relative flex flex-col items-center gap-3 rounded-2xl border p-5 text-center transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-orange-400/30 ${
+                                                        isCurrent
+                                                            ? 'border-sky-300 bg-sky-50 hover:border-sky-400 hover:bg-sky-100/80'
+                                                            : isHidden
+                                                                ? 'border-dashed border-slate-300 bg-slate-50/60 opacity-70 hover:opacity-100 hover:border-orange-300'
+                                                                : 'border-slate-200 bg-white hover:border-orange-300 hover:bg-orange-50/80'
+                                                    }`}
+                                                >
+                                                    {/* Hide / Unhide toggle (top-right corner) */}
+                                                    {isHidden ? (
+                                                        <span
+                                                            role="button"
+                                                            tabIndex={0}
+                                                            aria-label={`Restore ${entry.orgName} to picker`}
+                                                            title="Restore to picker"
+                                                            onClick={(e) => handleUnhideOrg(e, entry)}
+                                                            onKeyDown={(e) => {
+                                                                if (e.key === 'Enter' || e.key === ' ') handleUnhideOrg(e, entry);
+                                                            }}
+                                                            className="absolute right-2 top-2 flex h-6 w-6 items-center justify-center rounded-full border border-sky-300 bg-sky-50 text-xs font-bold text-sky-600 hover:bg-sky-100"
+                                                        >
+                                                            ↺
+                                                        </span>
                                                     ) : (
-                                                        <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-sky-100 to-slate-100 text-3xl font-black text-sky-600">
-                                                            {(entry.orgName || '?').charAt(0).toUpperCase()}
-                                                        </div>
+                                                        <span
+                                                            role="button"
+                                                            tabIndex={0}
+                                                            aria-label={`Hide ${entry.orgName} from picker`}
+                                                            title="Hide from picker (restorable)"
+                                                            onClick={(e) => handleHideOrg(e, entry)}
+                                                            onKeyDown={(e) => {
+                                                                if (e.key === 'Enter' || e.key === ' ') handleHideOrg(e, entry);
+                                                            }}
+                                                            className="absolute right-2 top-2 flex h-6 w-6 items-center justify-center rounded-full border border-slate-300 bg-white text-xs font-bold text-slate-400 opacity-0 transition-opacity duration-150 hover:border-rose-300 hover:bg-rose-50 hover:text-rose-500 group-hover:opacity-100 focus:opacity-100"
+                                                        >
+                                                            ×
+                                                        </span>
                                                     )}
-                                                    {/* Green dot — currently active database */}
-                                                    {isCurrent && (
-                                                        <div
-                                                            className="absolute -right-1 -top-1 h-4 w-4 rounded-full border-2 border-white bg-green-400 shadow-md"
-                                                            title="Currently connected"
-                                                        />
-                                                    )}
-                                                </div>
 
-                                                {/* Org name + DB type badge */}
-                                                <div className="min-w-0 w-full">
-                                                    <p className="truncate text-sm font-bold text-white">{entry.orgName}</p>
-                                                    <p className={`mt-0.5 text-[10px] font-bold uppercase tracking-wide ${
-                                                        entry.dbAdapter === 'firebase' ? 'text-orange-400' : 'text-cyan-400'
+                                                    {/* Logo or initial avatar */}
+                                                    <div className="relative h-20 w-20 flex-shrink-0 overflow-hidden rounded-2xl border border-slate-200 bg-slate-100">
+                                                        {entry.logoBase64 ? (
+                                                            <img
+                                                                src={entry.logoBase64}
+                                                                alt={entry.orgName}
+                                                                className="h-full w-full object-cover"
+                                                            />
+                                                        ) : (
+                                                            <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-sky-100 to-slate-100 text-3xl font-black text-sky-600">
+                                                                {(entry.orgName || '?').charAt(0).toUpperCase()}
+                                                            </div>
+                                                        )}
+                                                        {/* Green dot — currently active database */}
+                                                        {isCurrent && (
+                                                            <div
+                                                                className="absolute -right-1 -top-1 h-4 w-4 rounded-full border-2 border-white bg-green-400 shadow-md"
+                                                                title="Currently connected"
+                                                            />
+                                                        )}
+                                                    </div>
+
+                                                    {/* Org name + DB type badge */}
+                                                    <div className="min-w-0 w-full">
+                                                        <p className="truncate text-sm font-bold text-white">{entry.orgName}</p>
+                                                        <p className={`mt-0.5 text-[10px] font-bold uppercase tracking-wide ${
+                                                            entry.dbAdapter === 'firebase' ? 'text-orange-400' : 'text-cyan-400'
+                                                        }`}>
+                                                            {entry.dbAdapter === 'firebase' ? '🔥 Firebase' : `🖥️ ${getDbTypeLabel(entry)}`}
+                                                        </p>
+                                                        {isCurrent && (
+                                                            <p className="mt-0.5 text-[10px] font-bold text-green-400">✓ Active</p>
+                                                        )}
+                                                    </div>
+
+                                                    {/* Action label */}
+                                                    <span className={`text-[10px] font-bold uppercase tracking-widest transition-colors ${
+                                                        isCurrent
+                                                            ? 'text-cyan-500 group-hover:text-cyan-300'
+                                                            : 'text-gray-600 group-hover:text-orange-400'
                                                     }`}>
-                                                        {entry.dbAdapter === 'firebase' ? '🔥 Firebase' : `🖥️ ${getDbTypeLabel(entry)}`}
-                                                    </p>
-                                                    {isCurrent && (
-                                                        <p className="mt-0.5 text-[10px] font-bold text-green-400">✓ Active</p>
-                                                    )}
-                                                </div>
+                                                        {isCurrent ? 'Sign In →' : 'Switch DB & Sign In →'}
+                                                    </span>
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
 
-                                                {/* Action label */}
-                                                <span className={`text-[10px] font-bold uppercase tracking-widest transition-colors ${
-                                                    isCurrent
-                                                        ? 'text-cyan-500 group-hover:text-cyan-300'
-                                                        : 'text-gray-600 group-hover:text-orange-400'
-                                                }`}>
-                                                    {isCurrent ? 'Sign In →' : 'Switch DB & Sign In →'}
-                                                </span>
-                                            </button>
-                                        );
-                                    })}
-                                </div>
+                                    {/* Show / Hide the hidden-workspaces section */}
+                                    {hiddenRegistry.length > 0 && (
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowHidden((v) => !v)}
+                                            className="mt-3 w-full rounded-xl border border-slate-200 bg-slate-50 py-2.5 text-[11px] font-bold uppercase tracking-widest text-slate-500 transition hover:border-orange-300 hover:text-orange-600"
+                                        >
+                                            {showHidden
+                                                ? `↑ Hide ${hiddenRegistry.length} hidden workspace${hiddenRegistry.length === 1 ? '' : 's'}`
+                                                : `↓ Show ${hiddenRegistry.length} hidden workspace${hiddenRegistry.length === 1 ? '' : 's'}`}
+                                        </button>
+                                    )}
+                                </>
+                                    );
+                                })()
                             ) : (
                                 /* ── Empty state — no orgs registered ── */
                                 <div className="mt-5 rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-6 text-center">
