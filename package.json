@@ -37,9 +37,10 @@
     "video:record:modules": "node scripts/video-guides/render-all-modules.mjs",
     "video:record:minute-modules": "node scripts/video-guides/render-minute-modules.mjs",
     "video:record:tutorial-modules": "node scripts/video-guides/render-tutorial-modules.mjs",
-    "firebase:deploy": "firebase deploy --only database,hosting:app",
+    "firebase:deploy": "firebase deploy --only database,storage,hosting:app",
     "firebase:deploy:field-portal": "npm run build:field-portal && firebase deploy --only hosting:fieldportal",
     "firebase:rules": "firebase deploy --only database",
+    "firebase:rules:storage": "firebase deploy --only storage",
     "vercel:build:app": "npm run build",
     "vercel:build:field-portal": "npm run build:field-portal"
   },

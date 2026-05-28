@@ -576,7 +576,8 @@ export function useRiskModule() {
             alert('Risk Assessment Saved Successfully!');
             setShowChangeModal(false);
             setChangeDetails({ source: 'Annual Review', reason: '' });
-            await refreshRiskAssessments(session.orgId);
+            // Refresh list non-blocking so a slow read can't stall the save.
+            refreshRiskAssessments(session.orgId).catch(() => {});
             setView('list');
         } catch (error) {
             alert(`Save failed: ${error.message}`);

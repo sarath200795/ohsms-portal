@@ -447,8 +447,14 @@ export default function Improvement() {
                 alert(form.horizontalDeployment ? "Horizontal Proposal Created. CAPAs deployed globally!" : "Proposal Saved! Actions pushed to CAPA Manager.");
             }
 
-            const refreshedImprovements = await readOrgChild(null, session.orgId, 'improvements');
-            setImprovements(refreshedImprovements ? Object.entries(refreshedImprovements).map(([k, v]) => ({ firebaseKey: k, ...v })).sort((a, b) => new Date(b.timestamp || 0) - new Date(a.timestamp || 0)) : []);
+            // Refresh list non-blocking so a slow read can't stall the save.
+            readOrgChild(null, session.orgId, 'improvements')
+                .then(refreshed => {
+                    if (refreshed) {
+                        setImprovements(Object.entries(refreshed).map(([k, v]) => ({ firebaseKey: k, ...v })).sort((a, b) => new Date(b.timestamp || 0) - new Date(a.timestamp || 0)));
+                    }
+                })
+                .catch(() => {});
             setView('list');
         } catch (e) { alert("Save Failed: " + e.message); }
         finally { setSaving(false); }

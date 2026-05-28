@@ -565,7 +565,8 @@ export function useTrainingModule() {
                 alert("Training Saved! The linked CAPA action has been marked as 'Closed'.");
             } else alert('Saved Successfully!');
 
-            await refreshTrainings(session.orgId);
+            // Refresh list non-blocking so a slow read can't stall the save.
+            refreshTrainings(session.orgId).catch(() => {});
             setView('repo');
         } catch (error) {
             alert(`Failed to save: ${error.message}`);

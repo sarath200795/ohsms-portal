@@ -469,6 +469,7 @@ export default function Incidents() {
     const [newCapaDue, setNewCapaDue] = useState('');
     const [newCapaSite, setNewCapaSite] = useState('');
     const [videoEvidenceFile, setVideoEvidenceFile] = useState(null);
+    const [imageUploading, setImageUploading] = useState(false);
 
     const initialDataState = useMemo(() => createInitialDataState(), []);
     const [data, setData] = useState(() => createInitialDataState());
@@ -1574,8 +1575,14 @@ export default function Incidents() {
             alert('Please provide an Incident Title and select a Site.');
             return;
         }
-        if (!data.imageEvidence && !data.videoEvidence) {
+        // Only require media for brand-new incidents. Existing records already have
+        // their evidence stored — skip the check so edits are never blocked.
+        if (!data.firebaseKey && !data.imageEvidence && !data.videoEvidence) {
             alert('Please upload at least one photo or video before saving the incident report.');
+            return;
+        }
+        if (imageUploading) {
+            alert('Please wait for the photo upload to finish before saving.');
             return;
         }
         if (data.affectedPersonType === 'External Non-Employee' && !String(data.affectedPersonName || '').trim()) {
@@ -1638,7 +1645,7 @@ export default function Incidents() {
                 timestamp: saveTimestamp,
                 assumeLegacyCompletion: Boolean(data.firebaseKey)
             });
-            // Upload pending video file to Firebase Storage (deferred from handleVideoUpload)
+            // Encode pending video file (deferred from handleVideoUpload).
             let persistedVideoEvidence = null;
             if (videoEvidenceFile) {
                 try {
@@ -1649,7 +1656,9 @@ export default function Incidents() {
                     );
                 } catch (vidErr) {
                     console.error('[IncidentVideo] upload failed:', vidErr);
-                    // Non-fatal: incident is saved without video if upload fails
+                    // Surface to the user — most likely the 7 MB cap. The
+                    // incident itself still saves (just without the video).
+                    alert('Video could not be attached — ' + vidErr.message + '\n\nThe incident will still save without the video.');
                 }
             } else if (isStorageUrl(data.videoEvidence)) {
                 // Already a Storage https:// URL from a prior save — keep it
@@ -1679,8 +1688,15 @@ export default function Incidents() {
                 writeActivityLog(session.orgId, buildActivityEntry({ session, action: 'incident.created', module: 'Incidents', collection: 'incidents', recordId: newKey, recordTitle: data.title || data.id || '', siteId: data.siteId }));
             }
 
-            const refreshedIncidents = await readOrgChild(null, session.orgId, 'incidents');
-            setIncidentsList(refreshedIncidents ? Object.entries(refreshedIncidents).map(([k, v]) => ({ firebaseKey: k, ...v })) : []);
+            // Refresh the list non-blocking — don't let a slow read stall the
+            // success path.  The save itself already completed above.
+            readOrgChild(null, session.orgId, 'incidents')
+                .then(refreshedIncidents => {
+                    if (refreshedIncidents) {
+                        setIncidentsList(Object.entries(refreshedIncidents).map(([k, v]) => ({ firebaseKey: k, ...v })));
+                    }
+                })
+                .catch(() => {});
             // Fire-and-forget email notification to all org members
             notifyIncidentSaved(
                 { ...data, id: currentIncidentId || data.id },
@@ -1794,6 +1810,7 @@ export default function Incidents() {
         if (!file) return;
         e.target.value = '';
 
+        setImageUploading(true);
         try {
             // Compress to Blob (no data URL) then upload to Firebase Storage
             const blob = await compressImageToBlob(file);
@@ -1811,7 +1828,9 @@ export default function Incidents() {
             }
         } catch (err) {
             console.error('[IncidentImage] upload failed', err);
-            alert('Photo upload failed: ' + err.message);
+            alert('Photo upload failed — ' + err.message);
+        } finally {
+            setImageUploading(false);
         }
     };
 
@@ -2253,13 +2272,19 @@ export default function Incidents() {
 
                                     <div className="bg-slate-950/50 border border-slate-800 p-6 rounded-xl">
                                         <label className="text-[10px] uppercase font-bold text-slate-500 mb-4 block"><i className="fas fa-camera mr-2"></i> Photographic Evidence</label>
-                                        {data.imageEvidence && (
+                                        {data.imageEvidence && !imageUploading && (
                                             <div className="relative inline-block group">
                                                 <img src={data.imageEvidence} alt="Evidence" className="h-48 rounded-xl border-2 border-slate-700 object-cover shadow-xl" />
                                                 {canEditForm && <button type="button" onClick={() => setData({ ...data, imageEvidence: null })} className="absolute -top-3 -right-3 bg-red-500 text-white rounded-xl w-8 h-8 text-sm opacity-0 group-hover:opacity-100 transition-opacity shadow-lg flex items-center justify-center"><i className="fas fa-times"></i></button>}
                                             </div>
                                         )}
-                                        {!data.imageEvidence && canEditForm && (
+                                        {imageUploading && (
+                                            <div className="w-48 h-48 rounded-xl border-2 border-dashed border-red-500/50 bg-slate-900 flex flex-col items-center justify-center gap-2 text-red-400">
+                                                <i className="fas fa-spinner fa-spin text-3xl"></i>
+                                                <span className="text-xs font-bold uppercase tracking-widest">Uploading…</span>
+                                            </div>
+                                        )}
+                                        {!data.imageEvidence && !imageUploading && canEditForm && (
                                             <label className="cursor-pointer bg-slate-900 border-2 border-dashed border-slate-700 hover:border-red-500 hover:bg-slate-800 transition-colors w-48 h-48 rounded-xl flex flex-col items-center justify-center text-slate-500 hover:text-red-400">
                                                 <i className="fas fa-cloud-upload-alt text-3xl mb-2"></i>
                                                 <span className="text-xs font-bold uppercase tracking-widest">Upload Photo</span>
@@ -2271,7 +2296,7 @@ export default function Incidents() {
                                     <div className="flex justify-end gap-3 mt-8 pt-6 border-t border-slate-800">
                                         <button type="button" onClick={() => setView('repo')} className="text-slate-400 hover:text-white px-5 py-2.5 rounded-xl transition-colors font-bold text-sm">Cancel</button>
                                         {canEditForm && (
-                                            <button type="button" onClick={saveData} disabled={saving} className="bg-gradient-to-r from-red-600 to-orange-600 hover:from-red-500 hover:to-orange-500 text-white font-bold px-10 py-4 rounded-xl shadow-lg shadow-red-900/50 flex items-center gap-3 transition-transform active:scale-95 text-sm uppercase tracking-widest disabled:opacity-50"><i className={`fas ${saving ? 'fa-spinner fa-spin' : 'fa-save'} text-lg`}></i> {saving ? 'Saving...' : 'Save Draft'}</button>
+                                            <button type="button" onClick={saveData} disabled={saving || imageUploading} className="bg-gradient-to-r from-red-600 to-orange-600 hover:from-red-500 hover:to-orange-500 text-white font-bold px-10 py-4 rounded-xl shadow-lg shadow-red-900/50 flex items-center gap-3 transition-transform active:scale-95 text-sm uppercase tracking-widest disabled:opacity-50"><i className={`fas ${saving ? 'fa-spinner fa-spin' : imageUploading ? 'fa-cloud-upload-alt' : 'fa-save'} text-lg`}></i> {saving ? 'Saving...' : imageUploading ? 'Uploading Photo…' : 'Save Draft'}</button>
                                         )}
                                     </div>
                                 </div>
@@ -2340,7 +2365,7 @@ export default function Incidents() {
                                     <div className="flex justify-end gap-3 mt-8 pt-6 border-t border-slate-800">
                                         <button type="button" onClick={() => setView('repo')} className="text-slate-400 hover:text-white px-5 py-2.5 rounded-xl transition-colors font-bold text-sm">Cancel</button>
                                         {canEditForm && (
-                                            <button type="button" onClick={saveData} disabled={saving} className="bg-gradient-to-r from-red-600 to-orange-600 hover:from-red-500 hover:to-orange-500 text-white font-bold px-10 py-4 rounded-xl shadow-lg shadow-red-900/50 flex items-center gap-3 transition-transform active:scale-95 text-sm uppercase tracking-widest disabled:opacity-50"><i className={`fas ${saving ? 'fa-spinner fa-spin' : 'fa-save'} text-lg`}></i> {saving ? 'Saving...' : 'Save Draft'}</button>
+                                            <button type="button" onClick={saveData} disabled={saving || imageUploading} className="bg-gradient-to-r from-red-600 to-orange-600 hover:from-red-500 hover:to-orange-500 text-white font-bold px-10 py-4 rounded-xl shadow-lg shadow-red-900/50 flex items-center gap-3 transition-transform active:scale-95 text-sm uppercase tracking-widest disabled:opacity-50"><i className={`fas ${saving ? 'fa-spinner fa-spin' : imageUploading ? 'fa-cloud-upload-alt' : 'fa-save'} text-lg`}></i> {saving ? 'Saving...' : imageUploading ? 'Uploading Photo…' : 'Save Draft'}</button>
                                         )}
                                     </div>
                                 </div>
@@ -2406,7 +2431,7 @@ export default function Incidents() {
                                     <div className="flex justify-end gap-3 mt-8 pt-6 border-t border-slate-800">
                                         <button type="button" onClick={() => setView('repo')} className="text-slate-400 hover:text-white px-5 py-2.5 rounded-xl transition-colors font-bold text-sm">Cancel</button>
                                         {canEditForm && (
-                                            <button type="button" onClick={saveData} disabled={saving} className="bg-gradient-to-r from-red-600 to-orange-600 hover:from-red-500 hover:to-orange-500 text-white font-bold px-10 py-4 rounded-xl shadow-lg shadow-red-900/50 flex items-center gap-3 transition-transform active:scale-95 text-sm uppercase tracking-widest disabled:opacity-50"><i className={`fas ${saving ? 'fa-spinner fa-spin' : 'fa-save'} text-lg`}></i> {saving ? 'Saving...' : 'Save Draft'}</button>
+                                            <button type="button" onClick={saveData} disabled={saving || imageUploading} className="bg-gradient-to-r from-red-600 to-orange-600 hover:from-red-500 hover:to-orange-500 text-white font-bold px-10 py-4 rounded-xl shadow-lg shadow-red-900/50 flex items-center gap-3 transition-transform active:scale-95 text-sm uppercase tracking-widest disabled:opacity-50"><i className={`fas ${saving ? 'fa-spinner fa-spin' : imageUploading ? 'fa-cloud-upload-alt' : 'fa-save'} text-lg`}></i> {saving ? 'Saving...' : imageUploading ? 'Uploading Photo…' : 'Save Draft'}</button>
                                         )}
                                     </div>
                                 </div>
@@ -2488,7 +2513,7 @@ export default function Incidents() {
                                     <div className="flex justify-end gap-3 mt-8 pt-6 border-t border-slate-800">
                                         <button type="button" onClick={() => setView('repo')} className="text-slate-400 hover:text-white px-5 py-2.5 rounded-xl transition-colors font-bold text-sm">Cancel</button>
                                         {canEditForm && (
-                                            <button type="button" onClick={saveData} disabled={saving} className="bg-gradient-to-r from-red-600 to-orange-600 hover:from-red-500 hover:to-orange-500 text-white font-bold px-10 py-4 rounded-xl shadow-lg shadow-red-900/50 flex items-center gap-3 transition-transform active:scale-95 text-sm uppercase tracking-widest disabled:opacity-50"><i className={`fas ${saving ? 'fa-spinner fa-spin' : 'fa-save'} text-lg`}></i> {saving ? 'Saving...' : 'Save Draft'}</button>
+                                            <button type="button" onClick={saveData} disabled={saving || imageUploading} className="bg-gradient-to-r from-red-600 to-orange-600 hover:from-red-500 hover:to-orange-500 text-white font-bold px-10 py-4 rounded-xl shadow-lg shadow-red-900/50 flex items-center gap-3 transition-transform active:scale-95 text-sm uppercase tracking-widest disabled:opacity-50"><i className={`fas ${saving ? 'fa-spinner fa-spin' : imageUploading ? 'fa-cloud-upload-alt' : 'fa-save'} text-lg`}></i> {saving ? 'Saving...' : imageUploading ? 'Uploading Photo…' : 'Save Draft'}</button>
                                         )}
                                     </div>
                                 </div>

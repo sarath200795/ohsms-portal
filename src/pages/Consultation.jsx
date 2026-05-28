@@ -394,8 +394,14 @@ export default function Consultation() {
             notifyMeetingSaved(payload, users, session.name || session.email || 'Unknown');
             alert("Record saved successfully!");
 
-            const refreshedMeetings = await readOrgChild(null, session.orgId, 'consultations');
-            setMeetings(refreshedMeetings ? Object.entries(refreshedMeetings).map(([k, v]) => ({ firebaseKey: k, ...v })).sort((a, b) => new Date(b.date) - new Date(a.date)) : []);
+            // Refresh list non-blocking so a slow read can't stall the save.
+            readOrgChild(null, session.orgId, 'consultations')
+                .then(refreshed => {
+                    if (refreshed) {
+                        setMeetings(Object.entries(refreshed).map(([k, v]) => ({ firebaseKey: k, ...v })).sort((a, b) => new Date(b.date) - new Date(a.date)));
+                    }
+                })
+                .catch(() => {});
             setView('list');
         } catch (e) { alert("Save failed: " + e.message); }
         finally { setSaving(false); }
