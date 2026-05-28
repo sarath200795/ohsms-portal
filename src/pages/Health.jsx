@@ -13,6 +13,7 @@ import {
 } from '../utils/permissions';
 import { canAuthenticateStatus, readStoredSession } from '../utils/session';
 import { buildRegionOptions, filterSitesByRegion, matchesRegionFilter, normalizeSites } from '../utils/siteRegions';
+import CenterSelect from '../components/CenterSelect';
 
 const fileToBase64 = (file) => new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -182,17 +183,17 @@ export default function HealthDashboard() {
     });
 
     const [survForm, setSurvForm] = useState({
-        id: '', firebaseKey: '', type: 'Periodic Surveillance', date: '', agent: '', campaignName: '', siteId: '',
+        id: '', firebaseKey: '', type: 'Periodic Surveillance', date: '', agent: '', campaignName: '', siteId: '', centerCode: '',
         testGroups: []
     });
 
     const [vaccForm, setVaccForm] = useState({
-        id: '', firebaseKey: '', siteId: '', date: '', vaccineName: '', dosage: 'Dose 1', provider: '',
+        id: '', firebaseKey: '', siteId: '', centerCode: '', date: '', vaccineName: '', dosage: 'Dose 1', provider: '',
         employees: []
     });
 
     const [illnessForm, setIllnessForm] = useState({
-        id: '', firebaseKey: '', siteId: '', date: '', time: '', empNameId: '',
+        id: '', firebaseKey: '', siteId: '', centerCode: '', date: '', time: '', empNameId: '',
         agent: '', exposurePeriod: '', healthIssue: '', impactedFunction: '', treatment: '',
         capa: []
     });
@@ -1048,10 +1049,21 @@ export default function HealthDashboard() {
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
                                 <div>
                                     <label className="text-[10px] uppercase font-bold text-slate-400 tracking-widest block mb-2 ml-1">Site</label>
-                                    <select value={illnessForm.siteId} onChange={e => setIllnessForm({ ...illnessForm, siteId: e.target.value })} disabled={!permissions.canEditCreate} className="font-bold text-slate-200 font-['Inter'] w-full bg-slate-950 border border-slate-700 rounded-lg p-3 outline-none focus:border-amber-500">
+                                    <select value={illnessForm.siteId} onChange={e => setIllnessForm({ ...illnessForm, siteId: e.target.value, centerCode: '' })} disabled={!permissions.canEditCreate} className="font-bold text-slate-200 font-['Inter'] w-full bg-slate-950 border border-slate-700 rounded-lg p-3 outline-none focus:border-amber-500">
                                     {(isGlobalUser || filteredVisibleSites.length > 1) && <option value="">Select Site...</option>}
                                     {filteredVisibleSites.map(s => <option key={s.code} value={s.code}>{s.name}</option>)}
                                     </select>
+                                </div>
+                                <div>
+                                    <CenterSelect
+                                        sites={filteredVisibleSites}
+                                        siteCode={illnessForm.siteId}
+                                        value={illnessForm.centerCode}
+                                        onChange={(code) => setIllnessForm({ ...illnessForm, centerCode: code })}
+                                        disabled={!permissions.canEditCreate}
+                                        label="Center / Point"
+                                        className="font-['Inter'] w-full bg-slate-950 border border-slate-700 rounded-lg p-3 text-white outline-none focus:border-amber-500"
+                                    />
                                 </div>
                                 <div><label className="text-[10px] uppercase font-bold text-slate-400 tracking-widest block mb-2 ml-1">Employee Name / ID</label><input placeholder="e.g. John Doe (EMP-123)" value={illnessForm.empNameId} onChange={e => setIllnessForm({ ...illnessForm, empNameId: e.target.value })} disabled={!permissions.canEditCreate} className="font-bold text-amber-300 border-amber-900/50 font-['Inter'] w-full bg-slate-950 rounded-lg p-3 outline-none focus:border-amber-500" /></div>
 
@@ -1155,10 +1167,21 @@ export default function HealthDashboard() {
                             <div className="grid grid-cols-2 md:grid-cols-4 gap-6 mb-8 bg-slate-900/50 p-6 rounded-2xl border border-slate-700 shadow-inner">
                                 <div>
                                     <label className="text-[10px] uppercase font-bold text-slate-400 tracking-widest block mb-2 ml-1">Site</label>
-                                    <select value={survForm.siteId} onChange={e => setSurvForm({ ...survForm, siteId: e.target.value })} disabled={!permissions.canEditCreate} className="font-bold text-white font-['Inter'] w-full bg-slate-950 border border-slate-700 rounded-lg p-3 outline-none focus:border-indigo-500">
+                                    <select value={survForm.siteId} onChange={e => setSurvForm({ ...survForm, siteId: e.target.value, centerCode: '' })} disabled={!permissions.canEditCreate} className="font-bold text-white font-['Inter'] w-full bg-slate-950 border border-slate-700 rounded-lg p-3 outline-none focus:border-indigo-500">
                                     {(isGlobalUser || filteredVisibleSites.length > 1) && <option value="">Select Site...</option>}
                                     {filteredVisibleSites.map(s => <option key={s.code} value={s.code}>{s.name}</option>)}
                                     </select>
+                                </div>
+                                <div>
+                                    <CenterSelect
+                                        sites={filteredVisibleSites}
+                                        siteCode={survForm.siteId}
+                                        value={survForm.centerCode}
+                                        onChange={(code) => setSurvForm({ ...survForm, centerCode: code })}
+                                        disabled={!permissions.canEditCreate}
+                                        label="Center / Point"
+                                        className="font-['Inter'] w-full bg-slate-950 border border-slate-700 rounded-lg p-3 text-white outline-none focus:border-indigo-500"
+                                    />
                                 </div>
                                 <div>
                                     <label className="text-[10px] uppercase font-bold text-slate-400 tracking-widest block mb-2 ml-1">Surveillance Type</label>
@@ -1263,10 +1286,21 @@ export default function HealthDashboard() {
                             <div className="grid grid-cols-2 md:grid-cols-4 gap-6 mb-10 bg-slate-900/50 p-6 rounded-2xl border border-slate-700 shadow-inner">
                                 <div>
                                     <label className="text-[10px] uppercase font-bold text-slate-400 tracking-widest block mb-2 ml-1">Site</label>
-                                    <select value={vaccForm.siteId} onChange={e => setVaccForm({ ...vaccForm, siteId: e.target.value })} disabled={!permissions.canEditCreate} className="font-bold text-white font-['Inter'] w-full bg-slate-950 border border-slate-700 rounded-lg p-3 outline-none focus:border-cyan-500">
+                                    <select value={vaccForm.siteId} onChange={e => setVaccForm({ ...vaccForm, siteId: e.target.value, centerCode: '' })} disabled={!permissions.canEditCreate} className="font-bold text-white font-['Inter'] w-full bg-slate-950 border border-slate-700 rounded-lg p-3 outline-none focus:border-cyan-500">
                                     {(isGlobalUser || filteredVisibleSites.length > 1) && <option value="">Select Site...</option>}
                                     {filteredVisibleSites.map(s => <option key={s.code} value={s.code}>{s.name}</option>)}
                                     </select>
+                                </div>
+                                <div>
+                                    <CenterSelect
+                                        sites={filteredVisibleSites}
+                                        siteCode={vaccForm.siteId}
+                                        value={vaccForm.centerCode}
+                                        onChange={(code) => setVaccForm({ ...vaccForm, centerCode: code })}
+                                        disabled={!permissions.canEditCreate}
+                                        label="Center / Point"
+                                        className="font-['Inter'] w-full bg-slate-950 border border-slate-700 rounded-lg p-3 text-white outline-none focus:border-cyan-500"
+                                    />
                                 </div>
                                 <div><label className="text-[10px] uppercase font-bold text-slate-400 tracking-widest block mb-2 ml-1">Date</label><input type="date" value={vaccForm.date} onChange={e => setVaccForm({ ...vaccForm, date: e.target.value })} disabled={!permissions.canEditCreate} className="font-['Inter'] font-mono w-full bg-slate-950 border border-slate-700 rounded-lg p-3 text-white outline-none focus:border-cyan-500" /></div>
                                 <div><label className="text-[10px] uppercase font-bold text-slate-400 tracking-widest block mb-2 ml-1">Vaccine Name</label><input placeholder="e.g. Tetanus, Hep B, Flu" value={vaccForm.vaccineName} onChange={e => setVaccForm({ ...vaccForm, vaccineName: e.target.value })} disabled={!permissions.canEditCreate} className="font-bold text-cyan-300 border-cyan-900/50 focus:border-cyan-500 font-['Inter'] w-full bg-slate-950 rounded-lg p-3 outline-none" /></div>

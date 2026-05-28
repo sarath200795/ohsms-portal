@@ -9,6 +9,7 @@ import { buildRegionOptions, filterSitesByRegion, matchesRegionFilter, normalize
 import { QRCodeSVG } from 'qrcode.react';
 import * as XLSX from 'xlsx';
 import { notifyEquipmentUpdated } from '../utils/reportNotificationEmail';
+import CenterSelect from '../components/CenterSelect';
 
 const TYPES = ['Fire Extinguisher', 'First Aid Kit', 'AED / Defibrillator', 'Eye Wash Station', 'Spill Kit', 'Stretcher', 'Wheel Chair', 'Evacuation Chair'];
 const STATUSES = ['Active', 'Needs Inspection', 'Out of Service', 'Missing'];
@@ -339,7 +340,7 @@ const createInspectionDraft = (record, { qrScanMode = false, notes = '' } = {}) 
 const createEquipmentFormState = (siteId = '') => {
     const today = getTodayDate();
     return {
-        firebaseKey: null, assetId: '', siteId, type: 'Fire Extinguisher', location: '',
+        firebaseKey: null, assetId: '', siteId, centerCode: '', type: 'Fire Extinguisher', location: '',
         lastInspection: today, nextInspection: addDaysToDate(today, INSPECTION_INTERVAL_DAYS), status: 'Active', notes: '',
         extinguisherType: '', lastRefillDate: '', lastHptDate: '', nextRefillDate: '', nextHptDate: '',
         firstAidContentExpiries: createFirstAidContentExpiryState(), firstAidContentsExpiryDate: '', aedBatteryExpiryDate: '', aedElectrodesExpiryDate: ''
@@ -1261,10 +1262,20 @@ export default function EmergencyEquipment() {
                                     </div>
                                     <div>
                                         <label className="text-[10px] uppercase font-bold text-slate-400 block mb-2">Site Allocation</label>
-                                        <select value={formData.siteId} onChange={e => setFormData({ ...formData, siteId: e.target.value })} className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-white outline-none focus:border-orange-500">
+                                        <select value={formData.siteId} onChange={e => setFormData({ ...formData, siteId: e.target.value, centerCode: '' })} className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-white outline-none focus:border-orange-500">
                                             <option value="">Select Site...</option>
                                             {sites.filter(s => isGlobalUser || s.code === session?.assignedSite || (session?.accessibleSites || []).includes(s.code)).map(s => <option key={s.code} value={s.code}>{s.name}</option>)}
                                         </select>
+                                    </div>
+                                    <div>
+                                        <CenterSelect
+                                            sites={sites}
+                                            siteCode={formData.siteId}
+                                            value={formData.centerCode}
+                                            onChange={(code) => setFormData({ ...formData, centerCode: code })}
+                                            label="Center / Point"
+                                            className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-white outline-none focus:border-orange-500"
+                                        />
                                     </div>
                                 </div>
 

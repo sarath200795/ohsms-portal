@@ -13,6 +13,7 @@ import {
 } from '../utils/permissions';
 import { canAuthenticateStatus, readStoredSession } from '../utils/session';
 import { buildRegionOptions, filterSitesByRegion, matchesRegionFilter, normalizeSites } from '../utils/siteRegions';
+import CenterSelect from '../components/CenterSelect';
 
 // --- COMPONENTS ---
 const DynamicList = ({ label, items, onChange, placeholder, color = "text-slate-500", disabled }) => {
@@ -203,7 +204,7 @@ export default function Improvement() {
     const [regionFilter, setRegionFilter] = useState('All');
 
     const [form, setForm] = useState({
-        firebaseKey: null, type: 'JDI', title: '', siteId: '', date: new Date().toISOString().split('T')[0], description: '', cost: '',
+        firebaseKey: null, type: 'JDI', title: '', siteId: '', centerCode: '', date: new Date().toISOString().split('T')[0], description: '', cost: '',
         metrics: [], documentation: [], training: [], infrastructure: [], notifications: [],
         actions: [], status: 'Proposed', horizontalDeployment: false,
         approvals: { safety: { status: 'Pending', assignedTo: '' }, operations: { status: 'Pending', assignedTo: '' }, engineering: { status: 'Pending', assignedTo: '' } }
@@ -635,10 +636,21 @@ export default function Improvement() {
                                 </div>
                                 <div className="col-span-1">
                                     <label className="text-[10px] uppercase font-bold text-slate-500 block mb-2 tracking-widest ml-1">Originating Site</label>
-                                    <select value={form.siteId} onChange={e => setForm({ ...form, siteId: e.target.value })} disabled={form.firebaseKey || !canEditForm} className="bg-slate-950 focus:border-blue-500 outline-none w-full p-3.5 rounded-xl border border-slate-700 text-sm text-white shadow-inner transition-colors">
+                                    <select value={form.siteId} onChange={e => setForm({ ...form, siteId: e.target.value, centerCode: '' })} disabled={form.firebaseKey || !canEditForm} className="bg-slate-950 focus:border-blue-500 outline-none w-full p-3.5 rounded-xl border border-slate-700 text-sm text-white shadow-inner transition-colors">
                                         {(isGlobalUser || visibleSites.length > 1) && <option value="">Select Site...</option>}
                                         {visibleSites.map(s => <option key={s.code} value={s.code}>{s.name}</option>)}
                                     </select>
+                                </div>
+                                <div className="col-span-1">
+                                    <CenterSelect
+                                        sites={visibleSites}
+                                        siteCode={form.siteId}
+                                        value={form.centerCode}
+                                        onChange={(code) => setForm({ ...form, centerCode: code })}
+                                        disabled={!canEditForm}
+                                        label="Center / Point"
+                                        className="bg-slate-950 focus:border-blue-500 outline-none w-full p-3.5 rounded-xl border border-slate-700 text-sm text-white shadow-inner transition-colors"
+                                    />
                                 </div>
                                 <div className="col-span-2">
                                     <label className="text-[10px] uppercase font-bold text-slate-500 block mb-2 tracking-widest ml-1">Title</label>

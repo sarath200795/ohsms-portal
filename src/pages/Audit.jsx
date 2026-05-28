@@ -11,6 +11,7 @@ import {
 } from '../utils/permissions';
 import { canAuthenticateStatus, readStoredSession } from '../utils/session';
 import { notifyAuditSaved } from '../utils/reportNotificationEmail';
+import CenterSelect from '../components/CenterSelect';
 
 const fileToBase64 = (file) => new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -70,7 +71,7 @@ const AuditScheduler = ({ setView, session }) => {
     const [teamSearch, setTeamSearch] = useState('');
 
     const [plan, setPlan] = useState({
-        siteId: '', leadAuditor: '', team: [], standard: 'ISO 45001:2018', startDate: '', endDate: '', docId: ''
+        siteId: '', centerCode: '', leadAuditor: '', team: [], standard: 'ISO 45001:2018', startDate: '', endDate: '', docId: ''
     });
 
     const [rows, setRows] = useState([{ auditor: '', auditee: '', dept: '', area: '', aspect: '', date: '', time: '' }]);
@@ -179,10 +180,20 @@ const AuditScheduler = ({ setView, session }) => {
                         <div className="space-y-4">
                             <div>
                                 <label className="text-[10px] uppercase font-bold text-slate-500 tracking-widest block mb-2">Target Site</label>
-                                <select value={plan.siteId} onChange={e => setPlan({ ...plan, siteId: e.target.value })} className="w-full bg-slate-950 border border-slate-800 p-3.5 rounded-xl text-sm text-white focus:border-blue-500 outline-none shadow-inner">
+                                <select value={plan.siteId} onChange={e => setPlan({ ...plan, siteId: e.target.value, centerCode: '' })} className="w-full bg-slate-950 border border-slate-800 p-3.5 rounded-xl text-sm text-white focus:border-blue-500 outline-none shadow-inner">
                                     <option value="">Select Site...</option>
                                     {sites.map(s => <option key={s.code} value={s.code}>{s.name}</option>)}
                                 </select>
+                            </div>
+                            <div>
+                                <CenterSelect
+                                    sites={sites}
+                                    siteCode={plan.siteId}
+                                    value={plan.centerCode}
+                                    onChange={(code) => setPlan({ ...plan, centerCode: code })}
+                                    label="Center / Point"
+                                    className="w-full bg-slate-950 border border-slate-800 p-3.5 rounded-xl text-sm text-white focus:border-blue-500 outline-none shadow-inner"
+                                />
                             </div>
                             <div>
                                 <label className="text-[10px] uppercase font-bold text-slate-500 tracking-widest block mb-2">Standard</label>
