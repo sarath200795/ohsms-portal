@@ -508,8 +508,22 @@ export default function Contractors() {
                 createdAt: nowIso
             });
 
+            // Step 3 — write userDirectory.  This rule has historically been
+            // strict and can fail even for legitimate Global Owners (see
+            // commit ae2221c).  Made non-fatal: if it fails, vendorPortalUsers
+            // is still in place from step 2, so the vendor's first sign-in
+            // will trigger ensureVendorBootstrapAccess which writes
+            // userDirectory using the new self-write rule branch
+            // (auth.uid === $uid && vendorPortalUsers exists).  Either path
+            // gets the vendor into the portal.
             step = 'write userDirectory';
-            await dbSet(`userDirectory/${request.requestUid}`, { orgId: session.orgId });
+            let directoryWriteOk = false;
+            try {
+                await dbSet(`userDirectory/${request.requestUid}`, { orgId: session.orgId });
+                directoryWriteOk = true;
+            } catch (dirErr) {
+                console.warn('[approveVendorRegistration] userDirectory write blocked by rules — vendor will bootstrap it on first sign-in:', dirErr);
+            }
 
             // Step 4 — mark the request approved. This is the ONLY step
             // that can fail without breaking the vendor's ability to sign
@@ -546,7 +560,10 @@ export default function Contractors() {
             const auditNote = requestRowCleared
                 ? ''
                 : '\n\n(Note: the request row in vendorRegistrationRequests could not be updated — most likely the new rule for that collection has not been deployed yet. The vendor is approved regardless. Run "npm run firebase:rules" if you want the audit history to persist properly.)';
-            alert(successMsg + auditNote);
+            const directoryNote = directoryWriteOk
+                ? ''
+                : '\n\n(Note: writing userDirectory failed — the vendor will bootstrap their own entry on first sign-in via vendorPortalUsers. If sign-in also fails, re-run "npm run firebase:rules" to deploy the updated userDirectory rule branch.)';
+            alert(successMsg + directoryNote + auditNote);
         } catch (err) {
             console.error(`[approveVendorRegistration] failed at step: ${step}`, {
                 request,
