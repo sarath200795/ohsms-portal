@@ -84,10 +84,8 @@ export default function Contractors() {
     const [portalProvisioning, setPortalProvisioning] = useState(false);
     const [portalSuccess, setPortalSuccess] = useState(null);
 
-    // Vendor self-registration approval state
-    const [pendingRegistrations, setPendingRegistrations] = useState([]);
-    const [showPendingModal, setShowPendingModal] = useState(false);
-    const [approvalBusyId, setApprovalBusyId] = useState(null);
+    // (Pending vendor-registration modal state was removed — vendor approvals
+    //  now happen in the unified Users page; nothing here listens for them.)
 
     useEffect(() => {
         const sess = readStoredSession();
@@ -117,18 +115,7 @@ export default function Contractors() {
 
         const fetchData = async () => {
             try {
-                const data = await readOrgChildren(null, sess.orgId, ['contractors', 'users', 'sites', 'trainings', 'ptwRecords', 'incidents', 'vendorRegistrationRequests']);
-                // Pull pending vendor self-registration requests so the modal
-                // can pop on load.  Non-blocking — if rules deny the read
-                // (e.g. user isn't Global Owner), the modal just stays empty.
-                if (data.vendorRegistrationRequests) {
-                    const requests = Object.entries(data.vendorRegistrationRequests)
-                        .map(([k, v]) => ({ firebaseKey: k, ...v }))
-                        .filter((r) => r.status === 'Pending')
-                        .sort((a, b) => new Date(b.requestedAt || 0) - new Date(a.requestedAt || 0));
-                    setPendingRegistrations(requests);
-                    if (requests.length > 0) setShowPendingModal(true);
-                }
+                const data = await readOrgChildren(null, sess.orgId, ['contractors', 'users', 'sites', 'trainings', 'ptwRecords', 'incidents']);
 
                 if (data.contractors) setContractors(parseContractors(data.contractors));
                 if (data.users) {
@@ -430,182 +417,11 @@ export default function Contractors() {
         setEditingVendor(null);
     };
 
-    // ── Vendor self-registration: approve / reject ──────────────────────────
-    // Approve flow:
-    //   1. Create a contractor record from the request data (status: 'Active',
-    //      portalUid: requestUid so the portal links to this auth account).
-    //   2. Create vendorPortalUsers/{requestUid} with vendorPortal: true and
-    //      portalLinkedContractorId set to the new contractor key.
-    //   3. Write userDirectory/{requestUid} = { orgId } so the portal can
-    //      resolve the vendor's org on login.
-    //   4. Flip the request status to 'Approved' (for audit; could also delete).
-    // Reject flow: just flip the request status to 'Rejected'.
-    const approveVendorRegistration = async (request) => {
-        if (!request?.firebaseKey) return;
-        if (!isGlobalUser) return alert('Only the Global Owner can approve vendor registrations.');
-        setApprovalBusyId(request.firebaseKey);
-
-        // Track which step failed so the alert message points to the exact
-        // permission/validate rule that blocked the approval.  All four
-        // writes are required for the vendor to log in successfully, so we
-        // can't proceed if any one fails.
-        let step = '';
-        try {
-            const nowIso = new Date().toISOString();
-            const contractorPayload = {
-                companyName: request.companyName || '',
-                contactPerson: request.contactPerson || '',
-                email: request.email,
-                phone: request.phone || '',
-                serviceType: request.serviceType || 'General / Housekeeping',
-                goodsType: 'PPE',
-                notes: '',
-                allocatedSites: [],
-                siteId: '',
-                status: 'Active',
-                documents: [],
-                workers: [],
-                trainings: [],
-                incidents: [],
-                nonCompliances: [],
-                portalUid: request.requestUid,
-                portalSharedIdentity: false,
-                portalBootstrapPending: false,
-                portalBootstrapEmail: '',
-                portalAssignedSite: '',
-                portalProvisionedAt: nowIso,
-                portalProvisionedBy: session.email,
-                portalSetupLinkSentAt: null,
-                portalSetupLinkSentBy: null,
-                portalPasswordRotatedAt: null,
-                portalPasswordRotatedBy: null,
-                portalCredentialEmailSentAt: null,
-                portalCredentialEmailSentBy: null,
-                vendorCode: 'VEN-' + Math.random().toString(36).slice(2, 8).toUpperCase(),
-                createdAt: nowIso,
-                lastUpdated: nowIso,
-                updatedBy: session.email,
-                createdViaVendorSelfRegistration: true
-            };
-
-            step = 'create contractor';
-            const contractorKey = await dbPush(`organizations/${session.orgId}/contractors`, contractorPayload);
-
-            step = 'write vendorPortalUsers';
-            await dbSet(`organizations/${session.orgId}/vendorPortalUsers/${request.requestUid}`, {
-                name: request.contactPerson || request.companyName || 'Vendor Portal User',
-                email: request.email,
-                role: 'User',
-                status: 'Active',
-                assignedSite: '',
-                accessibleSites: [],
-                accessibleModules: [],
-                vendorPortal: true,
-                portalLinkedContractorId: contractorKey,
-                portalBootstrapPending: false,
-                updatedBy: session.email,
-                updatedAt: nowIso,
-                createdAt: nowIso
-            });
-
-            // Step 3 — write userDirectory.  This rule has historically been
-            // strict and can fail even for legitimate Global Owners (see
-            // commit ae2221c).  Made non-fatal: if it fails, vendorPortalUsers
-            // is still in place from step 2, so the vendor's first sign-in
-            // will trigger ensureVendorBootstrapAccess which writes
-            // userDirectory using the new self-write rule branch
-            // (auth.uid === $uid && vendorPortalUsers exists).  Either path
-            // gets the vendor into the portal.
-            step = 'write userDirectory';
-            let directoryWriteOk = false;
-            try {
-                await dbSet(`userDirectory/${request.requestUid}`, { orgId: session.orgId });
-                directoryWriteOk = true;
-            } catch (dirErr) {
-                console.warn('[approveVendorRegistration] userDirectory write blocked by rules — vendor will bootstrap it on first sign-in:', dirErr);
-            }
-
-            // Step 4 — mark the request approved. This is the ONLY step
-            // that can fail without breaking the vendor's ability to sign
-            // in: at this point the contractor, vendorPortalUsers entry,
-            // and userDirectory are all written. The request row is just
-            // an audit artefact. If the rule for vendorRegistrationRequests
-            // isn't deployed yet, fall back to removing the row outright,
-            // and if THAT also fails (very unlikely) just drop it from
-            // local state so it disappears from the modal — the vendor is
-            // already approved from a functional standpoint.
-            step = 'mark request approved';
-            let requestRowCleared = false;
-            try {
-                await dbUpdate(`organizations/${session.orgId}/vendorRegistrationRequests/${request.firebaseKey}`, {
-                    status: 'Approved',
-                    approvedAt: nowIso,
-                    approvedBy: session.email,
-                    approvedContractorId: contractorKey
-                });
-                requestRowCleared = true;
-            } catch (markErr) {
-                console.warn('[approveVendorRegistration] could not mark request as Approved, trying delete:', markErr);
-                try {
-                    await dbRemove(`organizations/${session.orgId}/vendorRegistrationRequests/${request.firebaseKey}`);
-                    requestRowCleared = true;
-                } catch (removeErr) {
-                    console.warn('[approveVendorRegistration] could not delete request row either — dropping from local state only:', removeErr);
-                }
-            }
-
-            setPendingRegistrations((prev) => prev.filter((r) => r.firebaseKey !== request.firebaseKey));
-            await refreshContractors();
-            const successMsg = `Approved.\n\n${request.companyName} can now sign in to the vendor portal with the email + password they used to register.`;
-            const auditNote = requestRowCleared
-                ? ''
-                : '\n\n(Note: the request row in vendorRegistrationRequests could not be updated — most likely the new rule for that collection has not been deployed yet. The vendor is approved regardless. Run "npm run firebase:rules" if you want the audit history to persist properly.)';
-            const directoryNote = directoryWriteOk
-                ? ''
-                : '\n\n(Note: writing userDirectory failed — the vendor will bootstrap their own entry on first sign-in via vendorPortalUsers. If sign-in also fails, re-run "npm run firebase:rules" to deploy the updated userDirectory rule branch.)';
-            alert(successMsg + directoryNote + auditNote);
-        } catch (err) {
-            console.error(`[approveVendorRegistration] failed at step: ${step}`, {
-                request,
-                error: err,
-                actor: { uid: session.uid, role: session.role, orgId: session.orgId }
-            });
-            const code = err?.code || '';
-            const baseMsg = `Approval failed at "${step}" — ${err?.message || code || 'Unknown error'}`;
-            if (String(err?.message || '').toUpperCase().includes('PERMISSION_DENIED') || code === 'PERMISSION_DENIED') {
-                alert(
-                    baseMsg + '\n\n' +
-                    'Most likely cause: the database rules in production are out of sync with the code. ' +
-                    'Run "npm run firebase:rules" to deploy the latest database.rules.json — the vendorRegistrationRequests collection needs the new rule branch, ' +
-                    'and the userDirectory + vendorPortalUsers + contractors paths need to recognise the admin\'s Global Owner write for the vendor\'s new uid.\n\n' +
-                    'See the browser console for the exact step + payload that was rejected.'
-                );
-            } else {
-                alert(baseMsg + '\n\nSee the browser console for full details.');
-            }
-        } finally {
-            setApprovalBusyId(null);
-        }
-    };
-
-    const rejectVendorRegistration = async (request) => {
-        if (!request?.firebaseKey) return;
-        if (!isGlobalUser) return alert('Only the Global Owner can reject vendor registrations.');
-        if (!window.confirm(`Reject the registration request from ${request.companyName} (${request.email})?\n\nThe vendor will be told their request was declined and can re-register with the same email later if needed.`)) return;
-        setApprovalBusyId(request.firebaseKey);
-        try {
-            await dbUpdate(`organizations/${session.orgId}/vendorRegistrationRequests/${request.firebaseKey}`, {
-                status: 'Rejected',
-                rejectedAt: new Date().toISOString(),
-                rejectedBy: session.email
-            });
-            setPendingRegistrations((prev) => prev.filter((r) => r.firebaseKey !== request.firebaseKey));
-        } catch (err) {
-            alert('Rejection failed: ' + (err?.message || err));
-        } finally {
-            setApprovalBusyId(null);
-        }
-    };
+    // (Vendor self-registration approve/reject handlers were removed —
+    //  vendor approvals now flow through the unified Users page. See
+    //  Users.handleSaveUser which detects vendorPortal: true on a pending
+    //  user and creates the contractor + vendorPortalUsers records as a
+    //  post-approval side-effect.)
 
     const provisionVendorPortalAccess = async () => {
         if (!isGlobalUser) {
@@ -1518,62 +1334,8 @@ export default function Contractors() {
                     />
                 )}
 
-                {/* ── Pending vendor self-registration requests modal ─────────
-                    Pops automatically on Contractors page load when there are
-                    Pending rows in vendorRegistrationRequests. Admin can
-                    Approve (creates contractor + vendorPortalUsers +
-                    userDirectory in one go) or Reject. */}
-                {showPendingModal && pendingRegistrations.length > 0 && isGlobalUser && (
-                    <div className="fixed inset-0 bg-black/80 z-[120] flex items-center justify-center p-4 backdrop-blur-sm">
-                        <div className="bg-slate-900 border border-amber-500/40 rounded-3xl shadow-2xl max-w-2xl w-full max-h-[90vh] flex flex-col">
-                            <div className="p-6 border-b border-slate-800 flex items-start justify-between">
-                                <div>
-                                    <p className="text-[10px] uppercase font-bold text-amber-400 tracking-widest">Vendor Onboarding</p>
-                                    <h2 className="text-2xl font-black text-white mt-1">{pendingRegistrations.length} Pending Vendor Request{pendingRegistrations.length === 1 ? '' : 's'}</h2>
-                                    <p className="text-xs text-slate-400 mt-2 leading-relaxed">Vendors self-registered via the portal using your org's join code. Approving creates their contractor record and unlocks portal access immediately.</p>
-                                </div>
-                                <button onClick={() => setShowPendingModal(false)} className="text-slate-500 hover:text-white text-xl"><i className="fas fa-times"></i></button>
-                            </div>
-                            <div className="flex-1 overflow-y-auto p-6 space-y-3 custom-scroll">
-                                {pendingRegistrations.map((request) => (
-                                    <div key={request.firebaseKey} className="bg-slate-950 border border-slate-800 rounded-xl p-4">
-                                        <div className="flex items-start justify-between gap-3">
-                                            <div className="flex-1 min-w-0">
-                                                <div className="text-base font-bold text-white">{request.companyName}</div>
-                                                <div className="text-xs text-slate-400 mt-1 space-y-0.5">
-                                                    <div><i className="fas fa-envelope mr-2 text-slate-600"></i> <span className="font-mono">{request.email}</span></div>
-                                                    {request.contactPerson && <div><i className="fas fa-user mr-2 text-slate-600"></i> {request.contactPerson}</div>}
-                                                    {request.phone && <div><i className="fas fa-phone mr-2 text-slate-600"></i> {request.phone}</div>}
-                                                    {request.serviceType && <div><i className="fas fa-briefcase mr-2 text-slate-600"></i> {request.serviceType}</div>}
-                                                    {request.requestedAt && <div className="text-slate-600"><i className="fas fa-clock mr-2"></i> {new Date(request.requestedAt).toLocaleString()}</div>}
-                                                </div>
-                                            </div>
-                                            <div className="flex flex-col gap-2 shrink-0">
-                                                <button
-                                                    onClick={() => approveVendorRegistration(request)}
-                                                    disabled={approvalBusyId === request.firebaseKey}
-                                                    className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-lg text-[10px] font-bold uppercase tracking-widest transition disabled:opacity-50 flex items-center gap-2"
-                                                >
-                                                    <i className={`fas ${approvalBusyId === request.firebaseKey ? 'fa-spinner fa-spin' : 'fa-check'}`}></i> Approve
-                                                </button>
-                                                <button
-                                                    onClick={() => rejectVendorRegistration(request)}
-                                                    disabled={approvalBusyId === request.firebaseKey}
-                                                    className="bg-red-900/40 hover:bg-red-600 text-red-300 hover:text-white border border-red-500/30 px-4 py-2 rounded-lg text-[10px] font-bold uppercase tracking-widest transition disabled:opacity-50"
-                                                >
-                                                    Reject
-                                                </button>
-                                            </div>
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                            <div className="p-4 border-t border-slate-800 flex justify-end">
-                                <button onClick={() => setShowPendingModal(false)} className="bg-slate-800 hover:bg-slate-700 text-white font-bold px-6 py-2.5 rounded-lg text-xs uppercase tracking-widest transition">Close</button>
-                            </div>
-                        </div>
-                    </div>
-                )}
+                {/* Pending vendor-request modal was removed — vendor approvals
+                    now live in the Users page (employee + vendor unified flow). */}
             </div>
         </>
     );
