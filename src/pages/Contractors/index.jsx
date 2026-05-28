@@ -1221,6 +1221,7 @@ export default function Contractors() {
                         onSubmit={submitNewWorker}
                         setAddWorkerData={setAddWorkerData}
                         visibleContractors={visibleContractors}
+                        visibleSites={visibleSites}
                     />
                 )}
 

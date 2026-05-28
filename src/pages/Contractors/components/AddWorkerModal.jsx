@@ -7,7 +7,8 @@ export default function AddWorkerModal({
     onClose,
     onSubmit,
     setAddWorkerData,
-    visibleContractors
+    visibleContractors,
+    visibleSites = []
 }) {
     return (
         <div className="fixed inset-0 z-[100] bg-black/80 flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in">
@@ -39,18 +40,51 @@ export default function AddWorkerModal({
                         </div>
                     </div>
 
-                    {addWorkerData.contractorId && (
-                        <div className="pt-2">
-                            <label className="text-[10px] uppercase font-bold text-emerald-400 block mb-1">Initial Site Deployment *</label>
-                            <select value={addWorkerData.deployedSite} onChange={(event) => setAddWorkerData({ ...addWorkerData, deployedSite: event.target.value })} className="w-full bg-slate-950 border border-emerald-500/50 rounded-xl p-3 text-emerald-400 outline-none focus:border-emerald-500 font-bold shadow-inner">
-                                <option value="">Select Target Site...</option>
-                                {(() => {
-                                    const selectedContractor = contractors.find((contractor) => contractor.firebaseKey === addWorkerData.contractorId);
-                                    return safeArr(selectedContractor?.allocatedSites).map((site) => <option key={site} value={site}>{site}</option>);
-                                })()}
-                            </select>
-                        </div>
-                    )}
+                    {addWorkerData.contractorId && (() => {
+                        const selectedContractor = contractors.find((contractor) => contractor.firebaseKey === addWorkerData.contractorId);
+                        const allocated = safeArr(selectedContractor?.allocatedSites).filter(Boolean);
+                        // Prefer the contractor's allocatedSites (the scope the
+                        // admin granted them in Users → permissions), but fall
+                        // back to ALL visible sites when the contractor has
+                        // none yet — otherwise the picker is empty and
+                        // submission is blocked. The deployedSite written on
+                        // the worker is informational; rules don't constrain it.
+                        const useAllocated = allocated.length > 0;
+                        const sitesToShow = useAllocated
+                            ? allocated.map((code) => {
+                                const meta = visibleSites.find((s) => s.code === code);
+                                return { code, name: meta?.name || code };
+                            })
+                            : safeArr(visibleSites).map((s) => ({ code: s.code, name: s.name || s.code }));
+
+                        return (
+                            <div className="pt-2">
+                                <label className="text-[10px] uppercase font-bold text-emerald-400 block mb-1">
+                                    Initial Site Deployment *
+                                </label>
+                                <select
+                                    value={addWorkerData.deployedSite}
+                                    onChange={(event) => setAddWorkerData({ ...addWorkerData, deployedSite: event.target.value })}
+                                    className="w-full bg-slate-950 border border-emerald-500/50 rounded-xl p-3 text-emerald-400 outline-none focus:border-emerald-500 font-bold shadow-inner"
+                                >
+                                    <option value="">Select Target Site...</option>
+                                    {sitesToShow.map((site) => (
+                                        <option key={site.code} value={site.code}>{site.name} ({site.code})</option>
+                                    ))}
+                                </select>
+                                {sitesToShow.length === 0 && (
+                                    <p className="mt-2 text-[10px] text-red-400 italic">
+                                        No sites available — register at least one site in the Sites module first, then come back here.
+                                    </p>
+                                )}
+                                {!useAllocated && sitesToShow.length > 0 && (
+                                    <p className="mt-2 text-[10px] text-amber-300 italic">
+                                        This contractor has no allocated sites yet — picking from your full site list. Grant them sites via Users → Edit if you want to lock deployment to a subset.
+                                    </p>
+                                )}
+                            </div>
+                        );
+                    })()}
 
                     <p className="text-[10px] text-slate-500 italic mt-4">Note: Medical Fitness and Competence Documents can be uploaded directly from the worker&apos;s profile after registration.</p>
                 </div>
