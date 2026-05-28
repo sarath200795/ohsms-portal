@@ -997,40 +997,6 @@ export default function Inspections() {
                                         This field workspace is report-only for inspections. Complete the assigned inspection here, then log in to the web portal to verify the submitted report.
                                     </div>
                                 )}
-                                {latestInspectionRecord && (
-                                    <div className="max-w-6xl mx-auto bg-slate-900/70 border border-cyan-500/30 rounded-2xl p-6 shadow-xl">
-                                        <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-6">
-                                            <div className="flex-1">
-                                                <div className="text-[10px] font-bold uppercase tracking-[0.28em] text-cyan-300 mb-2">Last Inspection Snapshot</div>
-                                                <div className="text-xl font-black text-white">{latestInspectionRecord.templateTitle}</div>
-                                                <div className="text-xs text-slate-400 mt-2">
-                                                    {new Date(latestInspectionRecord.completedAt).toLocaleString()} | Site: <span className="text-white font-bold">{latestInspectionRecord.siteId}</span> | Inspector: <span className="text-white font-bold">{latestInspectionRecord.inspector}</span>
-                                                </div>
-                                                {latestInspectionRecord.additionalFindings && (
-                                                    <div className="mt-4 bg-slate-950/80 border border-cyan-500/20 rounded-xl p-4 text-sm text-slate-200">
-                                                        <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-cyan-300 mb-2">Additional Findings</div>
-                                                        {latestInspectionRecord.additionalFindings}
-                                                    </div>
-                                                )}
-                                            </div>
-                                            <div className="md:w-[320px] bg-slate-950/70 border border-slate-800 rounded-2xl p-4">
-                                                <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-slate-400 mb-3">Last Findings</div>
-                                                <div className="space-y-3">
-                                                    {latestInspectionFindings.slice(0, 4).map((finding, index) => (
-                                                        <div key={`${finding.label}-${index}`} className="border border-slate-800 rounded-xl p-3 bg-slate-900/60">
-                                                            <div className="text-xs font-bold text-white">{finding.label}</div>
-                                                            <div className={`text-[10px] font-bold uppercase tracking-[0.22em] mt-1 ${finding.answer === 'Fail' ? 'text-red-400' : 'text-blue-300'}`}>{finding.answer}</div>
-                                                            {finding.observation && <div className="text-xs text-slate-400 mt-2">{finding.observation}</div>}
-                                                        </div>
-                                                    ))}
-                                                    {latestInspectionFindings.length === 0 && (
-                                                        <div className="text-xs italic text-slate-500">No finding details were recorded in the latest inspection.</div>
-                                                    )}
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                )}
                                 <div className="flex justify-between items-end mb-4">
                                     <div>
                                         <h2 className="text-3xl font-bold text-white mb-1">Inspection Schedule</h2>
