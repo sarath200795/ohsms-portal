@@ -1,13 +1,9 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { initializeApp, getApps } from 'firebase/app';
 import {
     EmailAuthProvider,
-    browserSessionPersistence,
-    getAuth,
     onAuthStateChanged,
     reauthenticateWithCredential,
     sendPasswordResetEmail,
-    setPersistence,
     signInWithEmailAndPassword,
     signOut,
     updatePassword
@@ -15,17 +11,23 @@ import {
 import { auth } from '../config/firebase';
 import { dbGet, dbSet, dbUpdate, dbQuery } from '../services/db/index.js';
 import { safeDocumentHref } from '../utils/security';
+import {
+    getOrgRegistry,
+    applyOrgDbConfig,
+    isCurrentDb,
+    getDbTypeLabel,
+} from '../utils/orgRegistry.js';
 
-const VENDOR_APP_NAME = 'vendor-portal-app';
 const VENDOR_SESSION_KEY = 'vendorSession';
+/** sessionStorage key used to survive the DB-switch page reload */
+const VENDOR_PICKED_ORG_KEY = 'vendor_portal_picked_org';
 
-const getVendorFirebase = () => {
-    const existingApp = getApps().find(app => app.name === VENDOR_APP_NAME);
-    const vendorApp = existingApp || initializeApp(auth.app.options, VENDOR_APP_NAME);
-    return { vendorAuth: getAuth(vendorApp) };
-};
-
-const { vendorAuth } = getVendorFirebase();
+// NOTE: The vendor portal used to create a SECONDARY Firebase app named
+// 'vendor-portal-app' and sign in against it. That broke RTDB reads
+// because dbGet uses the PRIMARY app's database connection, which has
+// no auth.currentUser when sign-in happens on a secondary instance.
+// We now sign in directly on the primary `auth` instance, mirroring the
+// fix applied to the field portal (commit edc8ef9).
 
 const safeArr = (val) => {
     if (!val) return [];
@@ -209,6 +211,50 @@ export default function VendorPortal() {
     const [passwordForm, setPasswordForm] = useState({ current: '', next: '', confirm: '' });
     const [isPasswordSaving, setIsPasswordSaving] = useState(false);
     const manualLoginRef = useRef(false);
+
+    // ── Database / org selection (Step 1 before login) ────────────────────────
+    // Mirrors the field portal: the vendor must pick which organisation's
+    // database to connect to BEFORE logging in.  Each registry entry has its
+    // own Firebase config; picking one writes the config to localStorage and
+    // reloads the page so the SDK re-initialises against that project.
+    const [orgRegistry, setOrgRegistry] = useState([]);
+    const [pickedOrg, setPickedOrg] = useState(null);   // null = show picker
+    const [currentOrgId, setCurrentOrgId] = useState(null);
+
+    // Load org registry + restore pickedOrg after a DB-switch reload.
+    useEffect(() => {
+        const registry = getOrgRegistry();
+        setOrgRegistry(registry);
+
+        // If a vendor session already exists, remember its orgId so the
+        // active indicator in the picker shows the correct entry.
+        const existing = readVendorSession();
+        if (existing?.orgId) setCurrentOrgId(existing.orgId);
+
+        // After a DB-switch reload the picked org is stashed in sessionStorage.
+        const pending = sessionStorage.getItem(VENDOR_PICKED_ORG_KEY);
+        if (pending) {
+            try { setPickedOrg(JSON.parse(pending)); } catch { /* ignore */ }
+            sessionStorage.removeItem(VENDOR_PICKED_ORG_KEY);
+        }
+    }, []);
+
+    /** User clicked an org card in the DB picker. */
+    const handleOrgPick = (entry) => {
+        if (isCurrentDb(entry, currentOrgId)) {
+            // Already the active database — just advance to the login form.
+            setPickedOrg(entry);
+        } else {
+            // Different database: write config to localStorage and reload
+            // so the Firebase SDK re-initialises with the correct credentials.
+            applyOrgDbConfig(entry);
+            sessionStorage.setItem(VENDOR_PICKED_ORG_KEY, JSON.stringify(entry));
+            window.location.reload();
+        }
+    };
+
+    /** Return from the login form back to the org picker. */
+    const handleBackToPicker = () => setPickedOrg(null);
 
     const getBootstrapHints = useCallback(() => {
         const params = new URLSearchParams(window.location.search);
@@ -400,7 +446,7 @@ export default function VendorPortal() {
             console.error('Vendor portal login error:', error);
             sessionStorage.removeItem(VENDOR_SESSION_KEY);
             resetPortalState(false);
-            await signOut(vendorAuth).catch(() => {});
+            await signOut(auth).catch(() => {});
             if (showAlerts) {
                 alert(error.message || 'Failed to connect to the portal.');
             }
@@ -414,13 +460,14 @@ export default function VendorPortal() {
         let unsubscribe = () => {};
 
         const init = async () => {
-            try {
-                await setPersistence(vendorAuth, browserSessionPersistence);
-            } catch (error) {
-                console.warn('Vendor auth persistence setup failed.', error);
-            }
+            // NOTE: `auth` is the PRIMARY Firebase auth instance — we used
+            // to also call setPersistence(auth, browserSessionPersistence)
+            // here, but that downgraded the main-app session to clear on
+            // every browser restart whenever someone opened the vendor
+            // portal in the same browser.  Keeping the primary auth's
+            // default browserLocalPersistence is the correct behavior.
 
-            unsubscribe = onAuthStateChanged(vendorAuth, async (user) => {
+            unsubscribe = onAuthStateChanged(auth, async (user) => {
                 if (cancelled || manualLoginRef.current) return;
 
                 const storedSession = readVendorSession();
@@ -480,7 +527,7 @@ export default function VendorPortal() {
 
         try {
             manualLoginRef.current = true;
-            const userCredential = await signInWithEmailAndPassword(vendorAuth, cleanEmail, cleanPassword);
+            const userCredential = await signInWithEmailAndPassword(auth, cleanEmail, cleanPassword);
             await fetchVendorData({
                 user: userCredential.user,
                 showAlerts: true
@@ -505,7 +552,7 @@ export default function VendorPortal() {
 
         setLoading(true);
         try {
-            await sendPasswordResetEmail(vendorAuth, cleanEmail, {
+            await sendPasswordResetEmail(auth, cleanEmail, {
                 url: `${window.location.origin}/vendor-portal?email=${encodeURIComponent(cleanEmail)}${hints.orgId ? `&orgId=${encodeURIComponent(hints.orgId)}` : ''}${hints.contractorId ? `&contractorId=${encodeURIComponent(hints.contractorId)}` : ''}${hints.siteId ? `&siteId=${encodeURIComponent(hints.siteId)}` : ''}${hints.bootstrap ? '&bootstrap=1' : ''}`,
                 handleCodeInApp: false
             });
@@ -530,7 +577,7 @@ export default function VendorPortal() {
     const handleChangePassword = async (e) => {
         e.preventDefault();
 
-        const currentUser = vendorAuth.currentUser;
+        const currentUser = auth.currentUser;
         const userEmail = currentUser?.email || vendorSession?.email;
         const wasForcedPasswordChange = Boolean(vendorSession?.mustChangePassword);
 
@@ -569,7 +616,7 @@ export default function VendorPortal() {
 
             if (wasForcedPasswordChange) {
                 sessionStorage.removeItem(VENDOR_SESSION_KEY);
-                await signOut(vendorAuth).catch(() => {});
+                await signOut(auth).catch(() => {});
                 resetPortalState(false);
                 setLoginData({ email: userEmail, password: '' });
                 alert('Password changed successfully. Please sign in again with your new password.');
@@ -613,7 +660,7 @@ export default function VendorPortal() {
         sessionStorage.removeItem(VENDOR_SESSION_KEY);
         resetPortalState(true);
         setLoading(false);
-        await signOut(vendorAuth).catch(() => {});
+        await signOut(auth).catch(() => {});
     };
 
     const getComplianceStatus = (docsData) => {
@@ -643,10 +690,10 @@ export default function VendorPortal() {
         try {
             await dbUpdate(`organizations/${vendorSession.orgId}/contractors/${vendor.firebaseKey}`, {
                 ...updates,
-                ...buildVendorUpdateAuditPayload(vendorAuth.currentUser)
+                ...buildVendorUpdateAuditPayload(auth.currentUser)
             });
             await fetchVendorData({
-                user: vendorAuth.currentUser,
+                user: auth.currentUser,
                 expectedOrgId: vendorSession.orgId,
                 expectedContractorId: vendorSession.contractorId,
                 showAlerts: false
@@ -799,6 +846,14 @@ export default function VendorPortal() {
     }
 
     if (!isAuthenticated) {
+        // Step 1: show the database/org picker first (mirrors field portal).
+        // The picker is shown only when (a) the registry has entries AND
+        // (b) the vendor hasn't already selected one. If there are no
+        // registered orgs at all, fall straight through to the login form
+        // and the user just signs in against whatever DB is currently
+        // configured (env vars / setup wizard).
+        const showOrgPicker = orgRegistry.length > 0 && pickedOrg === null;
+
         return (
             <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center font-['Space_Grotesk'] text-slate-200 p-4 relative overflow-hidden">
                 <div className="absolute top-0 left-0 w-[500px] h-[500px] bg-indigo-600/10 rounded-full blur-[100px] pointer-events-none"></div>
@@ -813,54 +868,129 @@ export default function VendorPortal() {
                         <p className="text-xs text-slate-400 mt-2 tracking-widest uppercase">Secure Compliance Gateway</p>
                     </div>
 
-                    <form onSubmit={handleLogin} className="space-y-5">
-                        <div>
-                            <label className="text-[10px] font-bold uppercase text-slate-400 tracking-widest block mb-2">Portal Email</label>
-                            <input
-                                type="email"
-                                required
-                                value={loginData.email}
-                                onChange={e => setLoginData({ ...loginData, email: e.target.value })}
-                                className="w-full bg-slate-950 border border-slate-700 rounded-xl p-4 text-white outline-none focus:border-indigo-500 transition-colors shadow-inner"
-                                placeholder="contractor@company.com"
-                            />
-                        </div>
-                        {loginData.email && (
-                            <div className="rounded-2xl border border-sky-500/20 bg-sky-950/20 p-3 text-[11px] leading-relaxed text-sky-100">
-                                This portal link already carries the registered vendor email. For the very first sign-in, use the temporary password from the vendor onboarding email. The portal will then force a password change before access continues.
+                    {showOrgPicker ? (
+                        // ── Step 1: pick the organisation database ──────────────
+                        <div className="space-y-5">
+                            <div className="text-center">
+                                <p className="text-[10px] font-bold uppercase tracking-[0.28em] text-indigo-300">Step 1 of 2</p>
+                                <h2 className="mt-2 text-lg font-black text-white">Select Your Workspace</h2>
+                                <p className="mt-2 text-xs leading-relaxed text-slate-400">
+                                    Choose the organisation whose vendor portal you've been invited to. Then sign in with the credentials your client admin issued.
+                                </p>
                             </div>
-                        )}
-                        <div>
-                            <label className="text-[10px] font-bold uppercase text-slate-400 tracking-widest block mb-2">Portal Password</label>
-                            <input
-                                type="password"
-                                required
-                                value={loginData.password}
-                                onChange={e => setLoginData({ ...loginData, password: e.target.value })}
-                                className="w-full bg-slate-950 border border-slate-700 rounded-xl p-4 text-white outline-none focus:border-indigo-500 transition-colors shadow-inner"
-                                placeholder="Enter your portal password"
-                                autoComplete="current-password"
-                            />
+
+                            <div className={`grid gap-3 ${orgRegistry.length === 1 ? 'grid-cols-1' : 'grid-cols-2'}`}>
+                                {orgRegistry.map((entry) => {
+                                    const isCurrent = isCurrentDb(entry, currentOrgId);
+                                    return (
+                                        <button
+                                            key={entry.orgId}
+                                            type="button"
+                                            onClick={() => handleOrgPick(entry)}
+                                            className={`group relative flex flex-col items-center gap-3 rounded-2xl border p-5 text-center transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-indigo-400/40 ${
+                                                isCurrent
+                                                    ? 'border-emerald-500/40 bg-emerald-950/30 shadow-lg shadow-emerald-900/20'
+                                                    : 'border-slate-700 bg-slate-950/60 hover:border-indigo-500/40 hover:bg-slate-900/60'
+                                            }`}
+                                        >
+                                            {entry.logoBase64 ? (
+                                                <img src={entry.logoBase64} alt="" className="h-12 w-12 rounded-xl object-cover" />
+                                            ) : (
+                                                <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-indigo-500/15 text-lg font-black text-indigo-200">
+                                                    {(entry.orgName || '?').charAt(0).toUpperCase()}
+                                                </div>
+                                            )}
+                                            <div className="min-w-0">
+                                                <p className="truncate text-xs font-bold text-white">{entry.orgName || 'Untitled workspace'}</p>
+                                                <p className="mt-0.5 text-[10px] uppercase tracking-widest text-slate-500">{getDbTypeLabel(entry)}</p>
+                                            </div>
+                                            {isCurrent && (
+                                                <span className="absolute top-2 right-2 rounded-full bg-emerald-500/20 px-2 py-0.5 text-[9px] font-bold uppercase tracking-widest text-emerald-300">Active</span>
+                                            )}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+
+                            <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-4 text-[11px] leading-relaxed text-slate-400">
+                                Don't see your workspace? Ask your client admin to share the workspace setup link — opening it once registers the org here so it appears in this picker.
+                            </div>
                         </div>
-                        <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-4 text-[11px] leading-relaxed text-slate-400">
-                            Use the same email your client admin saved on your contractor profile. First-time vendor users should sign in with the temporary password from the onboarding email, change it immediately when prompted, and then sign in again with the new password. If the vendor already had a shared or existing login, use <span className="font-bold text-slate-200">Forgot Password</span> instead.
-                        </div>
-                        <button
-                            type="button"
-                            onClick={handleForgotPassword}
-                            disabled={loading}
-                            className="w-full text-xs font-bold uppercase tracking-widest text-indigo-300 hover:text-white transition-colors disabled:opacity-50"
-                        >
-                            Forgot Password
-                        </button>
-                        <button
-                            type="submit"
-                            disabled={loading}
-                            className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-4 rounded-xl uppercase tracking-widest text-sm transition-transform active:scale-95 shadow-lg shadow-indigo-900/50 mt-4 disabled:opacity-50"
-                        >
-                            {loading ? <i className="fas fa-circle-notch fa-spin"></i> : 'Access Vendor Portal'}
-                        </button>
-                    </form>
+                    ) : (
+                        // ── Step 2: sign in against the picked database ─────────
+                        <form onSubmit={handleLogin} className="space-y-5">
+                            {pickedOrg && (
+                                <div className="flex items-center gap-3 rounded-2xl border border-emerald-500/25 bg-emerald-950/20 px-4 py-3">
+                                    {pickedOrg.logoBase64 ? (
+                                        <img src={pickedOrg.logoBase64} alt="" className="h-9 w-9 flex-shrink-0 rounded-xl object-cover" />
+                                    ) : (
+                                        <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-emerald-500/15 text-base font-black text-emerald-200">
+                                            {(pickedOrg.orgName || '?').charAt(0).toUpperCase()}
+                                        </div>
+                                    )}
+                                    <div className="flex-1 min-w-0">
+                                        <p className="truncate text-xs font-bold text-white">{pickedOrg.orgName}</p>
+                                        <p className="text-[10px] text-emerald-400">✓ Workspace connected</p>
+                                    </div>
+                                    {orgRegistry.length > 1 && (
+                                        <button
+                                            type="button"
+                                            onClick={handleBackToPicker}
+                                            className="rounded-lg border border-slate-700 px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest text-slate-300 hover:border-indigo-500/40 hover:text-white"
+                                        >
+                                            Change
+                                        </button>
+                                    )}
+                                </div>
+                            )}
+                            <div>
+                                <label className="text-[10px] font-bold uppercase text-slate-400 tracking-widest block mb-2">Portal Email</label>
+                                <input
+                                    type="email"
+                                    required
+                                    value={loginData.email}
+                                    onChange={e => setLoginData({ ...loginData, email: e.target.value })}
+                                    className="w-full bg-slate-950 border border-slate-700 rounded-xl p-4 text-white outline-none focus:border-indigo-500 transition-colors shadow-inner"
+                                    placeholder="contractor@company.com"
+                                />
+                            </div>
+                            {loginData.email && (
+                                <div className="rounded-2xl border border-sky-500/20 bg-sky-950/20 p-3 text-[11px] leading-relaxed text-sky-100">
+                                    This portal link already carries the registered vendor email. For the very first sign-in, use the temporary password from the vendor onboarding email. The portal will then force a password change before access continues.
+                                </div>
+                            )}
+                            <div>
+                                <label className="text-[10px] font-bold uppercase text-slate-400 tracking-widest block mb-2">Portal Password</label>
+                                <input
+                                    type="password"
+                                    required
+                                    value={loginData.password}
+                                    onChange={e => setLoginData({ ...loginData, password: e.target.value })}
+                                    className="w-full bg-slate-950 border border-slate-700 rounded-xl p-4 text-white outline-none focus:border-indigo-500 transition-colors shadow-inner"
+                                    placeholder="Enter your portal password"
+                                    autoComplete="current-password"
+                                />
+                            </div>
+                            <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-4 text-[11px] leading-relaxed text-slate-400">
+                                Use the same email your client admin saved on your contractor profile. First-time vendor users should sign in with the temporary password from the onboarding email, change it immediately when prompted, and then sign in again with the new password. If the vendor already had a shared or existing login, use <span className="font-bold text-slate-200">Forgot Password</span> instead.
+                            </div>
+                            <button
+                                type="button"
+                                onClick={handleForgotPassword}
+                                disabled={loading}
+                                className="w-full text-xs font-bold uppercase tracking-widest text-indigo-300 hover:text-white transition-colors disabled:opacity-50"
+                            >
+                                Forgot Password
+                            </button>
+                            <button
+                                type="submit"
+                                disabled={loading}
+                                className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-4 rounded-xl uppercase tracking-widest text-sm transition-transform active:scale-95 shadow-lg shadow-indigo-900/50 mt-4 disabled:opacity-50"
+                            >
+                                {loading ? <i className="fas fa-circle-notch fa-spin"></i> : 'Access Vendor Portal'}
+                            </button>
+                        </form>
+                    )}
                 </div>
             </div>
         );
