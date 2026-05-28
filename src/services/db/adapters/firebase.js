@@ -25,6 +25,38 @@ import { rtdb } from '../../../config/firebase.js';
 
 const dbRef = (path) => ref(rtdb, path);
 
+/**
+ * Wraps a Firebase SDK read promise with a 15-second timeout.
+ *
+ * The RTDB SDK sends read requests over a single shared WebSocket.  If that
+ * WebSocket is blocked (CSP, network policy, regional database URL not covered
+ * by the wildcard, etc.) the SDK quietly queues every request and NEVER
+ * resolves or rejects — causing every page that awaits a dbGet to spin
+ * indefinitely.  Wrapping with Promise.race gives callers a guaranteed
+ * rejection after 15 s so their `finally` blocks can clear loading states.
+ *
+ * The 15 s window is intentionally generous: it covers legitimate slow
+ * network conditions while still being short enough to unblock the UI in a
+ * reasonable time.  After a timeout the underlying SDK operation stays in the
+ * internal queue (no side effects for reads) and resolves silently if the
+ * connection is later established.
+ */
+const DB_READ_TIMEOUT_MS = 15_000;
+
+const withReadTimeout = (sdkPromise) => {
+    let timer;
+    const timeoutP = new Promise((_, reject) => {
+        timer = setTimeout(() => {
+            reject(new Error(
+                '[db:firebase] read timed out after 15 s. ' +
+                'The WebSocket connection to Firebase Realtime Database may be ' +
+                'blocked. Check the database URL and Content Security Policy.'
+            ));
+        }, DB_READ_TIMEOUT_MS);
+    });
+    return Promise.race([sdkPromise, timeoutP]).finally(() => clearTimeout(timer));
+};
+
 // ─── adapter ─────────────────────────────────────────────────────────────────
 
 const firebaseAdapter = {
@@ -34,7 +66,7 @@ const firebaseAdapter = {
      * @returns {Promise<any|null>}
      */
     async get(path) {
-        const snap = await get(dbRef(path));
+        const snap = await withReadTimeout(get(dbRef(path)));
         return snap.exists() ? snap.val() : null;
     },
 
@@ -46,7 +78,7 @@ const firebaseAdapter = {
      * @returns {Promise<Record<string,any>|null>}
      */
     async query(path, field, value) {
-        const snap = await get(fbQuery(dbRef(path), orderByChild(field), equalTo(value)));
+        const snap = await withReadTimeout(get(fbQuery(dbRef(path), orderByChild(field), equalTo(value))));
         return snap.exists() ? snap.val() : null;
     },
 
