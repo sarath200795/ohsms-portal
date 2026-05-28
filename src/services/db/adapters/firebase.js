@@ -65,6 +65,35 @@ const withReadTimeout = (sdkPromise, path = '') => {
     return Promise.race([sdkPromise, timeoutP]).finally(() => clearTimeout(timer));
 };
 
+/**
+ * Wraps a Firebase SDK write promise with a timeout.
+ *
+ * Like reads, write operations (push/update/set/remove) are sent over the
+ * same shared WebSocket.  If that WebSocket is blocked the SDK silently
+ * queues every write and NEVER resolves — leaving every module stuck at
+ * "Saving…" forever because setSaving(false) is never reached.
+ *
+ * 15 s matches the read timeout; most writes complete in < 500 ms on a
+ * healthy connection so this is a very safe margin.
+ */
+const DB_WRITE_TIMEOUT_MS = 15_000;
+
+const withWriteTimeout = (sdkPromise, path = '') => {
+    let timer;
+    const timeoutP = new Promise((_, reject) => {
+        timer = setTimeout(() => {
+            const dbUrl = rtdb?.app?.options?.databaseURL || '(databaseURL not set)';
+            reject(new Error(
+                `[db:firebase] write timed out after ${DB_WRITE_TIMEOUT_MS / 1000}s` +
+                (path ? ` for path "${path}"` : '') +
+                `. databaseURL=${dbUrl}. ` +
+                'Check that the WebSocket to that host is not blocked by CSP or network policy.'
+            ));
+        }, DB_WRITE_TIMEOUT_MS);
+    });
+    return Promise.race([sdkPromise, timeoutP]).finally(() => clearTimeout(timer));
+};
+
 // ─── adapter ─────────────────────────────────────────────────────────────────
 
 const firebaseAdapter = {
@@ -99,7 +128,7 @@ const firebaseAdapter = {
      * @param {*}      data
      */
     async set(path, data) {
-        await fbSet(dbRef(path), data);
+        await withWriteTimeout(fbSet(dbRef(path), data), path);
     },
 
     /**
@@ -109,7 +138,7 @@ const firebaseAdapter = {
      * @returns {Promise<string>} The generated child key
      */
     async push(path, data) {
-        const newRef = await fbPush(dbRef(path), data);
+        const newRef = await withWriteTimeout(fbPush(dbRef(path), data), path);
         return newRef.key;
     },
 
@@ -119,7 +148,7 @@ const firebaseAdapter = {
      * @param {object} data  Shallow-merge object
      */
     async update(path, data) {
-        await fbUpdate(dbRef(path), data);
+        await withWriteTimeout(fbUpdate(dbRef(path), data), path);
     },
 
     /**
@@ -127,7 +156,7 @@ const firebaseAdapter = {
      * @param {string} path
      */
     async remove(path) {
-        await fbRemove(dbRef(path));
+        await withWriteTimeout(fbRemove(dbRef(path)), path);
     },
 
     /**
@@ -137,7 +166,7 @@ const firebaseAdapter = {
      * @param {Record<string, any>} pathsObj
      */
     async multiUpdate(pathsObj) {
-        await fbUpdate(ref(rtdb), pathsObj);
+        await withWriteTimeout(fbUpdate(ref(rtdb), pathsObj), '[multi-path update]');
     },
 
     /**
