@@ -28,7 +28,10 @@ import { canEditCreateForRole, getAllowedSiteCodes, hasAccessibleModule, isGloba
 import { readStoredSession } from '../../utils/session';
 import { generateVendorPortalPassword } from '../../utils/security';
 import { buildRegionOptions, filterSitesByRegion, matchesRegionFilter, normalizeSites } from '../../utils/siteRegions';
-import { buildVendorCredentialMailto, isVendorCredentialEmailConfigured, sendVendorCredentialEmail } from '../../utils/vendorPortalEmail';
+// Removed import of buildVendorCredentialMailto / isVendorCredentialEmailConfigured /
+// sendVendorCredentialEmail — the vendor provisioning flow no longer emails
+// credentials (vendor uses Firebase's built-in Forgot Password reset email
+// from the portal sign-in screen instead).
 
 const buildVendorPortalUrl = (email = '', options = {}) => {
     const url = new URL('/vendor-portal', window.location.origin);
@@ -475,9 +478,10 @@ export default function Contractors() {
             let portalUid = activeVendor.portalUid || existingOrgUser?.firebaseKey || '';
             let createdPortalAuthUser = false;
             let provisioningWarning = '';
+            // Random throwaway password — Firebase Auth requires *some* password
+            // at account creation. The vendor never sees this; they set their
+            // own via the Forgot Password reset flow on first sign-in.
             let issuedPortalPassword = '';
-            let setupEmail = null;
-            let credentialDispatch = null;
             let portalBootstrapPending = false;
             const baseUserPayload = {
                 name: activeVendor.contactPerson || activeVendor.companyName || 'Vendor Portal User',
@@ -579,78 +583,39 @@ export default function Contractors() {
                 throw new Error('Unable to provision a vendor portal auth account for this contractor.');
             }
 
-            const portalPasswordManaged = Boolean(issuedPortalPassword);
-            if (portalPasswordManaged) {
-                const portalUrl = buildVendorPortalUrl(vendorEmail, {
-                    orgId: session?.orgId,
-                    contractorId: activeVendor.firebaseKey,
-                    siteId: primarySite
-                });
-
-                if (isVendorCredentialEmailConfigured()) {
-                    try {
-                        credentialDispatch = await sendVendorCredentialEmail({
-                            toEmail: vendorEmail,
-                            toName: activeVendor.contactPerson || activeVendor.companyName || vendorEmail,
-                            companyName: activeVendor.companyName,
-                            portalUrl,
-                            temporaryPassword: issuedPortalPassword,
-                            vendorCode,
-                            siteName: primarySiteLabel,
-                            issuedBy: session.email || session.name || 'Global Owner'
-                        });
-                    } catch (credentialError) {
-                        credentialDispatch = {
-                            sentAt: '',
-                            manualDraftUrl: buildVendorCredentialMailto({
-                                toEmail: vendorEmail,
-                                toName: activeVendor.contactPerson || activeVendor.companyName || vendorEmail,
-                                companyName: activeVendor.companyName,
-                                portalUrl,
-                                temporaryPassword: issuedPortalPassword,
-                                vendorCode,
-                                siteName: primarySiteLabel
-                            })
-                        };
-                        provisioningWarning = provisioningWarning
-                            ? `${provisioningWarning} Vendor credential email could not be sent automatically: ${credentialError.message}`
-                            : `Vendor credential email could not be sent automatically: ${credentialError.message}`;
-                    }
-                } else {
-                    credentialDispatch = {
-                        sentAt: '',
-                        manualDraftUrl: buildVendorCredentialMailto({
-                            toEmail: vendorEmail,
-                            toName: activeVendor.contactPerson || activeVendor.companyName || vendorEmail,
-                            companyName: activeVendor.companyName,
-                            portalUrl,
-                            temporaryPassword: issuedPortalPassword,
-                            vendorCode,
-                            siteName: primarySiteLabel
-                        })
-                    };
-                    provisioningWarning = provisioningWarning
-                        ? `${provisioningWarning} Automatic vendor credential email is not configured yet, so a ready-to-send email draft has been prepared for the registrar.`
-                        : 'Automatic vendor credential email is not configured yet, so a ready-to-send email draft has been prepared for the registrar.';
-                }
-            } else {
-                try {
-                    setupEmail = await sendVendorPortalSetupLink({
-                        vendorEmail,
-                        contractorId: activeVendor.firebaseKey,
-                        siteId: primarySite,
-                        bootstrap: portalBootstrapPending
-                    });
-                } catch (setupError) {
-                    provisioningWarning = provisioningWarning
-                        ? `${provisioningWarning} Setup email could not be sent automatically: ${setupError.message}`
-                        : `Setup email could not be sent automatically: ${setupError.message}`;
-                }
-            }
-
-            const setupEmailSent = Boolean(setupEmail?.sentAt);
-            const credentialEmailSent = Boolean(credentialDispatch?.sentAt);
-            const manualCredentialDraftUrl = credentialDispatch?.manualDraftUrl || '';
+            // ── NEW FLOW (no admin-side emails) ──────────────────────────────
+            // The previous flow tried to email the vendor a temporary password
+            // (via EmailJS) and, when EmailJS wasn't configured, fell back to
+            // a mailto: draft the admin had to send manually. Both paths were
+            // unreliable: EmailJS needs env-var setup the user can't do, and
+            // the mailto popup was confusing / often blocked.
+            //
+            // New behavior: provisioning creates the Firebase Auth account and
+            // writes the RTDB records, then STOPS. The vendor receives nothing
+            // from us. They are told (via the success modal) to:
+            //   1. open the portal URL the admin shares with them,
+            //   2. enter their registered email,
+            //   3. click "Forgot Password" — Firebase Auth's built-in reset
+            //      email handles delivery using the project's own SMTP /
+            //      transport configured in Firebase Console.
+            //   4. set their own password and sign in.
+            //
+            // This sidesteps every email-delivery failure mode entirely. The
+            // temporary password we generated in the previous step is just to
+            // satisfy Firebase Auth's "must have a password" requirement at
+            // account creation; we never surface it to the admin or vendor.
+            const portalUrl = buildVendorPortalUrl(vendorEmail, {
+                orgId: session?.orgId,
+                contractorId: activeVendor.firebaseKey,
+                siteId: primarySite
+            });
+            // Don't mark mustChangePassword — vendor will choose their own
+            // password via the reset link, no need for the portal to force
+            // another change immediately after.
+            const portalPasswordManaged = false;
+            const setupEmailSent = false;
+            const credentialEmailSent = false;
+            const manualCredentialDraftUrl = '';
             if (portalUid) {
                 const nextUserPayload = {
                     ...baseUserPayload,
@@ -760,38 +725,26 @@ export default function Contractors() {
                 companyName: activeVendor.companyName,
                 email: vendorEmail,
                 vendorCode,
-                temporaryPassword: issuedPortalPassword,
+                // Temp password is intentionally NOT surfaced. Vendor will set
+                // their own password via Firebase's Forgot Password flow.
+                temporaryPassword: '',
                 linkedExisting: !createdPortalAuthUser,
                 sharedIdentity: reusingExistingOrgIdentity,
                 bootstrapPending: portalBootstrapPending,
-                portalUrl: setupEmail?.portalUrl || buildVendorPortalUrl(vendorEmail, {
-                    orgId: session?.orgId,
-                    contractorId: activeVendor.firebaseKey,
-                    siteId: primarySite,
-                    bootstrap: portalBootstrapPending
-                }),
-                credentialEmailSent,
-                credentialEmailSentAt: credentialDispatch?.sentAt || '',
-                manualCredentialDraftUrl,
-                setupEmailSent,
-                setupEmailSentAt: setupEmail?.sentAt || '',
-                firstLoginRequiresPasswordChange: portalPasswordManaged,
+                portalUrl,
+                credentialEmailSent,            // always false in the new flow
+                credentialEmailSentAt: '',
+                manualCredentialDraftUrl,       // always '' in the new flow
+                setupEmailSent,                 // always false in the new flow
+                setupEmailSentAt: '',
+                firstLoginRequiresPasswordChange: portalPasswordManaged, // always false
+                // New flag the success modal keys off to render the Forgot
+                // Password instructions instead of legacy email/mailto UI.
+                resetFlowRequired: true,
                 warning: provisioningWarning
             });
-
-            // ── AUTO-OPEN the mailto: draft when EmailJS isn't configured ──
-            // The provision succeeded, but no email was actually sent. Open
-            // the user's mail client with the credentials pre-filled so they
-            // only need to click Send. Runs immediately while still inside
-            // the user-gesture chain (the original Provision button click)
-            // so browsers don't block the popup/handler.
-            // The mailto is set on window.location.href — this triggers the
-            // OS mail handler WITHOUT navigating the SPA away from the page,
-            // so the success modal stays visible behind the email client.
-            if (!credentialEmailSent && !setupEmailSent && manualCredentialDraftUrl) {
-                try { window.location.href = manualCredentialDraftUrl; }
-                catch { /* user can still click "Open Email Draft" in the modal */ }
-            }
+            // No more auto-open mailto — vendors use Firebase's own reset email
+            // by clicking Forgot Password on the portal sign-in screen.
         } catch (error) {
             alert('Portal provisioning failed: ' + error.message);
         } finally {

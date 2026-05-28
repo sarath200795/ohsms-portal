@@ -11,20 +11,22 @@ export default function PortalSuccessModal({ onClose, portalSuccess }) {
         }
     };
 
-    const copyTemporaryPassword = async () => {
-        if (!portalSuccess?.temporaryPassword) return;
+    const copyEmail = async () => {
+        if (!portalSuccess?.email) return;
         try {
-            await navigator.clipboard.writeText(portalSuccess.temporaryPassword);
-            alert('Temporary password copied.');
+            await navigator.clipboard.writeText(portalSuccess.email);
+            alert('Vendor email copied.');
         } catch {
-            alert('Could not copy the temporary password automatically.');
+            alert('Could not copy the email automatically.');
         }
     };
 
-    const hasTemporaryPassword = Boolean(portalSuccess?.temporaryPassword);
-    const hasSetupEmail = Boolean(portalSuccess?.setupEmailSent);
-    const hasCredentialEmail = Boolean(portalSuccess?.credentialEmailSent);
-    const hasManualCredentialDraft = Boolean(portalSuccess?.manualCredentialDraftUrl);
+    // The provisioning flow no longer mails the vendor anything. The vendor
+    // self-services their password via Firebase's built-in Forgot Password
+    // reset email by clicking the link on the portal sign-in screen.
+    // `resetFlowRequired` is the new flag set by Contractors/index.jsx for
+    // every modern provisioning.
+    const usesResetFlow = portalSuccess?.resetFlowRequired === true;
 
     return (
         <div className="fixed inset-0 z-[110] bg-black/80 flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in">
@@ -43,79 +45,56 @@ export default function PortalSuccessModal({ onClose, portalSuccess }) {
 
                 <div className="bg-slate-950 border border-slate-800 rounded-2xl p-5 space-y-4 mb-6">
                     <div>
-                        <div className="text-[10px] uppercase font-bold tracking-widest text-slate-500 mb-1">Portal Email</div>
+                        <div className="text-[10px] uppercase font-bold tracking-widest text-slate-500 mb-1">Registered Email</div>
                         <div className="text-sm font-bold text-white font-mono break-all">{portalSuccess.email}</div>
                     </div>
                     <div>
                         <div className="text-[10px] uppercase font-bold tracking-widest text-slate-500 mb-1">Vendor Reference Code</div>
                         <div className="text-sm font-bold text-white font-mono break-all">{portalSuccess.vendorCode || 'Available on the contractor profile header'}</div>
                     </div>
-                    {portalSuccess.temporaryPassword && (
-                        <div>
-                            <div className="text-[10px] uppercase font-bold tracking-widest text-slate-500 mb-1">Temporary Portal Password</div>
-                            <div className="text-sm font-bold text-emerald-300 font-mono break-all">{portalSuccess.temporaryPassword}</div>
-                        </div>
-                    )}
-                    <div>
-                        <div className="text-[10px] uppercase font-bold tracking-widest text-slate-500 mb-1">Vendor Login Method</div>
-                        <div className="text-xs text-slate-300">
-                            {hasTemporaryPassword
-                                ? 'Use the portal email plus the temporary password below for the first sign-in. The portal will force an immediate password change, and the vendor must sign in again with the new password.'
-                                : hasSetupEmail
-                                    ? 'A secure setup link has been sent. The vendor should create or reset the portal password from that email, then sign in normally.'
-                                    : 'Use the current vendor portal password. If the vendor cannot sign in, resend the access email from the contractor profile.'}
-                        </div>
-                    </div>
-                    {hasCredentialEmail && (
-                        <div>
-                            <div className="text-[10px] uppercase font-bold tracking-widest text-slate-500 mb-1">Temporary Password Email</div>
-                            <div className="text-xs text-emerald-300">The temporary password email was sent to the vendor mailbox{portalSuccess.credentialEmailSentAt ? ` on ${new Date(portalSuccess.credentialEmailSentAt).toLocaleString()}` : ''}.</div>
-                        </div>
-                    )}
-                    {hasManualCredentialDraft && !hasCredentialEmail && (
-                        <div>
-                            <div className="text-[10px] uppercase font-bold tracking-widest text-slate-500 mb-1">Credentials Email</div>
-                            <div className="text-xs text-amber-200">
-                                Your email client has been opened with the vendor's credentials pre-filled.
-                                Just click <span className="font-bold">Send</span> in your mail app to deliver the
-                                temporary password. If the mail client didn't open, use the
-                                <span className="font-bold"> "Open Email Draft"</span> button below.
-                            </div>
-                        </div>
-                    )}
-                    {hasSetupEmail && (
-                        <div>
-                            <div className="text-[10px] uppercase font-bold tracking-widest text-slate-500 mb-1">Setup Email</div>
-                            <div className="text-xs text-emerald-300">Password setup instructions were sent to the vendor mailbox{portalSuccess.setupEmailSentAt ? ` on ${new Date(portalSuccess.setupEmailSentAt).toLocaleString()}` : ''}.</div>
-                        </div>
-                    )}
                 </div>
+
+                {/* First-login instructions — the admin reads this and shares
+                    the gist with the vendor (along with the portal URL). No
+                    emails are sent from this app; Firebase handles password
+                    reset delivery via its own transport. */}
+                {usesResetFlow && (
+                    <div className="rounded-2xl border border-sky-500/30 bg-sky-950/20 p-5 text-xs leading-relaxed text-sky-100 mb-6">
+                        <p className="font-bold text-sky-200 uppercase tracking-widest text-[10px] mb-2">
+                            Tell the vendor how to log in
+                        </p>
+                        <ol className="space-y-1.5 list-decimal list-inside marker:text-sky-400">
+                            <li>Open the <span className="font-bold">Portal URL</span> below.</li>
+                            <li>Enter the <span className="font-bold">registered email</span> shown above.</li>
+                            <li>Click <span className="font-bold">"Forgot Password"</span> — Firebase will email a reset link directly to that mailbox.</li>
+                            <li>Set a new password from the reset link, then sign in.</li>
+                        </ol>
+                        <p className="mt-3 text-sky-300/80">
+                            No temporary password is shared here — the vendor sets their own on first sign-in.
+                        </p>
+                    </div>
+                )}
 
                 {portalSuccess.warning && <div className="rounded-2xl border border-amber-500/30 bg-amber-950/20 p-4 text-xs leading-relaxed text-amber-200 mb-6">{portalSuccess.warning}</div>}
 
-                {/* Primary CTA — if the email client needs to be reopened, this is the most important action on the modal. */}
-                {hasManualCredentialDraft && !hasCredentialEmail && (
-                    <a
-                        href={portalSuccess.manualCredentialDraftUrl}
-                        className="mb-3 flex items-center justify-center gap-2 w-full bg-amber-600 hover:bg-amber-500 text-white px-4 py-3.5 rounded-xl text-sm font-bold uppercase tracking-widest transition-colors shadow-lg shadow-amber-600/30"
-                    >
-                        <i className="fas fa-envelope"></i>
-                        Reopen Email Draft
-                    </a>
-                )}
+                {/* Primary action — opening the portal lets the admin verify or, in a pinch, sign in as the vendor for testing. */}
+                <a
+                    href={portalSuccess.portalUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="mb-3 flex items-center justify-center gap-2 w-full bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-3.5 rounded-xl text-sm font-bold uppercase tracking-widest transition-colors shadow-lg shadow-emerald-600/30"
+                >
+                    <i className="fas fa-external-link-alt"></i>
+                    Open Vendor Portal
+                </a>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <button type="button" onClick={copyPortalLink} className="bg-slate-800 hover:bg-slate-700 text-white px-4 py-3 rounded-xl text-sm font-bold uppercase tracking-widest transition-colors border border-slate-700">
                         Copy Portal Link
                     </button>
-                    {hasTemporaryPassword && (
-                        <button type="button" onClick={copyTemporaryPassword} className="bg-slate-800 hover:bg-slate-700 text-white px-4 py-3 rounded-xl text-sm font-bold uppercase tracking-widest transition-colors border border-slate-700">
-                            Copy Temp Password
-                        </button>
-                    )}
-                    <a href={portalSuccess.portalUrl} target="_blank" rel="noreferrer" className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-3 rounded-xl text-sm font-bold uppercase tracking-widest transition-colors shadow-lg shadow-emerald-600/20 text-center">
-                        Open Portal
-                    </a>
+                    <button type="button" onClick={copyEmail} className="bg-slate-800 hover:bg-slate-700 text-white px-4 py-3 rounded-xl text-sm font-bold uppercase tracking-widest transition-colors border border-slate-700">
+                        Copy Email
+                    </button>
                     <button type="button" onClick={onClose} className="sm:col-span-2 w-full bg-slate-700 hover:bg-slate-600 text-white px-4 py-3 rounded-xl text-sm font-bold uppercase tracking-widest transition-colors">
                         Close
                     </button>
