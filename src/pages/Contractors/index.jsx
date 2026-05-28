@@ -444,6 +444,12 @@ export default function Contractors() {
         if (!request?.firebaseKey) return;
         if (!isGlobalUser) return alert('Only the Global Owner can approve vendor registrations.');
         setApprovalBusyId(request.firebaseKey);
+
+        // Track which step failed so the alert message points to the exact
+        // permission/validate rule that blocked the approval.  All four
+        // writes are required for the vendor to log in successfully, so we
+        // can't proceed if any one fails.
+        let step = '';
         try {
             const nowIso = new Date().toISOString();
             const contractorPayload = {
@@ -481,8 +487,11 @@ export default function Contractors() {
                 updatedBy: session.email,
                 createdViaVendorSelfRegistration: true
             };
+
+            step = 'create contractor';
             const contractorKey = await dbPush(`organizations/${session.orgId}/contractors`, contractorPayload);
 
+            step = 'write vendorPortalUsers';
             await dbSet(`organizations/${session.orgId}/vendorPortalUsers/${request.requestUid}`, {
                 name: request.contactPerson || request.companyName || 'Vendor Portal User',
                 email: request.email,
@@ -499,8 +508,10 @@ export default function Contractors() {
                 createdAt: nowIso
             });
 
+            step = 'write userDirectory';
             await dbSet(`userDirectory/${request.requestUid}`, { orgId: session.orgId });
 
+            step = 'mark request approved';
             await dbUpdate(`organizations/${session.orgId}/vendorRegistrationRequests/${request.firebaseKey}`, {
                 status: 'Approved',
                 approvedAt: nowIso,
@@ -512,8 +523,24 @@ export default function Contractors() {
             await refreshContractors();
             alert(`Approved.\n\n${request.companyName} can now sign in to the vendor portal with the email + password they used to register.`);
         } catch (err) {
-            console.error('[approveVendorRegistration] failed:', err);
-            alert('Approval failed: ' + (err?.message || err?.code || 'Unknown error'));
+            console.error(`[approveVendorRegistration] failed at step: ${step}`, {
+                request,
+                error: err,
+                actor: { uid: session.uid, role: session.role, orgId: session.orgId }
+            });
+            const code = err?.code || '';
+            const baseMsg = `Approval failed at "${step}" — ${err?.message || code || 'Unknown error'}`;
+            if (String(err?.message || '').toUpperCase().includes('PERMISSION_DENIED') || code === 'PERMISSION_DENIED') {
+                alert(
+                    baseMsg + '\n\n' +
+                    'Most likely cause: the database rules in production are out of sync with the code. ' +
+                    'Run "npm run firebase:rules" to deploy the latest database.rules.json — the vendorRegistrationRequests collection needs the new rule branch, ' +
+                    'and the userDirectory + vendorPortalUsers + contractors paths need to recognise the admin\'s Global Owner write for the vendor\'s new uid.\n\n' +
+                    'See the browser console for the exact step + payload that was rejected.'
+                );
+            } else {
+                alert(baseMsg + '\n\nSee the browser console for full details.');
+            }
         } finally {
             setApprovalBusyId(null);
         }
