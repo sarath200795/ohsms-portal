@@ -7,6 +7,25 @@ const safeObjectEntries = (value) => {
         : Object.entries(value).filter(([, item]) => item && typeof item === 'object');
 };
 
+// Normalise the `centers` payload that may come back from the database
+// in either array OR object-of-objects form.  Keeps the rest of the app
+// from having to care which shape it is.
+const normalizeCentersField = (raw) => {
+    if (!raw) return [];
+    const entries = Array.isArray(raw)
+        ? raw
+        : (typeof raw === 'object' ? Object.values(raw) : []);
+    return entries
+        .map((c) => {
+            if (!c || typeof c !== 'object') return null;
+            const code = String(c.code || '').trim();
+            const name = String(c.name || '').trim();
+            if (!code && !name) return null;
+            return { code, name };
+        })
+        .filter(Boolean);
+};
+
 export const normalizeSites = (rawSites = {}) => (
     safeObjectEntries(rawSites)
         .map(([key, site]) => {
@@ -17,7 +36,8 @@ export const normalizeSites = (rawSites = {}) => (
                 name: siteValue.name || siteValue.code || key,
                 region: siteValue.region || '',
                 address: siteValue.address || '',
-                manager: siteValue.manager || ''
+                manager: siteValue.manager || '',
+                centers: normalizeCentersField(siteValue.centers)
             };
         })
         .sort((left, right) => String(left.code || '').localeCompare(String(right.code || '')))

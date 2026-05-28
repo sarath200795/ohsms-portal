@@ -15,6 +15,7 @@ import {
     resolveIncidentReportingState
 } from '../../utils/incidents';
 import { readOrgChild, readOrgChildren } from '../../utils/orgData';
+import CenterSelect from '../../components/CenterSelect';
 import {
     canDeleteForRole,
     canEditCreateForRole,
@@ -48,6 +49,7 @@ const createInitialDataState = () => ({
     type: 'Near Miss',
     severity: 'Level A',
     smartType: 'Fire & Explosion',
+    centerCode: '',
     equipmentInvolved: '',
     description: '',
     immediateAction: '',
@@ -2301,10 +2303,21 @@ export default function Incidents() {
                                         </div>
                                         <div>
                                             <label className="text-[10px] uppercase font-bold text-slate-500 ml-1 mb-2 block">Site ID *</label>
-                                            <select value={data.siteId} onChange={(e) => setData({ ...data, siteId: e.target.value })} disabled={!canEditForm || (!isGlobalUser && allowedSites.length <= 1)} className="w-full bg-slate-900 border border-slate-700 p-3 rounded-lg text-white text-xs outline-none focus:border-red-500">
+                                            <select value={data.siteId} onChange={(e) => setData({ ...data, siteId: e.target.value, centerCode: '' })} disabled={!canEditForm || (!isGlobalUser && allowedSites.length <= 1)} className="w-full bg-slate-900 border border-slate-700 p-3 rounded-lg text-white text-xs outline-none focus:border-red-500">
                                                 {(isGlobalUser || allowedSites.length > 1) && <option value="">Select Authorized Site...</option>}
                                                 {allowedSites.map((s) => <option key={s.code} value={s.code}>{s.name} ({s.code})</option>)}
                                             </select>
+                                        </div>
+                                        <div>
+                                            <CenterSelect
+                                                sites={sites}
+                                                siteCode={data.siteId}
+                                                value={data.centerCode}
+                                                onChange={(code) => setData({ ...data, centerCode: code })}
+                                                disabled={!canEditForm}
+                                                label="Center / Point"
+                                                className="w-full bg-slate-900 border border-slate-700 p-3 rounded-lg text-white text-xs outline-none focus:border-red-500"
+                                            />
                                         </div>
                                         <div><label className="text-[10px] uppercase font-bold text-slate-500 ml-1 mb-2 block">Date *</label><input type="date" value={data.date} onChange={(e) => setData({ ...data, date: e.target.value })} disabled={!canEditForm} className="w-full bg-slate-950 border border-slate-700 p-3 rounded-lg text-white text-xs outline-none focus:border-red-500 font-mono" /></div>
                                         <div><label className="text-[10px] uppercase font-bold text-slate-500 ml-1 mb-2 block">Time</label><input type="time" value={data.time} onChange={(e) => setData({ ...data, time: e.target.value })} disabled={!canEditForm} className="w-full bg-slate-950 border border-slate-700 p-3 rounded-lg text-white text-xs outline-none focus:border-red-500 font-mono" /></div>

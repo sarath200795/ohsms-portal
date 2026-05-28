@@ -14,6 +14,7 @@ import {
 import { readStoredSession } from '../utils/session';
 import { notifyMockDrillSubmitted } from '../utils/reportNotificationEmail';
 import { buildRegionOptions, filterSitesByRegion, matchesRegionFilter, normalizeSites } from '../utils/siteRegions';
+import CenterSelect from '../components/CenterSelect';
 
 const SCENARIOS = [
     {
@@ -263,6 +264,7 @@ export default function MockDrill() {
     // Form State
     const [form, setForm] = useState({
         siteId: initialSiteFilter !== 'All' ? initialSiteFilter : ((session?.assignedSite !== 'GLOBAL') ? session?.assignedSite || '' : ''),
+        centerCode: '',
         eventType: 'Mock Drill', date: new Date().toISOString().split('T')[0], time: '',
         shift: 'Day',
         commander: '',          // legacy single-name field (kept synced as the comma-joined display string)
@@ -690,10 +692,20 @@ export default function MockDrill() {
                             <div className="grid grid-cols-2 md:grid-cols-4 gap-6 bg-slate-900/50 p-6 rounded-2xl border border-slate-700 shadow-inner">
                                 <div>
                                     <label className="text-[10px] uppercase text-slate-500 font-bold block mb-2 tracking-widest ml-1">Site ID</label>
-                                    <select className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-sm text-white outline-none focus:border-blue-500" value={form.siteId} onChange={e => setForm({ ...form, siteId: e.target.value })}>
+                                    <select className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-sm text-white outline-none focus:border-blue-500" value={form.siteId} onChange={e => setForm({ ...form, siteId: e.target.value, centerCode: '' })}>
                                         {(isGlobalUser || visibleSites.length > 1) && <option value="">Select Site...</option>}
                                         {visibleSites.map(s => <option key={s.code} value={s.code}>{s.name} ({s.code})</option>)}
                                     </select>
+                                </div>
+                                <div>
+                                    <CenterSelect
+                                        sites={visibleSites}
+                                        siteCode={form.siteId}
+                                        value={form.centerCode}
+                                        onChange={(code) => setForm({ ...form, centerCode: code })}
+                                        label="Center / Point"
+                                        className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-sm text-white outline-none focus:border-blue-500"
+                                    />
                                 </div>
                                 <div><label className="text-[10px] uppercase text-slate-500 font-bold block mb-2 tracking-widest ml-1">Date</label><input type="date" className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-sm text-white outline-none focus:border-blue-500 font-mono" value={form.date} onChange={e => setForm({ ...form, date: e.target.value })} /></div>
                                 <div><label className="text-[10px] uppercase text-slate-500 font-bold block mb-2 tracking-widest ml-1">Time</label><input type="time" className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-sm text-white outline-none focus:border-blue-500 font-mono" value={form.time} onChange={e => setForm({ ...form, time: e.target.value })} /></div>

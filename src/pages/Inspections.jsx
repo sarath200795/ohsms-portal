@@ -9,6 +9,7 @@ import { readStoredSession } from '../utils/session';
 import { buildRegionOptions, filterSitesByRegion, matchesRegionFilter, normalizeSites } from '../utils/siteRegions';
 import * as XLSX from 'xlsx';
 import { notifyInspectionSubmitted } from '../utils/reportNotificationEmail';
+import CenterSelect from '../components/CenterSelect';
 
 const FREQUENCIES = ['Daily', 'Weekly', 'Monthly', 'Quarterly', 'Bi-Annually', 'Annually'];
 const STATUSES = ['Draft', 'Active', 'Inactive'];
@@ -220,6 +221,9 @@ export default function Inspections() {
     // Execution & View State
     const [executingTask, setExecutingTask] = useState(null);
     const [inspectionForm, setInspectionForm] = useState({});
+    // Center / point within the site where this inspection happened — picked
+    // from CenterSelect during execution, persisted on the record.
+    const [inspectionCenterCode, setInspectionCenterCode] = useState('');
     const [viewingRecord, setViewingRecord] = useState(null);
     const [submitDetailsModalOpen, setSubmitDetailsModalOpen] = useState(false);
     const [additionalFindingsDraft, setAdditionalFindingsDraft] = useState('');
@@ -627,6 +631,7 @@ export default function Inspections() {
     // --- EXECUTION HANDLERS ---
     const startInspection = (task) => {
         setExecutingTask(task);
+        setInspectionCenterCode('');
         const initForm = {};
         task.template.fields.forEach(f => {
             initForm[f.id] = {
@@ -676,6 +681,7 @@ export default function Inspections() {
                 templateId: executingTask.templateId,
                 templateTitle: executingTask.title,
                 siteId: executingTask.siteId,
+                centerCode: inspectionCenterCode || '',
                 inspector: session.name,
                 completedAt: completedAt,
                 scheduledFor: executingTask.originalDueString,
@@ -1093,6 +1099,17 @@ export default function Inspections() {
                                     <h2 className="text-3xl font-black text-white mb-2">{executingTask.title}</h2>
                                     <p className="text-slate-400 text-sm">Site: <strong className="text-white">{executingTask.siteId}</strong> | Frequency: <strong className="text-white">{executingTask.frequency}</strong></p>
                                     {executingTask.template.desc && <p className="mt-4 text-sm text-slate-300 bg-slate-950 p-4 rounded-xl border border-slate-800 italic">{executingTask.template.desc}</p>}
+
+                                    <div className="mt-6 max-w-md mx-auto text-left">
+                                        <CenterSelect
+                                            sites={sites}
+                                            siteCode={executingTask.siteId}
+                                            value={inspectionCenterCode}
+                                            onChange={setInspectionCenterCode}
+                                            label="Center / Point (within this site)"
+                                            className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-sm text-white outline-none focus:border-blue-500"
+                                        />
+                                    </div>
                                 </div>
 
                                 {currentTaskLastRecord && (

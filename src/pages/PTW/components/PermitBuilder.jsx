@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { dbPush, dbUpdate } from '../../../services/db/index.js';
 import { PERMIT_TYPES, CHECKLIST_ITEMS } from '../../../utils/constants';
+import CenterSelect from '../../../components/CenterSelect';
 
 export default function PermitBuilder({ session, sites, contractors, onCancel, onSuccess }) {
     const [isSubmitting, setIsSubmitting] = useState(false);
@@ -8,6 +9,7 @@ export default function PermitBuilder({ session, sites, contractors, onCancel, o
     const [formData, setFormData] = useState({
         permitType: 'GEN',
         siteId: sites?.length === 1 ? sites[0].code : '',
+        centerCode: '',
         location: '',
         contractorId: 'INTERNAL',
         workDescription: '',
@@ -71,10 +73,20 @@ export default function PermitBuilder({ session, sites, contractors, onCancel, o
                         </div>
                         <div>
                             <label className="text-[10px] uppercase font-bold text-slate-400 block mb-2 tracking-widest">Site / Facility</label>
-                            <select value={formData.siteId} onChange={e => setFormData({ ...formData, siteId: e.target.value })} required className="w-full bg-slate-950 border border-slate-800 p-3.5 rounded-xl text-white outline-none focus:border-emerald-500">
+                            <select value={formData.siteId} onChange={e => setFormData({ ...formData, siteId: e.target.value, centerCode: '' })} required className="w-full bg-slate-950 border border-slate-800 p-3.5 rounded-xl text-white outline-none focus:border-emerald-500">
                                 <option value="">Select Site...</option>
                                 {(sites || []).map(s => <option key={s.code} value={s.code}>{s.name}</option>)}
                             </select>
+                        </div>
+                        <div>
+                            <CenterSelect
+                                sites={sites || []}
+                                siteCode={formData.siteId}
+                                value={formData.centerCode}
+                                onChange={(code) => setFormData({ ...formData, centerCode: code })}
+                                label="Center / Point"
+                                className="w-full bg-slate-950 border border-slate-800 p-3.5 rounded-xl text-white outline-none focus:border-emerald-500"
+                            />
                         </div>
                         <div>
                             <label className="text-[10px] uppercase font-bold text-slate-400 block mb-2 tracking-widest">Specific Location</label>
