@@ -10,6 +10,7 @@ import { buildRegionOptions, filterSitesByRegion, matchesRegionFilter, normalize
 import * as XLSX from 'xlsx';
 import { notifyInspectionSubmitted } from '../utils/reportNotificationEmail';
 import CenterSelect from '../components/CenterSelect';
+import InspectionAssignmentsModal from './Inspections/InspectionAssignmentsModal';
 
 const FREQUENCIES = ['Daily', 'Weekly', 'Monthly', 'Quarterly', 'Bi-Annually', 'Annually'];
 const STATUSES = ['Draft', 'Active', 'Inactive'];
@@ -214,6 +215,8 @@ export default function Inspections() {
     const [currentMonth, setCurrentMonth] = useState(new Date());
     const [deferTask, setDeferTask] = useState(null);
     const [deferDate, setDeferDate] = useState('');
+    // Template currently open in the assignments modal (one-off scheduling).
+    const [assignmentsTemplate, setAssignmentsTemplate] = useState(null);
 
     // Builder State
     const [editTemplate, setEditTemplate] = useState(null);
@@ -349,6 +352,44 @@ export default function Inspections() {
                 });
             });
         });
+
+        // One-off assignments — independent of frequency-based scheduling.
+        // Surface every Pending assignment whose target site is visible to
+        // the user.  These show on the calendar like frequency tasks but
+        // carry an assignmentId so submitInspection can mark the assignment
+        // Completed when the record is saved.
+        const visibleSiteCodes = new Set(filteredVisibleSites.map((s) => s.code));
+        templates.forEach((t) => {
+            const assignments = Array.isArray(t.assignments) ? t.assignments : [];
+            assignments.forEach((a) => {
+                if (!a || a.status !== 'Pending') return;
+                if (!a.scheduledDate) return;
+                if (regionFilter !== 'All' && !matchesRegionFilter(a.siteId, sites, regionFilter)) return;
+                if (siteFilter !== 'All' && a.siteId !== siteFilter) return;
+                if (!visibleSiteCodes.has(a.siteId)) return;
+
+                tasks.push({
+                    templateId: t.firebaseKey,
+                    title: t.title,
+                    siteId: a.siteId,
+                    centerCode: a.centerCode || '',
+                    frequency: 'One-off',
+                    dueDate: parseDateOnly(a.scheduledDate),
+                    dueString: a.scheduledDate,
+                    alertStartString: a.scheduledDate,
+                    originalDueString: a.scheduledDate,
+                    isDeferred: Array.isArray(a.history) && a.history.length > 0,
+                    isAssignment: true,
+                    assignmentId: a.id,
+                    assignmentNotes: a.notes || '',
+                    lastCompleted: 'Never',
+                    assignmentStart: a.scheduledDate,
+                    assignmentEnd: a.scheduledDate,
+                    template: t
+                });
+            });
+        });
+
         return tasks.sort((a, b) => a.dueDate - b.dueDate);
     }, [currentMonth, filteredVisibleSites, records, regionFilter, siteFilter, sites, templates]);
 
@@ -631,7 +672,9 @@ export default function Inspections() {
     // --- EXECUTION HANDLERS ---
     const startInspection = (task) => {
         setExecutingTask(task);
-        setInspectionCenterCode('');
+        // Pre-fill the center from the assignment if the task came from one;
+        // otherwise clear it so the inspector picks.
+        setInspectionCenterCode(task?.centerCode || '');
         const initForm = {};
         task.template.fields.forEach(f => {
             initForm[f.id] = {
@@ -676,12 +719,18 @@ export default function Inspections() {
                 }
             });
 
-            // Save Record
+            // Save Record.  If the user kicked off this inspection from a
+            // one-off assignment, the assignment's pre-picked center wins
+            // when the inspector didn't override it; we also stamp the
+            // assignmentId on the record so we can mark the assignment
+            // Completed below.
+            const effectiveCenterCode = inspectionCenterCode || executingTask.centerCode || '';
             const recordPayload = {
                 templateId: executingTask.templateId,
                 templateTitle: executingTask.title,
                 siteId: executingTask.siteId,
-                centerCode: inspectionCenterCode || '',
+                centerCode: effectiveCenterCode,
+                ...(executingTask.assignmentId ? { assignmentId: executingTask.assignmentId } : {}),
                 inspector: session.name,
                 completedAt: completedAt,
                 scheduledFor: executingTask.originalDueString,
@@ -705,9 +754,29 @@ export default function Inspections() {
                 session.name || session.email || 'Unknown'
             );
 
-            // Clear any deferrals so the next cycle resets to normal
-            await dbUpdate(`organizations/${session.orgId}/inspectionTemplates/${executingTask.templateId}`, { deferredTo: null });
-            setTemplates(prev => prev.map(t => t.firebaseKey === executingTask.templateId ? { ...t, deferredTo: null } : t));
+            // Clear any deferrals so the next cycle resets to normal.
+            // If this was a one-off assignment, also flip its status to
+            // Completed and link the resulting record so the calendar
+            // entry disappears and the audit trail is preserved.
+            const templateUpdate = { deferredTo: null };
+            const parentTemplate = templates.find((t) => t.firebaseKey === executingTask.templateId);
+            let updatedAssignments = null;
+            if (executingTask.assignmentId && parentTemplate) {
+                const list = Array.isArray(parentTemplate.assignments) ? parentTemplate.assignments : [];
+                updatedAssignments = list.map((a) =>
+                    a.id === executingTask.assignmentId
+                        ? { ...a, status: 'Completed', completedAt, completedRecordId: newRecordId }
+                        : a
+                );
+                templateUpdate.assignments = updatedAssignments;
+            }
+            await dbUpdate(`organizations/${session.orgId}/inspectionTemplates/${executingTask.templateId}`, templateUpdate);
+            setTemplates(prev => prev.map(t => {
+                if (t.firebaseKey !== executingTask.templateId) return t;
+                return updatedAssignments
+                    ? { ...t, deferredTo: null, assignments: updatedAssignments }
+                    : { ...t, deferredTo: null };
+            }));
 
             if (generatedCapas.length > 0) {
                 if (isFieldPortalMode) {
@@ -940,6 +1009,27 @@ export default function Inspections() {
                             </div>
                         )}
 
+                        {/* --- ASSIGNMENTS MODAL (one-off scheduled inspections) --- */}
+                        {assignmentsTemplate && (
+                            <InspectionAssignmentsModal
+                                template={assignmentsTemplate}
+                                sites={sites}
+                                allowedSites={filteredVisibleSites}
+                                isGlobalUser={isGlobalUser}
+                                currentUserEmail={session?.email || session?.name || ''}
+                                onClose={() => setAssignmentsTemplate(null)}
+                                onSave={async (nextAssignments) => {
+                                    await dbUpdate(`organizations/${session.orgId}/inspectionTemplates/${assignmentsTemplate.firebaseKey}`, {
+                                        assignments: nextAssignments,
+                                        updatedAt: new Date().toISOString(),
+                                        updatedBy: session.email || session.name || ''
+                                    });
+                                    setTemplates((prev) => prev.map((t) => t.firebaseKey === assignmentsTemplate.firebaseKey ? { ...t, assignments: nextAssignments } : t));
+                                    setAssignmentsTemplate((prev) => prev ? { ...prev, assignments: nextAssignments } : prev);
+                                }}
+                            />
+                        )}
+
                         {/* --- MANAGE TEMPLATES VIEW --- */}
                         {view === 'templates' && (
                             <div className="max-w-6xl mx-auto space-y-6">
@@ -988,8 +1078,16 @@ export default function Inspections() {
                                                         </select>
                                                     </td>
                                                     <td className="p-5 pr-6 text-right flex justify-end gap-2">
-                                                        <button onClick={() => { setEditTemplate({ ...createEmptyTemplate(t.siteId), ...t, assignedFrom: t.assignedFrom || '', assignedTo: t.assignedTo || '', fields: normalizeTemplateFields(t.fields || []) }); setView('builder'); }} className="bg-slate-800 hover:bg-slate-700 text-white w-9 h-9 rounded-lg flex items-center justify-center transition-colors border border-slate-600"><i className="fas fa-edit"></i></button>
-                                                        <button onClick={() => deleteTemplate(t.firebaseKey)} className="bg-red-900/20 hover:bg-red-600 text-red-500 hover:text-white w-9 h-9 rounded-lg flex items-center justify-center transition-colors border border-red-500/30"><i className="fas fa-trash-alt"></i></button>
+                                                        <button onClick={() => setAssignmentsTemplate(t)} className="bg-amber-900/20 hover:bg-amber-600 text-amber-300 hover:text-white px-3 h-9 rounded-lg flex items-center justify-center gap-1.5 transition-colors border border-amber-500/30 text-[10px] font-bold uppercase tracking-widest" title="Manage one-off assignments">
+                                                            <i className="fas fa-calendar-plus"></i> Assign
+                                                            {Array.isArray(t.assignments) && t.assignments.filter((a) => a.status === 'Pending').length > 0 && (
+                                                                <span className="bg-amber-500 text-slate-950 rounded-full w-5 h-5 flex items-center justify-center text-[9px] font-black ml-1">
+                                                                    {t.assignments.filter((a) => a.status === 'Pending').length}
+                                                                </span>
+                                                            )}
+                                                        </button>
+                                                        <button onClick={() => { setEditTemplate({ ...createEmptyTemplate(t.siteId), ...t, assignedFrom: t.assignedFrom || '', assignedTo: t.assignedTo || '', fields: normalizeTemplateFields(t.fields || []) }); setView('builder'); }} className="bg-slate-800 hover:bg-slate-700 text-white w-9 h-9 rounded-lg flex items-center justify-center transition-colors border border-slate-600" title="Edit template"><i className="fas fa-edit"></i></button>
+                                                        <button onClick={() => deleteTemplate(t.firebaseKey)} className="bg-red-900/20 hover:bg-red-600 text-red-500 hover:text-white w-9 h-9 rounded-lg flex items-center justify-center transition-colors border border-red-500/30" title="Delete template"><i className="fas fa-trash-alt"></i></button>
                                                     </td>
                                                 </tr>
                                             ))}
