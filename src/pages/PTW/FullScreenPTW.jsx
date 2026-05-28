@@ -31,6 +31,7 @@ import PermitViewerComponent from './components/PermitViewer';
 import InspectionModalComponent from './components/InspectionModal';
 import ReassignModalComponent from './components/ReassignModal';
 import PrintViewComponent from './components/PrintView';
+import CenterSelect from '../../components/CenterSelect';
 import { getStatusColor, normalizePermit } from './utils';
 
 const isApprovedLotoProcedureForSite = (procedure, siteId) => (
@@ -491,6 +492,17 @@ function PermitBuilderView(props) {
                                     </option>
                                 ))}
                             </select>
+                        </div>
+                        <div>
+                            <CenterSelect
+                                sites={allowedSites}
+                                siteCode={formData.siteId}
+                                value={formData.centerCode}
+                                onChange={(code) => setFormData((prev) => ({ ...prev, centerCode: code }))}
+                                disabled={formData.status !== 'Draft' || !canEditForm}
+                                label="Center / Point"
+                                className="w-full bg-slate-950 border border-slate-800 p-3.5 rounded-xl text-white outline-none focus:border-emerald-500 font-bold shadow-inner"
+                            />
                         </div>
 
                         <div className="mt-2 border-t border-slate-700 pt-6 md:col-span-2">
@@ -1548,6 +1560,7 @@ export default function FullScreenPTW() {
                 typeId,
                 permitType: getTypeConfig(typeId).label,
                 siteId: defaultSite,
+                centerCode: '',
                 location: '',
                 equipment: '',
                 description: '',
@@ -1612,6 +1625,7 @@ export default function FullScreenPTW() {
             return {
                 ...prev,
                 siteId,
+                centerCode: '',
                 contractorId: '',
                 contractorName: '',
                 entrantNames: [],
