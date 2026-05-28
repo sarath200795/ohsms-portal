@@ -640,6 +640,9 @@ select {
   color: var(--myth-ink) !important;
 }
 
+input[type="date"],
+input[type="time"],
+input[type="datetime-local"],
 input[type="text"],
 input[type="email"],
 input[type="password"],
