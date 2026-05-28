@@ -180,10 +180,33 @@ export const normalizeIncidentFiveWhys = (fiveWhys, createId = () => Date.now())
     return fiveWhys;
 };
 
+// Normalise the externalPersons list for an incident being opened in the
+// editor.  Three migration paths:
+//   • record was saved with the new schema → use externalPersons as-is
+//   • legacy External Non-Employee with a single affectedPersonName → seed
+//     externalPersons with [name] so the editor renders the chip UI
+//   • anything else → empty list
+const normalizeExternalPersons = (incident) => {
+    const list = Array.isArray(incident?.externalPersons) ? incident.externalPersons : [];
+    const cleaned = list.map((n) => String(n || '').trim()).filter(Boolean);
+    if (cleaned.length > 0) return cleaned;
+
+    if (incident?.affectedPersonType === 'External Non-Employee') {
+        const legacy = String(incident?.affectedPersonName || '').trim();
+        if (legacy) {
+            // Old records sometimes stored a comma-joined string; split it
+            // so the editor can show each name as its own chip.
+            return legacy.split(',').map((n) => n.trim()).filter(Boolean);
+        }
+    }
+    return [];
+};
+
 export const buildEditableIncidentData = (initialDataState, incident, createId = () => Date.now()) => ({
     ...initialDataState,
     ...incident,
     horizontalDeployment: incident?.horizontalDeployment || false,
+    externalPersons: normalizeExternalPersons(incident),
     reporting: resolveIncidentReportingState(incident),
     investigation: {
         ...(incident?.investigation || {}),

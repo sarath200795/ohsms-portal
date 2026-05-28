@@ -55,6 +55,12 @@ const createInitialDataState = () => ({
     contractorId: '',
     affectedPersonId: '',
     affectedPersonName: '',
+    // Multiple external non-employees (members of public, visitors, third
+    // parties).  Backward-compat: when this array is non-empty for an
+    // External Non-Employee incident, `affectedPersonName` is kept synced
+    // as the comma-joined display string so the registry and exports
+    // continue to render without changes.
+    externalPersons: [],
     imageEvidence: null,
     imageEvidenceName: '',
     videoEvidence: null,
@@ -470,6 +476,7 @@ export default function Incidents() {
     const [newCapaSite, setNewCapaSite] = useState('');
     const [videoEvidenceFile, setVideoEvidenceFile] = useState(null);
     const [imageUploading, setImageUploading] = useState(false);
+    const [newExternalPersonName, setNewExternalPersonName] = useState('');
 
     const initialDataState = useMemo(() => createInitialDataState(), []);
     const [data, setData] = useState(() => createInitialDataState());
@@ -493,6 +500,27 @@ export default function Incidents() {
         revokeVideoPreviewUrl(previewUrl);
         setVideoEvidenceFile(null);
         setData((prev) => ({ ...prev, videoEvidence: null, videoEvidenceName: '' }));
+    };
+
+    // Append a name to the externalPersons list, with light de-duping (case-
+    // insensitive).  Keeps affectedPersonName synced as the comma-joined
+    // display value so the registry/exports continue to work unchanged.
+    const addExternalPerson = () => {
+        const trimmed = newExternalPersonName.trim();
+        if (!trimmed) return;
+        setData((prev) => {
+            const existing = Array.isArray(prev.externalPersons) ? prev.externalPersons : [];
+            const isDuplicate = existing.some((n) => n.trim().toLowerCase() === trimmed.toLowerCase());
+            if (isDuplicate) return prev;
+            const next = [...existing, trimmed];
+            return {
+                ...prev,
+                externalPersons: next,
+                affectedPersonId: 'external-non-employee',
+                affectedPersonName: next.join(', ')
+            };
+        });
+        setNewExternalPersonName('');
     };
 
     const resetTransientEvidence = (nextVideoPreview = null) => {
@@ -1585,9 +1613,14 @@ export default function Incidents() {
             alert('Please wait for the photo upload to finish before saving.');
             return;
         }
-        if (data.affectedPersonType === 'External Non-Employee' && !String(data.affectedPersonName || '').trim()) {
-            alert('Please enter the external non-employee name in the affected personnel section.');
-            return;
+        if (data.affectedPersonType === 'External Non-Employee') {
+            const list = Array.isArray(data.externalPersons) ? data.externalPersons : [];
+            const hasNames = list.some((n) => String(n || '').trim() !== '');
+            const hasLegacyName = String(data.affectedPersonName || '').trim() !== '';
+            if (!hasNames && !hasLegacyName) {
+                alert('Please add at least one external non-employee name in the affected personnel section.');
+                return;
+            }
         }
 
         setSaving(true);
@@ -1669,10 +1702,23 @@ export default function Incidents() {
             }
             // blob:// object URLs are transient — excluded (null)
 
+            // Defensive sync: for External Non-Employee incidents, derive the
+            // single-string affectedPersonName from externalPersons.  This
+            // keeps the registry list/Excel export rendering correctly even
+            // if the user added names without us having captured the latest
+            // setData() callback.
+            let payloadExternalPersons = Array.isArray(data.externalPersons) ? data.externalPersons : [];
+            payloadExternalPersons = payloadExternalPersons.map((n) => String(n || '').trim()).filter(Boolean);
+            const payloadAffectedPersonName = data.affectedPersonType === 'External Non-Employee' && payloadExternalPersons.length > 0
+                ? payloadExternalPersons.join(', ')
+                : (data.affectedPersonName || '');
+
             const payload = JSON.parse(JSON.stringify({
                 ...data,
                 id: incidentId,
                 videoEvidence: persistedVideoEvidence,
+                externalPersons: payloadExternalPersons,
+                affectedPersonName: payloadAffectedPersonName,
                 reporting,
                 capa: capaWithVerificationActions,
                 linkedHazards: data.linkedHazards || [],
@@ -2214,16 +2260,16 @@ export default function Incidents() {
                                         <div className="space-y-4">
                                             <div className="flex gap-4">
                                                 <label className="flex items-center gap-2 cursor-pointer text-sm font-bold text-slate-300">
-                                                    <input type="radio" name="pType" value="Internal" checked={data.affectedPersonType === 'Internal'} onChange={() => setData({ ...data, affectedPersonType: 'Internal', contractorId: '', affectedPersonId: '', affectedPersonName: '' })} disabled={!canEditForm} className="accent-indigo-500 w-4 h-4" /> Internal Staff
+                                                    <input type="radio" name="pType" value="Internal" checked={data.affectedPersonType === 'Internal'} onChange={() => setData({ ...data, affectedPersonType: 'Internal', contractorId: '', affectedPersonId: '', affectedPersonName: '', externalPersons: [] })} disabled={!canEditForm} className="accent-indigo-500 w-4 h-4" /> Internal Staff
                                                 </label>
                                                 <label className="flex items-center gap-2 cursor-pointer text-sm font-bold text-slate-300">
-                                                    <input type="radio" name="pType" value="Contractor" checked={data.affectedPersonType === 'Contractor'} onChange={() => setData({ ...data, affectedPersonType: 'Contractor', affectedPersonId: '', affectedPersonName: '' })} disabled={!canEditForm} className="accent-indigo-500 w-4 h-4" /> Contractor
+                                                    <input type="radio" name="pType" value="Contractor" checked={data.affectedPersonType === 'Contractor'} onChange={() => setData({ ...data, affectedPersonType: 'Contractor', affectedPersonId: '', affectedPersonName: '', externalPersons: [] })} disabled={!canEditForm} className="accent-indigo-500 w-4 h-4" /> Contractor
                                                 </label>
                                                 <label className="flex items-center gap-2 cursor-pointer text-sm font-bold text-slate-300">
-                                                    <input type="radio" name="pType" value="External Non-Employee" checked={data.affectedPersonType === 'External Non-Employee'} onChange={() => setData({ ...data, affectedPersonType: 'External Non-Employee', contractorId: '', affectedPersonId: 'external-non-employee', affectedPersonName: '' })} disabled={!canEditForm} className="accent-indigo-500 w-4 h-4" /> External Non-Employee
+                                                    <input type="radio" name="pType" value="External Non-Employee" checked={data.affectedPersonType === 'External Non-Employee'} onChange={() => setData({ ...data, affectedPersonType: 'External Non-Employee', contractorId: '', affectedPersonId: 'external-non-employee', affectedPersonName: '', externalPersons: [] })} disabled={!canEditForm} className="accent-indigo-500 w-4 h-4" /> External Non-Employee
                                                 </label>
                                                 <label className="flex items-center gap-2 cursor-pointer text-sm font-bold text-slate-300">
-                                                    <input type="radio" name="pType" value="None" checked={data.affectedPersonType === 'None'} onChange={() => setData({ ...data, affectedPersonType: 'None', contractorId: '', affectedPersonId: '', affectedPersonName: '' })} disabled={!canEditForm} className="accent-indigo-500 w-4 h-4" /> None (Property/Env)
+                                                    <input type="radio" name="pType" value="None" checked={data.affectedPersonType === 'None'} onChange={() => setData({ ...data, affectedPersonType: 'None', contractorId: '', affectedPersonId: '', affectedPersonName: '', externalPersons: [] })} disabled={!canEditForm} className="accent-indigo-500 w-4 h-4" /> None (Property/Env)
                                                 </label>
                                             </div>
 
@@ -2239,8 +2285,70 @@ export default function Incidents() {
 
                                             {data.affectedPersonType === 'External Non-Employee' && (
                                                 <div>
-                                                    <label className="text-[10px] uppercase font-bold text-indigo-300 block mb-2">External Person Name</label>
-                                                    <input value={data.affectedPersonName || ''} onChange={(e) => setData({ ...data, affectedPersonId: 'external-non-employee', affectedPersonName: e.target.value })} disabled={!canEditForm} className="w-full bg-slate-900 border border-indigo-500/50 rounded-xl p-3 text-white outline-none focus:border-indigo-400 font-bold" placeholder="Enter member / visitor / non-employee name" />
+                                                    <label className="text-[10px] uppercase font-bold text-indigo-300 block mb-2">External Person Names</label>
+
+                                                    {/* Existing names as removable chips */}
+                                                    {Array.isArray(data.externalPersons) && data.externalPersons.length > 0 && (
+                                                        <div className="mb-3 flex flex-wrap gap-2">
+                                                            {data.externalPersons.map((name, idx) => (
+                                                                <span
+                                                                    key={`${name}-${idx}`}
+                                                                    className="inline-flex items-center gap-2 rounded-full border border-indigo-500/40 bg-indigo-500/10 px-3 py-1.5 text-xs font-semibold text-indigo-200"
+                                                                >
+                                                                    <i className="fas fa-user text-[10px]"></i>
+                                                                    <span>{name}</span>
+                                                                    {canEditForm && (
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => {
+                                                                                const next = data.externalPersons.filter((_, i) => i !== idx);
+                                                                                setData({
+                                                                                    ...data,
+                                                                                    externalPersons: next,
+                                                                                    affectedPersonName: next.join(', ')
+                                                                                });
+                                                                            }}
+                                                                            className="ml-1 flex h-5 w-5 items-center justify-center rounded-full bg-red-500/20 text-red-300 transition-colors hover:bg-red-500 hover:text-white"
+                                                                            aria-label={`Remove ${name}`}
+                                                                        >
+                                                                            <i className="fas fa-times text-[10px]"></i>
+                                                                        </button>
+                                                                    )}
+                                                                </span>
+                                                            ))}
+                                                        </div>
+                                                    )}
+
+                                                    {/* Add-name input + button */}
+                                                    {canEditForm && (
+                                                        <div className="flex gap-2">
+                                                            <input
+                                                                type="text"
+                                                                value={newExternalPersonName}
+                                                                onChange={(e) => setNewExternalPersonName(e.target.value)}
+                                                                onKeyDown={(e) => {
+                                                                    if (e.key === 'Enter') {
+                                                                        e.preventDefault();
+                                                                        addExternalPerson();
+                                                                    }
+                                                                }}
+                                                                className="flex-1 bg-slate-900 border border-indigo-500/50 rounded-xl p-3 text-white outline-none focus:border-indigo-400"
+                                                                placeholder="Enter member / visitor / non-employee name and press Enter"
+                                                            />
+                                                            <button
+                                                                type="button"
+                                                                onClick={addExternalPerson}
+                                                                disabled={!newExternalPersonName.trim()}
+                                                                className="rounded-xl bg-indigo-500 px-4 py-3 text-xs font-bold uppercase tracking-widest text-white transition-colors hover:bg-indigo-400 disabled:cursor-not-allowed disabled:opacity-50"
+                                                            >
+                                                                <i className="fas fa-plus mr-1"></i> Add
+                                                            </button>
+                                                        </div>
+                                                    )}
+
+                                                    {(!Array.isArray(data.externalPersons) || data.externalPersons.length === 0) && (
+                                                        <p className="mt-2 text-[10px] text-indigo-300 italic">Add one or more external persons affected by this incident.</p>
+                                                    )}
                                                 </div>
                                             )}
 
