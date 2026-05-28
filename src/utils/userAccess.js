@@ -44,6 +44,18 @@ export const normalizeStoredUserRecord = (payload = {}) => {
         ? toCanonicalModuleIds(payload.accessibleModules)
         : [];
 
+    // Derived object map of accessible sites. Stored as a sibling to the
+    // array form because Firebase RTDB security rules CAN'T iterate arrays —
+    // they CAN check object-key existence in O(1). Rules for site-scoped
+    // collections look up `accessibleSitesMap/<siteId>` to decide whether a
+    // multi-site Site Owner / User may read/write data tagged with that site.
+    // Always overwritten on save so it stays in sync with the array.
+    const accessibleSitesMap = accessibleSites.reduce((acc, site) => {
+        const code = String(site || '').trim();
+        if (code && code !== 'GLOBAL') acc[code] = true;
+        return acc;
+    }, {});
+
     return {
         ...payload,
         name: String(payload.name || '').trim(),
@@ -51,6 +63,7 @@ export const normalizeStoredUserRecord = (payload = {}) => {
         role,
         assignedSite,
         accessibleSites,
+        accessibleSitesMap,
         accessibleModules,
         status: normalizeUserStatus(payload.status || ACCOUNT_STATUS.ACTIVE)
     };
@@ -81,6 +94,13 @@ export const normalizeUserAccessPayload = (payload = {}, { editingExistingUser =
             : collectExtraSites(payload.accessibleSites);
     const accessibleModules = role === USER_ROLE ? toCanonicalModuleIds(payload.accessibleModules) : [];
 
+    // Derived object map — see normalizeStoredUserRecord above for why.
+    const accessibleSitesMap = accessibleSites.reduce((acc, site) => {
+        const code = String(site || '').trim();
+        if (code && code !== 'GLOBAL') acc[code] = true;
+        return acc;
+    }, {});
+
     return {
         ...payload,
         name: String(payload.name || '').trim(),
@@ -88,6 +108,7 @@ export const normalizeUserAccessPayload = (payload = {}, { editingExistingUser =
         role,
         assignedSite,
         accessibleSites,
+        accessibleSitesMap,
         accessibleModules,
         status: editingExistingUser && normalizedStatus === ACCOUNT_STATUS.PENDING
             ? ACCOUNT_STATUS.ACTIVE
