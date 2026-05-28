@@ -7,7 +7,7 @@ export const FIELD_MODULES = [
         desc: 'Run assigned site inspections and close scheduled checks in the field.',
         path: '/inspections',
         icon: 'fa-clipboard-check',
-        accent: 'text-lime-300',
+        accent: 'text-emerald-600',
         surface: 'from-lime-500/20 via-emerald-500/10 to-transparent',
         border: 'border-lime-500/30',
         requiredModules: ['Inspections'],
@@ -15,7 +15,7 @@ export const FIELD_MODULES = [
         fieldHint: 'Open an assigned inspection from the live schedule and submit the report.',
         entryBadge: 'Assigned Task',
         entryIcon: 'fa-calendar-check',
-        entryBadgeClass: 'bg-lime-500/15 text-lime-200 border-lime-400/30'
+        entryBadgeClass: 'bg-lime-50 text-lime-700 border-lime-300'
     },
     {
         id: 'ptw',
@@ -23,7 +23,7 @@ export const FIELD_MODULES = [
         desc: 'Issue, review, and progress live permits for work activities on site.',
         path: '/ptw',
         icon: 'fa-file-signature',
-        accent: 'text-amber-300',
+        accent: 'text-amber-600',
         surface: 'from-amber-500/20 via-orange-500/10 to-transparent',
         border: 'border-amber-500/30',
         requiredModules: ['OHS Tools'],
@@ -31,7 +31,7 @@ export const FIELD_MODULES = [
         fieldHint: 'Open the live permit or scan a PTW QR code to inspect and act on it.',
         entryBadge: 'Live Permit',
         entryIcon: 'fa-file-circle-check',
-        entryBadgeClass: 'bg-amber-500/15 text-amber-100 border-amber-400/30'
+        entryBadgeClass: 'bg-amber-50 text-amber-700 border-amber-300'
     },
     {
         id: 'loto',
@@ -39,7 +39,7 @@ export const FIELD_MODULES = [
         desc: 'Access approved isolation procedures and execute lockout work safely.',
         path: '/loto',
         icon: 'fa-lock',
-        accent: 'text-red-300',
+        accent: 'text-red-600',
         surface: 'from-red-500/20 via-rose-500/10 to-transparent',
         border: 'border-red-500/30',
         requiredModules: ['OHS Tools'],
@@ -47,7 +47,7 @@ export const FIELD_MODULES = [
         fieldHint: 'Scan an approved LOTO QR tag or launch the procedure from PTW to execute it.',
         entryBadge: 'Scan QR',
         entryIcon: 'fa-qrcode',
-        entryBadgeClass: 'bg-red-500/15 text-red-100 border-red-400/30'
+        entryBadgeClass: 'bg-red-50 text-red-700 border-red-300'
     },
     {
         id: 'incidents',
@@ -55,7 +55,7 @@ export const FIELD_MODULES = [
         desc: 'Report field incidents quickly from site using the same live incident form.',
         path: '/incidents',
         icon: 'fa-triangle-exclamation',
-        accent: 'text-orange-300',
+        accent: 'text-orange-600',
         surface: 'from-orange-500/20 via-red-500/10 to-transparent',
         border: 'border-orange-500/30',
         requiredModules: ['Incidents'],
@@ -63,7 +63,7 @@ export const FIELD_MODULES = [
         fieldHint: 'Start a new incident report, complete the initial details, and submit it for web verification.',
         entryBadge: 'Report Now',
         entryIcon: 'fa-bullhorn',
-        entryBadgeClass: 'bg-orange-500/15 text-orange-100 border-orange-400/30'
+        entryBadgeClass: 'bg-orange-50 text-orange-700 border-orange-300'
     },
     {
         id: 'emergency-module',
@@ -71,7 +71,7 @@ export const FIELD_MODULES = [
         desc: 'Launch emergency response workflows, drills, and event records from the field.',
         path: '/mock-drill',
         icon: 'fa-person-running',
-        accent: 'text-sky-300',
+        accent: 'text-sky-600',
         surface: 'from-sky-500/20 via-cyan-500/10 to-transparent',
         border: 'border-sky-500/30',
         requiredModules: ['Record Emergency'],
@@ -79,7 +79,7 @@ export const FIELD_MODULES = [
         fieldHint: 'Choose the emergency scenario, complete the event log, and submit the field report.',
         entryBadge: 'Rapid Response',
         entryIcon: 'fa-bell',
-        entryBadgeClass: 'bg-sky-500/15 text-sky-100 border-sky-400/30'
+        entryBadgeClass: 'bg-sky-50 text-sky-700 border-sky-300'
     },
     {
         id: 'emergency-equipment',
@@ -87,7 +87,7 @@ export const FIELD_MODULES = [
         desc: 'Inspect extinguishers, first aid kits, AEDs, and spill kits directly from asset QR tags.',
         path: '/emergency-equipment',
         icon: 'fa-fire-extinguisher',
-        accent: 'text-fuchsia-300',
+        accent: 'text-fuchsia-600',
         surface: 'from-fuchsia-500/20 via-pink-500/10 to-transparent',
         border: 'border-fuchsia-500/30',
         requiredModules: ['OHS Tools'],
@@ -95,7 +95,7 @@ export const FIELD_MODULES = [
         fieldHint: 'Scan the equipment QR tag to open the inspection sheet and submit the check.',
         entryBadge: 'Scan QR',
         entryIcon: 'fa-qrcode',
-        entryBadgeClass: 'bg-fuchsia-500/15 text-fuchsia-100 border-fuchsia-400/30'
+        entryBadgeClass: 'bg-fuchsia-50 text-fuchsia-700 border-fuchsia-300'
     }
 ];
 
