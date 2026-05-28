@@ -829,7 +829,8 @@ table tbody tr:hover {
 
 /* Dark hover backgrounds → light */
 .hover\:bg-slate-900:hover,
-.hover\:bg-slate-800:hover {
+.hover\:bg-slate-800:hover,
+.hover\:bg-slate-700:hover {
   background-color: rgba(241, 245, 249, 1) !important;
 }
 
@@ -845,6 +846,16 @@ table tbody tr:hover {
 
 .bg-slate-950 {
   background-color: #f8fafc !important;
+}
+
+/* bg-slate-900 and bg-slate-800 (solid, no opacity fraction) were missing from
+   the dark→light theme conversion, leaving text-white invisible on dark bg. */
+.bg-slate-900 {
+  background-color: #f1f5f9 !important;
+}
+
+.bg-slate-800 {
+  background-color: #e2e8f0 !important;
 }
 
 .bg-slate-900\/20,
