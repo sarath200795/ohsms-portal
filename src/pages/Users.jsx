@@ -360,7 +360,42 @@ export default function Users() {
                 const isApprovingPending = editingUser?.status === ACCOUNT_STATUS.PENDING && payload.status === ACCOUNT_STATUS.ACTIVE;
                 const savePayload = isApprovingPending ? { ...payload, joinCode: null } : payload;
 
-                await dbUpdate(`organizations/${session.orgId}/users/${editingUserId}`, savePayload);
+                // Defensive pre-flight — Firebase RTDB drops empty-string
+                // values, so a savePayload with name:'' or email:'' would
+                // fail the users.$uid.validate rule's hasChildren check
+                // and bounce back as a confusing PERMISSION_DENIED.  Catch
+                // it here with a precise message instead.
+                if (!savePayload.name || !String(savePayload.name).trim()) {
+                    setSaving(false);
+                    return alert('Name is required — leaving it blank would cause Firebase to drop the field and reject the save with PERMISSION_DENIED.');
+                }
+                if (!savePayload.email || !String(savePayload.email).trim()) {
+                    setSaving(false);
+                    return alert('Email is required — leaving it blank would cause Firebase to drop the field and reject the save.');
+                }
+                if (!['Global Owner', 'Site Owner', 'User'].includes(savePayload.role)) {
+                    setSaving(false);
+                    return alert(`Invalid role "${savePayload.role}". Role must be one of: Global Owner, Site Owner, User.`);
+                }
+                if (savePayload.role === 'Site Owner' && (!savePayload.assignedSite || savePayload.assignedSite === 'GLOBAL')) {
+                    setSaving(false);
+                    return alert('Site Owner must have a non-GLOBAL primary site selected.');
+                }
+
+                try {
+                    await dbUpdate(`organizations/${session.orgId}/users/${editingUserId}`, savePayload);
+                } catch (writeErr) {
+                    // Log the EXACT payload + caller context so the next
+                    // PERMISSION_DENIED is diagnosable from the console.
+                    console.error('[Users.handleSaveUser] dbUpdate rejected', {
+                        path: `organizations/${session.orgId}/users/${editingUserId}`,
+                        editingUser,
+                        savePayload,
+                        actorSession: { uid: session.uid, role: session.role, status: session.status, orgId: session.orgId },
+                        error: writeErr,
+                    });
+                    throw writeErr;
+                }
 
                 const requestUpdates = buildPermissionRequestUpdates({
                     permissionRequests,
