@@ -10,6 +10,7 @@ import { hasAccessibleModule, isGlobalOwnerRole } from '../utils/permissions';
 import { readStoredSession, writeStoredSession } from '../utils/session';
 import { saveOrgToRegistry } from '../utils/orgRegistry.js';
 import { useReminders } from '../hooks/useReminders';
+import { parseDate, classifySeverity, daysUntil, formatDueLabel, SEVERITY } from '../utils/reminders';
 import { rtdbRest, isFirebaseRestAvailable } from '../utils/rtdbRest.js';
 import NeedsAttentionPanel from '../components/NeedsAttentionPanel';
 
@@ -323,18 +324,47 @@ export default function Dashboard() {
                 });
             }
 
-            if (localOrgData.incidents) {
-                Object.values(localOrgData.incidents).forEach(inc => {
-                    const capas = inc.capa || (inc.investigation && inc.investigation.capa);
-                    if (capas) {
-                        Object.values(capas).forEach(act => {
-                            if (act && act.status !== 'Closed' && checkUserMatch(act.owner || act.own)) {
-                                actions.push({ title: act.action || act.act || act.desc, module: 'CAPA Manager', path: `/capa?site=${inc.siteId || 'All'}` });
-                            }
+            // CAPA actions from every source collection that carries them.
+            // Surface only items that are overdue OR due in the next 7 days so
+            // the Action Queue reflects what needs attention right now.
+            const todayForActions = new Date();
+            const CAPA_DONE = new Set(['closed', 'completed', 'complete', 'done', 'verified', 'resolved']);
+            const isCapaDone = (status) => CAPA_DONE.has(String(status || '').trim().toLowerCase());
+            const CAPA_SOURCES = [
+                { key: 'incidents', siteFrom: 'incident' },
+                { key: 'auditFindings', siteFrom: 'finding' },
+                { key: 'mockDrills', siteFrom: 'drill' },
+                { key: 'inspectionRecords', siteFrom: 'record' }
+            ];
+
+            CAPA_SOURCES.forEach(({ key }) => {
+                const collection = localOrgData[key];
+                if (!collection) return;
+                Object.values(collection).forEach((record) => {
+                    if (!record) return;
+                    const capas = record.capa || (record.investigation && record.investigation.capa);
+                    if (!capas) return;
+                    Object.values(capas).forEach((act) => {
+                        if (!act || isCapaDone(act.status)) return;
+                        if (!checkUserMatch(act.owner || act.own || act.assignedTo)) return;
+
+                        const dueDate = parseDate(act.dueDate || act.due || act.targetDate);
+                        const severity = classifySeverity(dueDate, todayForActions, { dueSoonDays: 7, upcomingDays: 30 });
+                        // Show overdue + due-within-7-days. Items with no due
+                        // date OR due > 7 days out are skipped from the queue.
+                        if (severity !== SEVERITY.OVERDUE && severity !== SEVERITY.DUE_SOON) return;
+
+                        const days = daysUntil(dueDate, todayForActions);
+                        actions.push({
+                            title: act.action || act.act || act.desc || 'Corrective action',
+                            module: 'CAPA Manager',
+                            path: `/capa?site=${act.siteId || record.siteId || 'All'}`,
+                            dueLabel: formatDueLabel({ daysUntil: days }),
+                            overdue: severity === SEVERITY.OVERDUE
                         });
-                    }
+                    });
                 });
-            }
+            });
 
             if (isGlobalAdmin && localOrgData.permissionRequests) {
                 Object.values(localOrgData.permissionRequests).forEach(req => {
@@ -344,6 +374,15 @@ export default function Dashboard() {
                 });
             }
         }
+
+        // Overdue items first, then due-soonest. Items without a dueLabel
+        // (PTW approvals, permission requests) sort to the end inside their
+        // overdue bucket.
+        actions.sort((a, b) => {
+            if (a.overdue && !b.overdue) return -1;
+            if (!a.overdue && b.overdue) return 1;
+            return 0;
+        });
 
         return { orgName, sites: parsedSites, myActions: actions, visibleModules: vModules };
     }, [localOrgData, session]);
@@ -791,7 +830,7 @@ export default function Dashboard() {
                                         />
                                     </div>
                                     <p className="relative z-10 mt-2 text-xs text-[var(--myth-muted)]">
-                                        {myActions.length === 0 ? 'All clear — inbox zero' : 'Approval, CAPA, or response pending'}
+                                        {myActions.length === 0 ? 'All clear — inbox zero' : 'Overdue or due in next 7 days'}
                                     </p>
                                 </div>
                             </div>
@@ -875,7 +914,22 @@ export default function Dashboard() {
                                     onClick={() => { setIsNotificationOpen(false); navigate(act.path); }}
                                     className="command-panel myth-hover w-full rounded-[1.5rem] p-4 text-left"
                                 >
-                                    <p className="myth-kicker text-[10px]">{act.module}</p>
+                                    <div className="flex items-center justify-between gap-3">
+                                        <p className="myth-kicker text-[10px]">{act.module}</p>
+                                        {act.dueLabel && (
+                                            <span
+                                                className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.18em]"
+                                                style={{
+                                                    backgroundColor: act.overdue ? '#fef2f2' : '#fffbeb',
+                                                    color: act.overdue ? '#b91c1c' : '#b45309',
+                                                    border: `1px solid ${act.overdue ? '#fecaca' : '#fde68a'}`
+                                                }}
+                                            >
+                                                <i className={`fas ${act.overdue ? 'fa-circle-exclamation' : 'fa-clock'}`}></i>
+                                                {act.dueLabel}
+                                            </span>
+                                        )}
+                                    </div>
                                     <div className="mt-3 flex items-start justify-between gap-3">
                                         <p className="text-sm font-semibold leading-snug text-[var(--myth-ink)]">{act.title}</p>
                                         <i className="fas fa-arrow-right mt-1 text-[var(--myth-ember)]"></i>
