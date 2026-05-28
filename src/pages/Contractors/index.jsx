@@ -1233,10 +1233,30 @@ export default function Contractors() {
                                     siteId: portalSuccess.siteId || '',
                                     bootstrap: false
                                 });
-                                alert(`Password-reset email sent to ${portalSuccess.email}.`);
+                                alert(
+                                    `Password-reset email sent to ${portalSuccess.email}.\n\n` +
+                                    `• Tell the vendor to check spam / junk if it doesn't arrive in 2 minutes.\n` +
+                                    `• Sender is noreply@<project-id>.firebaseapp.com.\n` +
+                                    `• The reset link expires in 1 hour.`
+                                );
                                 return result;
                             } catch (err) {
-                                alert('Could not send the reset email: ' + (err?.message || err));
+                                const code = err?.code || '';
+                                if (code === 'auth/unauthorized-continue-uri' || code === 'auth/invalid-continue-uri') {
+                                    alert(
+                                        'Firebase refused the reset email — the continue URL is not in the Authorized Domains list.\n\n' +
+                                        `URL we tried to use: ${window.location.origin}\n\n` +
+                                        'Fix: open Firebase Console → Authentication → Settings → Authorized domains and add this site\'s domain (and "localhost" for development). Then retry.'
+                                    );
+                                } else if (code === 'auth/user-not-found') {
+                                    alert('No Firebase Auth account exists for this email yet. Provision the vendor first to create the auth account, then click Send Reset.');
+                                } else if (code === 'auth/too-many-requests') {
+                                    alert('Too many reset requests for this email. Wait a few minutes and try again.');
+                                } else if (code === 'auth/network-request-failed') {
+                                    alert('Network error reaching Firebase. Check your internet connection and try again.');
+                                } else {
+                                    alert('Could not send the reset email: ' + (err?.message || code || 'Unknown error'));
+                                }
                                 throw err;
                             }
                         }}

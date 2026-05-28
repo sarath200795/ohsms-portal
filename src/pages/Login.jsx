@@ -384,19 +384,44 @@ export default function Login() {
     };
 
     // ── forgot password ────────────────────────────────────────────────────────
+    // Surface Firebase's real error codes instead of always showing a success
+    // toast. The old behaviour intentionally masked auth/user-not-found for
+    // enumeration protection, but it also hid auth/unauthorized-continue-uri,
+    // network failures, and quota errors — so admins thought 'reset sent'
+    // when nothing went out. Now we still mask 'user-not-found' (the
+    // privacy reason still applies), but every other code is shown verbatim
+    // so the operator can act on it.
     const handleForgotPassword = async () => {
         const targetEmail = (resetEmail || email).trim().toLowerCase();
         if (!targetEmail) return alert('Please enter your email address first.');
         setLoading(true);
         try {
             await authService.sendPasswordReset(targetEmail);
-            alert('If an account exists for this email, a password reset link has been sent.');
+            alert(
+                `Password reset link sent to ${targetEmail}.\n\n` +
+                `• Check your spam / junk folder if it doesn't arrive in 2 minutes.\n` +
+                `• Sender is noreply@<project-id>.firebaseapp.com.\n` +
+                `• The link expires in 1 hour.`
+            );
             setResetEmail('');
         } catch (error) {
-            if (error.code === 'auth/invalid-email') {
+            const code = error?.code || '';
+            if (code === 'auth/invalid-email') {
                 alert('Please enter a valid email address.');
-            } else {
+            } else if (code === 'auth/user-not-found') {
+                // Keep the privacy-preserving response for unknown accounts.
                 alert('If an account exists for this email, a password reset link has been sent.');
+            } else if (code === 'auth/unauthorized-continue-uri' || code === 'auth/invalid-continue-uri') {
+                alert(
+                    'Firebase refused the reset email — the continue URL is not in the Authorized Domains list.\n\n' +
+                    'Fix in Firebase Console → Authentication → Settings → Authorized domains: add this site\'s domain (and "localhost" for development).'
+                );
+            } else if (code === 'auth/too-many-requests') {
+                alert('Too many requests for this email. Wait a few minutes and try again.');
+            } else if (code === 'auth/network-request-failed') {
+                alert('Network error reaching Firebase. Check your internet connection and try again.');
+            } else {
+                alert('Could not send the reset email: ' + (error?.message || code || 'Unknown error'));
             }
         } finally {
             setLoading(false);
