@@ -23,13 +23,23 @@ export const normalizeStoredUserRecord = (payload = {}) => {
     const assignedSite = role === GLOBAL_OWNER_ROLE
         ? 'GLOBAL'
         : baseAssignedSite || String(fallbackSite || '').trim();
+    // Build accessibleSites for SITE_OWNER_ROLE the same way as USER_ROLE
+    // — keep every site the form ticked, dedupe, and guarantee the primary
+    // assignedSite is included so the Site Owner can never be granted
+    // EXTRA sites without retaining their primary.  (Previously this
+    // forced [assignedSite] only, silently dropping any extra sites the
+    // form had ticked, which is why the "additional sites" UI never took
+    // effect for Site Owners.)
+    const collectExtraSites = (raw) => Array.isArray(raw)
+        ? raw.filter(Boolean).map((site) => String(site).trim()).filter(Boolean)
+        : [];
     const accessibleSites = role === GLOBAL_OWNER_ROLE
         ? []
         : role === SITE_OWNER_ROLE
-            ? (assignedSite ? [assignedSite] : [])
-            : Array.isArray(payload.accessibleSites)
-                ? payload.accessibleSites.filter(Boolean).map((site) => String(site).trim())
-                : [];
+            ? Array.from(new Set(
+                [assignedSite, ...collectExtraSites(payload.accessibleSites)].filter(Boolean)
+            ))
+            : collectExtraSites(payload.accessibleSites);
     const accessibleModules = role === USER_ROLE
         ? toCanonicalModuleIds(payload.accessibleModules)
         : [];
@@ -56,13 +66,19 @@ export const normalizeUserAccessPayload = (payload = {}, { editingExistingUser =
     const assignedSite = role === GLOBAL_OWNER_ROLE
         ? 'GLOBAL'
         : baseAssignedSite || String(fallbackSite || '').trim();
+    // Same logic as normalizeStoredUserRecord above — Site Owners now keep
+    // every site the form selected, with the primary assignedSite always
+    // included for free.
+    const collectExtraSites = (raw) => Array.isArray(raw)
+        ? raw.filter(Boolean).map((site) => String(site).trim()).filter(Boolean)
+        : [];
     const accessibleSites = role === GLOBAL_OWNER_ROLE
         ? []
         : role === SITE_OWNER_ROLE
-            ? (assignedSite ? [assignedSite] : [])
-            : Array.isArray(payload.accessibleSites)
-                ? payload.accessibleSites.filter(Boolean).map((site) => String(site).trim())
-                : [];
+            ? Array.from(new Set(
+                [assignedSite, ...collectExtraSites(payload.accessibleSites)].filter(Boolean)
+            ))
+            : collectExtraSites(payload.accessibleSites);
     const accessibleModules = role === USER_ROLE ? toCanonicalModuleIds(payload.accessibleModules) : [];
 
     return {

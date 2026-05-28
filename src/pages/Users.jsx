@@ -746,7 +746,7 @@ export default function Users() {
                                         {formData.role === GLOBAL_OWNER_ROLE
                                             ? 'Global Owner gets all sites and all modules automatically.'
                                             : formData.role === SITE_OWNER_ROLE
-                                                ? 'Site Owner gets all modules for one site, with no access to the Sites module.'
+                                                ? 'Site Owner gets all modules for one or more assigned sites, with no access to the Sites module.'
                                                 : 'User gets only the site and modules explicitly assigned below.'}
                                     </p>
                                 </div>
@@ -786,18 +786,43 @@ export default function Users() {
                                     )}
                                 </div>
 
-                                {formData.role === USER_ROLE && formData.assignedSite !== 'GLOBAL' && !isSiteOwner && (
+                                {/*
+                                  Multi-site picker:
+                                  - USER role: existing behaviour — pick the extra sites this
+                                    user can access in addition to their primary.
+                                  - SITE OWNER role: now also picks the EXTRA sites this Site
+                                    Owner can manage beyond their primary site. The primary
+                                    site (from the dropdown above) is implicitly always
+                                    included; any sites ticked here are added to
+                                    accessibleSites at save time and recognised by
+                                    normalizeSessionPermissions on every login.
+                                  - GLOBAL OWNER: not shown — Global Owners have all sites.
+                                  - Hidden if the form admin is themselves a Site Owner
+                                    (they can only manage users within their own single site
+                                    scope, so cross-site granting is not theirs to do).
+                                */}
+                                {(formData.role === USER_ROLE || formData.role === SITE_OWNER_ROLE) && formData.assignedSite !== 'GLOBAL' && !isSiteOwner && (
                                     <div>
-                                        <label className="text-[10px] uppercase font-bold text-slate-400 block mb-3 tracking-widest">Additional Accessible Sites</label>
+                                        <label className="text-[10px] uppercase font-bold text-slate-400 block mb-3 tracking-widest">
+                                            {formData.role === SITE_OWNER_ROLE ? 'Additional Sites This Owner Manages' : 'Additional Accessible Sites'}
+                                        </label>
                                         <div className="flex flex-wrap gap-3">
-                                            {sites.map(s => (
-                                                <label key={s.code} className={`flex items-center gap-2 px-4 py-2 rounded-xl border transition-all cursor-pointer ${formData.accessibleSites.includes(s.code) ? 'bg-blue-600 border-blue-500 text-white shadow-lg' : 'bg-slate-950 border-slate-700 text-slate-400 hover:border-slate-500'}`}>
-                                                    <input type="checkbox" className="hidden" checked={formData.accessibleSites.includes(s.code)} onChange={() => toggleArrayItem('accessibleSites', s.code)} />
-                                                    <span className="text-xs font-bold">{s.name}</span>
-                                                </label>
-                                            ))}
+                                            {sites
+                                                .filter((s) => s.code !== formData.assignedSite) // primary already implicit
+                                                .map(s => (
+                                                    <label key={s.code} className={`flex items-center gap-2 px-4 py-2 rounded-xl border transition-all cursor-pointer ${formData.accessibleSites.includes(s.code) ? 'bg-blue-600 border-blue-500 text-white shadow-lg' : 'bg-slate-950 border-slate-700 text-slate-400 hover:border-slate-500'}`}>
+                                                        <input type="checkbox" className="hidden" checked={formData.accessibleSites.includes(s.code)} onChange={() => toggleArrayItem('accessibleSites', s.code)} />
+                                                        <span className="text-xs font-bold">{s.name}</span>
+                                                    </label>
+                                                ))}
                                             {sites.length === 0 && <span className="text-xs text-slate-500 italic">No sites created in the organization yet.</span>}
+                                            {sites.length > 0 && sites.length === 1 && <span className="text-xs text-slate-500 italic">Only one site exists — nothing else to grant.</span>}
                                         </div>
+                                        {formData.role === SITE_OWNER_ROLE && (
+                                            <p className="mt-3 text-[11px] leading-relaxed text-slate-500">
+                                                The Site Owner's <span className="font-bold text-slate-300">primary site</span> is set from the dropdown above. Tick any additional sites they should also be able to manage (view records, approve PTWs, run audits, etc.) for those sites.
+                                            </p>
+                                        )}
                                     </div>
                                 )}
                             </div>
