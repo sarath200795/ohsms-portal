@@ -89,6 +89,10 @@ export default function Users() {
     const [session, setSession] = useState(null);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
+    // Per-row busy state for the inline vendor Approve button (separate from
+    // the modal save spinner so a click on Approve for one row doesn't
+    // disable Approve for every other row).
+    const [vendorApprovalBusyId, setVendorApprovalBusyId] = useState(null);
 
     const [users, setUsers] = useState([]);
     const [sites, setSites] = useState([]);
@@ -605,6 +609,97 @@ export default function Users() {
         setSaving(false);
     };
 
+    // One-click vendor approval — vendors don't get roles, sites, or module
+    // access, so skip the permissions modal entirely. Flips the pending
+    // users row to Active and runs the vendor side-effects (contractor +
+    // vendorPortalUsers) inline.
+    const handleQuickApproveVendor = async (vendorUser) => {
+        if (!isGlobalOwner) return alert('Only the Global Owner can approve vendor registrations.');
+        if (!vendorUser?.id) return;
+        if (!window.confirm(`Approve vendor ${vendorUser.vendorMeta?.companyName || vendorUser.name}?\n\nThis activates their portal account and creates the contractor profile that will show up in Contractors.`)) return;
+
+        setVendorApprovalBusyId(vendorUser.id);
+        try {
+            const nowIso = new Date().toISOString();
+            // Flip the user record to Active.  We keep role: 'User' (the
+            // rules' validate doesn't accept a 'Vendor' role) but the UI
+            // treats them as vendors based on the vendorPortal flag.
+            const userPayload = {
+                ...vendorUser,
+                status: ACCOUNT_STATUS.ACTIVE,
+                joinCode: null,
+                vendorPortal: true,
+                vendorMeta: vendorUser.vendorMeta || {}
+            };
+            delete userPayload.id;
+            await dbUpdate(`organizations/${session.orgId}/users/${vendorUser.id}`, userPayload);
+
+            // Side-effects — same as the modal-save path.
+            const meta = vendorUser.vendorMeta || {};
+            const existingContractors = await dbGet(`organizations/${session.orgId}/contractors`).catch(() => null);
+            let contractorKey = null;
+            if (existingContractors && typeof existingContractors === 'object') {
+                const match = Object.entries(existingContractors).find(([, c]) => c?.portalUid === vendorUser.id);
+                if (match) contractorKey = match[0];
+            }
+            if (!contractorKey) {
+                const contractorPayload = {
+                    companyName: meta.companyName || vendorUser.name || 'Vendor',
+                    contactPerson: meta.contactPerson || '',
+                    email: vendorUser.email,
+                    phone: meta.phone || '',
+                    serviceType: meta.serviceType || 'General / Housekeeping',
+                    goodsType: 'PPE',
+                    notes: '',
+                    allocatedSites: [],
+                    siteId: '',
+                    status: 'Active',
+                    documents: [],
+                    workers: [],
+                    trainings: [],
+                    incidents: [],
+                    nonCompliances: [],
+                    portalUid: vendorUser.id,
+                    portalSharedIdentity: false,
+                    portalBootstrapPending: false,
+                    portalAssignedSite: '',
+                    portalProvisionedAt: nowIso,
+                    portalProvisionedBy: session.email,
+                    vendorCode: 'VEN-' + Math.random().toString(36).slice(2, 8).toUpperCase(),
+                    createdAt: nowIso,
+                    lastUpdated: nowIso,
+                    updatedBy: session.email,
+                    createdViaVendorSelfRegistration: true
+                };
+                contractorKey = await dbPush(`organizations/${session.orgId}/contractors`, contractorPayload);
+            }
+
+            await dbSet(`organizations/${session.orgId}/vendorPortalUsers/${vendorUser.id}`, {
+                name: meta.contactPerson || vendorUser.name || meta.companyName || 'Vendor Portal User',
+                email: vendorUser.email,
+                role: 'User',
+                status: 'Active',
+                assignedSite: '',
+                accessibleSites: [],
+                accessibleModules: [],
+                vendorPortal: true,
+                portalLinkedContractorId: contractorKey,
+                portalBootstrapPending: false,
+                updatedBy: session.email,
+                updatedAt: nowIso,
+                createdAt: nowIso
+            });
+
+            setUsers((prev) => prev.map((u) => u.id === vendorUser.id ? { ...u, status: ACCOUNT_STATUS.ACTIVE, joinCode: null } : u));
+            alert(`Vendor approved.\n\n${meta.companyName || vendorUser.name} now appears in the Contractors module. They can sign in to the vendor portal with the email and password they registered.`);
+        } catch (err) {
+            console.error('[handleQuickApproveVendor] failed:', err);
+            alert('Vendor approval failed: ' + (err?.message || err?.code || 'Unknown error'));
+        } finally {
+            setVendorApprovalBusyId(null);
+        }
+    };
+
     const handleDeleteUser = async (userId, email) => {
         if (!isGlobalOwner) {
             return alert('Only the Global Owner can permanently remove user access.');
@@ -788,17 +883,29 @@ export default function Users() {
                                                 )}
                                             </td>
                                             <td className="p-5">
-                                                <span className={`text-[10px] font-bold uppercase tracking-widest px-2 py-1 rounded border shadow-sm ${normalizeRole(u.role) === GLOBAL_OWNER_ROLE ? 'bg-purple-900/30 text-purple-400 border-purple-500/30' : normalizeRole(u.role) === SITE_OWNER_ROLE ? 'bg-blue-900/30 text-blue-400 border-blue-500/30' : 'bg-emerald-900/30 text-emerald-400 border-emerald-500/30'}`}>
-                                                    {normalizeRole(u.role)}
-                                                </span>
+                                                {u.vendorPortal === true ? (
+                                                    <span className="text-[10px] font-bold uppercase tracking-widest px-2 py-1 rounded border shadow-sm bg-emerald-900/30 text-emerald-300 border-emerald-500/40">
+                                                        Vendor
+                                                    </span>
+                                                ) : (
+                                                    <span className={`text-[10px] font-bold uppercase tracking-widest px-2 py-1 rounded border shadow-sm ${normalizeRole(u.role) === GLOBAL_OWNER_ROLE ? 'bg-purple-900/30 text-purple-400 border-purple-500/30' : normalizeRole(u.role) === SITE_OWNER_ROLE ? 'bg-blue-900/30 text-blue-400 border-blue-500/30' : 'bg-emerald-900/30 text-emerald-400 border-emerald-500/30'}`}>
+                                                        {normalizeRole(u.role)}
+                                                    </span>
+                                                )}
                                             </td>
                                             <td className="p-5 font-bold text-slate-300">
-                                                {u.assignedSite || <span className="text-slate-600 italic">None</span>}
+                                                {u.vendorPortal === true
+                                                    ? <span className="text-slate-600 italic text-xs">— (vendor)</span>
+                                                    : (u.assignedSite || <span className="text-slate-600 italic">None</span>)}
                                             </td>
                                             <td className="p-5 text-center">
-                                                <span className="font-mono font-bold bg-slate-900 border border-slate-700 px-3 py-1 rounded-lg text-emerald-400 shadow-inner">
-                                                    {normalizeRole(u.role) === GLOBAL_OWNER_ROLE ? 'ALL' : normalizeRole(u.role) === SITE_OWNER_ROLE ? 'SITE' : u.accessibleModules?.length || 0}
-                                                </span>
+                                                {u.vendorPortal === true ? (
+                                                    <span className="text-slate-600 italic text-xs">N/A</span>
+                                                ) : (
+                                                    <span className="font-mono font-bold bg-slate-900 border border-slate-700 px-3 py-1 rounded-lg text-emerald-400 shadow-inner">
+                                                        {normalizeRole(u.role) === GLOBAL_OWNER_ROLE ? 'ALL' : normalizeRole(u.role) === SITE_OWNER_ROLE ? 'SITE' : u.accessibleModules?.length || 0}
+                                                    </span>
+                                                )}
                                             </td>
                                             <td className="p-5">
                                                 <div className="flex items-center gap-2">
@@ -807,13 +914,38 @@ export default function Users() {
                                                 </div>
                                             </td>
                                             <td className="p-5 pr-8 text-right flex justify-end gap-2">
-                                                <button onClick={() => openModal(u)} className="bg-slate-800 hover:bg-blue-600 text-white w-9 h-9 rounded-xl transition-colors shadow flex items-center justify-center border border-slate-700" title="Edit Permissions">
-                                                    <i className="fas fa-edit"></i>
-                                                </button>
-                                                {isGlobalOwner && (
-                                                    <button onClick={() => handleDeleteUser(u.id, u.email)} className="bg-slate-800 hover:bg-red-600 text-slate-400 hover:text-white w-9 h-9 rounded-xl transition-colors shadow flex items-center justify-center border border-slate-700" title="Revoke Access">
-                                                        <i className="fas fa-trash-alt"></i>
-                                                    </button>
+                                                {/* Vendor + pending → single-click Approve.  Skips the
+                                                    permissions modal entirely since vendors don't get
+                                                    roles, sites, or module access. */}
+                                                {u.vendorPortal === true && u.status === ACCOUNT_STATUS.PENDING && isGlobalOwner ? (
+                                                    <>
+                                                        <button
+                                                            onClick={() => handleQuickApproveVendor(u)}
+                                                            disabled={vendorApprovalBusyId === u.id}
+                                                            className="bg-emerald-600 hover:bg-emerald-500 text-white px-3 h-9 rounded-xl transition-colors shadow flex items-center gap-2 text-xs font-bold uppercase tracking-widest disabled:opacity-50"
+                                                            title="Approve vendor and create contractor record"
+                                                        >
+                                                            <i className={`fas ${vendorApprovalBusyId === u.id ? 'fa-spinner fa-spin' : 'fa-check'}`}></i> Approve
+                                                        </button>
+                                                        <button
+                                                            onClick={() => handleDeleteUser(u.id, u.email)}
+                                                            className="bg-slate-800 hover:bg-red-600 text-slate-400 hover:text-white w-9 h-9 rounded-xl transition-colors shadow flex items-center justify-center border border-slate-700"
+                                                            title="Reject and delete"
+                                                        >
+                                                            <i className="fas fa-times"></i>
+                                                        </button>
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <button onClick={() => openModal(u)} className="bg-slate-800 hover:bg-blue-600 text-white w-9 h-9 rounded-xl transition-colors shadow flex items-center justify-center border border-slate-700" title={u.vendorPortal === true ? 'View vendor' : 'Edit Permissions'}>
+                                                            <i className={`fas ${u.vendorPortal === true ? 'fa-eye' : 'fa-edit'}`}></i>
+                                                        </button>
+                                                        {isGlobalOwner && (
+                                                            <button onClick={() => handleDeleteUser(u.id, u.email)} className="bg-slate-800 hover:bg-red-600 text-slate-400 hover:text-white w-9 h-9 rounded-xl transition-colors shadow flex items-center justify-center border border-slate-700" title="Revoke Access">
+                                                                <i className="fas fa-trash-alt"></i>
+                                                            </button>
+                                                        )}
+                                                    </>
                                                 )}
                                             </td>
                                         </tr>
