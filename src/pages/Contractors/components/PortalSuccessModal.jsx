@@ -72,10 +72,15 @@ export default function PortalSuccessModal({ onClose, portalSuccess }) {
                             <div className="text-xs text-emerald-300">The temporary password email was sent to the vendor mailbox{portalSuccess.credentialEmailSentAt ? ` on ${new Date(portalSuccess.credentialEmailSentAt).toLocaleString()}` : ''}.</div>
                         </div>
                     )}
-                    {hasManualCredentialDraft && (
+                    {hasManualCredentialDraft && !hasCredentialEmail && (
                         <div>
-                            <div className="text-[10px] uppercase font-bold tracking-widest text-slate-500 mb-1">Email Draft Prepared</div>
-                            <div className="text-xs text-amber-200">Automatic vendor email delivery is not configured, so a ready-to-send mail draft is available below for the registrar.</div>
+                            <div className="text-[10px] uppercase font-bold tracking-widest text-slate-500 mb-1">Credentials Email</div>
+                            <div className="text-xs text-amber-200">
+                                Your email client has been opened with the vendor's credentials pre-filled.
+                                Just click <span className="font-bold">Send</span> in your mail app to deliver the
+                                temporary password. If the mail client didn't open, use the
+                                <span className="font-bold"> "Open Email Draft"</span> button below.
+                            </div>
                         </div>
                     )}
                     {hasSetupEmail && (
@@ -88,6 +93,17 @@ export default function PortalSuccessModal({ onClose, portalSuccess }) {
 
                 {portalSuccess.warning && <div className="rounded-2xl border border-amber-500/30 bg-amber-950/20 p-4 text-xs leading-relaxed text-amber-200 mb-6">{portalSuccess.warning}</div>}
 
+                {/* Primary CTA — if the email client needs to be reopened, this is the most important action on the modal. */}
+                {hasManualCredentialDraft && !hasCredentialEmail && (
+                    <a
+                        href={portalSuccess.manualCredentialDraftUrl}
+                        className="mb-3 flex items-center justify-center gap-2 w-full bg-amber-600 hover:bg-amber-500 text-white px-4 py-3.5 rounded-xl text-sm font-bold uppercase tracking-widest transition-colors shadow-lg shadow-amber-600/30"
+                    >
+                        <i className="fas fa-envelope"></i>
+                        Reopen Email Draft
+                    </a>
+                )}
+
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <button type="button" onClick={copyPortalLink} className="bg-slate-800 hover:bg-slate-700 text-white px-4 py-3 rounded-xl text-sm font-bold uppercase tracking-widest transition-colors border border-slate-700">
                         Copy Portal Link
@@ -96,11 +112,6 @@ export default function PortalSuccessModal({ onClose, portalSuccess }) {
                         <button type="button" onClick={copyTemporaryPassword} className="bg-slate-800 hover:bg-slate-700 text-white px-4 py-3 rounded-xl text-sm font-bold uppercase tracking-widest transition-colors border border-slate-700">
                             Copy Temp Password
                         </button>
-                    )}
-                    {hasManualCredentialDraft && (
-                        <a href={portalSuccess.manualCredentialDraftUrl} className="bg-amber-600 hover:bg-amber-500 text-white px-4 py-3 rounded-xl text-sm font-bold uppercase tracking-widest transition-colors shadow-lg shadow-amber-600/20 text-center">
-                            Open Email Draft
-                        </a>
                     )}
                     <a href={portalSuccess.portalUrl} target="_blank" rel="noreferrer" className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-3 rounded-xl text-sm font-bold uppercase tracking-widest transition-colors shadow-lg shadow-emerald-600/20 text-center">
                         Open Portal

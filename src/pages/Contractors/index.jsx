@@ -778,6 +778,20 @@ export default function Contractors() {
                 firstLoginRequiresPasswordChange: portalPasswordManaged,
                 warning: provisioningWarning
             });
+
+            // ── AUTO-OPEN the mailto: draft when EmailJS isn't configured ──
+            // The provision succeeded, but no email was actually sent. Open
+            // the user's mail client with the credentials pre-filled so they
+            // only need to click Send. Runs immediately while still inside
+            // the user-gesture chain (the original Provision button click)
+            // so browsers don't block the popup/handler.
+            // The mailto is set on window.location.href — this triggers the
+            // OS mail handler WITHOUT navigating the SPA away from the page,
+            // so the success modal stays visible behind the email client.
+            if (!credentialEmailSent && !setupEmailSent && manualCredentialDraftUrl) {
+                try { window.location.href = manualCredentialDraftUrl; }
+                catch { /* user can still click "Open Email Draft" in the modal */ }
+            }
         } catch (error) {
             alert('Portal provisioning failed: ' + error.message);
         } finally {
