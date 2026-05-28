@@ -511,17 +511,42 @@ export default function Contractors() {
             step = 'write userDirectory';
             await dbSet(`userDirectory/${request.requestUid}`, { orgId: session.orgId });
 
+            // Step 4 — mark the request approved. This is the ONLY step
+            // that can fail without breaking the vendor's ability to sign
+            // in: at this point the contractor, vendorPortalUsers entry,
+            // and userDirectory are all written. The request row is just
+            // an audit artefact. If the rule for vendorRegistrationRequests
+            // isn't deployed yet, fall back to removing the row outright,
+            // and if THAT also fails (very unlikely) just drop it from
+            // local state so it disappears from the modal — the vendor is
+            // already approved from a functional standpoint.
             step = 'mark request approved';
-            await dbUpdate(`organizations/${session.orgId}/vendorRegistrationRequests/${request.firebaseKey}`, {
-                status: 'Approved',
-                approvedAt: nowIso,
-                approvedBy: session.email,
-                approvedContractorId: contractorKey
-            });
+            let requestRowCleared = false;
+            try {
+                await dbUpdate(`organizations/${session.orgId}/vendorRegistrationRequests/${request.firebaseKey}`, {
+                    status: 'Approved',
+                    approvedAt: nowIso,
+                    approvedBy: session.email,
+                    approvedContractorId: contractorKey
+                });
+                requestRowCleared = true;
+            } catch (markErr) {
+                console.warn('[approveVendorRegistration] could not mark request as Approved, trying delete:', markErr);
+                try {
+                    await dbRemove(`organizations/${session.orgId}/vendorRegistrationRequests/${request.firebaseKey}`);
+                    requestRowCleared = true;
+                } catch (removeErr) {
+                    console.warn('[approveVendorRegistration] could not delete request row either — dropping from local state only:', removeErr);
+                }
+            }
 
             setPendingRegistrations((prev) => prev.filter((r) => r.firebaseKey !== request.firebaseKey));
             await refreshContractors();
-            alert(`Approved.\n\n${request.companyName} can now sign in to the vendor portal with the email + password they used to register.`);
+            const successMsg = `Approved.\n\n${request.companyName} can now sign in to the vendor portal with the email + password they used to register.`;
+            const auditNote = requestRowCleared
+                ? ''
+                : '\n\n(Note: the request row in vendorRegistrationRequests could not be updated — most likely the new rule for that collection has not been deployed yet. The vendor is approved regardless. Run "npm run firebase:rules" if you want the audit history to persist properly.)';
+            alert(successMsg + auditNote);
         } catch (err) {
             console.error(`[approveVendorRegistration] failed at step: ${step}`, {
                 request,
