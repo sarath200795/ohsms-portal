@@ -79,27 +79,88 @@ export default function IncidentRegistry({
                     </div>
                     <button type="button" onClick={exportToExcel} className="bg-emerald-600 hover:bg-emerald-500 text-white px-5 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 shadow-lg transition-transform active:scale-95"><i className="fas fa-file-excel"></i> Export</button>
                 </div>
+                {/*
+                  Filter inputs use arbitrary Tailwind values (e.g. bg-[#0f172a])
+                  rather than bg-slate-950 / text-white so the global light-theme
+                  overrides in index.css (which force input.bg-slate-950 → white
+                  with dark text and .text-white → dark ink) do not flip these
+                  controls.  This section is intentionally dark to match the
+                  purple gradient header, so the inputs need to STAY dark with
+                  white text — escaping the cascade with arbitrary values keeps
+                  the design contained without touching global CSS.
+                */}
                 <div className="flex gap-4 items-end flex-wrap">
-                    <div><label className="text-[10px] text-purple-300 font-bold uppercase block mb-1">From</label><input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="w-32 bg-slate-950 border border-slate-700 text-xs rounded-lg p-2 text-white outline-none focus:border-purple-500" /></div>
-                    <div><label className="text-[10px] text-purple-300 font-bold uppercase block mb-1">To</label><input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="w-32 bg-slate-950 border border-slate-700 text-xs rounded-lg p-2 text-white outline-none focus:border-purple-500" /></div>
+                    <div>
+                        <label className="text-[10px] text-purple-200 font-bold uppercase block mb-1">From</label>
+                        <input
+                            type="date"
+                            value={dateFrom}
+                            onChange={(e) => setDateFrom(e.target.value)}
+                            className="w-32 bg-[#0f172a] border border-[rgba(71,85,105,0.6)] text-xs rounded-lg p-2 text-[#ffffff] outline-none focus:border-purple-500 [color-scheme:dark]"
+                        />
+                    </div>
+                    <div>
+                        <label className="text-[10px] text-purple-200 font-bold uppercase block mb-1">To</label>
+                        <input
+                            type="date"
+                            value={dateTo}
+                            onChange={(e) => setDateTo(e.target.value)}
+                            className="w-32 bg-[#0f172a] border border-[rgba(71,85,105,0.6)] text-xs rounded-lg p-2 text-[#ffffff] outline-none focus:border-purple-500 [color-scheme:dark]"
+                        />
+                    </div>
 
                     <div>
-                        <label className="text-[10px] text-purple-300 font-bold uppercase block mb-1">Region</label>
-                        <select value={regionFilter} onChange={(e) => setRegionFilter(e.target.value)} className="w-32 bg-slate-950 border border-slate-700 text-xs rounded-lg p-2 text-white outline-none focus:border-purple-500">
+                        <label className="text-[10px] text-purple-200 font-bold uppercase block mb-1">Region</label>
+                        <select
+                            value={regionFilter}
+                            onChange={(e) => setRegionFilter(e.target.value)}
+                            className="w-32 bg-[#0f172a] border border-[rgba(71,85,105,0.6)] text-xs rounded-lg p-2 text-[#ffffff] outline-none focus:border-purple-500"
+                        >
                             <option value="All">All Regions</option>
                             {regionOptions.map((region) => <option key={region} value={region}>{region}</option>)}
                         </select>
                     </div>
                     <div>
-                        <label className="text-[10px] text-purple-300 font-bold uppercase block mb-1">Site Filter</label>
-                        <select value={siteFilter} onChange={handleSiteFilterChange} className="w-32 bg-slate-950 border border-slate-700 text-xs rounded-lg p-2 text-white outline-none focus:border-purple-500">
+                        <label className="text-[10px] text-purple-200 font-bold uppercase block mb-1">Site Filter</label>
+                        <select
+                            value={siteFilter}
+                            onChange={handleSiteFilterChange}
+                            className="w-32 bg-[#0f172a] border border-[rgba(71,85,105,0.6)] text-xs rounded-lg p-2 text-[#ffffff] outline-none focus:border-purple-500"
+                        >
                             {(isGlobalUser || uniqueSites.length > 1) && <option value="All">All Sites</option>}
                             {uniqueSites.map((site) => <option key={site.code} value={site.code}>{site.name}</option>)}
                         </select>
                     </div>
 
-                    <div><label className="text-[10px] text-purple-300 font-bold uppercase block mb-1">Type</label><select value={filterType} onChange={(e) => setFilterType(e.target.value)} className="w-32 bg-slate-950 border border-slate-700 text-xs rounded-lg p-2 text-white outline-none focus:border-purple-500"><option value="All">All Types</option><option>Near Miss</option><option>Property Damage</option><option>First Aid injury</option><option>Lost Time injury</option><option>Reportable Injury</option></select></div>
-                    <div><label className="text-[10px] text-purple-300 font-bold uppercase block mb-1">Severity</label><select value={filterLevel} onChange={(e) => setFilterLevel(e.target.value)} className="w-32 bg-slate-950 border border-slate-700 text-xs rounded-lg p-2 text-white outline-none focus:border-purple-500"><option value="All">All Levels</option><option value="Level A">Level A</option><option value="Level B">Level B</option><option value="Level C">Level C</option><option value="Level D">Level D</option></select></div>
+                    <div>
+                        <label className="text-[10px] text-purple-200 font-bold uppercase block mb-1">Type</label>
+                        <select
+                            value={filterType}
+                            onChange={(e) => setFilterType(e.target.value)}
+                            className="w-32 bg-[#0f172a] border border-[rgba(71,85,105,0.6)] text-xs rounded-lg p-2 text-[#ffffff] outline-none focus:border-purple-500"
+                        >
+                            <option value="All">All Types</option>
+                            <option>Near Miss</option>
+                            <option>Property Damage</option>
+                            <option>First Aid injury</option>
+                            <option>Lost Time injury</option>
+                            <option>Reportable Injury</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label className="text-[10px] text-purple-200 font-bold uppercase block mb-1">Severity</label>
+                        <select
+                            value={filterLevel}
+                            onChange={(e) => setFilterLevel(e.target.value)}
+                            className="w-32 bg-[#0f172a] border border-[rgba(71,85,105,0.6)] text-xs rounded-lg p-2 text-[#ffffff] outline-none focus:border-purple-500"
+                        >
+                            <option value="All">All Levels</option>
+                            <option value="Level A">Level A</option>
+                            <option value="Level B">Level B</option>
+                            <option value="Level C">Level C</option>
+                            <option value="Level D">Level D</option>
+                        </select>
+                    </div>
                 </div>
             </div>
 
