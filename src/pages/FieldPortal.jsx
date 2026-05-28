@@ -26,7 +26,8 @@ import {
 import { useAppTransition } from '../hooks/useAppTransition';
 import {
     getOrgRegistry,
-    removeOrgFromRegistry,
+    hideOrgInRegistry,
+    unhideOrgInRegistry,
     applyOrgDbConfig,
     isCurrentDb,
     getDbTypeLabel,
@@ -63,6 +64,9 @@ export default function FieldPortal() {
     const [orgRegistry, setOrgRegistry] = useState([]);
     const [pickedOrg, setPickedOrg] = useState(null);   // null = show picker
     const [currentOrgId, setCurrentOrgId] = useState(null);
+    // When true, the picker also renders entries with `hidden: true` so the
+    // user can un-hide them. Toggled by the "Show hidden (N)" link.
+    const [showHidden, setShowHidden] = useState(false);
 
     const visibleSites = useMemo(() => getVisibleSites(sites, portalSession), [sites, portalSession]);
     const visibleModules = useMemo(() => getVisibleFieldModules(portalSession), [portalSession]);
@@ -118,18 +122,23 @@ export default function FieldPortal() {
     /** Go back to the org picker from the login form. */
     const handleBackToPicker = () => setPickedOrg(null);
 
-    /** Remove an org from the local picker (does not delete it in Firebase). */
-    const handleRemoveOrg = (event, entry) => {
-        event.stopPropagation();   // don't trigger the card's onClick
+    /**
+     * Hide an org card from the picker.  The entry stays in the registry
+     * with `hidden: true` so it can be restored later via the "Show hidden"
+     * toggle — nothing is actually deleted.
+     */
+    const handleHideOrg = (event, entry) => {
+        event.stopPropagation();
         event.preventDefault();
-        const ok = window.confirm(
-            `Remove "${entry.orgName}" from this device's workspace picker?\n\n` +
-            `This only hides it from this browser — the organisation itself ` +
-            `and your account in it are NOT deleted. You can re-add it via ` +
-            `the Setup Wizard in the main app.`
-        );
-        if (!ok) return;
-        const next = removeOrgFromRegistry(entry.orgId);
+        const next = hideOrgInRegistry(entry.orgId);
+        setOrgRegistry(next);
+    };
+
+    /** Reverse of handleHideOrg — restore a hidden entry to the picker. */
+    const handleUnhideOrg = (event, entry) => {
+        event.stopPropagation();
+        event.preventDefault();
+        const next = unhideOrgInRegistry(entry.orgId);
         setOrgRegistry(next);
     };
 
@@ -353,8 +362,15 @@ export default function FieldPortal() {
 
     if (!isAuthenticated) {
         // ── STEP 1: Database / org picker ─────────────────────────────────────
-        // Show when the registry has registered orgs AND the user hasn't picked
-        // one yet (pickedOrg is null).
+        // Split visible vs hidden entries. By default only visible ones render;
+        // the "Show hidden (N)" toggle reveals hidden entries with an un-hide
+        // button so they can be restored to the picker.
+        const visibleRegistry = orgRegistry.filter((e) => !e.hidden);
+        const hiddenRegistry  = orgRegistry.filter((e) =>  e.hidden);
+        const pickerEntries   = showHidden ? orgRegistry : visibleRegistry;
+        // Show the picker when there is at least ONE entry to choose from
+        // (visible or hidden — if everything was hidden, the user still needs
+        // a path to recover via the "Show hidden" link below).
         const showOrgPicker = orgRegistry.length > 0 && pickedOrg === null;
 
         if (showOrgPicker) {
@@ -411,9 +427,10 @@ export default function FieldPortal() {
                                 </div>
 
                                 {/* Org cards */}
-                                <div className={`grid gap-3 ${orgRegistry.length === 1 ? 'grid-cols-1' : 'grid-cols-2'}`}>
-                                    {orgRegistry.map((entry) => {
+                                <div className={`grid gap-3 ${pickerEntries.length === 1 ? 'grid-cols-1' : 'grid-cols-2'}`}>
+                                    {pickerEntries.map((entry) => {
                                         const isCurrent = isCurrentDb(entry, currentOrgId);
+                                        const isHidden  = Boolean(entry.hidden);
                                         return (
                                             <button
                                                 key={entry.orgId}
@@ -422,23 +439,41 @@ export default function FieldPortal() {
                                                 className={`group relative flex flex-col items-center gap-3 rounded-2xl border p-5 text-center transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-[rgba(99,236,212,0.3)] ${
                                                     isCurrent
                                                         ? 'border-[rgba(99,236,212,0.4)] bg-[rgba(99,236,212,0.06)] hover:bg-[rgba(99,236,212,0.11)]'
-                                                        : 'border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.03)] hover:border-[rgba(242,201,120,0.35)] hover:bg-[rgba(242,201,120,0.05)]'
+                                                        : isHidden
+                                                            ? 'border-dashed border-[rgba(255,255,255,0.12)] bg-[rgba(255,255,255,0.02)] opacity-70 hover:opacity-100 hover:border-[rgba(242,201,120,0.3)]'
+                                                            : 'border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.03)] hover:border-[rgba(242,201,120,0.35)] hover:bg-[rgba(242,201,120,0.05)]'
                                                 }`}
                                             >
-                                                {/* Remove from picker (top-right ×) */}
-                                                <span
-                                                    role="button"
-                                                    tabIndex={0}
-                                                    aria-label={`Remove ${entry.orgName} from picker`}
-                                                    title="Remove from this device"
-                                                    onClick={(e) => handleRemoveOrg(e, entry)}
-                                                    onKeyDown={(e) => {
-                                                        if (e.key === 'Enter' || e.key === ' ') handleRemoveOrg(e, entry);
-                                                    }}
-                                                    className="absolute right-2 top-2 flex h-6 w-6 items-center justify-center rounded-full border border-[rgba(255,255,255,0.12)] bg-[rgba(0,0,0,0.35)] text-xs font-bold text-[rgba(255,255,255,0.55)] opacity-0 transition-opacity duration-150 hover:border-rose-400/60 hover:bg-rose-500/20 hover:text-rose-200 group-hover:opacity-100 focus:opacity-100"
-                                                >
-                                                    ×
-                                                </span>
+                                                {/* Hide / Unhide toggle (top-right corner) */}
+                                                {isHidden ? (
+                                                    <span
+                                                        role="button"
+                                                        tabIndex={0}
+                                                        aria-label={`Restore ${entry.orgName} to picker`}
+                                                        title="Restore to picker"
+                                                        onClick={(e) => handleUnhideOrg(e, entry)}
+                                                        onKeyDown={(e) => {
+                                                            if (e.key === 'Enter' || e.key === ' ') handleUnhideOrg(e, entry);
+                                                        }}
+                                                        className="absolute right-2 top-2 flex h-6 w-6 items-center justify-center rounded-full border border-[rgba(99,236,212,0.4)] bg-[rgba(99,236,212,0.1)] text-xs font-bold text-[var(--myth-cyan)] hover:bg-[rgba(99,236,212,0.25)]"
+                                                    >
+                                                        ↺
+                                                    </span>
+                                                ) : (
+                                                    <span
+                                                        role="button"
+                                                        tabIndex={0}
+                                                        aria-label={`Hide ${entry.orgName} from picker`}
+                                                        title="Hide from picker (restorable)"
+                                                        onClick={(e) => handleHideOrg(e, entry)}
+                                                        onKeyDown={(e) => {
+                                                            if (e.key === 'Enter' || e.key === ' ') handleHideOrg(e, entry);
+                                                        }}
+                                                        className="absolute right-2 top-2 flex h-6 w-6 items-center justify-center rounded-full border border-[rgba(255,255,255,0.12)] bg-[rgba(0,0,0,0.35)] text-xs font-bold text-[rgba(255,255,255,0.55)] opacity-0 transition-opacity duration-150 hover:border-rose-400/60 hover:bg-rose-500/20 hover:text-rose-200 group-hover:opacity-100 focus:opacity-100"
+                                                    >
+                                                        ×
+                                                    </span>
+                                                )}
 
                                                 {/* Logo / initial avatar */}
                                                 <div className="relative h-16 w-16 flex-shrink-0 overflow-hidden rounded-2xl border border-[rgba(255,255,255,0.1)] bg-[rgba(255,255,255,0.05)]">
@@ -483,6 +518,19 @@ export default function FieldPortal() {
                                         );
                                     })}
                                 </div>
+
+                                {/* Show / hide the hidden-workspaces section */}
+                                {hiddenRegistry.length > 0 && (
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowHidden((v) => !v)}
+                                        className="mt-4 w-full rounded-xl border border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.02)] py-2.5 text-[11px] font-bold uppercase tracking-widest text-[var(--myth-muted)] transition hover:border-[rgba(242,201,120,0.3)] hover:text-[var(--myth-gold)]"
+                                    >
+                                        {showHidden
+                                            ? `↑ Hide ${hiddenRegistry.length} hidden workspace${hiddenRegistry.length === 1 ? '' : 's'}`
+                                            : `↓ Show ${hiddenRegistry.length} hidden workspace${hiddenRegistry.length === 1 ? '' : 's'}`}
+                                    </button>
+                                )}
 
                                 <p className="mt-5 text-center text-[11px] leading-relaxed text-[var(--myth-muted)]">
                                     Don't see your workspace?{' '}

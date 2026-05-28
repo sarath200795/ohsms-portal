@@ -13,7 +13,8 @@ import { dbGet, dbSet, dbUpdate, dbQuery } from '../services/db/index.js';
 import { safeDocumentHref } from '../utils/security';
 import {
     getOrgRegistry,
-    removeOrgFromRegistry,
+    hideOrgInRegistry,
+    unhideOrgInRegistry,
     applyOrgDbConfig,
     isCurrentDb,
     getDbTypeLabel,
@@ -221,6 +222,9 @@ export default function VendorPortal() {
     const [orgRegistry, setOrgRegistry] = useState([]);
     const [pickedOrg, setPickedOrg] = useState(null);   // null = show picker
     const [currentOrgId, setCurrentOrgId] = useState(null);
+    // When true, the picker also renders entries with `hidden: true` so the
+    // vendor can un-hide them. Toggled by the "Show hidden (N)" link.
+    const [showHidden, setShowHidden] = useState(false);
 
     // Load org registry + restore pickedOrg after a DB-switch reload.
     useEffect(() => {
@@ -257,19 +261,23 @@ export default function VendorPortal() {
     /** Return from the login form back to the org picker. */
     const handleBackToPicker = () => setPickedOrg(null);
 
-    /** Remove an org from the local picker (does not delete it in Firebase). */
-    const handleRemoveOrg = (event, entry) => {
-        event.stopPropagation();   // don't trigger the card's onClick
+    /**
+     * Hide an org card from the picker. The entry stays in the registry
+     * with `hidden: true` so it can be restored later via the "Show hidden"
+     * toggle — nothing is actually deleted.
+     */
+    const handleHideOrg = (event, entry) => {
+        event.stopPropagation();
         event.preventDefault();
-        const ok = window.confirm(
-            `Remove "${entry.orgName}" from this device's workspace picker?\n\n` +
-            `This only hides it from this browser — the organisation itself ` +
-            `and your vendor account in it are NOT deleted. You can re-add it ` +
-            `via the Setup Wizard or by clicking your client admin's workspace ` +
-            `setup link again.`
-        );
-        if (!ok) return;
-        const next = removeOrgFromRegistry(entry.orgId);
+        const next = hideOrgInRegistry(entry.orgId);
+        setOrgRegistry(next);
+    };
+
+    /** Reverse of handleHideOrg — restore a hidden entry to the picker. */
+    const handleUnhideOrg = (event, entry) => {
+        event.stopPropagation();
+        event.preventDefault();
+        const next = unhideOrgInRegistry(entry.orgId);
         setOrgRegistry(next);
     };
 
@@ -869,6 +877,12 @@ export default function VendorPortal() {
         // registered orgs at all, fall straight through to the login form
         // and the user just signs in against whatever DB is currently
         // configured (env vars / setup wizard).
+        // Split visible vs hidden entries. By default only visible ones render;
+        // the "Show hidden (N)" toggle reveals hidden entries with an un-hide
+        // button so they can be restored to the picker.
+        const visibleRegistry = orgRegistry.filter((e) => !e.hidden);
+        const hiddenRegistry  = orgRegistry.filter((e) =>  e.hidden);
+        const pickerEntries   = showHidden ? orgRegistry : visibleRegistry;
         const showOrgPicker = orgRegistry.length > 0 && pickedOrg === null;
 
         return (
@@ -896,9 +910,10 @@ export default function VendorPortal() {
                                 </p>
                             </div>
 
-                            <div className={`grid gap-3 ${orgRegistry.length === 1 ? 'grid-cols-1' : 'grid-cols-2'}`}>
-                                {orgRegistry.map((entry) => {
+                            <div className={`grid gap-3 ${pickerEntries.length === 1 ? 'grid-cols-1' : 'grid-cols-2'}`}>
+                                {pickerEntries.map((entry) => {
                                     const isCurrent = isCurrentDb(entry, currentOrgId);
+                                    const isHidden  = Boolean(entry.hidden);
                                     return (
                                         <button
                                             key={entry.orgId}
@@ -907,23 +922,41 @@ export default function VendorPortal() {
                                             className={`group relative flex flex-col items-center gap-3 rounded-2xl border p-5 text-center transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-indigo-400/40 ${
                                                 isCurrent
                                                     ? 'border-emerald-500/40 bg-emerald-950/30 shadow-lg shadow-emerald-900/20'
-                                                    : 'border-slate-700 bg-slate-950/60 hover:border-indigo-500/40 hover:bg-slate-900/60'
+                                                    : isHidden
+                                                        ? 'border-dashed border-slate-700 bg-slate-950/40 opacity-70 hover:opacity-100 hover:border-indigo-500/40'
+                                                        : 'border-slate-700 bg-slate-950/60 hover:border-indigo-500/40 hover:bg-slate-900/60'
                                             }`}
                                         >
-                                            {/* Remove from picker (top-right ×) */}
-                                            <span
-                                                role="button"
-                                                tabIndex={0}
-                                                aria-label={`Remove ${entry.orgName} from picker`}
-                                                title="Remove from this device"
-                                                onClick={(e) => handleRemoveOrg(e, entry)}
-                                                onKeyDown={(e) => {
-                                                    if (e.key === 'Enter' || e.key === ' ') handleRemoveOrg(e, entry);
-                                                }}
-                                                className="absolute right-2 top-2 flex h-6 w-6 items-center justify-center rounded-full border border-slate-700 bg-slate-950/80 text-xs font-bold text-slate-500 opacity-0 transition-opacity duration-150 hover:border-rose-400/60 hover:bg-rose-500/20 hover:text-rose-200 group-hover:opacity-100 focus:opacity-100"
-                                            >
-                                                ×
-                                            </span>
+                                            {/* Hide / Unhide toggle (top-right corner) */}
+                                            {isHidden ? (
+                                                <span
+                                                    role="button"
+                                                    tabIndex={0}
+                                                    aria-label={`Restore ${entry.orgName} to picker`}
+                                                    title="Restore to picker"
+                                                    onClick={(e) => handleUnhideOrg(e, entry)}
+                                                    onKeyDown={(e) => {
+                                                        if (e.key === 'Enter' || e.key === ' ') handleUnhideOrg(e, entry);
+                                                    }}
+                                                    className="absolute right-2 top-2 flex h-6 w-6 items-center justify-center rounded-full border border-indigo-400/40 bg-indigo-500/15 text-xs font-bold text-indigo-200 hover:bg-indigo-500/30"
+                                                >
+                                                    ↺
+                                                </span>
+                                            ) : (
+                                                <span
+                                                    role="button"
+                                                    tabIndex={0}
+                                                    aria-label={`Hide ${entry.orgName} from picker`}
+                                                    title="Hide from picker (restorable)"
+                                                    onClick={(e) => handleHideOrg(e, entry)}
+                                                    onKeyDown={(e) => {
+                                                        if (e.key === 'Enter' || e.key === ' ') handleHideOrg(e, entry);
+                                                    }}
+                                                    className="absolute right-2 top-2 flex h-6 w-6 items-center justify-center rounded-full border border-slate-700 bg-slate-950/80 text-xs font-bold text-slate-500 opacity-0 transition-opacity duration-150 hover:border-rose-400/60 hover:bg-rose-500/20 hover:text-rose-200 group-hover:opacity-100 focus:opacity-100"
+                                                >
+                                                    ×
+                                                </span>
+                                            )}
 
                                             {entry.logoBase64 ? (
                                                 <img src={entry.logoBase64} alt="" className="h-12 w-12 rounded-xl object-cover" />
@@ -936,13 +969,26 @@ export default function VendorPortal() {
                                                 <p className="truncate text-xs font-bold text-white">{entry.orgName || 'Untitled workspace'}</p>
                                                 <p className="mt-0.5 text-[10px] uppercase tracking-widest text-slate-500">{getDbTypeLabel(entry)}</p>
                                             </div>
+                                            {/* "Active" badge — moved to top-LEFT so it never collides with the hide/unhide button on the right */}
                                             {isCurrent && (
-                                                <span className="absolute top-2 right-2 rounded-full bg-emerald-500/20 px-2 py-0.5 text-[9px] font-bold uppercase tracking-widest text-emerald-300">Active</span>
+                                                <span className="absolute top-2 left-2 rounded-full bg-emerald-500/20 px-2 py-0.5 text-[9px] font-bold uppercase tracking-widest text-emerald-300">Active</span>
                                             )}
                                         </button>
                                     );
                                 })}
                             </div>
+
+                            {hiddenRegistry.length > 0 && (
+                                <button
+                                    type="button"
+                                    onClick={() => setShowHidden((v) => !v)}
+                                    className="w-full rounded-xl border border-slate-700 bg-slate-950/40 py-2.5 text-[11px] font-bold uppercase tracking-widest text-slate-400 transition hover:border-indigo-500/40 hover:text-indigo-200"
+                                >
+                                    {showHidden
+                                        ? `↑ Hide ${hiddenRegistry.length} hidden workspace${hiddenRegistry.length === 1 ? '' : 's'}`
+                                        : `↓ Show ${hiddenRegistry.length} hidden workspace${hiddenRegistry.length === 1 ? '' : 's'}`}
+                                </button>
+                            )}
 
                             <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-4 text-[11px] leading-relaxed text-slate-400">
                                 Don't see your workspace? Ask your client admin to share the workspace setup link — opening it once registers the org here so it appears in this picker.

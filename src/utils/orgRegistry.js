@@ -25,6 +25,8 @@ const REGISTRY_KEY = 'ohsms_org_registry';
  * @property {'firebase'|'rest'} dbAdapter
  * @property {string|null}      firebaseConfig   JSON string of the firebase SDK config
  * @property {string|null}      restUrl          Base URL for the REST adapter
+ * @property {boolean=}         hidden           When true, omitted from the
+ *   default picker view. Restorable via unhideOrgInRegistry(orgId).
  */
 
 // ─── read ──────────────────────────────────────────────────────────────────
@@ -66,9 +68,55 @@ export function saveOrgToRegistry(entry) {
 }
 
 /**
- * Remove an org entry from the local registry.  Does NOT touch the active
- * Firebase / REST DB config in localStorage — the caller decides whether to
- * also clear that (e.g. if the removed entry was the currently-active DB).
+ * Mark an org entry as hidden in the local picker.  The entry STAYS in the
+ * registry — just with `hidden: true` — so it can be restored later via
+ * unhideOrgInRegistry(orgId) without re-running the setup wizard.
+ *
+ * Use this for the picker ✕ button (soft-delete / dismissable).  For the
+ * rare "actually wipe it from this browser" case, see removeOrgFromRegistry.
+ *
+ * @param {string} orgId
+ * @returns {OrgRegistryEntry[]} the updated registry
+ */
+export function hideOrgInRegistry(orgId) {
+    try {
+        const next = getOrgRegistry().map((e) =>
+            e.orgId === orgId ? { ...e, hidden: true } : e
+        );
+        localStorage.setItem(REGISTRY_KEY, JSON.stringify(next));
+        return next;
+    } catch (err) {
+        console.warn('[orgRegistry] Failed to hide entry:', err);
+        return getOrgRegistry();
+    }
+}
+
+/**
+ * Reverse of hideOrgInRegistry — clears the `hidden` flag so the entry
+ * reappears in the picker.
+ *
+ * @param {string} orgId
+ * @returns {OrgRegistryEntry[]} the updated registry
+ */
+export function unhideOrgInRegistry(orgId) {
+    try {
+        const next = getOrgRegistry().map((e) => {
+            if (e.orgId !== orgId) return e;
+            const { hidden: _ignored, ...rest } = e;
+            return rest;
+        });
+        localStorage.setItem(REGISTRY_KEY, JSON.stringify(next));
+        return next;
+    } catch (err) {
+        console.warn('[orgRegistry] Failed to unhide entry:', err);
+        return getOrgRegistry();
+    }
+}
+
+/**
+ * Permanently delete an org entry from the local registry.  Use only when
+ * the entry is genuinely garbage (wrong project, typo) and you don't want
+ * it cluttering even the "hidden" list. Otherwise prefer hideOrgInRegistry.
  *
  * @param {string} orgId
  * @returns {OrgRegistryEntry[]} the updated registry
