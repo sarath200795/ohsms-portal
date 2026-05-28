@@ -26,6 +26,7 @@ import {
     canAuthenticateStatus,
     isDeletedStatus,
     isPendingStatus,
+    readStoredSession,
     writeStoredSession,
 } from '../utils/session';
 import {
@@ -183,6 +184,7 @@ export default function Login() {
     // Org registry picker
     const [orgRegistry, setOrgRegistry]         = useState([]);
     const [pickedOrg,   setPickedOrg]           = useState(null); // null = show picker when registry has entries
+    const [currentOrgId, setCurrentOrgId]       = useState(null); // orgId of the signed-in session (if any)
 
     const isJoinMode = authMode === 'join';
 
@@ -207,6 +209,14 @@ export default function Login() {
     // ── load org registry + restore pickedOrg after a DB-switch reload ──────────
     useEffect(() => {
         setOrgRegistry(getOrgRegistry());
+
+        // Read the orgId of any existing session so the active-indicator logic
+        // can narrow from "same database" → "same database AND same org".
+        // This prevents multiple orgs that share a Firebase project from all
+        // showing the green "Active" dot at the same time.
+        const existingSession = readStoredSession();
+        if (existingSession?.orgId) setCurrentOrgId(existingSession.orgId);
+
         const pending = sessionStorage.getItem('ohsms_picked_org');
         if (pending) {
             try { setPickedOrg(JSON.parse(pending)); } catch {}
@@ -563,7 +573,9 @@ export default function Login() {
                                 /* ── Registered org cards ── */
                                 <div className={`mt-4 grid gap-3 ${orgRegistry.length === 1 ? 'grid-cols-1' : 'grid-cols-2'}`}>
                                     {orgRegistry.map((entry) => {
-                                        const isCurrent = isCurrentDb(entry);
+                                        // Pass the active orgId so that when multiple orgs share
+                                        // the same Firebase project only the correct one is marked.
+                                        const isCurrent = isCurrentDb(entry, currentOrgId);
                                         return (
                                             <button
                                                 key={entry.orgId}

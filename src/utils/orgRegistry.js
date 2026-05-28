@@ -108,24 +108,39 @@ export function applyOrgDbConfig(entry) {
  * in localStorage — meaning no page reload is needed to switch to it.
  *
  * @param {OrgRegistryEntry} entry
+ * @param {string|null}      activeOrgId  Optional: the orgId of the currently
+ *   signed-in session.  When provided, the check is narrowed so that only the
+ *   entry whose orgId matches is considered "active".  This prevents multiple
+ *   organisations that share the same Firebase project from all showing the
+ *   green "Active" indicator simultaneously.
  * @returns {boolean}
  */
-export function isCurrentDb(entry) {
+export function isCurrentDb(entry, activeOrgId = null) {
     try {
         const currentAdapter =
             localStorage.getItem('ohsms_db_adapter') || 'firebase';
         if (entry.dbAdapter !== currentAdapter) return false;
 
+        let dbConfigMatches = false;
+
         if (entry.dbAdapter === 'firebase') {
             const currentFb = localStorage.getItem('ohsms_firebase_config') || '';
-            return (entry.firebaseConfig || '') === currentFb;
-        }
-        if (entry.dbAdapter === 'rest') {
+            dbConfigMatches = (entry.firebaseConfig || '') === currentFb;
+        } else if (entry.dbAdapter === 'rest') {
             // Normalise trailing slash so 'http://x.com/' and 'http://x.com' match
             const norm = (u) => (u || '').replace(/\/$/, '').toLowerCase();
-            return norm(entry.restUrl) === norm(localStorage.getItem('ohsms_rest_base_url'));
+            dbConfigMatches =
+                norm(entry.restUrl) === norm(localStorage.getItem('ohsms_rest_base_url'));
         }
-        return false;
+
+        if (!dbConfigMatches) return false;
+
+        // If a current org context is available, also verify the org matches.
+        // Without this, multiple orgs that share the same Firebase project would
+        // all show as "Active" because their database credentials are identical.
+        if (activeOrgId) return entry.orgId === activeOrgId;
+
+        return true;
     } catch {
         return false;
     }
