@@ -1722,8 +1722,18 @@ export default function Inspections() {
                                         ? viewingRecord.score
                                         : (binaryTotal === 0 ? 100 : Math.round((passCount / binaryTotal) * 100));
                                     const result = viewingRecord.passFailResult || (scoreNum >= 90 ? 'PASS' : 'FAIL');
+                                    // Resolve the center name. Newer records carry it
+                                    // directly; older ones get it looked up from the
+                                    // site's centers list so the PDF never shows just
+                                    // a bare code if the site still has the centre.
+                                    const resolvedCenterName = viewingRecord.centerName
+                                        || (viewingRecord.centerCode
+                                            ? (findCentersForSite(sites, viewingRecord.siteId).find((c) => c.code === viewingRecord.centerCode)?.name || '')
+                                            : '');
                                     const centerLine = viewingRecord.centerCode
-                                        ? `${viewingRecord.centerName || viewingRecord.centerCode}${viewingRecord.centerName && viewingRecord.centerCode ? ` (${viewingRecord.centerCode})` : ''}`
+                                        ? (resolvedCenterName
+                                            ? `${resolvedCenterName} (${viewingRecord.centerCode})`
+                                            : viewingRecord.centerCode)
                                         : '—';
                                     return (
                                         <div className="grid grid-cols-2 gap-6 mb-10 text-sm border-2 border-black p-6 bg-gray-50">
