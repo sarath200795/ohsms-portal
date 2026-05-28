@@ -763,7 +763,12 @@ export default function Dashboard() {
                                 onChange={handleSiteChange}
                                 className="w-44 cursor-pointer bg-transparent text-sm font-bold text-[var(--myth-ink)] outline-none"
                             >
+                                {/* Aggregate-view option.
+                                    - Global Owner: "Global View (All Sites)" — every site in the org.
+                                    - Multi-site Site Owner / User: "All My Sites" — aggregate
+                                      across every site they were granted access to. */}
                                 {isGlobalAdmin && <option value="GLOBAL">Global View (All Sites)</option>}
+                                {!isGlobalAdmin && sites.length > 1 && <option value="GLOBAL">All My Sites ({sites.length})</option>}
                                 {sites.map(s => <option key={s.code} value={s.code}>{s.name} ({s.code})</option>)}
                             </select>
                         </div>
