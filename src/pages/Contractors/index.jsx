@@ -824,7 +824,10 @@ export default function Contractors() {
                 additionalDocs: []
             };
 
-            await update(vendorRef, { workers: [...safeArr(vendorData.workers), newWorkerObj] });
+            await dbUpdate(
+                `organizations/${session.orgId}/contractors/${addWorkerData.contractorId}`,
+                { workers: [...safeArr(vendorData.workers), newWorkerObj] }
+            );
             await refreshContractors();
             setModalType(null);
             setAddWorkerData({ contractorId: '', name: '', role: 'Worker', competence: '', deployedSite: '' });
@@ -971,7 +974,10 @@ export default function Contractors() {
                 return updatedWorker;
             });
 
-            await update(vendorRef, { workers: updatedWorkers });
+            await dbUpdate(
+                `organizations/${session.orgId}/contractors/${activeWorker.contractorId}`,
+                { workers: updatedWorkers }
+            );
             await refreshContractors();
 
             setActiveWorker((prev) => {
@@ -1003,7 +1009,10 @@ export default function Contractors() {
             worker.id === activeWorker.id ? { ...worker, additionalDocs: [...safeArr(worker.additionalDocs), newDoc] } : worker
         ));
 
-        await update(vendorRef, { workers: updatedWorkers });
+        await dbUpdate(
+            `organizations/${session.orgId}/contractors/${activeWorker.contractorId}`,
+            { workers: updatedWorkers }
+        );
         await refreshContractors();
         setActiveWorker((prev) => ({ ...prev, additionalDocs: [...safeArr(prev.additionalDocs), newDoc] }));
         setNewWorkerDocReq('');
@@ -1032,7 +1041,10 @@ export default function Contractors() {
                 };
             });
 
-            await update(vendorRef, { workers: updatedWorkers });
+            await dbUpdate(
+                `organizations/${session.orgId}/contractors/${activeWorker.contractorId}`,
+                { workers: updatedWorkers }
+            );
             await refreshContractors();
             setActiveWorker((prev) => ({
                 ...prev,
