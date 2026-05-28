@@ -360,17 +360,17 @@ export default function FieldPortal() {
                                 <div className="grid gap-4 md:grid-cols-3">
                                     <div className="command-panel rounded-[1.5rem] p-5">
                                         <p className="myth-kicker">Rapid Entry</p>
-                                        <h3 className="mt-2 text-3xl text-white">Scan QR</h3>
+                                        <h3 className="mt-2 text-3xl text-[var(--myth-ink)]">Scan QR</h3>
                                         <p className="mt-2 text-sm text-[var(--myth-muted)]">Jump straight into PTW, LOTO, or equipment tasks.</p>
                                     </div>
                                     <div className="command-panel rounded-[1.5rem] p-5">
                                         <p className="myth-kicker">Field Ready</p>
-                                        <h3 className="mt-2 text-3xl text-white">Operate</h3>
+                                        <h3 className="mt-2 text-3xl text-[var(--myth-ink)]">Operate</h3>
                                         <p className="mt-2 text-sm text-[var(--myth-muted)]">Use the same live records without the enterprise dashboard.</p>
                                     </div>
                                     <div className="command-panel rounded-[1.5rem] p-5">
                                         <p className="myth-kicker">Secure Role Sync</p>
-                                        <h3 className="mt-2 text-3xl text-white">Auth Bridge</h3>
+                                        <h3 className="mt-2 text-3xl text-[var(--myth-ink)]">Auth Bridge</h3>
                                         <p className="mt-2 text-sm text-[var(--myth-muted)]">Permissions follow the employee account automatically.</p>
                                     </div>
                                 </div>
@@ -484,17 +484,17 @@ export default function FieldPortal() {
                             <div className="grid gap-4 md:grid-cols-3">
                                 <div className="command-panel rounded-[1.5rem] p-5">
                                     <p className="myth-kicker">Rapid Entry</p>
-                                    <h3 className="mt-2 text-3xl text-white">Scan QR</h3>
+                                    <h3 className="mt-2 text-3xl text-[var(--myth-ink)]">Scan QR</h3>
                                     <p className="mt-2 text-sm text-[var(--myth-muted)]">Jump straight into PTW, LOTO, or equipment tasks.</p>
                                 </div>
                                 <div className="command-panel rounded-[1.5rem] p-5">
                                     <p className="myth-kicker">Field Ready</p>
-                                    <h3 className="mt-2 text-3xl text-white">Operate</h3>
+                                    <h3 className="mt-2 text-3xl text-[var(--myth-ink)]">Operate</h3>
                                     <p className="mt-2 text-sm text-[var(--myth-muted)]">Use the same live records without the enterprise dashboard.</p>
                                 </div>
                                 <div className="command-panel rounded-[1.5rem] p-5">
                                     <p className="myth-kicker">Secure Role Sync</p>
-                                    <h3 className="mt-2 text-3xl text-white">Auth Bridge</h3>
+                                    <h3 className="mt-2 text-3xl text-[var(--myth-ink)]">Auth Bridge</h3>
                                     <p className="mt-2 text-sm text-[var(--myth-muted)]">Permissions follow the employee account automatically.</p>
                                 </div>
                             </div>
@@ -670,15 +670,15 @@ export default function FieldPortal() {
                         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
                             <div className="myth-stat-card p-4">
                                 <p className="myth-kicker relative z-10 text-[10px]">Modules</p>
-                                <p className="mt-2 text-2xl font-black text-white">{visibleModules.length}</p>
+                                <p className="mt-2 text-2xl font-black text-[var(--myth-ink)]">{visibleModules.length}</p>
                             </div>
                             <div className="myth-stat-card p-4">
                                 <p className="myth-kicker relative z-10 text-[10px]">Active Site</p>
-                                <p className="mt-2 text-sm font-bold text-white">{activeSite.name}</p>
+                                <p className="mt-2 text-sm font-bold text-[var(--myth-ink)]">{activeSite.name}</p>
                             </div>
                             <div className="myth-stat-card col-span-2 p-4 sm:col-span-1">
                                 <p className="myth-kicker relative z-10 text-[10px]">Session</p>
-                                <p className="mt-2 text-sm font-bold text-white">Standalone portal auth</p>
+                                <p className="mt-2 text-sm font-bold text-[var(--myth-ink)]">Standalone portal auth</p>
                             </div>
                         </div>
                     </div>

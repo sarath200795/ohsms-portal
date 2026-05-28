@@ -147,15 +147,15 @@ export default function FieldAppPage() {
                         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
                             <div className="myth-stat-card p-4">
                                 <p className="myth-kicker relative z-10 text-[10px]">Modules</p>
-                                <p className="mt-2 text-2xl font-black text-white">{visibleModules.length}</p>
+                                <p className="mt-2 text-2xl font-black text-[var(--myth-ink)]">{visibleModules.length}</p>
                             </div>
                             <div className="myth-stat-card p-4">
                                 <p className="myth-kicker relative z-10 text-[10px]">Active Site</p>
-                                <p className="mt-2 text-sm font-bold text-white">{activeSite.name}</p>
+                                <p className="mt-2 text-sm font-bold text-[var(--myth-ink)]">{activeSite.name}</p>
                             </div>
                             <div className="myth-stat-card col-span-2 p-4 sm:col-span-1">
                                 <p className="myth-kicker relative z-10 text-[10px]">Quick Launch</p>
-                                <p className="mt-2 text-sm font-bold text-white">Site-aware deep links enabled</p>
+                                <p className="mt-2 text-sm font-bold text-[var(--myth-ink)]">Site-aware deep links enabled</p>
                             </div>
                         </div>
                     </div>
