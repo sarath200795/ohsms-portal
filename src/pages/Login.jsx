@@ -65,6 +65,27 @@ const normalizeJoinCode = (v) => v.toUpperCase().trim().replace(/[^A-Z0-9-]/g, '
 
 // ─── helpers ───────────────────────────────────────────────────────────────────
 
+/**
+ * Race a Firebase RTDB promise against a 20-second timeout.
+ * Prevents the sign-in/join flows from hanging forever when the RTDB
+ * WebSocket can't connect (wrong DB URL, CSP block, RTDB not enabled, etc.).
+ */
+const withDbTimeout = (promise, label = 'Database operation') =>
+    Promise.race([
+        promise,
+        new Promise((_, reject) =>
+            setTimeout(() =>
+                reject(new Error(
+                    `${label} timed out. ` +
+                    'Check that your Firebase Realtime Database is enabled in the Firebase Console ' +
+                    'and that your Database URL is correct. ' +
+                    'If you set up the database via /setup, open it and click "Test Connection" to verify.'
+                )),
+                20000
+            )
+        ),
+    ]);
+
 /** Return a human-readable label for the currently active database adapter. */
 const getDbLabel = () => {
     try {
@@ -175,7 +196,10 @@ export default function Login() {
             const user = await authService.signIn(email.trim().toLowerCase(), password);
 
             // 2. Find which organisation this user belongs to
-            const userDirData = await dbGet(`userDirectory/${user.uid}`);
+            const userDirData = await withDbTimeout(
+                dbGet(`userDirectory/${user.uid}`),
+                'Load user directory'
+            );
 
             if (!userDirData) {
                 await authService.signOut();
@@ -191,11 +215,14 @@ export default function Login() {
             const userOrgId = userDirData.orgId;
 
             // 3. Load user record, password state, and org details in parallel
-            const [userData, passwordState, orgDetails] = await Promise.all([
-                dbGet(`organizations/${userOrgId}/users/${user.uid}`),
-                dbGet(`organizations/${userOrgId}/userPasswordState/${user.uid}`),
-                dbGet(`organizations/${userOrgId}/details`),
-            ]);
+            const [userData, passwordState, orgDetails] = await withDbTimeout(
+                Promise.all([
+                    dbGet(`organizations/${userOrgId}/users/${user.uid}`),
+                    dbGet(`organizations/${userOrgId}/userPasswordState/${user.uid}`),
+                    dbGet(`organizations/${userOrgId}/details`),
+                ]),
+                'Load user data'
+            );
 
             if (!userData) {
                 await authService.signOut();
@@ -299,7 +326,10 @@ export default function Login() {
             // 2. Sign in to primary auth so DB reads/writes pass security rules (auth != null).
             await authService.signIn(joinEmail, regPassword);
 
-            const existingOrgId = await dbGet(`joinRegistry/${code}`);
+            const existingOrgId = await withDbTimeout(
+                dbGet(`joinRegistry/${code}`),
+                'Check join code'
+            );
             if (!existingOrgId) {
                 // Sign out + remove the orphan Auth account so the user can retry.
                 await authService.signOut().catch(() => {});
@@ -309,7 +339,7 @@ export default function Login() {
                 return;
             }
 
-            await dbSet(`organizations/${existingOrgId}/users/${uid}`, {
+            await withDbTimeout(dbSet(`organizations/${existingOrgId}/users/${uid}`, {
                 name:             userName.trim(),
                 email:            joinEmail,
                 role:             'User',
@@ -319,9 +349,12 @@ export default function Login() {
                 status:           ACCOUNT_STATUS.PENDING,
                 joinCode:         code,
                 createdAt:        new Date().toISOString(),
-            });
+            }), 'Create user record');
 
-            await dbSet(`userDirectory/${uid}`, { orgId: existingOrgId });
+            await withDbTimeout(
+                dbSet(`userDirectory/${uid}`, { orgId: existingOrgId }),
+                'Write user directory'
+            );
             await authService.signOut();
 
             alert(
