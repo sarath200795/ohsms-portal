@@ -351,9 +351,17 @@ export default function Contractors() {
             }
             alert('Vendor Registered/Updated Successfully!');
         } catch (error) {
-            alert('Save failed: ' + (error?.message || error?.code || 'Unknown error') + '\n\nIf the vendor name now appears in the registry, the save did succeed — only the post-save UI hit an error. Refresh the page to confirm before re-registering.');
+            // Log to console so the developer can see the FULL error object
+            // (Firebase RTDB permission-denied errors carry .code and .name
+            // that the user-facing message doesn't surface).
+            console.error('[saveVendorRegistration] failed:', error);
+            const detail = error?.code === 'PERMISSION_DENIED'
+                ? '\n\nThe Firebase database refused the write. The most common cause is that database.rules.json has not been deployed yet — run "npm run firebase:rules" and try again.'
+                : '\n\nIf the vendor name now appears in the registry, the save did succeed — only the post-save UI hit an error. Refresh the page to confirm before re-registering.';
+            alert('Save failed: ' + (error?.message || error?.code || 'Unknown error') + detail);
+        } finally {
+            setSaving(false);
         }
-        setSaving(false);
     };
 
     const updateVendorDB = async (vendorKey, payload) => {
