@@ -26,31 +26,39 @@ import { rtdb } from '../../../config/firebase.js';
 const dbRef = (path) => ref(rtdb, path);
 
 /**
- * Wraps a Firebase SDK read promise with a 15-second timeout.
+ * Wraps a Firebase SDK read promise with a generous timeout.
  *
  * The RTDB SDK sends read requests over a single shared WebSocket.  If that
  * WebSocket is blocked (CSP, network policy, regional database URL not covered
  * by the wildcard, etc.) the SDK quietly queues every request and NEVER
  * resolves or rejects — causing every page that awaits a dbGet to spin
  * indefinitely.  Wrapping with Promise.race gives callers a guaranteed
- * rejection after 15 s so their `finally` blocks can clear loading states.
+ * rejection within the timeout window so their `finally` blocks can clear
+ * loading states.
  *
- * The 15 s window is intentionally generous: it covers legitimate slow
- * network conditions while still being short enough to unblock the UI in a
- * reasonable time.  After a timeout the underlying SDK operation stays in the
- * internal queue (no side effects for reads) and resolves silently if the
- * connection is later established.
+ * 15 s is intentionally generous: it covers cold-start scenarios where the
+ * WebSocket has not been opened in this page session (typical of the field
+ * portal login flow — first network activity happens immediately after
+ * signInWithEmailAndPassword resolves, so the WS handshake AND auth-token
+ * propagation AND the actual read all happen serially on a single read).
+ * Mobile networks routinely take 3–8 s for this sequence.
  */
-const DB_READ_TIMEOUT_MS = 5_000;
+const DB_READ_TIMEOUT_MS = 15_000;
 
-const withReadTimeout = (sdkPromise) => {
+const withReadTimeout = (sdkPromise, path = '') => {
     let timer;
     const timeoutP = new Promise((_, reject) => {
         timer = setTimeout(() => {
+            // Surface the actual databaseURL the SDK is using so we can tell
+            // a CSP/URL misconfiguration apart from a genuine network stall.
+            const dbUrl = rtdb?.app?.options?.databaseURL || '(databaseURL not set)';
             reject(new Error(
-                '[db:firebase] read timed out after 5 s. ' +
-                'The WebSocket connection to Firebase Realtime Database may be ' +
-                'blocked. Check the database URL and Content Security Policy.'
+                `[db:firebase] read timed out after ${DB_READ_TIMEOUT_MS / 1000}s` +
+                (path ? ` for path "${path}"` : '') +
+                `. databaseURL=${dbUrl}. ` +
+                'Check that (1) the WebSocket to that host is not blocked by CSP ' +
+                'or network policy, (2) the auth session is signed in before the ' +
+                'first read, and (3) the databaseURL matches the actual region.'
             ));
         }, DB_READ_TIMEOUT_MS);
     });
@@ -66,7 +74,7 @@ const firebaseAdapter = {
      * @returns {Promise<any|null>}
      */
     async get(path) {
-        const snap = await withReadTimeout(get(dbRef(path)));
+        const snap = await withReadTimeout(get(dbRef(path)), path);
         return snap.exists() ? snap.val() : null;
     },
 
@@ -78,7 +86,10 @@ const firebaseAdapter = {
      * @returns {Promise<Record<string,any>|null>}
      */
     async query(path, field, value) {
-        const snap = await withReadTimeout(get(fbQuery(dbRef(path), orderByChild(field), equalTo(value))));
+        const snap = await withReadTimeout(
+            get(fbQuery(dbRef(path), orderByChild(field), equalTo(value))),
+            `${path}?orderBy=${field}&equalTo=${value}`
+        );
         return snap.exists() ? snap.val() : null;
     },
 

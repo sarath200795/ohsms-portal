@@ -113,6 +113,15 @@ export const fetchFieldPortalContext = async ({ user, expectedOrgId = '' }) => {
         throw new Error('No authenticated field portal session found. Please sign in again.');
     }
 
+    // Pre-warm the auth token so the RTDB WebSocket has a credential to
+    // present on its first read.  Without this, signInWithEmailAndPassword
+    // can resolve before the SDK has propagated the token to RTDB; the first
+    // dbGet then opens a fresh WebSocket WITHOUT an auth token, the server
+    // queues the request waiting for auth that never arrives, and our 15s
+    // read-timeout wrapper rejects with the generic "WebSocket may be
+    // blocked" message — even though the real cause is a token race.
+    try { await user.getIdToken(); } catch { /* best-effort */ }
+
     const userDirData = await dbGet(`userDirectory/${user.uid}`);
     if (!userDirData) {
         throw new Error('This account is not mapped to any organization.');
