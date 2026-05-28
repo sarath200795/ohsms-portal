@@ -66,25 +66,46 @@ const normalizeJoinCode = (v) => v.toUpperCase().trim().replace(/[^A-Z0-9-]/g, '
 // ─── helpers ───────────────────────────────────────────────────────────────────
 
 /**
- * Race a Firebase RTDB promise against a 20-second timeout.
- * Prevents the sign-in/join flows from hanging forever when the RTDB
- * WebSocket can't connect (wrong DB URL, CSP block, RTDB not enabled, etc.).
+ * Return the active Firebase RTDB URL from localStorage or env vars.
+ * Used by the REST-based login/join flows so we never touch the SDK WebSocket.
  */
-const withDbTimeout = (promise, label = 'Database operation') =>
-    Promise.race([
-        promise,
-        new Promise((_, reject) =>
-            setTimeout(() =>
-                reject(new Error(
-                    `${label} timed out. ` +
-                    'Check that your Firebase Realtime Database is enabled in the Firebase Console ' +
-                    'and that your Database URL is correct. ' +
-                    'If you set up the database via /setup, open it and click "Test Connection" to verify.'
-                )),
-                20000
-            )
-        ),
-    ]);
+const getFirebaseDbUrl = () => {
+    try {
+        const stored = JSON.parse(localStorage.getItem('ohsms_firebase_config') || '{}');
+        if (stored.databaseURL) return String(stored.databaseURL).replace(/\/$/, '');
+    } catch {}
+    return String(import.meta.env.VITE_FIREBASE_DATABASE_URL || '').replace(/\/$/, '');
+};
+
+/**
+ * Thin Firebase RTDB REST API wrapper.
+ * Uses plain HTTPS — no WebSocket, no CSP dependency, works with
+ * regional Firebase databases (europe-west1, asia-southeast1, etc.).
+ */
+const rtdbRest = {
+    async get(dbUrl, path, idToken) {
+        const url = `${dbUrl}/${path}.json?auth=${encodeURIComponent(idToken)}`;
+        const res = await fetch(url);
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err?.error || `Database read error ${res.status}`);
+        }
+        return res.json(); // null when the path doesn't exist
+    },
+    async set(dbUrl, path, data, idToken) {
+        const url = `${dbUrl}/${path}.json?auth=${encodeURIComponent(idToken)}`;
+        const res = await fetch(url, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data),
+        });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err?.error || `Database write error ${res.status}`);
+        }
+        return res.json();
+    },
+};
 
 /** Return a human-readable label for the currently active database adapter. */
 const getDbLabel = () => {
@@ -192,14 +213,22 @@ export default function Login() {
         e.preventDefault();
         setLoading(true);
         try {
-            // 1. Authenticate
+            // 1. Authenticate via Firebase Auth (HTTPS — never hangs)
             const user = await authService.signIn(email.trim().toLowerCase(), password);
 
+            // 2–3. Read from RTDB via REST API instead of the Firebase SDK.
+            //      The SDK uses a WebSocket which can be silently blocked by
+            //      CSP rules or firewalls (especially with regional DB URLs like
+            //      project.europe-west1.firebasedatabase.app).  The REST API is
+            //      plain HTTPS and always works.
+            const dbUrl = getFirebaseDbUrl();
+            // Only fetch the ID token when we have a Firebase DB URL to use it with.
+            const idToken = dbUrl ? await authService.getIdToken() : '';
+
             // 2. Find which organisation this user belongs to
-            const userDirData = await withDbTimeout(
-                dbGet(`userDirectory/${user.uid}`),
-                'Load user directory'
-            );
+            const userDirData = dbUrl
+                ? await rtdbRest.get(dbUrl, `userDirectory/${user.uid}`, idToken)
+                : await dbGet(`userDirectory/${user.uid}`);
 
             if (!userDirData) {
                 await authService.signOut();
@@ -215,14 +244,17 @@ export default function Login() {
             const userOrgId = userDirData.orgId;
 
             // 3. Load user record, password state, and org details in parallel
-            const [userData, passwordState, orgDetails] = await withDbTimeout(
-                Promise.all([
-                    dbGet(`organizations/${userOrgId}/users/${user.uid}`),
-                    dbGet(`organizations/${userOrgId}/userPasswordState/${user.uid}`),
-                    dbGet(`organizations/${userOrgId}/details`),
-                ]),
-                'Load user data'
-            );
+            const [userData, passwordState, orgDetails] = await Promise.all([
+                dbUrl
+                    ? rtdbRest.get(dbUrl, `organizations/${userOrgId}/users/${user.uid}`, idToken)
+                    : dbGet(`organizations/${userOrgId}/users/${user.uid}`),
+                dbUrl
+                    ? rtdbRest.get(dbUrl, `organizations/${userOrgId}/userPasswordState/${user.uid}`, idToken)
+                    : dbGet(`organizations/${userOrgId}/userPasswordState/${user.uid}`),
+                dbUrl
+                    ? rtdbRest.get(dbUrl, `organizations/${userOrgId}/details`, idToken)
+                    : dbGet(`organizations/${userOrgId}/details`),
+            ]);
 
             if (!userData) {
                 await authService.signOut();
@@ -326,10 +358,14 @@ export default function Login() {
             // 2. Sign in to primary auth so DB reads/writes pass security rules (auth != null).
             await authService.signIn(joinEmail, regPassword);
 
-            const existingOrgId = await withDbTimeout(
-                dbGet(`joinRegistry/${code}`),
-                'Check join code'
-            );
+            // Use REST API for all RTDB reads/writes — avoids WebSocket/CSP issues.
+            const dbUrl = getFirebaseDbUrl();
+            const idToken = dbUrl ? await authService.getIdToken() : '';
+
+            const existingOrgId = dbUrl
+                ? await rtdbRest.get(dbUrl, `joinRegistry/${code}`, idToken)
+                : await dbGet(`joinRegistry/${code}`);
+
             if (!existingOrgId) {
                 // Sign out + remove the orphan Auth account so the user can retry.
                 await authService.signOut().catch(() => {});
@@ -339,22 +375,33 @@ export default function Login() {
                 return;
             }
 
-            await withDbTimeout(dbSet(`organizations/${existingOrgId}/users/${uid}`, {
-                name:             userName.trim(),
-                email:            joinEmail,
-                role:             'User',
-                assignedSite:     '',
-                accessibleSites:  [],
-                accessibleModules: [],
-                status:           ACCOUNT_STATUS.PENDING,
-                joinCode:         code,
-                createdAt:        new Date().toISOString(),
-            }), 'Create user record');
-
-            await withDbTimeout(
-                dbSet(`userDirectory/${uid}`, { orgId: existingOrgId }),
-                'Write user directory'
-            );
+            if (dbUrl) {
+                await rtdbRest.set(dbUrl, `organizations/${existingOrgId}/users/${uid}`, {
+                    name:              userName.trim(),
+                    email:             joinEmail,
+                    role:              'User',
+                    assignedSite:      '',
+                    accessibleSites:   [],
+                    accessibleModules: [],
+                    status:            ACCOUNT_STATUS.PENDING,
+                    joinCode:          code,
+                    createdAt:         new Date().toISOString(),
+                }, idToken);
+                await rtdbRest.set(dbUrl, `userDirectory/${uid}`, { orgId: existingOrgId }, idToken);
+            } else {
+                await dbSet(`organizations/${existingOrgId}/users/${uid}`, {
+                    name:              userName.trim(),
+                    email:             joinEmail,
+                    role:              'User',
+                    assignedSite:      '',
+                    accessibleSites:   [],
+                    accessibleModules: [],
+                    status:            ACCOUNT_STATUS.PENDING,
+                    joinCode:          code,
+                    createdAt:         new Date().toISOString(),
+                });
+                await dbSet(`userDirectory/${uid}`, { orgId: existingOrgId });
+            }
             await authService.signOut();
 
             alert(

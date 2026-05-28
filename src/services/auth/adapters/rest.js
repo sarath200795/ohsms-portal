@@ -121,6 +121,14 @@ const restAuthAdapter = {
         }
     },
 
+    /**
+     * Not applicable for REST/JWT adapter — returns empty string.
+     * (Firebase ID tokens are only available in the Firebase adapter.)
+     */
+    async getIdToken() {
+        return '';
+    },
+
     async deleteUser(uid) {
         await authRequest('DELETE', `auth/users/${uid}`);
     },

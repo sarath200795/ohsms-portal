@@ -372,6 +372,18 @@ const firebaseAuthAdapter = {
         await dbRemove(`userDirectory/${uid}`);
     },
 
+    /**
+     * Return a fresh Firebase ID token for the currently signed-in user.
+     * Used by pages that need to make authenticated REST API calls without
+     * going through the RTDB SDK (e.g. the setup wizard uses the RTDB REST
+     * API directly to avoid WebSocket/CSP issues).
+     * @returns {Promise<string>}
+     */
+    async getIdToken() {
+        if (!auth.currentUser) throw new Error('No user signed in');
+        return auth.currentUser.getIdToken();
+    },
+
     /** Send a password-reset email. */
     async sendPasswordReset(email) {
         await sendPasswordResetEmail(auth, email);

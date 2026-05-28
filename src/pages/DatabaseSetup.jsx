@@ -406,24 +406,52 @@ export default function DatabaseSetup() {
     // ── Create Org handler ─────────────────────────────────────────────────────
 
     /**
-     * Wraps a promise with a timeout so RTDB writes don't hang forever
-     * when the WebSocket can't be established (blocked CSP, wrong DB URL, etc.).
+     * Write to Firebase RTDB via the REST API (HTTPS) — no WebSocket required.
+     *
+     * The Firebase SDK uses a persistent WebSocket connection for all reads and
+     * writes.  That connection can be silently blocked by:
+     *   - CSP that doesn't cover the specific regional DB URL
+     *   - Corporate/school firewalls that block WebSocket
+     *   - Restrictive browser extensions
+     *
+     * The RTDB REST API is plain HTTPS: it works anywhere, cannot be blocked by
+     * the same CSP issues, and gives immediate errors instead of hanging.
+     *
+     * @param {'PUT'|'POST'|'PATCH'} method
+     * @param {string} databaseURL  Full URL, e.g. https://project.europe-west1.firebasedatabase.app
+     * @param {string} path         RTDB path, e.g. "organizations/org123"
+     * @param {*}      data         JSON-serialisable value
+     * @param {string} idToken      Firebase Auth ID token (from auth.currentUser.getIdToken())
+     * @returns {Promise<*>}        Parsed JSON response (POST returns { name: '-N...' })
      */
-    const withDbTimeout = (promise, label = 'Database write') =>
-        Promise.race([
-            promise,
-            new Promise((_, reject) =>
-                setTimeout(() =>
-                    reject(new Error(
-                        `${label} timed out after 20 s. ` +
-                        'Check that your Firebase Realtime Database is enabled in the Firebase Console ' +
-                        'and that your Database URL is correct. ' +
-                        'Regional databases (europe-west1, asia-southeast1, etc.) are supported.'
-                    )),
-                    20000
-                )
-            ),
-        ]);
+    const rtdbRest = async (method, databaseURL, path, data, idToken) => {
+        const base = String(databaseURL || '').replace(/\/$/, '');
+        if (!base) throw new Error('Database URL is missing. Go back to Step 1 and re-enter your Firebase configuration.');
+
+        const url = `${base}/${path}.json?auth=${encodeURIComponent(idToken)}`;
+        const res = await fetch(url, {
+            method,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data),
+        });
+
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) {
+            const msg = json?.error || `RTDB REST error ${res.status}`;
+            if (msg.includes('Permission denied') || msg.includes('PERMISSION_DENIED')) {
+                throw new Error(
+                    'Permission denied writing to Firebase. ' +
+                    'Make sure your Firebase Realtime Database security rules allow new users to write. ' +
+                    'In the Firebase Console → Realtime Database → Rules, set them to the rules shown in Step 1 → Security Rules tab.'
+                );
+            }
+            if (msg.includes('invalid_grant') || res.status === 401) {
+                throw new Error('Authentication expired. Please refresh the page and try again.');
+            }
+            throw new Error(msg);
+        }
+        return json;
+    };
 
     const handleCreateOrg = async (e) => {
         e.preventDefault();
@@ -437,25 +465,45 @@ export default function DatabaseSetup() {
         const userEmail = regEmail.trim().toLowerCase();
         let createdUid = null;
         try {
+            // Read the Firebase DB URL from the saved config.
+            // This is what was entered and saved in Step 1.
+            let dbUrl = '';
+            try {
+                const stored = JSON.parse(localStorage.getItem(SK.FIREBASE) || '{}');
+                dbUrl = String(stored.databaseURL || '').replace(/\/$/, '');
+            } catch {}
+            if (!dbUrl) {
+                throw new Error(
+                    'Database URL not found. Please go back to Step 1 and re-enter your Firebase ' +
+                    'configuration, then click "Save & Continue".'
+                );
+            }
+
             // 1. Create the Firebase Auth account via the REST API.  This
             //    does not touch the SDK's auth-state machinery, so the primary
             //    auth still has no current user at this point.
             const uid = await authService.register(userEmail, regPassword);
             createdUid = uid;
 
-            // 2. Sign in to the PRIMARY auth instance so the Firebase security
-            //    rules (auth != null) pass for all subsequent DB writes.
+            // 2. Sign in to the PRIMARY auth instance so we can get an ID token
+            //    for authenticated RTDB REST calls.
             await authService.signIn(userEmail, regPassword);
 
-            // 3. Now safe to write — auth.currentUser is set.
-            //    Wrap with a timeout: Firebase RTDB SDK writes queue forever
-            //    when the WebSocket is unreachable (wrong DB URL, blocked by
-            //    firewall/CSP, regional DB URL mismatch, etc.).  The timeout
-            //    surfaces a clear error instead of hanging indefinitely.
-            const orgId = await withDbTimeout(dbPush('organizations', null), 'Org ID generation');
-            const code      = generateJoinCode();
+            // 3. Get the ID token — required for authenticated RTDB REST calls.
+            const idToken = await authService.getIdToken();
 
-            await withDbTimeout(dbSet(`organizations/${orgId}`, {
+            // 4. Write all records via the RTDB REST API (plain HTTPS).
+            //    This completely avoids the Firebase SDK's WebSocket, which can
+            //    be silently blocked by CSP rules or firewalls — especially for
+            //    regional Firebase databases (europe-west1, asia-southeast1, …).
+            const code = generateJoinCode();
+
+            // POST to /organizations.json creates a new push-key child
+            const pushResult = await rtdbRest('POST', dbUrl, 'organizations', null, idToken);
+            const orgId = pushResult?.name;
+            if (!orgId) throw new Error('Failed to generate organisation ID from Firebase.');
+
+            await rtdbRest('PUT', dbUrl, `organizations/${orgId}`, {
                 details: {
                     name:               orgName.trim(),
                     createdAt:          new Date().toISOString(),
@@ -477,10 +525,10 @@ export default function DatabaseSetup() {
                         createdAt:        new Date().toISOString(),
                     },
                 },
-            }), 'Write organisation data');
+            }, idToken);
 
-            await withDbTimeout(dbSet(`userDirectory/${uid}`, { orgId }), 'Write user directory');
-            await withDbTimeout(dbSet(`joinRegistry/${code}`,  orgId), 'Write join registry');
+            await rtdbRest('PUT', dbUrl, `userDirectory/${uid}`, { orgId }, idToken);
+            await rtdbRest('PUT', dbUrl, `joinRegistry/${code}`, orgId, idToken);
 
             const session = normalizeSessionPermissions({
                 uid,
