@@ -24,7 +24,12 @@ const FIRE_EXT_TYPES = [
     { name: 'ABC Powder / DCP (Stored Pressure)', refillYears: 3, hptYears: 3 },
     { name: 'ABC Powder / DCP (Gas Cartridge)', refillYears: 1, hptYears: 3 },
     { name: 'Carbon Dioxide (CO2)', refillYears: 5, hptYears: 5 },
-    { name: 'Clean Agent / Halotron', refillYears: 3, hptYears: 3 }
+    { name: 'Clean Agent / Halotron', refillYears: 3, hptYears: 3 },
+    // Modular (ceiling-mounted automatic suppression) units — typically ABC
+    // powder or clean agent, refilled on the same 3-year cycle as stored-
+    // pressure DCP per IS 2190; HPT cycle matches the 5-year cylinder
+    // recertification used for the gas-pressurised modular variants.
+    { name: 'Modular Fire Extinguisher', refillYears: 3, hptYears: 5 }
 ];
 
 const FIRST_AID_CONTENT_ITEMS = [
