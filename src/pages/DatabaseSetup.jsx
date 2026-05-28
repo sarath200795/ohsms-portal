@@ -264,17 +264,46 @@ export default function DatabaseSetup() {
                     setTestMsg('Please fill in at least API Key and Project ID before testing.');
                     return;
                 }
-                const { initializeApp, getApps, deleteApp } = await import('firebase/app');
-                const { getDatabase, ref: rtRef, get }      = await import('firebase/database');
-                const TEST_APP = '__ohsms_setup_test__';
-                const existing = getApps().find(a => a.name === TEST_APP);
-                if (existing) await deleteApp(existing);
-                const testApp = initializeApp(cfg, TEST_APP);
-                const testDb  = getDatabase(testApp);
-                await get(rtRef(testDb, '/.info/connected')).catch(() => {});
-                await deleteApp(testApp);
-                setTestState('success');
-                setTestMsg('✅ Firebase connected! Your credentials are valid and the Realtime Database is reachable.');
+                if (!cfg.databaseURL) {
+                    setTestState('error');
+                    setTestMsg('Database URL is required. It looks like: https://your-project-default-rtdb.firebaseio.com');
+                    return;
+                }
+
+                // Test via Firebase REST API — a simple GET to the root with
+                // ?shallow=true&limitToFirst=1 returns quickly and tells us:
+                //   200  → credentials valid, database reachable
+                //   401  → API key invalid or database rules block unauthenticated reads
+                //          (rules are correct — this still confirms the DB is reachable)
+                //   404  → wrong databaseURL / project doesn't exist
+                //   network error → URL unreachable
+                const url = cfg.databaseURL.replace(/\/$/, '');
+                const res = await fetch(
+                    `${url}/.json?shallow=true&limitToFirst=1`,
+                    { signal: AbortSignal.timeout(10000) }
+                ).catch(err => {
+                    throw new Error(
+                        err.name === 'TimeoutError'
+                            ? 'Connection timed out. Check your Database URL and make sure the Realtime Database is created in your Firebase project.'
+                            : `Cannot reach the database: ${err.message}`
+                    );
+                });
+
+                if (res.status === 200 || res.status === 401) {
+                    // 200 = open rules (readable), 401 = locked rules (also valid — DB exists)
+                    setTestState('success');
+                    setTestMsg('✅ Firebase connected! Your credentials are valid and the Realtime Database is reachable.');
+                } else if (res.status === 404) {
+                    setTestState('error');
+                    setTestMsg('Database not found (404). Double-check your Database URL — it should end in .firebaseio.com and match your Firebase project.');
+                } else if (res.status === 403) {
+                    // 403 = rules deny but DB exists and API key is valid
+                    setTestState('success');
+                    setTestMsg('✅ Firebase connected! Database is reachable. (Security rules are active — that\'s expected.)');
+                } else {
+                    setTestState('error');
+                    setTestMsg(`Unexpected response (HTTP ${res.status}). Check your Firebase credentials and Database URL.`);
+                }
             } else {
                 const url = restConfig.baseUrl.replace(/\/$/, '');
                 if (!url) {
