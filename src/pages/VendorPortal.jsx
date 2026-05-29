@@ -1749,16 +1749,82 @@ export default function VendorPortal() {
                         </div>
                     )}
 
-                    {activeTab === 'fireEquipment' && FIRE_EQUIPMENT_SERVICE_TYPES.includes(vendor.serviceType) && (
-                        <div className="animate-in fade-in">
+                    {activeTab === 'fireEquipment' && FIRE_EQUIPMENT_SERVICE_TYPES.includes(vendor.serviceType) && (() => {
+                        // Annotate each extinguisher with derived schedule flags so we can
+                        // highlight overdue / due-soon units and sort them to the top.
+                        // We compare ISO dates as strings (YYYY-MM-DD) — same approach the
+                        // admin EmergencyEquipment page uses for its compliance badges.
+                        const todayStr = new Date().toISOString().split('T')[0];
+                        const sevenAhead = new Date();
+                        sevenAhead.setDate(sevenAhead.getDate() + 7);
+                        const dueSoonStr = sevenAhead.toISOString().split('T')[0];
+
+                        const annotated = vendorFireEquipment.map((eq) => {
+                            const inProgress = eq.refillStatus === 'Sent for Refill' || eq.refillStatus === 'Sent for HPT';
+                            const overdueReasons = [];
+                            const dueSoonReasons = [];
+                            // Skip schedule checks while the unit is off-site with the
+                            // vendor: the dates won't be accurate again until it's
+                            // returned and the next due dates roll forward.
+                            if (!inProgress) {
+                                if (eq.nextRefillDate && eq.nextRefillDate < todayStr) overdueReasons.push('Refill Overdue');
+                                else if (eq.nextRefillDate && eq.nextRefillDate <= dueSoonStr) dueSoonReasons.push('Refill Due In 7 Days');
+                                if (eq.nextHptDate && eq.nextHptDate < todayStr) overdueReasons.push('HPT Overdue');
+                                else if (eq.nextHptDate && eq.nextHptDate <= dueSoonStr) dueSoonReasons.push('HPT Due In 7 Days');
+                            }
+                            const needsAttention = overdueReasons.length > 0;
+                            const dueSoon = dueSoonReasons.length > 0;
+                            // 0 = overdue, 1 = due soon, 2 = in progress, 3 = healthy
+                            const sortKey = needsAttention ? 0 : dueSoon ? 1 : inProgress ? 2 : 3;
+                            return { eq, inProgress, needsAttention, dueSoon, overdueReasons, dueSoonReasons, sortKey };
+                        }).sort((a, b) => {
+                            if (a.sortKey !== b.sortKey) return a.sortKey - b.sortKey;
+                            // Within each bucket, surface earliest-due first so the most
+                            // urgent unit per category is at the top of its group.
+                            const aDate = a.eq.nextRefillDate || a.eq.nextHptDate || '9999';
+                            const bDate = b.eq.nextRefillDate || b.eq.nextHptDate || '9999';
+                            return aDate.localeCompare(bDate);
+                        });
+
+                        const attentionCount = annotated.filter(r => r.needsAttention).length;
+                        const dueSoonCount = annotated.filter(r => r.dueSoon).length;
+                        const inProgressCount = annotated.filter(r => r.inProgress).length;
+
+                        return (
+                        <div className="animate-in fade-in space-y-4">
+                            {/* At-a-glance counters so the vendor sees how many units need
+                                action without scanning the whole table. */}
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                                <div className={`p-4 rounded-2xl border ${attentionCount > 0 ? 'bg-red-950/30 border-red-500/40' : 'bg-slate-900/60 border-slate-700'}`}>
+                                    <div className="text-[10px] font-bold uppercase tracking-widest text-red-400"><i className="fas fa-triangle-exclamation mr-1"></i> Needs Attention</div>
+                                    <div className={`text-3xl font-black mt-1 ${attentionCount > 0 ? 'text-red-300' : 'text-slate-500'}`}>{attentionCount}</div>
+                                    <div className="text-[10px] text-slate-500 mt-1">Refill or HPT expired</div>
+                                </div>
+                                <div className={`p-4 rounded-2xl border ${dueSoonCount > 0 ? 'bg-orange-950/30 border-orange-500/40' : 'bg-slate-900/60 border-slate-700'}`}>
+                                    <div className="text-[10px] font-bold uppercase tracking-widest text-orange-400"><i className="fas fa-clock mr-1"></i> Due In 7 Days</div>
+                                    <div className={`text-3xl font-black mt-1 ${dueSoonCount > 0 ? 'text-orange-300' : 'text-slate-500'}`}>{dueSoonCount}</div>
+                                    <div className="text-[10px] text-slate-500 mt-1">Plan pickup soon</div>
+                                </div>
+                                <div className={`p-4 rounded-2xl border ${inProgressCount > 0 ? 'bg-yellow-500/10 border-yellow-500/40' : 'bg-slate-900/60 border-slate-700'}`}>
+                                    <div className="text-[10px] font-bold uppercase tracking-widest text-yellow-300"><i className="fas fa-truck-pickup mr-1"></i> With You</div>
+                                    <div className={`text-3xl font-black mt-1 ${inProgressCount > 0 ? 'text-yellow-200' : 'text-slate-500'}`}>{inProgressCount}</div>
+                                    <div className="text-[10px] text-slate-500 mt-1">Awaiting return</div>
+                                </div>
+                                <div className="p-4 rounded-2xl border bg-slate-900/60 border-slate-700">
+                                    <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400"><i className="fas fa-fire-extinguisher mr-1"></i> Total Visible</div>
+                                    <div className="text-3xl font-black mt-1 text-white">{annotated.length}</div>
+                                    <div className="text-[10px] text-slate-500 mt-1">In your authorised sites</div>
+                                </div>
+                            </div>
+
                             <div className="bg-slate-900/60 backdrop-blur-md rounded-3xl border border-slate-700 shadow-xl overflow-hidden">
                                 <div className="p-6 border-b border-slate-800 bg-slate-950/50 flex flex-wrap items-center justify-between gap-3">
                                     <div>
                                         <h3 className="text-xl font-bold text-red-400 flex items-center gap-3"><i className="fas fa-fire-extinguisher"></i> Fire Extinguisher Register</h3>
-                                        <p className="text-xs text-slate-400 mt-1">Fire extinguishers at the sites you are authorised for. Mark a unit as picked up for refilling or HPT — the site admin sees a yellow "In Process of Refilling" alert until you mark it returned.</p>
+                                        <p className="text-xs text-slate-400 mt-1">Fire extinguishers at the sites you are authorised for. Expired units appear first as <span className="text-red-400 font-bold">Needs Attention</span>. Mark a unit as picked up for refilling or HPT — the site admin sees a yellow "In Process of Refilling" alert until you mark it returned.</p>
                                     </div>
                                     <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500 bg-slate-950 px-3 py-2 rounded-lg border border-slate-800">
-                                        {vendorFireEquipment.length} unit{vendorFireEquipment.length !== 1 ? 's' : ''} visible
+                                        {annotated.length} unit{annotated.length !== 1 ? 's' : ''} visible
                                     </div>
                                 </div>
                                 <div className="overflow-x-auto">
@@ -1774,30 +1840,51 @@ export default function VendorPortal() {
                                             </tr>
                                         </thead>
                                         <tbody className="divide-y divide-slate-800/50 text-slate-300">
-                                            {vendorFireEquipment.map(eq => {
-                                                const inProgress = eq.refillStatus === 'Sent for Refill' || eq.refillStatus === 'Sent for HPT';
+                                            {annotated.map(({ eq, inProgress, needsAttention, dueSoon, overdueReasons, dueSoonReasons }) => {
                                                 const busy = fireEquipBusyId === eq.firebaseKey;
+                                                const rowTint = needsAttention
+                                                    ? 'bg-red-950/20 hover:bg-red-950/30'
+                                                    : dueSoon
+                                                        ? 'bg-orange-950/15 hover:bg-orange-950/25'
+                                                        : inProgress
+                                                            ? 'bg-yellow-500/5'
+                                                            : 'hover:bg-slate-800/40';
+                                                const refillExpired = eq.nextRefillDate && eq.nextRefillDate < todayStr;
+                                                const hptExpired = eq.nextHptDate && eq.nextHptDate < todayStr;
                                                 return (
-                                                    <tr key={eq.firebaseKey} className={`transition-colors ${inProgress ? 'bg-yellow-500/5' : 'hover:bg-slate-800/40'}`}>
+                                                    <tr key={eq.firebaseKey} className={`transition-colors ${rowTint}`}>
                                                         <td className="p-4 pl-6">
                                                             <div className="font-bold text-white flex items-center gap-2">
-                                                                <i className="fas fa-fire-extinguisher text-red-400"></i>
+                                                                <i className={`fas fa-fire-extinguisher ${needsAttention ? 'text-red-500' : 'text-red-400'}`}></i>
                                                                 <span className="font-mono text-orange-400">{eq.assetId || '—'}</span>
                                                             </div>
                                                             <div className="text-[10px] text-slate-500 mt-0.5">Site: <span className="font-bold text-blue-400">{eq.siteId}</span></div>
                                                             {eq.extinguisherType && <div className="text-[9px] text-slate-400 uppercase font-mono mt-1 border border-slate-700 px-2 py-0.5 rounded inline-block bg-slate-900">{eq.extinguisherType}</div>}
                                                         </td>
                                                         <td className="p-4 text-xs font-bold text-slate-400">{eq.location || '—'}</td>
-                                                        <td className="p-4 font-mono text-xs">{eq.nextRefillDate || '—'}</td>
-                                                        <td className="p-4 font-mono text-xs">{eq.nextHptDate || '—'}</td>
+                                                        <td className={`p-4 font-mono text-xs ${refillExpired ? 'text-red-400 font-bold' : ''}`}>{eq.nextRefillDate || '—'}{refillExpired && <span className="ml-1 text-[8px]">⚠</span>}</td>
+                                                        <td className={`p-4 font-mono text-xs ${hptExpired ? 'text-red-400 font-bold' : ''}`}>{eq.nextHptDate || '—'}{hptExpired && <span className="ml-1 text-[8px]">⚠</span>}</td>
                                                         <td className="p-4 align-top py-4">
-                                                            {inProgress ? (
-                                                                <span className="bg-yellow-500/15 text-yellow-300 border border-yellow-500/40 px-2 py-1 rounded text-[9px] font-bold uppercase tracking-widest inline-block">
-                                                                    {eq.refillStatus === 'Sent for HPT' ? 'In Process of HPT' : 'In Process of Refilling'}
-                                                                </span>
-                                                            ) : (
-                                                                <span className="bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 px-2 py-1 rounded text-[9px] font-bold uppercase tracking-widest inline-block">In Service</span>
-                                                            )}
+                                                            <div className="flex flex-col gap-1 items-start">
+                                                                {inProgress && (
+                                                                    <span className="bg-yellow-500/15 text-yellow-300 border border-yellow-500/40 px-2 py-1 rounded text-[9px] font-bold uppercase tracking-widest inline-block animate-pulse">
+                                                                        {eq.refillStatus === 'Sent for HPT' ? 'In Process of HPT' : 'In Process of Refilling'}
+                                                                    </span>
+                                                                )}
+                                                                {needsAttention && overdueReasons.map((r) => (
+                                                                    <span key={r} className="bg-red-900/30 text-red-300 border border-red-500/50 px-2 py-1 rounded text-[9px] font-bold uppercase tracking-widest inline-block animate-pulse">
+                                                                        <i className="fas fa-triangle-exclamation mr-1"></i>{r}
+                                                                    </span>
+                                                                ))}
+                                                                {!needsAttention && dueSoon && dueSoonReasons.map((r) => (
+                                                                    <span key={r} className="bg-orange-900/30 text-orange-300 border border-orange-500/40 px-2 py-1 rounded text-[9px] font-bold uppercase tracking-widest inline-block">
+                                                                        <i className="fas fa-clock mr-1"></i>{r}
+                                                                    </span>
+                                                                ))}
+                                                                {!inProgress && !needsAttention && !dueSoon && (
+                                                                    <span className="bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 px-2 py-1 rounded text-[9px] font-bold uppercase tracking-widest inline-block">In Service</span>
+                                                                )}
+                                                            </div>
                                                         </td>
                                                         <td className="p-4 pr-6 text-right">
                                                             {inProgress ? (
@@ -1833,7 +1920,7 @@ export default function VendorPortal() {
                                                     </tr>
                                                 );
                                             })}
-                                            {vendorFireEquipment.length === 0 && (
+                                            {annotated.length === 0 && (
                                                 <tr><td colSpan="6" className="p-10 text-center text-slate-500 italic border-t border-slate-800">No fire extinguishers visible. Ask the site admin to grant you access to the sites where you operate.</td></tr>
                                             )}
                                         </tbody>
@@ -1841,7 +1928,8 @@ export default function VendorPortal() {
                                 </div>
                             </div>
                         </div>
-                    )}
+                        );
+                    })()}
                 </div>
             </main>
 
