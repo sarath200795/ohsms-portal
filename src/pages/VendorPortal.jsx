@@ -12,6 +12,7 @@ import { auth } from '../config/firebase';
 import { dbGet, dbSet, dbUpdate, dbQuery } from '../services/db/index.js';
 import { safeDocumentHref } from '../utils/security';
 import { FIRE_EQUIPMENT_SERVICE_TYPES } from '../utils/constants';
+import { findCentersForSite, normalizeSiteCenters } from '../utils/centers';
 import {
     getOrgRegistry,
     hideOrgInRegistry,
@@ -252,6 +253,10 @@ export default function VendorPortal() {
     // the vendor's serviceType matches FIRE_EQUIPMENT_SERVICE_TYPES.
     const [vendorFireEquipment, setVendorFireEquipment] = useState([]);
     const [fireEquipBusyId, setFireEquipBusyId] = useState(null);
+    // Sites cache — used to resolve centerCode → centerName when rendering
+    // the Fire Equipment table so vendors see "Warehouse East" instead of
+    // a bare "WH-E" code, matching what the admin's printable tag shows.
+    const [vendorSitesCache, setVendorSitesCache] = useState([]);
     // QR-scan deep-link state: when a public QR scan lands on
     // /vendor-portal?fireAction=pickup&scan=<id>&org=<orgId> we surface a
     // modal with the extinguisher details and the Take for Refill / HPT
@@ -405,6 +410,7 @@ export default function VendorPortal() {
         setVendorIncidents([]);
         setVendorPermits([]);
         setVendorFireEquipment([]);
+        setVendorSitesCache([]);
         setFireDeepLink(null);
         setFireDeepLinkEq(null);
         setFireDeepLinkError('');
@@ -612,6 +618,29 @@ export default function VendorPortal() {
                 safeArr(vendorData.allocatedSites).forEach(s => s && fireSiteSet.add(String(s).trim()));
             }
             const fireSites = [...fireSiteSet].filter(Boolean);
+
+            // Sites — small dataset, public read for any org member. We need
+            // the embedded `centers` array on each site to translate the
+            // equipment's centerCode into a human-readable center name for
+            // the Fire Equipment table (matches the admin print-tag label).
+            const backgroundFetchSites = isFireEquipVendor
+                ? (async () => {
+                    try {
+                        const sitesData = await dbGet(`organizations/${orgId}/sites`);
+                        if (sitesData && typeof sitesData === 'object') {
+                            const list = Object.entries(sitesData).map(([code, s]) => ({
+                                code: s?.code || code,
+                                name: s?.name || code,
+                                centers: normalizeSiteCenters(s)
+                            }));
+                            setVendorSitesCache(list);
+                        }
+                    } catch (err) {
+                        console.warn('[vendor-portal] sites fetch failed:', err);
+                    }
+                })()
+                : Promise.resolve();
+            void backgroundFetchSites;
 
             const backgroundFetchFireEquip = isFireEquipVendor && fireSites.length > 0
                 ? (async () => {
@@ -1929,7 +1958,7 @@ export default function VendorPortal() {
                                         <thead className="bg-slate-950 border-b border-slate-800 text-[10px] uppercase tracking-widest font-bold text-slate-500">
                                             <tr>
                                                 <th className="p-4 pl-6">Asset / Type</th>
-                                                <th className="p-4">Location</th>
+                                                <th className="p-4">Center / Location</th>
                                                 <th className="p-4">Refill Due</th>
                                                 <th className="p-4">HPT Due</th>
                                                 <th className="p-4">Status</th>
@@ -1958,7 +1987,23 @@ export default function VendorPortal() {
                                                             <div className="text-[10px] text-slate-500 mt-0.5">Site: <span className="font-bold text-blue-400">{eq.siteId}</span></div>
                                                             {eq.extinguisherType && <div className="text-[9px] text-slate-400 uppercase font-mono mt-1 border border-slate-700 px-2 py-0.5 rounded inline-block bg-slate-900">{eq.extinguisherType}</div>}
                                                         </td>
-                                                        <td className="p-4 text-xs font-bold text-slate-400">{eq.location || '—'}</td>
+                                                        <td className="p-4 text-xs">{(() => {
+                                                            // Resolve centerCode → centerName using the
+                                                            // sites cache; falls back to bare code, then
+                                                            // to em-dash. Location (free text) renders
+                                                            // smaller underneath so the vendor sees both
+                                                            // "Warehouse East" AND "Bay 3, Pillar B" at
+                                                            // a glance for pickup / drop-off.
+                                                            const centers = findCentersForSite(vendorSitesCache, eq.siteId);
+                                                            const match = centers.find(c => String(c.code || '').trim() === String(eq.centerCode || '').trim());
+                                                            const centerLabel = match?.name || eq.centerCode || '';
+                                                            return (
+                                                                <>
+                                                                    {centerLabel && <div className="font-bold text-emerald-400">{centerLabel}</div>}
+                                                                    <div className={`${centerLabel ? 'text-[10px] text-slate-500' : 'font-bold text-slate-400'}`}>{eq.location || '—'}</div>
+                                                                </>
+                                                            );
+                                                        })()}</td>
                                                         <td className={`p-4 font-mono text-xs ${refillExpired ? 'text-red-400 font-bold' : ''}`}>{eq.nextRefillDate || '—'}{refillExpired && <span className="ml-1 text-[8px]">⚠</span>}</td>
                                                         <td className={`p-4 font-mono text-xs ${hptExpired ? 'text-red-400 font-bold' : ''}`}>{eq.nextHptDate || '—'}{hptExpired && <span className="ml-1 text-[8px]">⚠</span>}</td>
                                                         <td className="p-4 align-top py-4">
@@ -2090,6 +2135,17 @@ export default function VendorPortal() {
                                             <p className="text-[9px] font-bold uppercase tracking-widest text-slate-500">Site</p>
                                             <p className="mt-1 text-sm font-bold text-blue-400">{eq.siteId || '—'}</p>
                                         </div>
+                                        {(() => {
+                                            const centers = findCentersForSite(vendorSitesCache, eq.siteId);
+                                            const match = centers.find(c => String(c.code || '').trim() === String(eq.centerCode || '').trim());
+                                            const centerLabel = match?.name || eq.centerCode;
+                                            return centerLabel ? (
+                                                <div className="rounded-xl border border-emerald-500/30 bg-emerald-950/20 p-3 col-span-2">
+                                                    <p className="text-[9px] font-bold uppercase tracking-widest text-emerald-300">Center / Area</p>
+                                                    <p className="mt-1 text-sm font-bold text-white">{centerLabel}</p>
+                                                </div>
+                                            ) : null;
+                                        })()}
                                         <div className="rounded-xl border border-slate-800 bg-slate-950/70 p-3">
                                             <p className="text-[9px] font-bold uppercase tracking-widest text-slate-500">Type</p>
                                             <p className="mt-1 text-sm font-bold text-white">{eq.extinguisherType || '—'}</p>

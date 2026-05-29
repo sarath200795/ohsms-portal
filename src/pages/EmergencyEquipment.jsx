@@ -10,6 +10,19 @@ import { QRCodeSVG } from 'qrcode.react';
 import * as XLSX from 'xlsx';
 import { notifyEquipmentUpdated } from '../utils/reportNotificationEmail';
 import CenterSelect from '../components/CenterSelect';
+import { findCentersForSite } from '../utils/centers';
+
+// Resolve a centerCode back to its human-readable name for the given site.
+// Returns '' if the site isn't found, the center isn't configured, or the
+// equipment record predates the centerCode field. Falls back to the bare
+// code so a record with a code-only entry still surfaces SOMETHING legible.
+const resolveCenterName = (sites, siteId, centerCode) => {
+    const code = String(centerCode || '').trim();
+    if (!code) return '';
+    const centers = findCentersForSite(sites, siteId);
+    const match = centers.find((c) => String(c.code || '').trim() === code);
+    return match?.name || code;
+};
 
 const TYPES = ['Fire Extinguisher', 'First Aid Kit', 'AED / Defibrillator', 'Eye Wash Station', 'Spill Kit', 'Stretcher', 'Wheel Chair', 'Evacuation Chair'];
 const STATUSES = ['Active', 'Needs Inspection', 'Out of Service', 'Missing'];
@@ -1034,6 +1047,15 @@ export default function EmergencyEquipment() {
                         </div>
 
                         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                            {(() => {
+                                const centerName = resolveCenterName(sites, inspectData.siteId, inspectData.centerCode);
+                                return centerName ? (
+                                    <div className="rounded-2xl border border-emerald-500/30 bg-emerald-950/20 p-4 md:col-span-2">
+                                        <p className="text-[10px] font-bold uppercase tracking-[0.25em] text-emerald-300">Center / Area</p>
+                                        <p className="mt-2 text-sm font-bold text-white">{centerName}{inspectData.centerCode && centerName !== inspectData.centerCode ? ` (${inspectData.centerCode})` : ''}</p>
+                                    </div>
+                                ) : null;
+                            })()}
                             <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-4">
                                 <p className="text-[10px] font-bold uppercase tracking-[0.25em] text-slate-500">Location</p>
                                 <p className="mt-2 text-sm font-bold text-white">{inspectData.location || 'N/A'}</p>
@@ -1258,7 +1280,10 @@ export default function EmergencyEquipment() {
                                                         <i className={`fas ${equipmentMeta.icon} ${equipmentMeta.iconClass}`}></i>
                                                         {e.type}
                                                     </div>
-                                                    <div className="text-[10px] text-slate-500 mt-0.5">Asset ID: <span className="font-mono text-orange-400">{e.assetId || 'N/A'}</span> | Site: <span className="font-bold text-blue-400">{e.siteId}</span></div>
+                                                    <div className="text-[10px] text-slate-500 mt-0.5">Asset ID: <span className="font-mono text-orange-400">{e.assetId || 'N/A'}</span> | Site: <span className="font-bold text-blue-400">{e.siteId}</span>{(() => {
+                                                        const centerName = resolveCenterName(sites, e.siteId, e.centerCode);
+                                                        return centerName ? <> | Center: <span className="font-bold text-emerald-400">{centerName}</span></> : null;
+                                                    })()}</div>
                                                     {e.type === 'Fire Extinguisher' && e.extinguisherType && <div className="text-[9px] text-slate-400 uppercase font-mono mt-1 border border-slate-700 px-2 py-0.5 rounded inline-block bg-slate-900">{e.extinguisherType}</div>}
                                                 </td>
                                                 <td className="p-4 font-bold text-slate-400">{e.location}</td>
@@ -1714,10 +1739,33 @@ export default function EmergencyEquipment() {
                         </div>
 
                         <div className="p-6 bg-white flex flex-col items-center">
-                            <div className="text-center mb-6">
+                            <div className="text-center mb-4">
                                 <p className="text-sm font-bold text-gray-500 uppercase tracking-widest mb-1">Asset ID</p>
                                 <h3 className="text-2xl font-mono font-black border-b-2 border-dashed border-gray-400 pb-1">{printTagData.assetId}</h3>
                             </div>
+
+                            {/* Site + Center block. Center name is the new field per the
+                                'better view and control' ask — at-a-glance shows
+                                inspectors WHICH area within the facility the unit lives.
+                                Falls back to the code (or just the site) when no center
+                                was assigned, so legacy records still render cleanly. */}
+                            {(() => {
+                                const siteEntry = sites.find((s) => s.code === printTagData.siteId);
+                                const siteLabel = siteEntry?.name || printTagData.siteId || '';
+                                const centerName = resolveCenterName(sites, printTagData.siteId, printTagData.centerCode);
+                                return (
+                                    <div className="text-center mb-4 w-full">
+                                        <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Site</p>
+                                        <p className="text-base font-bold text-black mb-1">{siteLabel}{printTagData.siteId && siteEntry?.name ? ` (${printTagData.siteId})` : ''}</p>
+                                        {centerName && (
+                                            <>
+                                                <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mt-1">Center / Area</p>
+                                                <p className="text-base font-bold text-black">{centerName}{printTagData.centerCode && centerName !== printTagData.centerCode ? ` (${printTagData.centerCode})` : ''}</p>
+                                            </>
+                                        )}
+                                    </div>
+                                );
+                            })()}
 
                             <p className="text-lg font-bold text-center uppercase mb-1 flex items-center gap-2">
                                 <i className={`fas ${printTagMeta.icon}`}></i>
@@ -1727,7 +1775,7 @@ export default function EmergencyEquipment() {
 
                             <div className="p-4 border-4 border-black rounded-xl mb-4 bg-white flex justify-center items-center">
                                 <QRCodeSVG
-                                    value={`${window.location.origin}/emergency-equipment?scan=${printTagData.firebaseKey}&site=${printTagData.siteId}&org=${session.orgId}&fieldQr=1`}
+                                    value={`${window.location.origin}/emergency-equipment?scan=${printTagData.firebaseKey}&site=${printTagData.siteId}${printTagData.centerCode ? `&center=${encodeURIComponent(printTagData.centerCode)}` : ''}&org=${session.orgId}&fieldQr=1`}
                                     size={160}
                                     level="H"
                                 />
