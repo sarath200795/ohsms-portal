@@ -13,6 +13,12 @@ import authService from '../services/auth/index.js';
 import { dbSet, dbPush } from '../services/db/index.js';
 import { compressImageToBase64, base64SizeKB } from '../utils/imageUtils.js';
 import { normalizeSessionPermissions } from '../utils/permissions';
+// Canonical RTDB rules file the codebase deploys with `firebase deploy
+// --only database`. Imported as raw text so the wizard always shows the
+// SAME rules that ship in this commit — no risk of the wizard drifting
+// from the deployed contract. Vite's ?raw query rolls this into the
+// JS bundle at build time as a string literal.
+import CANONICAL_RULES_TEXT from '../../database.rules.json?raw';
 import { ACCOUNT_STATUS, writeStoredSession } from '../utils/session';
 import { saveOrgToRegistry } from '../utils/orgRegistry.js';
 
@@ -742,60 +748,60 @@ export default function DatabaseSetup() {
                                         <p>Click the <strong className="text-white">Rules</strong> tab at the top of the page</p>
                                     </InstructStep>
 
-                                    <InstructStep n={2} title="Paste and Publish">
-                                        <p>Replace the existing rules with the snippet below, then click <strong className="text-white">Publish</strong></p>
+                                    <InstructStep n={2} title="Paste and Publish — Canonical Rules">
+                                        <p>Replace the existing rules with the canonical ruleset below, then click <strong className="text-white">Publish</strong></p>
                                         <p className="text-gray-600 text-[10px] mt-1">Rules take effect immediately — no redeploy needed</p>
+                                        <p className="text-amber-300 text-[10px] mt-2"><strong>One file, every project.</strong> This is the same ruleset the codebase ships with — every org-scoped collection (users, contractors, incidents, ptwRecords, lotoProcedures, emergencyEquipment, etc.) plus its public-QR-scan branch. Paste once per Firebase project you operate.</p>
                                     </InstructStep>
 
-                                    <CodeBlock lang="json">{`{
-  "rules": {
+                                    <div className="my-3 flex flex-wrap items-center gap-2">
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                try {
+                                                    navigator.clipboard.writeText(CANONICAL_RULES_TEXT);
+                                                    alert('Canonical Firebase RTDB rules copied to clipboard. Paste into Firebase Console → Realtime Database → Rules, then Publish.');
+                                                } catch {
+                                                    alert('Could not access clipboard. Select the text in the box below and copy manually.');
+                                                }
+                                            }}
+                                            className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-4 py-2 rounded-lg transition-colors flex items-center gap-2"
+                                        >
+                                            <i className="fas fa-clipboard"></i> Copy Full Ruleset ({Math.round(CANONICAL_RULES_TEXT.length / 1024)} KB)
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                const blob = new Blob([CANONICAL_RULES_TEXT], { type: 'application/json' });
+                                                const url = URL.createObjectURL(blob);
+                                                const a = document.createElement('a');
+                                                a.href = url;
+                                                a.download = 'database.rules.json';
+                                                a.click();
+                                                URL.revokeObjectURL(url);
+                                            }}
+                                            className="bg-slate-700 hover:bg-slate-600 text-white text-xs font-bold px-4 py-2 rounded-lg transition-colors flex items-center gap-2"
+                                        >
+                                            <i className="fas fa-download"></i> Download as database.rules.json
+                                        </button>
+                                        <span className="text-[10px] text-gray-500">Or use Firebase CLI: <code className="bg-slate-900/60 px-2 py-0.5 rounded text-orange-300">firebase deploy --only database</code></span>
+                                    </div>
 
-    // ── Organisation data (org-scoped) ──────────────────────────
-    "organizations": {
-      "$orgId": {
-
-        // Only members of this org can read its data
-        ".read": "auth != null &&
-          root.child('userDirectory/' + auth.uid + '/orgId').val() == $orgId",
-
-        // Org members can write; new users (not yet in directory) can
-        // write once to complete their initial account setup
-        ".write": "auth != null && (
-          root.child('userDirectory/' + auth.uid + '/orgId').val() == $orgId ||
-          !root.child('userDirectory/' + auth.uid).exists()
-        )",
-
-        // Lets an invited user write their own profile during join flow
-        "users": {
-          "$uid": {
-            ".write": "auth != null && auth.uid == $uid"
-          }
-        }
-      }
-    },
-
-    // ── User → Org mapping (private per user) ───────────────────
-    "userDirectory": {
-      "$uid": {
-        ".read":  "auth != null && auth.uid == $uid",
-        ".write": "auth != null && auth.uid == $uid"
-      }
-    },
-
-    // ── Join requests (any authenticated user can submit) ────────
-    "joinRegistry": {
-      ".read":  "auth != null",
-      ".write": "auth != null"
-    }
-  }
-}`}</CodeBlock>
+                                    <textarea
+                                        readOnly
+                                        value={CANONICAL_RULES_TEXT}
+                                        rows={14}
+                                        className="w-full bg-slate-950 border border-slate-700 rounded-lg p-3 font-mono text-[10px] text-green-300 leading-tight resize-y focus:border-emerald-500 outline-none"
+                                        onClick={(e) => e.target.select()}
+                                        spellCheck={false}
+                                    />
 
                                     <div className="mt-3 space-y-1 text-[10px] text-gray-400 leading-relaxed">
-                                        <p><span className="text-green-300 font-bold">organizations/$orgId .read</span> — Only members whose <code className="text-green-300">userDirectory</code> entry points to this org can read it</p>
-                                        <p><span className="text-green-300 font-bold">organizations/$orgId .write</span> — Org members can write; brand-new users can write once to finish account setup</p>
-                                        <p><span className="text-green-300 font-bold">organizations/$orgId/users/$uid</span> — A user can write their own profile (used during invite join flow)</p>
+                                        <p><span className="text-green-300 font-bold">organizations/$orgId/&lt;collection&gt;</span> — Site-scoped reads gated by <code className="text-green-300">accessibleSitesMap</code>; writes gated by role + siteId match</p>
+                                        <p><span className="text-green-300 font-bold">emergencyEquipment/$id .read</span> — <code className="text-amber-300">data.exists()</code> — any extinguisher/AED/spill-kit is publicly QR-scannable</p>
+                                        <p><span className="text-green-300 font-bold">ptwRecords/$id, lotoProcedures/$id .read</span> — <code className="text-amber-300">publicQrEnabled === true</code> — only permits/procedures explicitly marked for field scan</p>
                                         <p><span className="text-green-300 font-bold">userDirectory/$uid</span> — Each user can only read/write their own org-mapping record</p>
-                                        <p><span className="text-green-300 font-bold">joinRegistry</span> — Any signed-in user can submit or view join requests</p>
+                                        <p><span className="text-green-300 font-bold">vendorPortalUsers/$uid</span> — Isolated from <code className="text-green-300">users</code> so vendor + employee accounts with the same email never collide</p>
                                     </div>
 
                                     <InstructStep n={3} title="Disable Unused Auth Providers">
