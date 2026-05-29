@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { dbGet, dbPush, dbUpdate, dbMultiUpdate } from '../../services/db/index.js';
+import { firebaseConfig } from '../../config/firebase.js';
+import { sanitizeDatabaseURL, restReadPublic, buildDbSuffix } from '../../utils/qrMultiTenant.js';
 import { writeActivityLog, buildActivityEntry } from '../../utils/activityLog.js';
 import QRious from 'qrious';
 
@@ -1240,13 +1242,33 @@ export default function FullScreenPTW() {
                 setSiteFilter(params.get('site') || 'All');
 
                 const loadPublicPermit = async () => {
+                    // Multi-tenant detection — if QR carried db=<databaseURL>,
+                    // try direct REST against that project first so a phone
+                    // with no /setup config can still resolve the permit.
+                    // Falls back to the SDK's dbGet for legacy QRs.
+                    const explicitDbUrl = sanitizeDatabaseURL(params.get('db'));
+                    console.log('[ptw] public QR fetch start:', {
+                        orgId: publicOrgId,
+                        permitId: permitIdFromQuery,
+                        embeddedDbUrl: explicitDbUrl || '(none — falling back to SDK)'
+                    });
                     try {
-                        // dbGet returns the unwrapped value or null — calling
-                        // .exists()/.val() on it throws a TypeError that
-                        // crashes the public QR-scan page to blank. Treat the
-                        // result as data + a null check, matching the adapter
-                        // contract.
-                        const publicData = await dbGet(`organizations/${publicOrgId}/ptwRecords/${permitIdFromQuery}`);
+                        let publicData = null;
+                        if (explicitDbUrl) {
+                            try {
+                                publicData = await restReadPublic(explicitDbUrl, `organizations/${publicOrgId}/ptwRecords/${permitIdFromQuery}`);
+                                console.log('[ptw] public QR REST read:', publicData ? `permit loaded (siteId=${publicData.siteId}, type=${publicData.typeId})` : 'NULL — permit missing or rule denied');
+                            } catch (restErr) {
+                                console.warn('[ptw] REST read failed, will fall back to SDK:', restErr.message);
+                            }
+                        }
+                        if (!publicData) {
+                            // dbGet returns the unwrapped value or null —
+                            // calling .exists()/.val() on it throws a TypeError
+                            // that crashes the public QR-scan page to blank.
+                            publicData = await dbGet(`organizations/${publicOrgId}/ptwRecords/${permitIdFromQuery}`);
+                            console.log('[ptw] public QR SDK fallback:', publicData ? 'permit loaded' : 'NULL — permit missing or rule denied');
+                        }
                         if (!publicData) return;
 
                         const permit = normalizePermit({ firebaseKey: permitIdFromQuery, ...publicData });
@@ -2005,7 +2027,10 @@ export default function FullScreenPTW() {
 
     const triggerPrint = async (permit) => {
         const publicPermitKey = permit.firebaseKey || permit.id;
-        const qrUrl = `${window.location.origin}${window.location.pathname}?ptw=${encodeURIComponent(publicPermitKey)}&site=${encodeURIComponent(permit.siteId || siteFilter || 'All')}&org=${encodeURIComponent(session.orgId)}&fieldQr=1`;
+        // Embed databaseURL so a phone scanning this QR with no /setup
+        // config still resolves the permit via direct REST against the
+        // right Firebase project. See utils/qrMultiTenant.js for details.
+        const qrUrl = `${window.location.origin}${window.location.pathname}?ptw=${encodeURIComponent(publicPermitKey)}&site=${encodeURIComponent(permit.siteId || siteFilter || 'All')}&org=${encodeURIComponent(session.orgId)}${buildDbSuffix(firebaseConfig.databaseURL)}&fieldQr=1`;
         if (permit.firebaseKey && session?.orgId && permit.publicQrEnabled !== true) {
             try {
                 await dbUpdate(`organizations/${session.orgId}/ptwRecords/${permit.firebaseKey}`, { publicQrEnabled: true });

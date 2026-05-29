@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { dbGet, dbUpdate, dbPush, dbMultiUpdate } from '../services/db/index.js';
+import { firebaseConfig } from '../config/firebase.js';
+import { sanitizeDatabaseURL, restReadPublic, buildDbSuffix } from '../utils/qrMultiTenant.js';
 import { getFieldPortalLoginPath, getPortalAwareHomePath, isFieldPortalHomeContext } from './FieldApp/portalAuth';
 import FieldQrScannerModal from './FieldApp/components/FieldQrScannerModal';
 import { resolveFieldQrNavigation } from './FieldApp/utils';
@@ -99,9 +101,32 @@ export default function Loto() {
                         setCurrentView('execute');
                         setPermissions({ viewOnly: true, canDelete: false, canEditCreate: false });
 
-                        // Fetch only this specific procedure from the specific organization
-                        const snap = await dbGet(`organizations/${orgId}/lotoProcedures/${execId}`);
-                        if (snap !== null) {
+                        // Multi-tenant detection — if QR carried db=<URL>,
+                        // try direct REST first so a phone with no /setup
+                        // config still resolves the procedure. Rule:
+                        // lotoProcedures/$id .read =
+                        //   data.child('publicQrEnabled').val() === true
+                        // so only Approved procedures are public-readable.
+                        const explicitDbUrl = sanitizeDatabaseURL(params.get('db'));
+                        console.log('[loto] public QR fetch start:', {
+                            orgId,
+                            execId,
+                            embeddedDbUrl: explicitDbUrl || '(none — falling back to SDK)'
+                        });
+                        let snap = null;
+                        if (explicitDbUrl) {
+                            try {
+                                snap = await restReadPublic(explicitDbUrl, `organizations/${orgId}/lotoProcedures/${execId}`);
+                                console.log('[loto] public QR REST read:', snap ? `procedure loaded (status=${snap.status})` : 'NULL — procedure missing or rule denied');
+                            } catch (restErr) {
+                                console.warn('[loto] REST read failed, will fall back to SDK:', restErr.message);
+                            }
+                        }
+                        if (snap === null || snap === undefined) {
+                            snap = await dbGet(`organizations/${orgId}/lotoProcedures/${execId}`);
+                            console.log('[loto] public QR SDK fallback:', snap !== null ? 'procedure loaded' : 'NULL');
+                        }
+                        if (snap !== null && snap !== undefined) {
                             setExecutionProc({ firebaseKey: execId, ...snap });
                         }
                         setLoading(false);
@@ -325,7 +350,10 @@ export default function Loto() {
             try {
                 if (typeof QRious !== 'undefined') {
                     // NEW LOGIC: Appends &org= so public users can scan and view without logging in
-                    const scanUrl = proc.firebaseKey ? `${window.location.origin}${window.location.pathname}?execute=${proc.firebaseKey}&org=${session.orgId}&site=${encodeURIComponent(proc.facility || siteFilter || 'All')}&fieldQr=1` : 'UNSAVED_DRAFT';
+                    // Embed databaseURL so a phone scanning this QR with no
+                    // /setup config still resolves the procedure via direct
+                    // REST against the right Firebase project.
+                    const scanUrl = proc.firebaseKey ? `${window.location.origin}${window.location.pathname}?execute=${proc.firebaseKey}&org=${session.orgId}&site=${encodeURIComponent(proc.facility || siteFilter || 'All')}${buildDbSuffix(firebaseConfig.databaseURL)}&fieldQr=1` : 'UNSAVED_DRAFT';
                     qrData = new QRious({ value: scanUrl, size: 250 }).toDataURL();
                 }
             } catch (error) {

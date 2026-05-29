@@ -12,32 +12,7 @@ import { notifyEquipmentUpdated } from '../utils/reportNotificationEmail';
 import CenterSelect from '../components/CenterSelect';
 import { findCentersForSite } from '../utils/centers';
 import { firebaseConfig } from '../config/firebase.js';
-
-// Multi-tenant QR: the URL embeds `db=<encoded-databaseURL>` so a scanner
-// running on a phone that has never visited the portal can still resolve
-// the record by hitting the right Firebase project directly via REST.
-// Returns the trimmed URL or '' when missing/malformed.
-const sanitizeDatabaseURL = (rawUrl) => {
-    const value = String(rawUrl || '').trim().replace(/\/$/, '');
-    if (!value) return '';
-    if (!/^https:\/\/[a-zA-Z0-9-]+\.(firebaseio\.com|firebasedatabase\.app)/.test(value)) return '';
-    return value;
-};
-
-// Public REST read against a specific Firebase RTDB instance. Used by the
-// public QR scan path when the URL carries `db=...` — bypasses the locally-
-// initialized Firebase SDK so a fresh phone with no /setup config can still
-// resolve any org's equipment record (rule: emergencyEquipment/$id .read =
-// data.exists()).
-const restGetEquipment = async (databaseURL, orgId, recordId) => {
-    const url = `${databaseURL}/organizations/${encodeURIComponent(orgId)}/emergencyEquipment/${encodeURIComponent(recordId)}.json`;
-    const res = await fetch(url, { method: 'GET' });
-    if (!res.ok) {
-        const body = await res.text().catch(() => '');
-        throw new Error(`REST read ${res.status}: ${body || res.statusText}`);
-    }
-    return res.json();
-};
+import { sanitizeDatabaseURL, restReadPublic, buildDbSuffix } from '../utils/qrMultiTenant.js';
 
 // Resolve a centerCode back to its human-readable name for the given site.
 // Returns '' if the site isn't found, the center isn't configured, or the
@@ -453,7 +428,7 @@ export default function EmergencyEquipment() {
                         // emergencyEquipment/$id .read = data.exists(), so any
                         // existing record is publicly readable.
                         try {
-                            eqData = await restGetEquipment(explicitDbUrl, publicOrgId, publicScanId);
+                            eqData = await restReadPublic(explicitDbUrl, `organizations/${publicOrgId}/emergencyEquipment/${publicScanId}`);
                             console.log('[emergency-equipment] public QR REST read:', eqData ? `record loaded (siteId=${eqData.siteId}, type=${eqData.type}, assetId=${eqData.assetId})` : 'NULL — record missing or rule denied');
                         } catch (restErr) {
                             console.warn('[emergency-equipment] REST read failed, will fall back to SDK:', restErr.message);
@@ -1909,7 +1884,7 @@ export default function EmergencyEquipment() {
                                     // project. The databaseURL is already public — it's in
                                     // every page bundle this app serves — so adding it to
                                     // the QR doesn't leak anything new.
-                                    value={`${window.location.origin}/emergency-equipment?scan=${printTagData.firebaseKey}&site=${printTagData.siteId}${printTagData.centerCode ? `&center=${encodeURIComponent(printTagData.centerCode)}` : ''}&org=${session.orgId}${firebaseConfig.databaseURL ? `&db=${encodeURIComponent(firebaseConfig.databaseURL)}` : ''}&fieldQr=1`}
+                                    value={`${window.location.origin}/emergency-equipment?scan=${printTagData.firebaseKey}&site=${printTagData.siteId}${printTagData.centerCode ? `&center=${encodeURIComponent(printTagData.centerCode)}` : ''}&org=${session.orgId}${buildDbSuffix(firebaseConfig.databaseURL)}&fieldQr=1`}
                                     size={160}
                                     level="H"
                                 />
