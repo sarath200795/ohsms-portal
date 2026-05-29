@@ -571,7 +571,9 @@ export default function VendorPortal() {
                 vendorPortal: orgUser.vendorPortal,
                 portalLinkedContractorId: orgUser.portalLinkedContractorId || '(missing)',
                 role: orgUser.role,
-                assignedSite: orgUser.assignedSite
+                assignedSite: orgUser.assignedSite,
+                accessibleSites: orgUser.accessibleSites,
+                accessibleSitesMapKeys: orgUser.accessibleSitesMap ? Object.keys(orgUser.accessibleSitesMap) : '(missing)'
             });
             const passwordState = await readOptionalPasswordState({ orgId, uid: user.uid });
             if (orgUser.status === 'Pending') {
