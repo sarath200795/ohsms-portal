@@ -434,6 +434,43 @@ export default function VendorPortal() {
             throw new Error('This vendor login is not linked yet. Open the setup link sent by your admin or ask them to resend it.');
         }
 
+        // SAFETY GUARD — bootstrap is a destructive dbSet that REPLACES the
+        // vendorPortalUsers record. It MUST only run on a first-time setup-
+        // link sign-in (URL carries ?bootstrap=1) so it doesn't clobber an
+        // existing vendor's accessibleSites + accessibleSitesMap on a
+        // routine logout/login cycle if a read transiently returns null.
+        // Without this guard, the symptom was 'permissions reset every time
+        // the vendor logs out' — the bootstrap fired on re-login, wrote
+        // accessibleSites: [] (siteId hint is empty for normal logins), and
+        // the Fire Equipment tab showed zero rows because the empty
+        // accessibleSitesMap denied every site-scoped query.
+        if (!hints.bootstrap) {
+            // Last-resort sanity checks: if EITHER target record already
+            // exists, NEVER overwrite — let the caller pick it up. This
+            // protects against the common case where the initial dbGet
+            // failed transiently (rule eval, network, race with auth-token
+            // refresh) and a destructive bootstrap would clobber valid
+            // site grants written by the admin.
+            const existingPortal = await dbGet(`organizations/${orgId}/vendorPortalUsers/${user.uid}`).catch(() => null);
+            const existingUser = existingPortal
+                ? null
+                : await dbGet(`organizations/${orgId}/users/${user.uid}`).catch(() => null);
+            if (existingPortal || existingUser) {
+                console.warn('[vendor-portal] bootstrap skipped — existing record preserved.', existingPortal ? 'source=vendorPortalUsers' : 'source=users');
+                // The userDirectory link is non-destructive and required for
+                // every site-scoped read rule. If we have a valid user
+                // record, also (re)write the directory entry so a missing
+                // /userDirectory/<uid> doesn't keep tripping the dbGet
+                // null check on every subsequent login.
+                await dbSet(`userDirectory/${user.uid}`, { orgId }).catch(() => {});
+                return { orgId, contractorId };
+            }
+            throw new Error(
+                'This vendor login isn\'t fully set up yet, and we don\'t have a setup-link flag in the URL to safely initialize it. '
+                + 'Ask your client admin to send the setup link OR to reset your portal access from the Users page.'
+            );
+        }
+
         const nowIso = new Date().toISOString();
         const bootstrapPayload = {
             name: cleanEmail.split('@')[0] || 'Vendor Portal User',
@@ -442,6 +479,9 @@ export default function VendorPortal() {
             status: 'Active',
             assignedSite: siteId,
             accessibleSites: siteId ? [siteId] : [],
+            // Derived map so RTDB rules pass — keeps parity with the form-save
+            // normalizer in utils/userAccess.js.
+            accessibleSitesMap: siteId ? { [siteId]: true } : {},
             accessibleModules: [],
             vendorPortal: true,
             portalLinkedContractorId: contractorId,
