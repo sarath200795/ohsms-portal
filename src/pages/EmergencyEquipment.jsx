@@ -457,23 +457,29 @@ export default function EmergencyEquipment() {
                     // flag was introduced never had it set, so scanning
                     // their QR (which goes through the public path) bounces
                     // off the rule and renders 'Equipment Record Not Found'.
-                    // When a Global Owner loads this page, backfill the flag
-                    // on every record that's missing it — one batch, only
-                    // the missing keys, runs zero writes if everything is
-                    // already correct.
-                    if (isGlobal) {
-                        const updates = {};
-                        loadedEq.forEach((item) => {
-                            if (item.firebaseKey && item.publicQrEnabled !== true) {
-                                updates[`organizations/${sess.orgId}/emergencyEquipment/${item.firebaseKey}/publicQrEnabled`] = true;
-                            }
+                    //
+                    // Global Owner: backfill EVERY record in the org.
+                    // Site Owner / User: backfill only the records at the
+                    // sites they're authorised for (the RTDB write rule
+                    // already enforces this, but pre-filtering avoids a
+                    // burst of denied writes in the console log).
+                    const writableSites = isGlobal
+                        ? null  // null = no per-site filter
+                        : new Set([
+                            sess.assignedSite,
+                            ...(sess.accessibleSites || [])
+                        ].filter(Boolean));
+                    const updates = {};
+                    loadedEq.forEach((item) => {
+                        if (!item.firebaseKey || item.publicQrEnabled === true) return;
+                        if (writableSites && !writableSites.has(item.siteId)) return;
+                        updates[`organizations/${sess.orgId}/emergencyEquipment/${item.firebaseKey}/publicQrEnabled`] = true;
+                    });
+                    if (Object.keys(updates).length > 0) {
+                        console.log(`[publicQrEnabled-backfill] enabling QR scan for ${Object.keys(updates).length} equipment record(s) — actor role: ${sess.role}`);
+                        dbMultiUpdate(updates).catch((err) => {
+                            console.warn('[publicQrEnabled-backfill] failed:', err);
                         });
-                        if (Object.keys(updates).length > 0) {
-                            console.log(`[publicQrEnabled-backfill] enabling QR scan for ${Object.keys(updates).length} equipment record(s)`);
-                            dbMultiUpdate(updates).catch((err) => {
-                                console.warn('[publicQrEnabled-backfill] failed:', err);
-                            });
-                        }
                     }
                 } else { setEquipment([]); }
 
@@ -707,19 +713,56 @@ export default function EmergencyEquipment() {
                 lastUpdated: new Date().toISOString()
             };
 
-            if (formData.firebaseKey) {
-                await dbUpdate(`organizations/${session.orgId}/emergencyEquipment/${formData.firebaseKey}`, payload);
-            } else {
-                await dbPush(`organizations/${session.orgId}/emergencyEquipment`, payload);
+            // Strip null/undefined leaves so RTDB rule's hasChildren()
+            // doesn't trip on a literal null write (RTDB drops nulls server
+            // -side, but on rule evaluation an explicit null can sometimes
+            // be treated as a delete attempt on that field).
+            const safePayload = Object.fromEntries(
+                Object.entries(payload).filter(([, v]) => v !== null && v !== undefined)
+            );
+
+            try {
+                if (formData.firebaseKey) {
+                    await dbUpdate(`organizations/${session.orgId}/emergencyEquipment/${formData.firebaseKey}`, safePayload);
+                } else {
+                    await dbPush(`organizations/${session.orgId}/emergencyEquipment`, safePayload);
+                }
+            } catch (writeErr) {
+                // Diagnostic dump — the rule rejects when:
+                //   1. session.role on the user's RTDB record isn't exactly
+                //      'Global Owner' / 'Site Owner' / 'User' (whitespace,
+                //      different case, etc.)
+                //   2. session.status isn't 'Active'
+                //   3. siteId isn't in their assignedSite / accessibleSitesMap
+                //   4. userDirectory/<uid>/orgId doesn't match this org
+                // Surface enough to diagnose without leaking secrets.
+                console.error('[EmergencyEquipment.handleSave] write rejected:', {
+                    path: `organizations/${session.orgId}/emergencyEquipment${formData.firebaseKey ? '/' + formData.firebaseKey : ''}`,
+                    siteIdInPayload: safePayload.siteId,
+                    actorOrgId: session.orgId,
+                    actorRole: session.role,
+                    actorStatus: session.status,
+                    actorAssignedSite: session.assignedSite,
+                    actorAccessibleSitesArr: session.accessibleSites,
+                    errorCode: writeErr?.code,
+                    errorMessage: writeErr?.message
+                });
+                throw writeErr;
             }
+
             notifyEquipmentUpdated(
-                payload,
+                safePayload,
                 users,
                 formData.firebaseKey ? 'Equipment Record Updated' : 'Equipment Record Created',
                 session.name || session.email || 'Unknown'
             );
             setView('list');
-        } catch (e) { alert("Save failed: " + e.message); }
+        } catch (e) {
+            const hint = String(e?.code || e?.message || '').toLowerCase().includes('permission_denied')
+                ? '\n\nThe Firebase RTDB rule rejected this write. Check the browser console for the full diagnostic dump — common causes:\n  • Your user record at users/<uid> has role/status/assignedSite that doesn\'t match what the session thinks.\n  • The siteId on the equipment isn\'t in your accessibleSitesMap.\n  • Sign out, open the Users page (as Global Owner) to trigger the access-map backfill, then sign back in.'
+                : '';
+            alert("Save failed: " + (e.message || e.code || 'Unknown error') + hint);
+        }
     };
 
     const preparePrintTag = async (equipmentItem) => {
