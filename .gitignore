@@ -23,6 +23,7 @@ dist-ssr
 *.sln
 *.sw?
 .vercel
+.vercel-deploy-hook
 
 # Environment files: never commit real secrets. Only .env.example is tracked.
 .env
