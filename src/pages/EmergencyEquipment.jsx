@@ -385,6 +385,7 @@ export default function EmergencyEquipment() {
     // --- ADVANCED FILTERS ---
     const [regionFilter, setRegionFilter] = useState('All');
     const [siteFilter, setSiteFilter] = useState('All');
+    const [centerFilter, setCenterFilter] = useState('All');
     const [typeFilter, setTypeFilter] = useState('All');
     const [complianceFilter, setComplianceFilter] = useState('All');
 
@@ -625,6 +626,25 @@ export default function EmergencyEquipment() {
         }
     }, [filteredVisibleSites, isGlobalUser, siteFilter]);
 
+    // Center filter options derive from the currently selected site. When
+    // the user changes the site filter we reset the center filter so a
+    // stale center code from a previous site doesn't accidentally hide
+    // every row at the new site.
+    const centerFilterOptions = useMemo(() => {
+        if (siteFilter === 'All') return [];
+        return findCentersForSite(sites, siteFilter);
+    }, [sites, siteFilter]);
+
+    useEffect(() => {
+        if (centerFilter === 'All' || centerFilter === '__UNASSIGNED__') return;
+        if (siteFilter === 'All') {
+            setCenterFilter('All');
+            return;
+        }
+        const stillValid = centerFilterOptions.some((c) => c.code === centerFilter);
+        if (!stillValid) setCenterFilter('All');
+    }, [centerFilter, centerFilterOptions, siteFilter]);
+
     const hasInspectionSiteAccess = useMemo(() => {
         if (!inspectData || !session) return false;
         if (isGlobalUser) return true;
@@ -666,10 +686,22 @@ export default function EmergencyEquipment() {
         const dueSoonStr = dueSoonDate.toISOString().split('T')[0];
 
         return equipment.filter(e => {
-            // 1. Site Filter
+            // 1. Site Filter — chain: per-user access scope → region → site → center
             if (!isGlobalUser && session?.assignedSite !== 'GLOBAL' && e.siteId !== session?.assignedSite && !(session?.accessibleSites || []).includes(e.siteId)) return false;
             if (regionFilter !== 'All' && !matchesRegionFilter(e.siteId, visibleSites, regionFilter)) return false;
             if (siteFilter !== 'All' && e.siteId !== siteFilter) return false;
+            // Center filter is scoped within the active site. 'All' shows
+            // every center; '__UNASSIGNED__' shows records with no
+            // centerCode (typical for older records that predate the
+            // centerCode field). Otherwise exact match on code.
+            if (centerFilter !== 'All') {
+                const recordCenterCode = String(e.centerCode || '').trim();
+                if (centerFilter === '__UNASSIGNED__') {
+                    if (recordCenterCode) return false;
+                } else if (recordCenterCode !== centerFilter) {
+                    return false;
+                }
+            }
 
             // 2. Type Filter
             if (typeFilter !== 'All' && e.type !== typeFilter) return false;
@@ -700,7 +732,7 @@ export default function EmergencyEquipment() {
 
             return true;
         });
-    }, [complianceFilter, equipment, isGlobalUser, regionFilter, session, siteFilter, typeFilter, visibleSites]);
+    }, [centerFilter, complianceFilter, equipment, isGlobalUser, regionFilter, session, siteFilter, typeFilter, visibleSites]);
 
     const stats = useMemo(() => {
         const now = new Date();
@@ -1376,9 +1408,27 @@ export default function EmergencyEquipment() {
                                 </div>
                                 <div>
                                     <label className="text-[9px] font-bold text-slate-500 uppercase tracking-widest block mb-1">Facility / Site</label>
-                                    <select value={siteFilter} onChange={e => { setSiteFilter(e.target.value); sessionStorage.setItem('isoCurrentSite', e.target.value === 'All' ? 'GLOBAL' : e.target.value); }} className="bg-slate-950 border border-slate-700 text-white text-xs font-bold px-3 py-2 rounded-lg outline-none focus:border-blue-500 min-w-[150px]">
+                                    <select value={siteFilter} onChange={e => { setSiteFilter(e.target.value); setCenterFilter('All'); sessionStorage.setItem('isoCurrentSite', e.target.value === 'All' ? 'GLOBAL' : e.target.value); }} className="bg-slate-950 border border-slate-700 text-white text-xs font-bold px-3 py-2 rounded-lg outline-none focus:border-blue-500 min-w-[150px]">
                                         {(isGlobalUser || filteredVisibleSites.length > 1) && <option value="All">All Authorized Sites</option>}
                                         {filteredVisibleSites.map(s => <option key={s.code} value={s.code}>{s.name}</option>)}
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="text-[9px] font-bold text-slate-500 uppercase tracking-widest block mb-1">Center / Area</label>
+                                    <select
+                                        value={centerFilter}
+                                        onChange={e => setCenterFilter(e.target.value)}
+                                        disabled={siteFilter === 'All'}
+                                        title={siteFilter === 'All' ? 'Select a specific site to filter by center' : ''}
+                                        className="bg-slate-950 border border-slate-700 text-white text-xs font-bold px-3 py-2 rounded-lg outline-none focus:border-emerald-500 min-w-[170px] disabled:opacity-50 disabled:cursor-not-allowed"
+                                    >
+                                        <option value="All">{siteFilter === 'All' ? 'Pick a site first…' : `All centers in ${siteFilter}`}</option>
+                                        {centerFilterOptions.map((c) => (
+                                            <option key={c.code} value={c.code}>{c.name}{c.code && c.name !== c.code ? ` (${c.code})` : ''}</option>
+                                        ))}
+                                        {siteFilter !== 'All' && (
+                                            <option value="__UNASSIGNED__">— No center assigned —</option>
+                                        )}
                                     </select>
                                 </div>
                                 <div>
@@ -1400,6 +1450,22 @@ export default function EmergencyEquipment() {
                                         <option value="In Process of Refilling">In Process of Refilling</option>
                                     </select>
                                 </div>
+                                {(regionFilter !== 'All' || siteFilter !== 'All' || centerFilter !== 'All' || typeFilter !== 'All' || complianceFilter !== 'All') && (
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setRegionFilter('All');
+                                            setSiteFilter('All');
+                                            setCenterFilter('All');
+                                            setTypeFilter('All');
+                                            setComplianceFilter('All');
+                                        }}
+                                        className="text-[10px] uppercase tracking-widest font-bold text-slate-400 hover:text-white px-3 py-2 rounded-lg border border-slate-700 hover:border-slate-500 bg-slate-900 transition-colors flex items-center gap-2"
+                                        title="Reset every filter to All"
+                                    >
+                                        <i className="fas fa-times-circle"></i> Clear Filters
+                                    </button>
+                                )}
                                 <div className="ml-auto text-xs text-slate-500 font-bold bg-slate-950 px-3 py-2 rounded-lg border border-slate-800">
                                     Showing {visibleEquipment.length} item{visibleEquipment.length !== 1 ? 's' : ''}
                                 </div>
