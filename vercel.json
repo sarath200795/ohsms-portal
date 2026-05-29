@@ -1,11 +1,9 @@
 {
   "functions": {
     "api/v1.js": {
-      "memory": 2048,
       "maxDuration": 300
     },
     "api/admin/users.js": {
-      "memory": 256,
       "maxDuration": 30
     }
   },
