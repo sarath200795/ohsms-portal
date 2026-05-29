@@ -1526,13 +1526,26 @@ select.bg-slate-900 {
 }
 
 .rib-box {
-  background: #19130f;
-  border: 1px solid rgba(196, 149, 80, 0.24);
+  /* Light-theme friendly: the global override forces .text-white to dark ink,
+     so a dark rib-box bg would render black-on-black. Use a light surface so
+     inherited dark text stays legible. */
+  background: #ffffff;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  color: var(--myth-ink);
   padding: 8px;
   border-radius: 6px;
   width: 18%;
   position: relative;
   transition: all 0.2s;
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.06);
+}
+
+.rib-box input {
+  color: var(--myth-ink) !important;
+}
+
+.rib-box .text-slate-400 {
+  color: #475569 !important;
 }
 
 .ribs-top .rib-box {
@@ -1642,12 +1655,19 @@ select.bg-slate-900 {
   display: inline-block;
   padding: 10px;
   border-radius: 8px;
-  background: #1a1410;
-  border: 1px solid rgba(196, 149, 80, 0.24);
+  /* Light-theme friendly — same reasoning as .rib-box above. */
+  background: #ffffff;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  color: var(--myth-ink);
   min-width: 140px;
   position: relative;
   z-index: 10;
   transition: all 0.2s;
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.06);
+}
+
+.tree-node input {
+  color: var(--myth-ink) !important;
 }
 
 

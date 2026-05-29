@@ -834,7 +834,11 @@ export default function Inspections() {
                 label: f.label,
                 answer: '',
                 observation: '',
-                observationOpen: f.photoRequirement !== 'Not Required',
+                // Defect / observation notes only ever apply to Fail answers.
+                // Pre-opening them for "photo-required" points caused notes to
+                // appear on Pass items too, which the spec forbids — so keep
+                // it false until the inspector explicitly marks the point Fail.
+                observationOpen: false,
                 raiseCapa: false,
                 capaOwner: '',
                 capaDue: '',
@@ -1423,7 +1427,7 @@ export default function Inspections() {
                                                         <div className="flex bg-slate-900 border border-slate-700 rounded-lg overflow-hidden">
                                                             <button onClick={() => updateInspectionResponse(f.id, { answer: 'Pass' })} className={`px-6 py-2 text-xs font-bold uppercase tracking-widest transition-colors ${inspectionForm[f.id]?.answer === 'Pass' ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}><i className="fas fa-check mr-1"></i> Pass</button>
                                                             <div className="w-px bg-slate-700"></div>
-                                                            <button onClick={() => updateInspectionResponse(f.id, { answer: 'Fail', observationOpen: true })} className={`px-6 py-2 text-xs font-bold uppercase tracking-widest transition-colors ${inspectionForm[f.id]?.answer === 'Fail' ? 'bg-red-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}><i className="fas fa-times mr-1"></i> Fail</button>
+                                                            <button onClick={() => updateInspectionResponse(f.id, { answer: 'Fail' })} className={`px-6 py-2 text-xs font-bold uppercase tracking-widest transition-colors ${inspectionForm[f.id]?.answer === 'Fail' ? 'bg-red-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}><i className="fas fa-times mr-1"></i> Fail</button>
                                                             <div className="w-px bg-slate-700"></div>
                                                             <button onClick={() => updateInspectionResponse(f.id, { answer: 'N/A' })} className={`px-4 py-2 text-xs font-bold uppercase tracking-widest transition-colors ${inspectionForm[f.id]?.answer === 'N/A' ? 'bg-slate-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}>N/A</button>
                                                         </div>
@@ -1437,11 +1441,13 @@ export default function Inspections() {
                                                 </div>
                                             </div>
 
-                                            {/* Observation & CAPA Block */}
-                                            {(inspectionForm[f.id]?.answer === 'Fail' || inspectionForm[f.id]?.observationOpen || f.photoRequirement !== 'Not Required') && (
+                                            {/* Observation & CAPA Block — only when the point is marked Fail.
+                                                Pass / N/A points never describe a defect, so they don't
+                                                get a notes field or CAPA workflow. */}
+                                            {inspectionForm[f.id]?.answer === 'Fail' && (
                                                 <div className="mt-4 bg-orange-950/20 border border-orange-500/30 p-4 rounded-xl animate-in fade-in slide-in-from-top-2">
                                                     <label className="text-[10px] uppercase font-bold text-orange-400 block mb-2"><i className="fas fa-exclamation-triangle mr-1"></i> Defect / Observation Notes</label>
-                                                    <textarea value={inspectionForm[f.id]?.observation || ''} onChange={e => updateInspectionResponse(f.id, { observation: e.target.value, observationOpen: true })} placeholder="Describe the issue found..." rows="2" className="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 text-sm text-white outline-none focus:border-orange-500 resize-none mb-3"></textarea>
+                                                    <textarea value={inspectionForm[f.id]?.observation || ''} onChange={e => updateInspectionResponse(f.id, { observation: e.target.value })} placeholder="Describe the issue found..." rows="2" className="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 text-sm text-white outline-none focus:border-orange-500 resize-none mb-3"></textarea>
 
                                                     {f.photoRequirement !== 'Not Required' && (
                                                         <div className="mb-4 rounded-xl border border-slate-700 bg-slate-900/80 p-4">
@@ -1477,7 +1483,7 @@ export default function Inspections() {
                                                     {inspectionForm[f.id]?.answer === 'Fail' && (
                                                         <>
                                                             <label className="flex items-center gap-2 cursor-pointer mb-3">
-                                                                <input type="checkbox" checked={inspectionForm[f.id]?.raiseCapa || false} onChange={e => updateInspectionResponse(f.id, { raiseCapa: e.target.checked, observationOpen: true })} className="w-4 h-4 accent-orange-500" />
+                                                                <input type="checkbox" checked={inspectionForm[f.id]?.raiseCapa || false} onChange={e => updateInspectionResponse(f.id, { raiseCapa: e.target.checked })} className="w-4 h-4 accent-orange-500" />
                                                                 <span className="text-xs font-bold text-white">Raise Corrective Action (CAPA)</span>
                                                             </label>
 
@@ -1498,9 +1504,8 @@ export default function Inspections() {
                                                 </div>
                                             )}
 
-                                            {inspectionForm[f.id]?.answer !== 'Fail' && !inspectionForm[f.id]?.observationOpen && f.photoRequirement === 'Not Required' && (
-                                                <button onClick={() => updateInspectionResponse(f.id, { observationOpen: true })} className="text-[10px] text-slate-500 hover:text-orange-400 font-bold uppercase tracking-widest transition-colors"><i className="fas fa-plus mr-1"></i> Add Note</button>
-                                            )}
+                                            {/* No "Add Note" affordance on Pass/N/A: defect notes are
+                                                strictly tied to a Fail answer per the inspection spec. */}
                                         </div>
                                     ))}
                                 </div>
