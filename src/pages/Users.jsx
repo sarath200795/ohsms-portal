@@ -175,10 +175,54 @@ export default function Users() {
 
                     if (isGlobalOwnerRole(activeSession.role)) {
                         const migrationUpdates = {};
+
+                        // VENDOR BACKFILL — load contractors so we can copy a
+                        // vendor user's site access from their linked
+                        // contractor's allocatedSites when the user's own
+                        // accessibleSites is empty. Without this, vendors
+                        // approved before the accessibleSitesMap fix can't
+                        // see emergency equipment, can't add employees to
+                        // sites, and can't deploy workers at their sites.
+                        // dbGet contractors only once and only if there's
+                        // at least one vendor user that needs it.
+                        const vendorUsersNeedingBackfill = Object.entries(data.users)
+                            .filter(([, val]) => val?.vendorPortal === true
+                                && (!Array.isArray(val.accessibleSites) || val.accessibleSites.length === 0));
+                        let contractorsByPortalUid = {};
+                        if (vendorUsersNeedingBackfill.length > 0) {
+                            try {
+                                const contractorSnap = await dbGet(`organizations/${activeSession.orgId}/contractors`);
+                                if (contractorSnap && typeof contractorSnap === 'object') {
+                                    Object.entries(contractorSnap).forEach(([cKey, c]) => {
+                                        if (c?.portalUid) contractorsByPortalUid[String(c.portalUid)] = { firebaseKey: cKey, ...c };
+                                    });
+                                }
+                            } catch (err) {
+                                console.warn('[vendor-backfill] contractors read failed:', err);
+                            }
+                        }
+
+                        // Mirror writes onto vendorPortalUsers so the vendor
+                        // portal's own queries (readVendorSiteCollection,
+                        // emergencyEquipment fan-out) see the same site
+                        // access without waiting for a re-login.
+                        const vendorPortalUpdates = {};
+
                         Object.entries(data.users).forEach(([key, val]) => {
+                            // For vendor users with empty accessibleSites,
+                            // seed from the contractor's allocatedSites BEFORE
+                            // running normalization so the derived
+                            // accessibleSitesMap is built correctly in one pass.
+                            let effectiveSites = safeArr(val.accessibleSites);
+                            if (val?.vendorPortal === true && effectiveSites.length === 0 && contractorsByPortalUid[key]) {
+                                const allocated = safeArr(contractorsByPortalUid[key].allocatedSites)
+                                    .map((s) => String(s).trim())
+                                    .filter((s) => s && s !== 'GLOBAL');
+                                if (allocated.length > 0) effectiveSites = allocated;
+                            }
                             const normalized = normalizeStoredUserRecord({
                                 ...val,
-                                accessibleSites: safeArr(val.accessibleSites)
+                                accessibleSites: effectiveSites
                             });
 
                             if (normalizeRole(val.role) !== String(val.role || '').trim()) {
@@ -193,13 +237,36 @@ export default function Users() {
                                 migrationUpdates[`organizations/${activeSession.orgId}/users/${key}/accessibleSites`] = normalized.accessibleSites;
                             }
 
+                            // Backfill the derived accessibleSitesMap that RTDB
+                            // security rules use for O(1) site checks. Missing
+                            // map = silent permission_denied on every site-scoped
+                            // read for this user.
+                            const storedMap = val.accessibleSitesMap || {};
+                            const sameMap = Object.keys(storedMap).length === Object.keys(normalized.accessibleSitesMap).length
+                                && Object.keys(normalized.accessibleSitesMap).every((k) => storedMap[k] === true);
+                            if (!sameMap) {
+                                migrationUpdates[`organizations/${activeSession.orgId}/users/${key}/accessibleSitesMap`] = normalized.accessibleSitesMap;
+                            }
+
                             if (JSON.stringify(toCanonicalModuleIds(val.accessibleModules)) !== JSON.stringify(normalized.accessibleModules)) {
                                 migrationUpdates[`organizations/${activeSession.orgId}/users/${key}/accessibleModules`] = normalized.accessibleModules;
                             }
+
+                            // Mirror to vendorPortalUsers for vendor accounts so
+                            // the portal's own queries see the same site set on
+                            // next login (and bootstrap-resolved fetches that
+                            // happen RIGHT after this migration).
+                            if (val?.vendorPortal === true) {
+                                vendorPortalUpdates[`organizations/${activeSession.orgId}/vendorPortalUsers/${key}/accessibleSites`] = normalized.accessibleSites;
+                                vendorPortalUpdates[`organizations/${activeSession.orgId}/vendorPortalUsers/${key}/accessibleSitesMap`] = normalized.accessibleSitesMap;
+                                vendorPortalUpdates[`organizations/${activeSession.orgId}/vendorPortalUsers/${key}/assignedSite`] = normalized.assignedSite || normalized.accessibleSites[0] || '';
+                            }
                         });
 
-                        if (Object.keys(migrationUpdates).length > 0) {
-                            await dbMultiUpdate(migrationUpdates);
+                        const allUpdates = { ...migrationUpdates, ...vendorPortalUpdates };
+                        if (Object.keys(allUpdates).length > 0) {
+                            console.log(`[vendor-backfill] applying ${Object.keys(allUpdates).length} field updates across users + vendorPortalUsers`);
+                            await dbMultiUpdate(allUpdates);
                         }
                     }
                 }
