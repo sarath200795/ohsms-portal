@@ -1138,8 +1138,8 @@ export default function Users() {
                                                     </>
                                                 ) : (
                                                     <>
-                                                        <button onClick={() => openModal(u)} className="bg-slate-800 hover:bg-blue-600 text-white w-9 h-9 rounded-xl transition-colors shadow flex items-center justify-center border border-slate-700" title={u.vendorPortal === true ? 'View vendor' : 'Edit Permissions'}>
-                                                            <i className={`fas ${u.vendorPortal === true ? 'fa-eye' : 'fa-edit'}`}></i>
+                                                        <button onClick={() => openModal(u)} className="bg-slate-800 hover:bg-blue-600 text-white w-9 h-9 rounded-xl transition-colors shadow flex items-center justify-center border border-slate-700" title={u.vendorPortal === true ? 'Edit Vendor Permissions' : 'Edit Permissions'}>
+                                                            <i className="fas fa-edit"></i>
                                                         </button>
                                                         {isGlobalOwner && (
                                                             <button onClick={() => handleDeleteUser(u.id, u.email)} className="bg-slate-800 hover:bg-red-600 text-slate-400 hover:text-white w-9 h-9 rounded-xl transition-colors shadow flex items-center justify-center border border-slate-700" title="Revoke Access">
@@ -1177,6 +1177,19 @@ export default function Users() {
                         </div>
 
                         <form onSubmit={handleSaveUser} className="flex-1 overflow-y-auto custom-scroll p-8">
+
+                            {editingUser?.vendorPortal === true && (
+                                <div className="mb-8 rounded-2xl border border-indigo-500/30 bg-indigo-950/30 p-4">
+                                    <div className="flex items-start gap-3">
+                                        <i className="fas fa-building text-indigo-300 text-lg mt-0.5"></i>
+                                        <div className="flex-1 text-xs leading-relaxed text-slate-300">
+                                            <p className="font-bold text-indigo-300 uppercase tracking-widest text-[10px] mb-1">Vendor Account — {editingUser?.vendorMeta?.companyName || 'Vendor'}</p>
+                                            <p>Any changes to <strong className="text-white">Accessible Sites</strong> are synced automatically to the linked contractor record (<code className="bg-slate-900/60 px-1 rounded text-emerald-300">allocatedSites</code>) and to the vendor's portal record (<code className="bg-slate-900/60 px-1 rounded text-emerald-300">vendorPortalUsers</code>). The vendor will see updated site access on their next portal page-load — no need for them to log out and back in.</p>
+                                            <p className="mt-1 text-slate-400">Module Permissions don't apply to vendor accounts (vendor portal is its own UI). Tick sites under Section 2.</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
 
                             {/* SECTION 1: CORE PROFILE */}
                             <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest border-b border-slate-800 pb-2 mb-6">1. Core Profile</h4>

@@ -664,30 +664,40 @@ export default function VendorPortal() {
             // Sites — small dataset, public read for any org member. We need
             // the embedded `centers` array on each site to translate the
             // equipment's centerCode into a human-readable center name for
-            // the Fire Equipment table (matches the admin print-tag label).
-            const backgroundFetchSites = isFireEquipVendor
-                ? (async () => {
-                    try {
-                        const sitesData = await dbGet(`organizations/${orgId}/sites`);
-                        if (sitesData && typeof sitesData === 'object') {
-                            const list = Object.entries(sitesData).map(([code, s]) => ({
-                                code: s?.code || code,
-                                name: s?.name || code,
-                                centers: normalizeSiteCenters(s)
-                            }));
-                            setVendorSitesCache(list);
-                        }
-                    } catch (err) {
-                        console.warn('[vendor-portal] sites fetch failed:', err);
+            // the Emergency Equipment table (matches the admin print-tag
+            // label). Fetched for EVERY vendor now that the tab is shown
+            // for all vendors (not just fire-equipment service types).
+            const backgroundFetchSites = (async () => {
+                try {
+                    const sitesData = await dbGet(`organizations/${orgId}/sites`);
+                    if (sitesData && typeof sitesData === 'object') {
+                        const list = Object.entries(sitesData).map(([code, s]) => ({
+                            code: s?.code || code,
+                            name: s?.name || code,
+                            centers: normalizeSiteCenters(s)
+                        }));
+                        setVendorSitesCache(list);
                     }
-                })()
-                : Promise.resolve();
+                } catch (err) {
+                    console.warn('[vendor-portal] sites fetch failed:', err);
+                }
+            })();
             void backgroundFetchSites;
 
-            const backgroundFetchFireEquip = isFireEquipVendor && fireSites.length > 0
+            // Emergency equipment register — now ALL types (Fire Extinguisher,
+            // First Aid Kit, AED, Eye Wash Station, Spill Kit, Stretcher,
+            // Wheel Chair, Evacuation Chair) at every site the vendor is
+            // authorised for. Previously gated to fire-equipment vendors
+            // only and filtered to type === 'Fire Extinguisher'. Now every
+            // vendor sees the equipment at their assigned + allocated sites
+            // so they can plan inspections / refills / refurbs across the
+            // full inventory they're responsible for. Fire-equipment vendors
+            // additionally get Take-for-Refill / HPT action buttons (rendered
+            // conditionally in the table).
+            const backgroundFetchEquip = fireSites.length > 0
                 ? (async () => {
                     try {
-                        console.log('[vendor-portal] fetching fire extinguishers for sites:', fireSites);
+                        console.log('[vendor-portal] fetching emergency equipment for sites:', fireSites);
                         let merged = {};
                         if (fireSites.includes('__GLOBAL__')) {
                             const snap = await dbGet(`organizations/${orgId}/emergencyEquipment`).catch(() => null);
@@ -707,24 +717,21 @@ export default function VendorPortal() {
                             merged = perSite.reduce((acc, entry) => ({ ...acc, ...entry }), {});
                         }
                         const list = safeArrWithKeys(merged)
-                            .filter(eq => eq.type === 'Fire Extinguisher')
-                            .sort((a, b) => String(a.siteId || '').localeCompare(String(b.siteId || '')) || String(a.assetId || '').localeCompare(String(b.assetId || '')));
-                        console.log(`[vendor-portal] total fire extinguishers visible: ${list.length}`);
+                            .sort((a, b) => String(a.siteId || '').localeCompare(String(b.siteId || '')) || String(a.type || '').localeCompare(String(b.type || '')) || String(a.assetId || '').localeCompare(String(b.assetId || '')));
+                        console.log(`[vendor-portal] total equipment visible: ${list.length} (across ${new Set(list.map(e => e.type)).size} type(s))`);
                         setVendorFireEquipment(list);
                     } catch (error) {
                         console.warn('Emergency equipment fetch failed:', error);
                     }
                 })()
                 : (() => {
-                    if (isFireEquipVendor) {
-                        console.warn('[vendor-portal] no allocated sites visible to this fire-equipment vendor — admin needs to grant site access via Users → Edit.');
-                    }
+                    console.warn('[vendor-portal] no allocated sites visible to this vendor — admin needs to grant site access via Users → Edit.');
                     return Promise.resolve();
                 })();
             // Reference them so the linter doesn't strip the promises.
             void backgroundFetchIncidents;
             void backgroundFetchPermits;
-            void backgroundFetchFireEquip;
+            void backgroundFetchEquip;
 
             const nextSession = {
                 email: cleanEmail,
@@ -1557,19 +1564,23 @@ export default function VendorPortal() {
                         >
                             <i className="fas fa-hard-hat mr-2"></i> Activities & Safety
                         </button>
-                        {FIRE_EQUIPMENT_SERVICE_TYPES.includes(vendor.serviceType) && (
-                            <button
-                                onClick={() => setActiveTab('fireEquipment')}
-                                className={`pb-3 px-4 text-xs font-bold uppercase tracking-widest transition-all ${activeTab === 'fireEquipment' ? 'text-red-400 border-b-2 border-red-500' : 'text-slate-500 hover:text-slate-300 border-b-2 border-transparent'}`}
-                            >
-                                <i className="fas fa-fire-extinguisher mr-2"></i> Fire Equipment
-                                {vendorFireEquipment.filter(eq => eq.refillStatus === 'Sent for Refill' || eq.refillStatus === 'Sent for HPT').length > 0 && (
-                                    <span className="ml-2 inline-flex items-center justify-center bg-yellow-500/20 text-yellow-300 border border-yellow-500/40 px-2 py-0.5 rounded-full text-[9px] font-mono">
-                                        {vendorFireEquipment.filter(eq => eq.refillStatus === 'Sent for Refill' || eq.refillStatus === 'Sent for HPT').length} in progress
-                                    </span>
-                                )}
-                            </button>
-                        )}
+                        {/* Emergency Equipment tab — shown to ALL vendors. The
+                            register lists every equipment type at the sites
+                            the vendor is authorised for. Fire-equipment vendors
+                            additionally get Take for Refill / HPT action
+                            buttons on Fire Extinguisher rows (rendered
+                            conditionally inside the table). */}
+                        <button
+                            onClick={() => setActiveTab('fireEquipment')}
+                            className={`pb-3 px-4 text-xs font-bold uppercase tracking-widest transition-all ${activeTab === 'fireEquipment' ? 'text-red-400 border-b-2 border-red-500' : 'text-slate-500 hover:text-slate-300 border-b-2 border-transparent'}`}
+                        >
+                            <i className="fas fa-fire-extinguisher mr-2"></i> Emergency Equipment
+                            {vendorFireEquipment.filter(eq => eq.refillStatus === 'Sent for Refill' || eq.refillStatus === 'Sent for HPT').length > 0 && (
+                                <span className="ml-2 inline-flex items-center justify-center bg-yellow-500/20 text-yellow-300 border border-yellow-500/40 px-2 py-0.5 rounded-full text-[9px] font-mono">
+                                    {vendorFireEquipment.filter(eq => eq.refillStatus === 'Sent for Refill' || eq.refillStatus === 'Sent for HPT').length} in progress
+                                </span>
+                            )}
+                        </button>
                     </div>
 
                     {activeTab === 'documentation' && (
@@ -1917,7 +1928,8 @@ export default function VendorPortal() {
                         </div>
                     )}
 
-                    {activeTab === 'fireEquipment' && FIRE_EQUIPMENT_SERVICE_TYPES.includes(vendor.serviceType) && (() => {
+                    {activeTab === 'fireEquipment' && (() => {
+                        const vendorIsFireEquip = FIRE_EQUIPMENT_SERVICE_TYPES.includes(vendor.serviceType);
                         // Annotate each extinguisher with derived schedule flags so we can
                         // highlight overdue / due-soon units and sort them to the top.
                         // We compare ISO dates as strings (YYYY-MM-DD) — same approach the
@@ -1988,8 +2000,13 @@ export default function VendorPortal() {
                             <div className="bg-slate-900/60 backdrop-blur-md rounded-3xl border border-slate-700 shadow-xl overflow-hidden">
                                 <div className="p-6 border-b border-slate-800 bg-slate-950/50 flex flex-wrap items-center justify-between gap-3">
                                     <div>
-                                        <h3 className="text-xl font-bold text-red-400 flex items-center gap-3"><i className="fas fa-fire-extinguisher"></i> Fire Extinguisher Register</h3>
-                                        <p className="text-xs text-slate-400 mt-1">Fire extinguishers at the sites you are authorised for. Expired units appear first as <span className="text-red-400 font-bold">Needs Attention</span>. Mark a unit as picked up for refilling or HPT — the site admin sees a yellow "In Process of Refilling" alert until you mark it returned.</p>
+                                        <h3 className="text-xl font-bold text-red-400 flex items-center gap-3"><i className="fas fa-fire-extinguisher"></i> Emergency Equipment Register</h3>
+                                        <p className="text-xs text-slate-400 mt-1">
+                                            Every emergency equipment item — fire extinguishers, first aid kits, AEDs, eye-wash stations, spill kits — at the sites you are authorised for. Expired units appear first as <span className="text-red-400 font-bold">Needs Attention</span>.
+                                            {vendorIsFireEquip
+                                                ? <> As a fire-equipment vendor you can mark fire extinguishers as taken for refill or HPT — the site admin sees a yellow alert until you mark them returned.</>
+                                                : <> Read-only view. Refill / HPT pickup is reserved for vendors registered under the Fire Fighting Equipment service category.</>}
+                                        </p>
                                     </div>
                                     <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500 bg-slate-950 px-3 py-2 rounded-lg border border-slate-800">
                                         {annotated.length} unit{annotated.length !== 1 ? 's' : ''} visible
@@ -2023,10 +2040,28 @@ export default function VendorPortal() {
                                                     <tr key={eq.firebaseKey} className={`transition-colors ${rowTint}`}>
                                                         <td className="p-4 pl-6">
                                                             <div className="font-bold text-white flex items-center gap-2">
-                                                                <i className={`fas fa-fire-extinguisher ${needsAttention ? 'text-red-500' : 'text-red-400'}`}></i>
+                                                                {/* Per-type icon so the vendor can scan
+                                                                    the register and pick out AEDs vs
+                                                                    Spill Kits vs Fire Extinguishers at
+                                                                    a glance — matches the admin's
+                                                                    Emergency Equipment list. */}
+                                                                {(() => {
+                                                                    const TYPE_ICON = {
+                                                                        'Fire Extinguisher': { icon: 'fa-fire-extinguisher', color: 'text-red-400' },
+                                                                        'First Aid Kit': { icon: 'fa-kit-medical', color: 'text-emerald-400' },
+                                                                        'AED / Defibrillator': { icon: 'fa-heart-pulse', color: 'text-pink-400' },
+                                                                        'Eye Wash Station': { icon: 'fa-eye', color: 'text-sky-400' },
+                                                                        'Spill Kit': { icon: 'fa-bucket', color: 'text-amber-400' },
+                                                                        'Stretcher': { icon: 'fa-person-falling', color: 'text-violet-400' },
+                                                                        'Wheel Chair': { icon: 'fa-wheelchair', color: 'text-blue-400' },
+                                                                        'Evacuation Chair': { icon: 'fa-chair', color: 'text-fuchsia-400' }
+                                                                    };
+                                                                    const meta = TYPE_ICON[eq.type] || { icon: 'fa-toolbox', color: 'text-slate-400' };
+                                                                    return <i className={`fas ${meta.icon} ${needsAttention ? 'text-red-500' : meta.color}`}></i>;
+                                                                })()}
                                                                 <span className="font-mono text-orange-400">{eq.assetId || '—'}</span>
                                                             </div>
-                                                            <div className="text-[10px] text-slate-500 mt-0.5">Site: <span className="font-bold text-blue-400">{eq.siteId}</span></div>
+                                                            <div className="text-[10px] text-slate-500 mt-0.5">Site: <span className="font-bold text-blue-400">{eq.siteId}</span> · <span className="text-slate-400">{eq.type}</span></div>
                                                             {eq.extinguisherType && <div className="text-[9px] text-slate-400 uppercase font-mono mt-1 border border-slate-700 px-2 py-0.5 rounded inline-block bg-slate-900">{eq.extinguisherType}</div>}
                                                         </td>
                                                         <td className="p-4 text-xs">{(() => {
@@ -2071,16 +2106,31 @@ export default function VendorPortal() {
                                                             </div>
                                                         </td>
                                                         <td className="p-4 pr-6 text-right">
+                                                            {/* Take-for-Refill / HPT actions are only
+                                                                offered when:
+                                                                 - the vendor's service category is
+                                                                   'Fire Fighting Equipment' (other
+                                                                   vendors see the register read-only)
+                                                                 - the unit is a Fire Extinguisher
+                                                                   (Refill/HPT cycles don't apply to
+                                                                   First Aid Kits, AEDs, etc.)
+                                                                Mark-Returned still appears for any
+                                                                row already in process so the workflow
+                                                                doesn't get stuck. */}
                                                             {inProgress ? (
-                                                                <button
-                                                                    type="button"
-                                                                    disabled={busy}
-                                                                    onClick={() => handleFireEquipReturn(eq)}
-                                                                    className="bg-emerald-600 hover:bg-emerald-500 text-white border border-emerald-500/40 px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-colors disabled:opacity-50"
-                                                                >
-                                                                    {busy ? <><i className="fas fa-spinner fa-spin mr-1"></i> Saving…</> : <><i className="fas fa-check mr-1"></i> Mark Returned</>}
-                                                                </button>
-                                                            ) : (
+                                                                vendorIsFireEquip ? (
+                                                                    <button
+                                                                        type="button"
+                                                                        disabled={busy}
+                                                                        onClick={() => handleFireEquipReturn(eq)}
+                                                                        className="bg-emerald-600 hover:bg-emerald-500 text-white border border-emerald-500/40 px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-colors disabled:opacity-50"
+                                                                    >
+                                                                        {busy ? <><i className="fas fa-spinner fa-spin mr-1"></i> Saving…</> : <><i className="fas fa-check mr-1"></i> Mark Returned</>}
+                                                                    </button>
+                                                                ) : (
+                                                                    <span className="text-[10px] text-slate-500 italic">With a fire-equipment vendor</span>
+                                                                )
+                                                            ) : vendorIsFireEquip && eq.type === 'Fire Extinguisher' ? (
                                                                 <div className="flex justify-end gap-2">
                                                                     <button
                                                                         type="button"
@@ -2099,6 +2149,8 @@ export default function VendorPortal() {
                                                                         {busy ? <i className="fas fa-spinner fa-spin"></i> : <><i className="fas fa-flask mr-1"></i> Take for HPT</>}
                                                                     </button>
                                                                 </div>
+                                                            ) : (
+                                                                <span className="text-[10px] text-slate-500 italic">Read-only</span>
                                                             )}
                                                         </td>
                                                     </tr>
