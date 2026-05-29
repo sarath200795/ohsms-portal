@@ -394,16 +394,21 @@ export default function EmergencyEquipment() {
 
             const fetchPublicData = async () => {
                 try {
-                    const eqSnap = await dbGet(`organizations/${publicOrgId}/emergencyEquipment/${publicScanId}`);
-                    if (eqSnap.exists()) {
-                        const targetEq = { firebaseKey: publicScanId, ...eqSnap.val() };
+                    // dbGet returns the unwrapped value or null — NOT a Firebase
+                    // snapshot — so calling .exists()/.val() on it throws a
+                    // TypeError that crashes this component to a blank screen.
+                    // (Same bug landed in PTW's public QR path.) Adapter-aware
+                    // null check + direct property spread instead.
+                    const eqData = await dbGet(`organizations/${publicOrgId}/emergencyEquipment/${publicScanId}`);
+                    if (eqData) {
+                        const targetEq = { firebaseKey: publicScanId, ...eqData };
                         const publicSite = params.get('site') || targetEq.siteId || 'All';
                         setSiteFilter(publicSite);
                         setInspectData(createInspectionDraft(targetEq, { qrScanMode: true, notes: targetEq.notes || '' }));
                         setView('inspect');
                     }
                 } catch (err) {
-                    console.error(err);
+                    console.error('[emergency-equipment] public QR fetch failed:', err);
                 } finally {
                     setLoading(false);
                 }

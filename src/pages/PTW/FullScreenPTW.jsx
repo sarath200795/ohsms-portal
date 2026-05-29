@@ -1241,10 +1241,15 @@ export default function FullScreenPTW() {
 
                 const loadPublicPermit = async () => {
                     try {
-                        const publicSnap = await dbGet(`organizations/${publicOrgId}/ptwRecords/${permitIdFromQuery}`);
-                        if (!publicSnap.exists()) return;
+                        // dbGet returns the unwrapped value or null — calling
+                        // .exists()/.val() on it throws a TypeError that
+                        // crashes the public QR-scan page to blank. Treat the
+                        // result as data + a null check, matching the adapter
+                        // contract.
+                        const publicData = await dbGet(`organizations/${publicOrgId}/ptwRecords/${permitIdFromQuery}`);
+                        if (!publicData) return;
 
-                        const permit = normalizePermit({ firebaseKey: permitIdFromQuery, ...publicSnap.val() });
+                        const permit = normalizePermit({ firebaseKey: permitIdFromQuery, ...publicData });
 
                         if (!permit) return;
 
