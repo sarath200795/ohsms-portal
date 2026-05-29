@@ -520,14 +520,55 @@ export default function EmergencyEquipment() {
                 }
 
                 if (scanId) {
-                    const targetEq = loadedEq.find(e => e.firebaseKey === scanId);
+                    // QR-scan inspection flow. Don't rely on loadedEq —
+                    // collection-level reads are denied for any user without
+                    // Global Owner role + GLOBAL site, so a Field-portal User
+                    // signing in to inspect their site's extinguisher would
+                    // never find the record in loadedEq (the rule blocked
+                    // the list read entirely; loadedEq is []). Direct fetch
+                    // by firebaseKey bypasses that — the $id .read rule was
+                    // opened to data.exists() in the latest rules, so any
+                    // existing record returns its data.
+                    let targetEq = loadedEq.find(e => e.firebaseKey === scanId);
+                    if (!targetEq) {
+                        console.log('[emergency-equipment] auth scan: collection read denied or record missing from list; fetching direct…');
+                        // Try the QR's embedded databaseURL first (multi-tenant)
+                        // then fall back to the locally-init'd SDK.
+                        const explicitDbUrl = sanitizeDatabaseURL(new URLSearchParams(location.search).get('db'));
+                        let eqData = null;
+                        if (explicitDbUrl) {
+                            try {
+                                eqData = await restReadPublic(explicitDbUrl, `organizations/${sess.orgId}/emergencyEquipment/${scanId}`);
+                            } catch (err) {
+                                console.warn('[emergency-equipment] auth scan REST read failed:', err.message);
+                            }
+                        }
+                        if (!eqData) {
+                            eqData = await dbGet(`organizations/${sess.orgId}/emergencyEquipment/${scanId}`).catch(() => null);
+                        }
+                        if (eqData) {
+                            targetEq = { firebaseKey: scanId, ...eqData };
+                            console.log('[emergency-equipment] auth scan: record loaded directly');
+                        } else {
+                            console.warn('[emergency-equipment] auth scan: direct fetch returned null — record missing or rule denied');
+                        }
+                    }
                     if (targetEq) {
                         const targetSite = targetEq.siteId || ctxSite || 'All';
                         setSiteFilter(targetSite);
                         sessionStorage.setItem('isoCurrentSite', targetSite === 'All' ? 'GLOBAL' : targetSite);
                         setInspectData(createInspectionDraft(targetEq, { qrScanMode: true }));
                         setView('inspect');
-                        navigate(buildModulePath(targetSite), { replace: true });
+                        // Preserve scan + db params in the URL so a refresh
+                        // mid-inspection re-opens the same sheet instead of
+                        // bouncing back to the registry list.
+                        const currentParams = new URLSearchParams(location.search);
+                        const preservedParams = new URLSearchParams();
+                        if (currentParams.get('scan')) preservedParams.set('scan', currentParams.get('scan'));
+                        if (currentParams.get('db')) preservedParams.set('db', currentParams.get('db'));
+                        if (currentParams.get('org')) preservedParams.set('org', currentParams.get('org'));
+                        preservedParams.set('site', targetSite);
+                        navigate(`/emergency-equipment?${preservedParams.toString()}`, { replace: true });
                     }
                 }
             } catch (err) { console.error(err); } finally { setLoading(false); }
