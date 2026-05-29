@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { dbGet, dbPush, dbUpdate, dbRemove } from '../services/db/index.js';
+import { dbGet, dbPush, dbUpdate, dbRemove, dbMultiUpdate } from '../services/db/index.js';
 import { getFieldPortalLoginPath, getFieldPortalVerificationMessage, getPortalAwareHomePath, isFieldPortalHomeContext } from './FieldApp/portalAuth';
 import { readOrgChildren } from '../utils/orgData';
 import { canEditCreateForRole, isGlobalOwnerRole } from '../utils/permissions';
@@ -450,6 +450,31 @@ export default function EmergencyEquipment() {
                 if (data.emergencyEquipment) {
                     loadedEq = Object.entries(data.emergencyEquipment).map(([k, v]) => ({ firebaseKey: k, ...v }));
                     setEquipment(loadedEq);
+
+                    // PUBLIC QR BACKFILL — RTDB rule for $id allows
+                    // unauthenticated public reads ONLY when
+                    // publicQrEnabled === true. Records created before this
+                    // flag was introduced never had it set, so scanning
+                    // their QR (which goes through the public path) bounces
+                    // off the rule and renders 'Equipment Record Not Found'.
+                    // When a Global Owner loads this page, backfill the flag
+                    // on every record that's missing it — one batch, only
+                    // the missing keys, runs zero writes if everything is
+                    // already correct.
+                    if (isGlobal) {
+                        const updates = {};
+                        loadedEq.forEach((item) => {
+                            if (item.firebaseKey && item.publicQrEnabled !== true) {
+                                updates[`organizations/${sess.orgId}/emergencyEquipment/${item.firebaseKey}/publicQrEnabled`] = true;
+                            }
+                        });
+                        if (Object.keys(updates).length > 0) {
+                            console.log(`[publicQrEnabled-backfill] enabling QR scan for ${Object.keys(updates).length} equipment record(s)`);
+                            dbMultiUpdate(updates).catch((err) => {
+                                console.warn('[publicQrEnabled-backfill] failed:', err);
+                            });
+                        }
+                    }
                 } else { setEquipment([]); }
 
                 if (data.sites) {

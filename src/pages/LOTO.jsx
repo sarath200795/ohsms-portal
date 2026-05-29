@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { dbGet, dbUpdate, dbPush } from '../services/db/index.js';
+import { dbGet, dbUpdate, dbPush, dbMultiUpdate } from '../services/db/index.js';
 import { getFieldPortalLoginPath, getPortalAwareHomePath, isFieldPortalHomeContext } from './FieldApp/portalAuth';
 import FieldQrScannerModal from './FieldApp/components/FieldQrScannerModal';
 import { resolveFieldQrNavigation } from './FieldApp/utils';
@@ -146,7 +146,28 @@ export default function Loto() {
                 const data = await readOrgChildren(null, sess.orgId, ['sites', 'lotoProcedures', 'lotoLogs']);
 
                 if (data.sites) setSites(normalizeSites(data.sites));
-                if (data.lotoProcedures) setProcedures(safeArrayParse(data.lotoProcedures));
+                if (data.lotoProcedures) {
+                    const parsedProcedures = safeArrayParse(data.lotoProcedures);
+                    setProcedures(parsedProcedures);
+
+                    // PUBLIC QR BACKFILL — see EmergencyEquipment for the
+                    // long form. Only Approved procedures get the flag;
+                    // drafts and superseded revisions stay private.
+                    if (isGlobalAdmin) {
+                        const updates = {};
+                        parsedProcedures.forEach((proc) => {
+                            if (proc.firebaseKey && proc.status === 'Approved' && proc.publicQrEnabled !== true) {
+                                updates[`organizations/${sess.orgId}/lotoProcedures/${proc.firebaseKey}/publicQrEnabled`] = true;
+                            }
+                        });
+                        if (Object.keys(updates).length > 0) {
+                            console.log(`[publicQrEnabled-backfill] enabling QR scan for ${Object.keys(updates).length} LOTO procedure(s)`);
+                            dbMultiUpdate(updates).catch((err) => {
+                                console.warn('[publicQrEnabled-backfill] failed:', err);
+                            });
+                        }
+                    }
+                }
                 if (data.lotoLogs) setLogs(safeArrayParse(data.lotoLogs));
 
                 if (execId) setCurrentView('execute');

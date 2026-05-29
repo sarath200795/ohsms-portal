@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { dbGet, dbPush, dbUpdate } from '../../services/db/index.js';
+import { dbGet, dbPush, dbUpdate, dbMultiUpdate } from '../../services/db/index.js';
 import { writeActivityLog, buildActivityEntry } from '../../utils/activityLog.js';
 import QRious from 'qrious';
 
@@ -1337,11 +1337,33 @@ export default function FullScreenPTW() {
                     }
 
                     if (data.ptwRecords) {
-                        setPermits(
-                            safeArrayParse(data.ptwRecords)
-                                .map(normalizePermit)
-                                .sort((a, b) => new Date(b.createdDate || 0) - new Date(a.createdDate || 0))
-                        );
+                        const parsedPermits = safeArrayParse(data.ptwRecords)
+                            .map(normalizePermit)
+                            .sort((a, b) => new Date(b.createdDate || 0) - new Date(a.createdDate || 0));
+                        setPermits(parsedPermits);
+
+                        // PUBLIC QR BACKFILL — same idea as
+                        // EmergencyEquipment + LOTO. Any permit a Global
+                        // Owner can see and that's missing publicQrEnabled
+                        // gets it flipped on so its QR can be scanned
+                        // without sign-in. Drafts get it too because the
+                        // PDF-generation path was already auto-setting it
+                        // on every saved permit going forward; this just
+                        // catches the historical records.
+                        if (isGlobalAdmin) {
+                            const updates = {};
+                            parsedPermits.forEach((permit) => {
+                                if (permit.firebaseKey && permit.publicQrEnabled !== true) {
+                                    updates[`organizations/${sess.orgId}/ptwRecords/${permit.firebaseKey}/publicQrEnabled`] = true;
+                                }
+                            });
+                            if (Object.keys(updates).length > 0) {
+                                console.log(`[publicQrEnabled-backfill] enabling QR scan for ${Object.keys(updates).length} permit(s)`);
+                                dbMultiUpdate(updates).catch((err) => {
+                                    console.warn('[publicQrEnabled-backfill] failed:', err);
+                                });
+                            }
+                        }
                     }
 
                     if (data.lotoProcedures) {
