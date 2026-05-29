@@ -762,7 +762,12 @@ export default function Users() {
             }
             setIsModalOpen(false);
         } catch (error) {
-            alert("Error saving user: " + error.message);
+            console.error('[Users.handleSaveUser] save failed:', error);
+            const isPermDenied = String(error?.code || error?.message || '').toLowerCase().includes('permission_denied');
+            const hint = isPermDenied
+                ? '\n\nThe Firebase RTDB rule rejected this write. Check the browser console for the full [Users.handleSaveUser] dbUpdate rejected dump. Common causes when editing a vendor:\n  • Your own user record at users/<uid> has role/status that no longer matches what your session thinks (try signing out and back in).\n  • You are a Site Owner trying to edit a vendor at a different site than yours.\n  • The vendor record is missing required fields (name, email, role, or status) — open it, fill the gap, save again.'
+                : '';
+            alert("Error saving user: " + (error.message || error.code || 'Unknown error') + hint);
         }
         setSaving(false);
     };
