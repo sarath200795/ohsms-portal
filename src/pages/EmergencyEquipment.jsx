@@ -11,6 +11,33 @@ import * as XLSX from 'xlsx';
 import { notifyEquipmentUpdated } from '../utils/reportNotificationEmail';
 import CenterSelect from '../components/CenterSelect';
 import { findCentersForSite } from '../utils/centers';
+import { firebaseConfig } from '../config/firebase.js';
+
+// Multi-tenant QR: the URL embeds `db=<encoded-databaseURL>` so a scanner
+// running on a phone that has never visited the portal can still resolve
+// the record by hitting the right Firebase project directly via REST.
+// Returns the trimmed URL or '' when missing/malformed.
+const sanitizeDatabaseURL = (rawUrl) => {
+    const value = String(rawUrl || '').trim().replace(/\/$/, '');
+    if (!value) return '';
+    if (!/^https:\/\/[a-zA-Z0-9-]+\.(firebaseio\.com|firebasedatabase\.app)/.test(value)) return '';
+    return value;
+};
+
+// Public REST read against a specific Firebase RTDB instance. Used by the
+// public QR scan path when the URL carries `db=...` — bypasses the locally-
+// initialized Firebase SDK so a fresh phone with no /setup config can still
+// resolve any org's equipment record (rule: emergencyEquipment/$id .read =
+// data.exists()).
+const restGetEquipment = async (databaseURL, orgId, recordId) => {
+    const url = `${databaseURL}/organizations/${encodeURIComponent(orgId)}/emergencyEquipment/${encodeURIComponent(recordId)}.json`;
+    const res = await fetch(url, { method: 'GET' });
+    if (!res.ok) {
+        const body = await res.text().catch(() => '');
+        throw new Error(`REST read ${res.status}: ${body || res.statusText}`);
+    }
+    return res.json();
+};
 
 // Resolve a centerCode back to its human-readable name for the given site.
 // Returns '' if the site isn't found, the center isn't configured, or the
@@ -406,19 +433,39 @@ export default function EmergencyEquipment() {
             setIsPublic(true);
 
             const fetchPublicData = async () => {
+                // Multi-tenant detection: if the QR carries db=<databaseURL>, the
+                // record might live on a different Firebase project than this
+                // browser is initialized with. Try REST against that URL FIRST
+                // (no SDK, no auth, no localStorage dependency). Falls back to
+                // the SDK's dbGet for legacy QRs without the db param.
+                const explicitDbUrl = sanitizeDatabaseURL(params.get('db'));
                 console.log('[emergency-equipment] public QR fetch start:', {
                     orgId: publicOrgId,
                     scanId: publicScanId,
+                    embeddedDbUrl: explicitDbUrl || '(none — falling back to SDK)',
                     path: `organizations/${publicOrgId}/emergencyEquipment/${publicScanId}`
                 });
                 try {
-                    // dbGet returns the unwrapped value or null — NOT a Firebase
-                    // snapshot — so calling .exists()/.val() on it throws a
-                    // TypeError that crashes this component to a blank screen.
-                    // (Same bug landed in PTW's public QR path.) Adapter-aware
-                    // null check + direct property spread instead.
-                    const eqData = await dbGet(`organizations/${publicOrgId}/emergencyEquipment/${publicScanId}`);
-                    console.log('[emergency-equipment] public QR dbGet result:', eqData ? `record loaded (siteId=${eqData.siteId}, type=${eqData.type}, assetId=${eqData.assetId})` : 'NULL — record missing or rule denied');
+                    let eqData = null;
+                    if (explicitDbUrl) {
+                        // Direct REST read against the QR's project — bypasses
+                        // the locally-initialized Firebase SDK entirely. Rule:
+                        // emergencyEquipment/$id .read = data.exists(), so any
+                        // existing record is publicly readable.
+                        try {
+                            eqData = await restGetEquipment(explicitDbUrl, publicOrgId, publicScanId);
+                            console.log('[emergency-equipment] public QR REST read:', eqData ? `record loaded (siteId=${eqData.siteId}, type=${eqData.type}, assetId=${eqData.assetId})` : 'NULL — record missing or rule denied');
+                        } catch (restErr) {
+                            console.warn('[emergency-equipment] REST read failed, will fall back to SDK:', restErr.message);
+                        }
+                    }
+                    if (!eqData) {
+                        // dbGet returns the unwrapped value or null — NOT a
+                        // Firebase snapshot. Adapter-aware null check + direct
+                        // property spread instead.
+                        eqData = await dbGet(`organizations/${publicOrgId}/emergencyEquipment/${publicScanId}`);
+                        console.log('[emergency-equipment] public QR SDK fallback:', eqData ? `record loaded` : 'NULL — record missing or rule denied');
+                    }
                     if (eqData) {
                         const targetEq = { firebaseKey: publicScanId, ...eqData };
                         const publicSite = params.get('site') || targetEq.siteId || 'All';
@@ -1221,9 +1268,14 @@ export default function EmergencyEquipment() {
                             <button
                                 type="button"
                                 onClick={() => {
-                                    const scanId = new URLSearchParams(location.search).get('scan') || inspectData.firebaseKey || '';
-                                    const orgIdParam = new URLSearchParams(location.search).get('org') || '';
-                                    navigate(`/vendor-portal?fireAction=pickup&scan=${encodeURIComponent(scanId)}&org=${encodeURIComponent(orgIdParam)}`);
+                                    const sp = new URLSearchParams(location.search);
+                                    const scanId = sp.get('scan') || inspectData.firebaseKey || '';
+                                    const orgIdParam = sp.get('org') || '';
+                                    const dbUrlParam = sp.get('db') || '';
+                                    // Carry the QR's project pointer onward so the vendor
+                                    // portal can auto-pick the right org from its picker.
+                                    const dbSuffix = dbUrlParam ? `&db=${encodeURIComponent(dbUrlParam)}` : '';
+                                    navigate(`/vendor-portal?fireAction=pickup&scan=${encodeURIComponent(scanId)}&org=${encodeURIComponent(orgIdParam)}${dbSuffix}`);
                                 }}
                                 className="rounded-2xl bg-yellow-500 px-5 py-3 text-sm font-black uppercase tracking-[0.2em] text-slate-950 transition-colors hover:bg-yellow-400 flex items-center gap-2"
                             >
@@ -1850,7 +1902,14 @@ export default function EmergencyEquipment() {
 
                             <div className="p-4 border-4 border-black rounded-xl mb-4 bg-white flex justify-center items-center">
                                 <QRCodeSVG
-                                    value={`${window.location.origin}/emergency-equipment?scan=${printTagData.firebaseKey}&site=${printTagData.siteId}${printTagData.centerCode ? `&center=${encodeURIComponent(printTagData.centerCode)}` : ''}&org=${session.orgId}&fieldQr=1`}
+                                    // Embed the printing org's Firebase databaseURL in the
+                                    // QR so a scanning device that has no /setup config
+                                    // (a delivery driver's phone, a fresh tablet) can still
+                                    // resolve the record by direct REST against the right
+                                    // project. The databaseURL is already public — it's in
+                                    // every page bundle this app serves — so adding it to
+                                    // the QR doesn't leak anything new.
+                                    value={`${window.location.origin}/emergency-equipment?scan=${printTagData.firebaseKey}&site=${printTagData.siteId}${printTagData.centerCode ? `&center=${encodeURIComponent(printTagData.centerCode)}` : ''}&org=${session.orgId}${firebaseConfig.databaseURL ? `&db=${encodeURIComponent(firebaseConfig.databaseURL)}` : ''}&fieldQr=1`}
                                     size={160}
                                     level="H"
                                 />
