@@ -1109,6 +1109,25 @@ export default function EmergencyEquipment() {
                         >
                             Sign In To Perform Inspection
                         </button>
+                        {/* Fire-extinguisher QR: offer the Refilling / HPT lane that
+                            deep-links into the vendor portal. The portal then verifies
+                            the signed-in vendor's serviceType === 'Fire Fighting
+                            Equipment' before letting them mark the unit. Anyone else
+                            (a regular site user, a non-fire-equipment vendor) is shown
+                            a clear "not authorised" message instead of an action. */}
+                        {inspectData.type === 'Fire Extinguisher' && (
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    const scanId = new URLSearchParams(location.search).get('scan') || inspectData.firebaseKey || '';
+                                    const orgIdParam = new URLSearchParams(location.search).get('org') || '';
+                                    navigate(`/vendor-portal?fireAction=pickup&scan=${encodeURIComponent(scanId)}&org=${encodeURIComponent(orgIdParam)}`);
+                                }}
+                                className="rounded-2xl bg-yellow-500 px-5 py-3 text-sm font-black uppercase tracking-[0.2em] text-slate-950 transition-colors hover:bg-yellow-400 flex items-center gap-2"
+                            >
+                                <i className="fas fa-flask"></i> Refilling / HPT
+                            </button>
+                        )}
                         <button
                             type="button"
                             onClick={() => navigate('/field-portal')}

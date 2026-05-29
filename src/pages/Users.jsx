@@ -651,12 +651,33 @@ export default function Users() {
             // Flip the user record to Active.  We keep role: 'User' (the
             // rules' validate doesn't accept a 'Vendor' role) but the UI
             // treats them as vendors based on the vendorPortal flag.
+            //
+            // CRITICAL: RTDB security rules for site-scoped collections
+            // (emergencyEquipment, ptwRecords, etc.) check
+            // `accessibleSitesMap/<siteId>` on the user record. We MUST
+            // build that derived map here, otherwise the vendor will be
+            // approved but blocked from reading anything site-scoped on
+            // their portal (this is what made the Fire Equipment tab show
+            // an empty list even with allocated sites).
+            const accessibleSitesArr = Array.isArray(vendorUser.accessibleSites)
+                ? vendorUser.accessibleSites.filter((s) => s && s !== 'GLOBAL')
+                : [];
+            const accessibleSitesMap = accessibleSitesArr.reduce((acc, code) => {
+                if (code) acc[String(code).trim()] = true;
+                return acc;
+            }, {});
             const userPayload = {
                 ...vendorUser,
                 status: ACCOUNT_STATUS.ACTIVE,
                 joinCode: null,
                 vendorPortal: true,
-                vendorMeta: vendorUser.vendorMeta || {}
+                vendorMeta: vendorUser.vendorMeta || {},
+                accessibleSites: accessibleSitesArr,
+                accessibleSitesMap,
+                // Set the primary assignedSite to the first allocated site
+                // so the vendor's portal queries default to a real site,
+                // not the empty-string the approval flow used to write.
+                assignedSite: vendorUser.assignedSite || accessibleSitesArr[0] || ''
             };
             delete userPayload.id;
             await dbUpdate(`organizations/${session.orgId}/users/${vendorUser.id}`, userPayload);
@@ -712,13 +733,19 @@ export default function Users() {
                 contractorKey = await dbPush(`organizations/${session.orgId}/contractors`, contractorPayload);
             }
 
+            // Mirror the site access onto the vendorPortalUsers record so
+            // readVendorSiteCollection() in the vendor portal has a real
+            // assignedSite (or the array fallback) to query against. Before
+            // this fix it always wrote empty strings and the Fire Equipment
+            // tab fetched zero rows.
             await dbSet(`organizations/${session.orgId}/vendorPortalUsers/${vendorUser.id}`, {
                 name: meta.contactPerson || vendorUser.name || meta.companyName || 'Vendor Portal User',
                 email: vendorUser.email,
                 role: 'User',
                 status: 'Active',
-                assignedSite: '',
-                accessibleSites: [],
+                assignedSite: accessibleSitesArr[0] || '',
+                accessibleSites: accessibleSitesArr,
+                accessibleSitesMap,
                 accessibleModules: [],
                 vendorPortal: true,
                 portalLinkedContractorId: contractorKey,

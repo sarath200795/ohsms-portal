@@ -252,6 +252,14 @@ export default function VendorPortal() {
     // the vendor's serviceType matches FIRE_EQUIPMENT_SERVICE_TYPES.
     const [vendorFireEquipment, setVendorFireEquipment] = useState([]);
     const [fireEquipBusyId, setFireEquipBusyId] = useState(null);
+    // QR-scan deep-link state: when a public QR scan lands on
+    // /vendor-portal?fireAction=pickup&scan=<id>&org=<orgId> we surface a
+    // modal with the extinguisher details and the Take for Refill / HPT
+    // buttons, or an authorization-denied banner for non-fire-equipment
+    // vendors.
+    const [fireDeepLink, setFireDeepLink] = useState(null);   // { scanId, orgId }
+    const [fireDeepLinkEq, setFireDeepLinkEq] = useState(null);
+    const [fireDeepLinkError, setFireDeepLinkError] = useState('');
     const [uploadingId, setUploadingId] = useState(null);
     const [workerForm, setWorkerForm] = useState(createWorkerForm());
     const [savingWorker, setSavingWorker] = useState(false);
@@ -348,12 +356,58 @@ export default function VendorPortal() {
         }));
     }, []);
 
+    // Capture ?fireAction=pickup&scan=<id>&org=<orgId> deep-link params once
+    // on mount. We hold onto them in state and act on them post-login.
+    useEffect(() => {
+        try {
+            const params = new URLSearchParams(window.location.search);
+            const fireAction = params.get('fireAction');
+            const scan = params.get('scan');
+            const orgIdParam = params.get('org');
+            if (fireAction === 'pickup' && scan) {
+                setFireDeepLink({ scanId: scan, orgId: orgIdParam || '' });
+            }
+        } catch {
+            // ignore — feature is non-essential, never block the portal
+        }
+    }, []);
+
+    // Once the vendor is authenticated and we know the deep-link target,
+    // resolve the extinguisher record. The auth-gate (must be a
+    // Fire-Fighting-Equipment vendor) is enforced in the modal renderer so
+    // even a non-fire vendor sees a clear message instead of silence.
+    useEffect(() => {
+        if (!isAuthenticated || !fireDeepLink?.scanId || !vendorSession?.orgId) return;
+        let cancelled = false;
+        (async () => {
+            try {
+                const snap = await dbGet(`organizations/${vendorSession.orgId}/emergencyEquipment/${fireDeepLink.scanId}`);
+                if (cancelled) return;
+                if (snap) {
+                    setFireDeepLinkEq({ firebaseKey: fireDeepLink.scanId, ...snap });
+                    setFireDeepLinkError('');
+                    setActiveTab('fireEquipment');
+                } else {
+                    setFireDeepLinkError('This QR code does not map to an active extinguisher record.');
+                }
+            } catch (err) {
+                if (cancelled) return;
+                console.warn('[vendor-portal] fire deep-link fetch failed:', err);
+                setFireDeepLinkError('Could not load this extinguisher. You may not have access to its site.');
+            }
+        })();
+        return () => { cancelled = true; };
+    }, [isAuthenticated, fireDeepLink?.scanId, vendorSession?.orgId]);
+
     const resetPortalState = useCallback((clearForm = false) => {
         setIsAuthenticated(false);
         setVendor(null);
         setVendorIncidents([]);
         setVendorPermits([]);
         setVendorFireEquipment([]);
+        setFireDeepLink(null);
+        setFireDeepLinkEq(null);
+        setFireDeepLinkError('');
         setVendorSession(null);
         setActiveTab('documentation');
         setWorkerForm(createWorkerForm());
@@ -540,18 +594,51 @@ export default function VendorPortal() {
             // Fire-equipment vendors get a dedicated read of fire extinguishers
             // at their allocated sites so they can mark units as picked up for
             // refill / HPT. Other service types skip this entirely.
+            //
+            // We fan out one indexed read per allocated site instead of relying
+            // on readVendorSiteCollection's single-assignedSite path: a vendor
+            // typically operates across multiple sites, and the previous
+            // single-site query missed every other site they had access to.
+            // We also merge in the contractor record's allocatedSites as a
+            // fallback if the vendorPortalUsers row hasn't been backfilled
+            // with the accessibleSites array yet.
             const isFireEquipVendor = FIRE_EQUIPMENT_SERVICE_TYPES.includes(vendorData.serviceType);
-            const backgroundFetchFireEquip = isFireEquipVendor
-                ? readVendorSiteCollection({ orgId, childName: 'emergencyEquipment', orgUser })
-                    .then((eqData) => {
-                        const list = safeArrWithKeys(eqData)
+            const fireSiteSet = new Set();
+            if (orgUser?.assignedSite === 'GLOBAL') {
+                fireSiteSet.add('__GLOBAL__');
+            } else {
+                safeArr(orgUser?.accessibleSites).forEach(s => s && fireSiteSet.add(String(s).trim()));
+                if (orgUser?.assignedSite) fireSiteSet.add(String(orgUser.assignedSite).trim());
+                safeArr(vendorData.allocatedSites).forEach(s => s && fireSiteSet.add(String(s).trim()));
+            }
+            const fireSites = [...fireSiteSet].filter(Boolean);
+
+            const backgroundFetchFireEquip = isFireEquipVendor && fireSites.length > 0
+                ? (async () => {
+                    try {
+                        let merged = {};
+                        if (fireSites.includes('__GLOBAL__')) {
+                            const snap = await dbGet(`organizations/${orgId}/emergencyEquipment`).catch(() => null);
+                            if (snap) merged = snap;
+                        } else {
+                            const perSite = await Promise.all(fireSites.map(async (siteId) => {
+                                try {
+                                    return await dbQuery(`organizations/${orgId}/emergencyEquipment`, 'siteId', siteId) || {};
+                                } catch (err) {
+                                    console.warn(`[vendor-portal] emergency equipment read blocked for site ${siteId}:`, err);
+                                    return {};
+                                }
+                            }));
+                            merged = perSite.reduce((acc, entry) => ({ ...acc, ...entry }), {});
+                        }
+                        const list = safeArrWithKeys(merged)
                             .filter(eq => eq.type === 'Fire Extinguisher')
                             .sort((a, b) => String(a.siteId || '').localeCompare(String(b.siteId || '')) || String(a.assetId || '').localeCompare(String(b.assetId || '')));
                         setVendorFireEquipment(list);
-                    })
-                    .catch((error) => {
-                        console.warn('Emergency equipment fetch blocked or unavailable.', error);
-                    })
+                    } catch (error) {
+                        console.warn('Emergency equipment fetch failed:', error);
+                    }
+                })()
                 : Promise.resolve();
             // Reference them so the linter doesn't strip the promises.
             void backgroundFetchIncidents;
@@ -1932,6 +2019,125 @@ export default function VendorPortal() {
                     })()}
                 </div>
             </main>
+
+            {/* QR-scan Refilling/HPT deep-link modal. Shown on top of the portal
+                once we've resolved (or failed to resolve) the extinguisher record
+                pointed at by the URL. The action gate enforces that the signed-in
+                vendor's serviceType is in FIRE_EQUIPMENT_SERVICE_TYPES; if not,
+                the modal renders a clear "not authorized" message instead of the
+                action buttons. */}
+            {fireDeepLink && (fireDeepLinkEq || fireDeepLinkError) && (() => {
+                const eq = fireDeepLinkEq;
+                const isFireVendor = FIRE_EQUIPMENT_SERVICE_TYPES.includes(vendor?.serviceType);
+                const inProgress = eq && (eq.refillStatus === 'Sent for Refill' || eq.refillStatus === 'Sent for HPT');
+                const close = () => {
+                    setFireDeepLink(null);
+                    setFireDeepLinkEq(null);
+                    setFireDeepLinkError('');
+                    // Strip the URL params so a refresh doesn't reopen the modal.
+                    try {
+                        const url = new URL(window.location.href);
+                        url.searchParams.delete('fireAction');
+                        url.searchParams.delete('scan');
+                        url.searchParams.delete('org');
+                        window.history.replaceState({}, '', url.pathname + (url.searchParams.toString() ? `?${url.searchParams}` : ''));
+                    } catch { /* no-op */ }
+                };
+                const busy = eq && fireEquipBusyId === eq.firebaseKey;
+                return (
+                    <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
+                        <div className="absolute inset-0 bg-black/75 backdrop-blur-sm" onClick={close}></div>
+                        <div className="relative z-10 w-full max-w-xl rounded-3xl border border-red-500/30 bg-slate-900 p-6 shadow-2xl">
+                            <div className="mb-5 flex items-start justify-between gap-4 border-b border-slate-800 pb-4">
+                                <div>
+                                    <p className="text-[10px] font-bold uppercase tracking-widest text-yellow-300">QR Scan → Refilling / HPT</p>
+                                    <h2 className="mt-2 text-2xl font-black text-white"><i className="fas fa-fire-extinguisher text-red-400 mr-2"></i>Fire Extinguisher Action</h2>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={close}
+                                    className="flex h-10 w-10 items-center justify-center rounded-full border border-slate-700 text-slate-300 transition-colors hover:border-slate-500 hover:text-white"
+                                    aria-label="Close"
+                                >
+                                    <i className="fas fa-times"></i>
+                                </button>
+                            </div>
+
+                            {fireDeepLinkError && !eq && (
+                                <div className="rounded-2xl bg-red-950/30 border border-red-500/40 p-4 text-sm text-red-200">
+                                    <i className="fas fa-triangle-exclamation mr-2"></i>{fireDeepLinkError}
+                                </div>
+                            )}
+
+                            {eq && (
+                                <>
+                                    <div className="grid grid-cols-2 gap-3 mb-4">
+                                        <div className="rounded-xl border border-slate-800 bg-slate-950/70 p-3">
+                                            <p className="text-[9px] font-bold uppercase tracking-widest text-slate-500">Asset ID</p>
+                                            <p className="mt-1 text-sm font-mono font-bold text-orange-400">{eq.assetId || '—'}</p>
+                                        </div>
+                                        <div className="rounded-xl border border-slate-800 bg-slate-950/70 p-3">
+                                            <p className="text-[9px] font-bold uppercase tracking-widest text-slate-500">Site</p>
+                                            <p className="mt-1 text-sm font-bold text-blue-400">{eq.siteId || '—'}</p>
+                                        </div>
+                                        <div className="rounded-xl border border-slate-800 bg-slate-950/70 p-3">
+                                            <p className="text-[9px] font-bold uppercase tracking-widest text-slate-500">Type</p>
+                                            <p className="mt-1 text-sm font-bold text-white">{eq.extinguisherType || '—'}</p>
+                                        </div>
+                                        <div className="rounded-xl border border-slate-800 bg-slate-950/70 p-3">
+                                            <p className="text-[9px] font-bold uppercase tracking-widest text-slate-500">Location</p>
+                                            <p className="mt-1 text-sm font-bold text-white">{eq.location || '—'}</p>
+                                        </div>
+                                        <div className="rounded-xl border border-slate-800 bg-slate-950/70 p-3">
+                                            <p className="text-[9px] font-bold uppercase tracking-widest text-slate-500">Next Refill</p>
+                                            <p className="mt-1 text-sm font-mono text-white">{eq.nextRefillDate || '—'}</p>
+                                        </div>
+                                        <div className="rounded-xl border border-slate-800 bg-slate-950/70 p-3">
+                                            <p className="text-[9px] font-bold uppercase tracking-widest text-slate-500">Next HPT</p>
+                                            <p className="mt-1 text-sm font-mono text-white">{eq.nextHptDate || '—'}</p>
+                                        </div>
+                                    </div>
+
+                                    {!isFireVendor && (
+                                        <div className="rounded-2xl bg-red-950/40 border border-red-500/40 p-4 text-sm text-red-200">
+                                            <p className="font-bold uppercase tracking-widest text-[11px] text-red-300 mb-1"><i className="fas fa-ban mr-1"></i> Not Authorised</p>
+                                            <p>Your vendor account is registered as <strong className="text-red-100">{vendor?.serviceType || 'an unspecified service'}</strong>. Only vendors registered under the <strong className="text-red-100">Fire Fighting Equipment</strong> service category can mark extinguishers for refilling or HPT.</p>
+                                        </div>
+                                    )}
+
+                                    {isFireVendor && inProgress && (
+                                        <div className="rounded-2xl bg-yellow-500/10 border border-yellow-500/40 p-4 text-sm text-yellow-200 mb-4">
+                                            <p className="font-bold uppercase tracking-widest text-[11px] text-yellow-300 mb-1"><i className="fas fa-info-circle mr-1"></i> Already In Process</p>
+                                            <p>This extinguisher is already marked as <strong>{eq.refillStatus}</strong>{eq.refillVendorName ? ` by ${eq.refillVendorName}` : ''}. Mark it returned from the Fire Equipment tab to clear the alert.</p>
+                                        </div>
+                                    )}
+
+                                    {isFireVendor && !inProgress && (
+                                        <div className="flex flex-wrap gap-3 justify-end">
+                                            <button
+                                                type="button"
+                                                disabled={busy}
+                                                onClick={async () => { await handleFireEquipPickup(eq, 'Refill'); close(); }}
+                                                className="bg-yellow-500 hover:bg-yellow-400 text-slate-950 font-black px-5 py-3 rounded-xl text-xs uppercase tracking-widest transition-colors disabled:opacity-50 flex items-center gap-2"
+                                            >
+                                                {busy ? <i className="fas fa-spinner fa-spin"></i> : <><i className="fas fa-truck-pickup"></i> Take for Refill</>}
+                                            </button>
+                                            <button
+                                                type="button"
+                                                disabled={busy}
+                                                onClick={async () => { await handleFireEquipPickup(eq, 'HPT'); close(); }}
+                                                className="bg-orange-500 hover:bg-orange-400 text-slate-950 font-black px-5 py-3 rounded-xl text-xs uppercase tracking-widest transition-colors disabled:opacity-50 flex items-center gap-2"
+                                            >
+                                                {busy ? <i className="fas fa-spinner fa-spin"></i> : <><i className="fas fa-flask"></i> Take for HPT</>}
+                                            </button>
+                                        </div>
+                                    )}
+                                </>
+                            )}
+                        </div>
+                    </div>
+                );
+            })()}
 
             {isPasswordModalOpen && (
                 <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
