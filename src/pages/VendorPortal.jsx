@@ -11,6 +11,7 @@ import {
 import { auth } from '../config/firebase';
 import { dbGet, dbSet, dbUpdate, dbQuery } from '../services/db/index.js';
 import { safeDocumentHref } from '../utils/security';
+import { FIRE_EQUIPMENT_SERVICE_TYPES } from '../utils/constants';
 import {
     getOrgRegistry,
     hideOrgInRegistry,
@@ -247,6 +248,10 @@ export default function VendorPortal() {
     const [vendor, setVendor] = useState(null);
     const [vendorIncidents, setVendorIncidents] = useState([]);
     const [vendorPermits, setVendorPermits] = useState([]);
+    // Fire-extinguishers visible to fire-equipment vendors. Loaded only when
+    // the vendor's serviceType matches FIRE_EQUIPMENT_SERVICE_TYPES.
+    const [vendorFireEquipment, setVendorFireEquipment] = useState([]);
+    const [fireEquipBusyId, setFireEquipBusyId] = useState(null);
     const [uploadingId, setUploadingId] = useState(null);
     const [workerForm, setWorkerForm] = useState(createWorkerForm());
     const [savingWorker, setSavingWorker] = useState(false);
@@ -348,6 +353,7 @@ export default function VendorPortal() {
         setVendor(null);
         setVendorIncidents([]);
         setVendorPermits([]);
+        setVendorFireEquipment([]);
         setVendorSession(null);
         setActiveTab('documentation');
         setWorkerForm(createWorkerForm());
@@ -530,9 +536,27 @@ export default function VendorPortal() {
                 .catch((error) => {
                     console.warn('PTW fetch blocked or unavailable.', error);
                 });
+
+            // Fire-equipment vendors get a dedicated read of fire extinguishers
+            // at their allocated sites so they can mark units as picked up for
+            // refill / HPT. Other service types skip this entirely.
+            const isFireEquipVendor = FIRE_EQUIPMENT_SERVICE_TYPES.includes(vendorData.serviceType);
+            const backgroundFetchFireEquip = isFireEquipVendor
+                ? readVendorSiteCollection({ orgId, childName: 'emergencyEquipment', orgUser })
+                    .then((eqData) => {
+                        const list = safeArrWithKeys(eqData)
+                            .filter(eq => eq.type === 'Fire Extinguisher')
+                            .sort((a, b) => String(a.siteId || '').localeCompare(String(b.siteId || '')) || String(a.assetId || '').localeCompare(String(b.assetId || '')));
+                        setVendorFireEquipment(list);
+                    })
+                    .catch((error) => {
+                        console.warn('Emergency equipment fetch blocked or unavailable.', error);
+                    })
+                : Promise.resolve();
             // Reference them so the linter doesn't strip the promises.
             void backgroundFetchIncidents;
             void backgroundFetchPermits;
+            void backgroundFetchFireEquip;
 
             const nextSession = {
                 email: cleanEmail,
@@ -781,6 +805,103 @@ export default function VendorPortal() {
         resetPortalState(true);
         setLoading(false);
         await signOut(auth).catch(() => {});
+    };
+
+    // ── Fire-equipment vendor actions ─────────────────────────────────────────
+    // The vendor physically picks up an extinguisher for refilling or HPT and
+    // returns it later. Each action writes a refillStatus + audit fields onto
+    // the emergencyEquipment node so the org admin's repository surfaces a
+    // yellow "IN PROCESS OF REFILLING" badge and the new compliance filter
+    // can list every unit the vendor still has off-site.
+    const FIRE_EXT_REFILL_YEARS = {
+        'Water (Stored Pressure)': 3, 'Water (Gas Cartridge)': 1,
+        'Mechanical Foam (Stored Pressure)': 3, 'Mechanical Foam (Gas Cartridge)': 1,
+        'ABC Powder / DCP (Stored Pressure)': 3, 'ABC Powder / DCP (Gas Cartridge)': 1,
+        'Carbon Dioxide (CO2)': 5, 'Clean Agent / Halotron': 3,
+        'Modular Fire Extinguisher': 3
+    };
+    const FIRE_EXT_HPT_YEARS = {
+        'Water (Stored Pressure)': 3, 'Water (Gas Cartridge)': 3,
+        'Mechanical Foam (Stored Pressure)': 3, 'Mechanical Foam (Gas Cartridge)': 3,
+        'ABC Powder / DCP (Stored Pressure)': 3, 'ABC Powder / DCP (Gas Cartridge)': 3,
+        'Carbon Dioxide (CO2)': 5, 'Clean Agent / Halotron': 3,
+        'Modular Fire Extinguisher': 5
+    };
+
+    const addYearsIso = (years) => {
+        const d = new Date();
+        d.setFullYear(d.getFullYear() + (Number(years) || 0));
+        return d.toISOString().split('T')[0];
+    };
+
+    const handleFireEquipPickup = async (eq, kind /* 'Refill' | 'HPT' */) => {
+        if (!eq?.firebaseKey) return;
+        if (eq.refillStatus === 'Sent for Refill' || eq.refillStatus === 'Sent for HPT') {
+            alert('This extinguisher is already marked as taken. Mark it as returned first.');
+            return;
+        }
+        const confirmMsg = kind === 'HPT'
+            ? `Mark extinguisher ${eq.assetId || ''} as TAKEN FOR HPT?\n\nThe site admin will see a yellow alert until you return it.`
+            : `Mark extinguisher ${eq.assetId || ''} as TAKEN FOR REFILL?\n\nThe site admin will see a yellow alert until you return it.`;
+        if (!window.confirm(confirmMsg)) return;
+        setFireEquipBusyId(eq.firebaseKey);
+        try {
+            const nowIso = new Date().toISOString();
+            const update = {
+                refillStatus: kind === 'HPT' ? 'Sent for HPT' : 'Sent for Refill',
+                refillVendorId: vendorSession?.contractorId || '',
+                refillVendorName: vendor?.companyName || '',
+                refillStartDate: nowIso,
+                lastUpdated: nowIso,
+                updatedBy: vendorSession?.email || ''
+            };
+            await dbUpdate(`organizations/${vendorSession.orgId}/emergencyEquipment/${eq.firebaseKey}`, update);
+            setVendorFireEquipment(prev => prev.map(item => item.firebaseKey === eq.firebaseKey ? { ...item, ...update } : item));
+        } catch (err) {
+            console.error('[handleFireEquipPickup] failed:', err);
+            alert('Failed to mark extinguisher: ' + (err?.message || 'Unknown error'));
+        } finally {
+            setFireEquipBusyId(null);
+        }
+    };
+
+    const handleFireEquipReturn = async (eq) => {
+        if (!eq?.firebaseKey) return;
+        if (eq.refillStatus !== 'Sent for Refill' && eq.refillStatus !== 'Sent for HPT') {
+            alert('This extinguisher is not currently marked as taken.');
+            return;
+        }
+        const wasHpt = eq.refillStatus === 'Sent for HPT';
+        if (!window.confirm(`Mark extinguisher ${eq.assetId || ''} as RETURNED?\n\nThis will reset the ${wasHpt ? 'HPT' : 'refill'} date to today and clear the yellow alert in the admin's repository.`)) return;
+        setFireEquipBusyId(eq.firebaseKey);
+        try {
+            const nowIso = new Date().toISOString();
+            const todayStr = nowIso.split('T')[0];
+            const update = {
+                refillStatus: 'In Service',
+                refillVendorId: '',
+                refillVendorName: '',
+                refillStartDate: '',
+                lastUpdated: nowIso,
+                updatedBy: vendorSession?.email || ''
+            };
+            if (wasHpt) {
+                update.lastHptDate = todayStr;
+                const yrs = FIRE_EXT_HPT_YEARS[eq.extinguisherType];
+                if (yrs) update.nextHptDate = addYearsIso(yrs);
+            } else {
+                update.lastRefillDate = todayStr;
+                const yrs = FIRE_EXT_REFILL_YEARS[eq.extinguisherType];
+                if (yrs) update.nextRefillDate = addYearsIso(yrs);
+            }
+            await dbUpdate(`organizations/${vendorSession.orgId}/emergencyEquipment/${eq.firebaseKey}`, update);
+            setVendorFireEquipment(prev => prev.map(item => item.firebaseKey === eq.firebaseKey ? { ...item, ...update } : item));
+        } catch (err) {
+            console.error('[handleFireEquipReturn] failed:', err);
+            alert('Failed to mark extinguisher returned: ' + (err?.message || 'Unknown error'));
+        } finally {
+            setFireEquipBusyId(null);
+        }
     };
 
     const getComplianceStatus = (docsData) => {
@@ -1268,6 +1389,19 @@ export default function VendorPortal() {
                         >
                             <i className="fas fa-hard-hat mr-2"></i> Activities & Safety
                         </button>
+                        {FIRE_EQUIPMENT_SERVICE_TYPES.includes(vendor.serviceType) && (
+                            <button
+                                onClick={() => setActiveTab('fireEquipment')}
+                                className={`pb-3 px-4 text-xs font-bold uppercase tracking-widest transition-all ${activeTab === 'fireEquipment' ? 'text-red-400 border-b-2 border-red-500' : 'text-slate-500 hover:text-slate-300 border-b-2 border-transparent'}`}
+                            >
+                                <i className="fas fa-fire-extinguisher mr-2"></i> Fire Equipment
+                                {vendorFireEquipment.filter(eq => eq.refillStatus === 'Sent for Refill' || eq.refillStatus === 'Sent for HPT').length > 0 && (
+                                    <span className="ml-2 inline-flex items-center justify-center bg-yellow-500/20 text-yellow-300 border border-yellow-500/40 px-2 py-0.5 rounded-full text-[9px] font-mono">
+                                        {vendorFireEquipment.filter(eq => eq.refillStatus === 'Sent for Refill' || eq.refillStatus === 'Sent for HPT').length} in progress
+                                    </span>
+                                )}
+                            </button>
+                        )}
                     </div>
 
                     {activeTab === 'documentation' && (
@@ -1610,6 +1744,100 @@ export default function VendorPortal() {
                                             Excellent! Zero Incidents Recorded.
                                         </div>
                                     )}
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {activeTab === 'fireEquipment' && FIRE_EQUIPMENT_SERVICE_TYPES.includes(vendor.serviceType) && (
+                        <div className="animate-in fade-in">
+                            <div className="bg-slate-900/60 backdrop-blur-md rounded-3xl border border-slate-700 shadow-xl overflow-hidden">
+                                <div className="p-6 border-b border-slate-800 bg-slate-950/50 flex flex-wrap items-center justify-between gap-3">
+                                    <div>
+                                        <h3 className="text-xl font-bold text-red-400 flex items-center gap-3"><i className="fas fa-fire-extinguisher"></i> Fire Extinguisher Register</h3>
+                                        <p className="text-xs text-slate-400 mt-1">Fire extinguishers at the sites you are authorised for. Mark a unit as picked up for refilling or HPT — the site admin sees a yellow "In Process of Refilling" alert until you mark it returned.</p>
+                                    </div>
+                                    <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500 bg-slate-950 px-3 py-2 rounded-lg border border-slate-800">
+                                        {vendorFireEquipment.length} unit{vendorFireEquipment.length !== 1 ? 's' : ''} visible
+                                    </div>
+                                </div>
+                                <div className="overflow-x-auto">
+                                    <table className="w-full text-left text-sm min-w-[900px]">
+                                        <thead className="bg-slate-950 border-b border-slate-800 text-[10px] uppercase tracking-widest font-bold text-slate-500">
+                                            <tr>
+                                                <th className="p-4 pl-6">Asset / Type</th>
+                                                <th className="p-4">Location</th>
+                                                <th className="p-4">Refill Due</th>
+                                                <th className="p-4">HPT Due</th>
+                                                <th className="p-4">Status</th>
+                                                <th className="p-4 pr-6 text-right">Action</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-slate-800/50 text-slate-300">
+                                            {vendorFireEquipment.map(eq => {
+                                                const inProgress = eq.refillStatus === 'Sent for Refill' || eq.refillStatus === 'Sent for HPT';
+                                                const busy = fireEquipBusyId === eq.firebaseKey;
+                                                return (
+                                                    <tr key={eq.firebaseKey} className={`transition-colors ${inProgress ? 'bg-yellow-500/5' : 'hover:bg-slate-800/40'}`}>
+                                                        <td className="p-4 pl-6">
+                                                            <div className="font-bold text-white flex items-center gap-2">
+                                                                <i className="fas fa-fire-extinguisher text-red-400"></i>
+                                                                <span className="font-mono text-orange-400">{eq.assetId || '—'}</span>
+                                                            </div>
+                                                            <div className="text-[10px] text-slate-500 mt-0.5">Site: <span className="font-bold text-blue-400">{eq.siteId}</span></div>
+                                                            {eq.extinguisherType && <div className="text-[9px] text-slate-400 uppercase font-mono mt-1 border border-slate-700 px-2 py-0.5 rounded inline-block bg-slate-900">{eq.extinguisherType}</div>}
+                                                        </td>
+                                                        <td className="p-4 text-xs font-bold text-slate-400">{eq.location || '—'}</td>
+                                                        <td className="p-4 font-mono text-xs">{eq.nextRefillDate || '—'}</td>
+                                                        <td className="p-4 font-mono text-xs">{eq.nextHptDate || '—'}</td>
+                                                        <td className="p-4 align-top py-4">
+                                                            {inProgress ? (
+                                                                <span className="bg-yellow-500/15 text-yellow-300 border border-yellow-500/40 px-2 py-1 rounded text-[9px] font-bold uppercase tracking-widest inline-block">
+                                                                    {eq.refillStatus === 'Sent for HPT' ? 'In Process of HPT' : 'In Process of Refilling'}
+                                                                </span>
+                                                            ) : (
+                                                                <span className="bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 px-2 py-1 rounded text-[9px] font-bold uppercase tracking-widest inline-block">In Service</span>
+                                                            )}
+                                                        </td>
+                                                        <td className="p-4 pr-6 text-right">
+                                                            {inProgress ? (
+                                                                <button
+                                                                    type="button"
+                                                                    disabled={busy}
+                                                                    onClick={() => handleFireEquipReturn(eq)}
+                                                                    className="bg-emerald-600 hover:bg-emerald-500 text-white border border-emerald-500/40 px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-colors disabled:opacity-50"
+                                                                >
+                                                                    {busy ? <><i className="fas fa-spinner fa-spin mr-1"></i> Saving…</> : <><i className="fas fa-check mr-1"></i> Mark Returned</>}
+                                                                </button>
+                                                            ) : (
+                                                                <div className="flex justify-end gap-2">
+                                                                    <button
+                                                                        type="button"
+                                                                        disabled={busy}
+                                                                        onClick={() => handleFireEquipPickup(eq, 'Refill')}
+                                                                        className="bg-yellow-500/10 hover:bg-yellow-500 hover:text-slate-950 text-yellow-300 border border-yellow-500/40 px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-colors disabled:opacity-50"
+                                                                    >
+                                                                        {busy ? <i className="fas fa-spinner fa-spin"></i> : <><i className="fas fa-truck-pickup mr-1"></i> Take for Refill</>}
+                                                                    </button>
+                                                                    <button
+                                                                        type="button"
+                                                                        disabled={busy}
+                                                                        onClick={() => handleFireEquipPickup(eq, 'HPT')}
+                                                                        className="bg-orange-500/10 hover:bg-orange-500 hover:text-slate-950 text-orange-300 border border-orange-500/40 px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-colors disabled:opacity-50"
+                                                                    >
+                                                                        {busy ? <i className="fas fa-spinner fa-spin"></i> : <><i className="fas fa-flask mr-1"></i> Take for HPT</>}
+                                                                    </button>
+                                                                </div>
+                                                            )}
+                                                        </td>
+                                                    </tr>
+                                                );
+                                            })}
+                                            {vendorFireEquipment.length === 0 && (
+                                                <tr><td colSpan="6" className="p-10 text-center text-slate-500 italic border-t border-slate-800">No fire extinguishers visible. Ask the site admin to grant you access to the sites where you operate.</td></tr>
+                                            )}
+                                        </tbody>
+                                    </table>
                                 </div>
                             </div>
                         </div>

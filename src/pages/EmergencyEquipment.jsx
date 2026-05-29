@@ -16,7 +16,7 @@ const STATUSES = ['Active', 'Needs Inspection', 'Out of Service', 'Missing'];
 const DUE_SOON_WINDOW_DAYS = 7;
 const INSPECTION_INTERVAL_DAYS = 30;
 
-const FIRE_EXT_TYPES = [
+export const FIRE_EXT_TYPES = [
     { name: 'Water (Stored Pressure)', refillYears: 3, hptYears: 3 },
     { name: 'Water (Gas Cartridge)', refillYears: 1, hptYears: 3 },
     { name: 'Mechanical Foam (Stored Pressure)', refillYears: 3, hptYears: 3 },
@@ -575,6 +575,11 @@ export default function EmergencyEquipment() {
                 else if (complianceFilter === 'HPT < 7 Days') {
                     if (e.type !== 'Fire Extinguisher' || !e.nextHptDate || e.nextHptDate < todayStr || e.nextHptDate > dueSoonStr) return false;
                 }
+                else if (complianceFilter === 'In Process of Refilling') {
+                    // Units a fire-equipment vendor has physically picked up for
+                    // refilling or HPT. They're flagged yellow on the row badge.
+                    if (e.type !== 'Fire Extinguisher' || (e.refillStatus !== 'Sent for Refill' && e.refillStatus !== 'Sent for HPT')) return false;
+                }
             }
 
             return true;
@@ -934,6 +939,14 @@ export default function EmergencyEquipment() {
         }
 
         if (e.type === 'Fire Extinguisher') {
+            // Yellow alert when a fire-equipment vendor has taken the unit off-site
+            // for refilling or HPT. Surfaced above the schedule badges because the
+            // unit is physically absent and shouldn't be expected at its station.
+            if (e.refillStatus === 'Sent for Refill') {
+                badges.push(<span key="refill-in-progress" className="bg-yellow-500/15 text-yellow-300 border border-yellow-500/40 px-2 py-1 rounded text-[9px] font-bold uppercase tracking-widest animate-pulse">IN PROCESS OF REFILLING{e.refillVendorName ? ` — ${e.refillVendorName}` : ''}</span>);
+            } else if (e.refillStatus === 'Sent for HPT') {
+                badges.push(<span key="hpt-in-progress" className="bg-yellow-500/15 text-yellow-300 border border-yellow-500/40 px-2 py-1 rounded text-[9px] font-bold uppercase tracking-widest animate-pulse">IN PROCESS OF HPT{e.refillVendorName ? ` — ${e.refillVendorName}` : ''}</span>);
+            }
             if (e.nextRefillDate) {
                 if (e.nextRefillDate < todayStr) badges.push(<span key="refill-exp" className="bg-red-900/30 text-red-400 border border-red-500/30 px-2 py-1 rounded text-[9px] font-bold uppercase tracking-widest animate-pulse">REFILL OVERDUE</span>);
                 else if (e.nextRefillDate <= dueSoonStr) badges.push(<span key="refill-due" className="bg-orange-900/30 text-orange-400 border border-orange-500/30 px-2 py-1 rounded text-[9px] font-bold uppercase tracking-widest">REFILL DUE SOON</span>);
@@ -1198,6 +1211,7 @@ export default function EmergencyEquipment() {
                                         <option value="HPT Overdue">HPT Overdue</option>
                                         <option value="Refill < 7 Days">Refill Due In 7 Days</option>
                                         <option value="HPT < 7 Days">HPT Due In 7 Days</option>
+                                        <option value="In Process of Refilling">In Process of Refilling</option>
                                     </select>
                                 </div>
                                 <div className="ml-auto text-xs text-slate-500 font-bold bg-slate-950 px-3 py-2 rounded-lg border border-slate-800">

@@ -27,10 +27,15 @@ export const WAH_EQUIP_OPTIONS = ["Fixed Scaffold", "Mobile Scaffold", "A-Frame 
 
 // --- CONTRACTOR CONSTANTS ---
 export const SERVICE_TYPES = [
-    'General / Housekeeping', 'Construction / Civil', 'Electrical', 'Mechanical', 
+    'General / Housekeeping', 'Construction / Civil', 'Electrical', 'Mechanical',
     'Chemical / Hazardous', 'Supply of Goods', 'Transportation',
-    'Manpower Supply (Technical)', 'Manpower Supply (Non-Technical)'
+    'Manpower Supply (Technical)', 'Manpower Supply (Non-Technical)',
+    'Fire Fighting Equipment'
 ];
+
+// Service types that should see the Fire Equipment tab in the vendor portal
+// (so they can mark extinguishers as taken for refill / HPT).
+export const FIRE_EQUIPMENT_SERVICE_TYPES = ['Fire Fighting Equipment'];
 
 export const GOODS_TYPES = ['PPE', 'Chemicals', 'Machinery', '4M', 'Other'];
 
@@ -60,6 +65,14 @@ export const getMandatoryDocs = (serviceType, goodsType = '') => {
         baseDocs.push({ type: 'Transport Carrier License', isMandatory: true, status: 'Pending' });
     } else if (serviceType === 'Supply of Goods' && goodsType === 'Chemicals') {
         baseDocs.push({ type: 'PESO License / SDS Declarations', isMandatory: true, status: 'Pending' });
+    } else if (serviceType === 'Fire Fighting Equipment') {
+        // Indian regulatory: refill/HPT vendors operate under IS 2190, IS 15683
+        // and state fire-services licensing. Refill activity also touches
+        // explosive/pressure stores so PESO + BIS certification are required.
+        baseDocs.push({ type: 'State Fire Services Refilling License', isMandatory: true, status: 'Pending' });
+        baseDocs.push({ type: 'BIS / IS 2190 Service Certification', isMandatory: true, status: 'Pending' });
+        baseDocs.push({ type: 'PESO License (Refilling / HPT Station)', isMandatory: true, status: 'Pending' });
+        baseDocs.push({ type: 'Workmen Compensation Policy', isMandatory: true, status: 'Pending' });
     }
 
     return baseDocs.map(d => ({ ...d, id: Math.random().toString(36).substr(2, 9), name: d.type }));
