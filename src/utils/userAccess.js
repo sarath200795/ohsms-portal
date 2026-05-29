@@ -33,9 +33,17 @@ export const normalizeStoredUserRecord = (payload = {}) => {
     const collectExtraSites = (raw) => Array.isArray(raw)
         ? raw.filter(Boolean).map((site) => String(site).trim()).filter(Boolean)
         : [];
+    // USER and SITE_OWNER both get the assignedSite forcibly merged into
+    // accessibleSites — the modal renders the Primary site as a locked-ticked
+    // chip in the multi-site picker so it's NOT in `payload.accessibleSites`,
+    // and dropping it here was leaving vendor accounts with an empty
+    // accessibleSitesMap. Empty map = RTDB rules deny every site-scoped read
+    // (emergencyEquipment, ptwRecords, etc.), which is why the vendor portal
+    // Fire Equipment tab kept showing zero rows even when assignedSite was
+    // visibly saved on the user record.
     const accessibleSites = role === GLOBAL_OWNER_ROLE
         ? []
-        : role === SITE_OWNER_ROLE
+        : (role === SITE_OWNER_ROLE || role === USER_ROLE)
             ? Array.from(new Set(
                 [assignedSite, ...collectExtraSites(payload.accessibleSites)].filter(Boolean)
             ))
@@ -85,9 +93,13 @@ export const normalizeUserAccessPayload = (payload = {}, { editingExistingUser =
     const collectExtraSites = (raw) => Array.isArray(raw)
         ? raw.filter(Boolean).map((site) => String(site).trim()).filter(Boolean)
         : [];
+    // Same logic as normalizeStoredUserRecord — see the comment block there.
+    // USER role also gets assignedSite folded into accessibleSites so the
+    // derived accessibleSitesMap is non-empty and RTDB rules allow
+    // site-scoped reads.
     const accessibleSites = role === GLOBAL_OWNER_ROLE
         ? []
-        : role === SITE_OWNER_ROLE
+        : (role === SITE_OWNER_ROLE || role === USER_ROLE)
             ? Array.from(new Set(
                 [assignedSite, ...collectExtraSites(payload.accessibleSites)].filter(Boolean)
             ))
