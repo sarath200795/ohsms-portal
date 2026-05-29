@@ -406,6 +406,11 @@ export default function EmergencyEquipment() {
             setIsPublic(true);
 
             const fetchPublicData = async () => {
+                console.log('[emergency-equipment] public QR fetch start:', {
+                    orgId: publicOrgId,
+                    scanId: publicScanId,
+                    path: `organizations/${publicOrgId}/emergencyEquipment/${publicScanId}`
+                });
                 try {
                     // dbGet returns the unwrapped value or null — NOT a Firebase
                     // snapshot — so calling .exists()/.val() on it throws a
@@ -413,12 +418,14 @@ export default function EmergencyEquipment() {
                     // (Same bug landed in PTW's public QR path.) Adapter-aware
                     // null check + direct property spread instead.
                     const eqData = await dbGet(`organizations/${publicOrgId}/emergencyEquipment/${publicScanId}`);
+                    console.log('[emergency-equipment] public QR dbGet result:', eqData ? `record loaded (siteId=${eqData.siteId}, type=${eqData.type}, assetId=${eqData.assetId})` : 'NULL — record missing or rule denied');
                     if (eqData) {
                         const targetEq = { firebaseKey: publicScanId, ...eqData };
                         const publicSite = params.get('site') || targetEq.siteId || 'All';
                         setSiteFilter(publicSite);
                         setInspectData(createInspectionDraft(targetEq, { qrScanMode: true, notes: targetEq.notes || '' }));
                         setView('inspect');
+                        console.log('[emergency-equipment] public QR view ready — inspectData set');
                     }
                 } catch (err) {
                     console.error('[emergency-equipment] public QR fetch failed:', err);
