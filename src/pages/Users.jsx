@@ -554,15 +554,21 @@ export default function Users() {
                         }
 
                         // vendorPortalUsers — the isolated collection the vendor
-                        // portal reads from. Mirror the user record but with the
-                        // contractor link.
+                        // portal reads from. Mirror the user record's site
+                        // access so the vendor portal's queries against
+                        // emergencyEquipment / ptwRecords / inspectionRecords
+                        // see the correct site set on first sign-in. (Earlier
+                        // builds wrote empty strings here, which is why even
+                        // freshly-approved vendors found their Fire Equipment
+                        // tab and Add Employee site dropdown empty.)
                         await dbSet(`organizations/${session.orgId}/vendorPortalUsers/${editingUserId}`, {
                             name: meta.contactPerson || savePayload.name || meta.companyName || 'Vendor Portal User',
                             email: savePayload.email,
                             role: 'User',
                             status: 'Active',
-                            assignedSite: '',
-                            accessibleSites: [],
+                            assignedSite: savePayload.assignedSite || seededSites[0] || '',
+                            accessibleSites: seededSites,
+                            accessibleSitesMap: savePayload.accessibleSitesMap || {},
                             accessibleModules: [],
                             vendorPortal: true,
                             portalLinkedContractorId: contractorKey,
@@ -576,6 +582,64 @@ export default function Users() {
                         // user, just the vendor-side wiring needs manual
                         // attention. Surface in the console for diagnosis.
                         console.warn('[Users.handleSaveUser] vendor side-effects failed (user is still approved):', vendorErr);
+                    }
+                }
+
+                // ── Vendor-user EDIT side-effects ───────────────────────
+                // The approval block above runs only on the initial Pending →
+                // Active flip. When an admin LATER edits a vendor user (e.g.
+                // grants new sites so the vendor can see equipment at a new
+                // location), we still need to push those sites onto the
+                // contractor.allocatedSites and into the vendorPortalUsers
+                // record — otherwise the vendor portal keeps reading stale
+                // empty arrays and the Fire Equipment tab / Add Employee
+                // dropdowns stay blank. Runs idempotently on every save.
+                const isVendorEdit =
+                    !isApprovingPending &&
+                    (editingUser?.vendorPortal === true || savePayload.vendorPortal === true);
+                if (isVendorEdit) {
+                    try {
+                        const nowIso = new Date().toISOString();
+                        const seededSites = Array.isArray(savePayload.accessibleSites)
+                            ? savePayload.accessibleSites.filter((s) => s && s !== 'GLOBAL')
+                            : [];
+
+                        // Find the linked contractor by portalUid → editingUserId.
+                        const contractorSnap = await dbGet(`organizations/${session.orgId}/contractors`).catch(() => null);
+                        let linkedContractorKey = null;
+                        if (contractorSnap && typeof contractorSnap === 'object') {
+                            const match = Object.entries(contractorSnap).find(([, c]) => c?.portalUid === editingUserId);
+                            if (match) linkedContractorKey = match[0];
+                        }
+
+                        if (linkedContractorKey) {
+                            await dbUpdate(`organizations/${session.orgId}/contractors/${linkedContractorKey}`, {
+                                allocatedSites: seededSites,
+                                siteId: seededSites[0] || '',
+                                lastUpdated: nowIso,
+                                updatedBy: session.email
+                            }).catch((syncErr) => {
+                                console.warn('[Users.handleSaveUser] could not sync contractor allocatedSites on edit:', syncErr);
+                            });
+                        }
+
+                        // Mirror onto vendorPortalUsers so the vendor portal's
+                        // own queries (readVendorSiteCollection + the
+                        // emergency-equipment fan-out) see the new site set
+                        // without waiting for the next backfill cycle.
+                        await dbUpdate(`organizations/${session.orgId}/vendorPortalUsers/${editingUserId}`, {
+                            accessibleSites: seededSites,
+                            accessibleSitesMap: savePayload.accessibleSitesMap || {},
+                            assignedSite: savePayload.assignedSite || seededSites[0] || '',
+                            updatedBy: session.email,
+                            updatedAt: nowIso
+                        }).catch((syncErr) => {
+                            console.warn('[Users.handleSaveUser] could not sync vendorPortalUsers on edit:', syncErr);
+                        });
+                    } catch (vendorEditErr) {
+                        // Non-fatal — user record is already saved; only the
+                        // downstream mirrors failed.
+                        console.warn('[Users.handleSaveUser] vendor edit side-effects failed:', vendorEditErr);
                     }
                 }
 

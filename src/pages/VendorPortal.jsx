@@ -616,6 +616,7 @@ export default function VendorPortal() {
             const backgroundFetchFireEquip = isFireEquipVendor && fireSites.length > 0
                 ? (async () => {
                     try {
+                        console.log('[vendor-portal] fetching fire extinguishers for sites:', fireSites);
                         let merged = {};
                         if (fireSites.includes('__GLOBAL__')) {
                             const snap = await dbGet(`organizations/${orgId}/emergencyEquipment`).catch(() => null);
@@ -623,7 +624,10 @@ export default function VendorPortal() {
                         } else {
                             const perSite = await Promise.all(fireSites.map(async (siteId) => {
                                 try {
-                                    return await dbQuery(`organizations/${orgId}/emergencyEquipment`, 'siteId', siteId) || {};
+                                    const result = await dbQuery(`organizations/${orgId}/emergencyEquipment`, 'siteId', siteId);
+                                    const rows = result || {};
+                                    console.log(`[vendor-portal] site ${siteId}: ${Object.keys(rows).length} equipment record(s)`);
+                                    return rows;
                                 } catch (err) {
                                     console.warn(`[vendor-portal] emergency equipment read blocked for site ${siteId}:`, err);
                                     return {};
@@ -634,12 +638,18 @@ export default function VendorPortal() {
                         const list = safeArrWithKeys(merged)
                             .filter(eq => eq.type === 'Fire Extinguisher')
                             .sort((a, b) => String(a.siteId || '').localeCompare(String(b.siteId || '')) || String(a.assetId || '').localeCompare(String(b.assetId || '')));
+                        console.log(`[vendor-portal] total fire extinguishers visible: ${list.length}`);
                         setVendorFireEquipment(list);
                     } catch (error) {
                         console.warn('Emergency equipment fetch failed:', error);
                     }
                 })()
-                : Promise.resolve();
+                : (() => {
+                    if (isFireEquipVendor) {
+                        console.warn('[vendor-portal] no allocated sites visible to this fire-equipment vendor — admin needs to grant site access via Users → Edit.');
+                    }
+                    return Promise.resolve();
+                })();
             // Reference them so the linter doesn't strip the promises.
             void backgroundFetchIncidents;
             void backgroundFetchPermits;
