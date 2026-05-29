@@ -526,31 +526,28 @@ export default function EmergencyEquipment() {
                     // signing in to inspect their site's extinguisher would
                     // never find the record in loadedEq (the rule blocked
                     // the list read entirely; loadedEq is []). Direct fetch
-                    // by firebaseKey bypasses that — the $id .read rule was
-                    // opened to data.exists() in the latest rules, so any
-                    // existing record returns its data.
+                    // by firebaseKey bypasses that — the $id .read rule is
+                    // data.exists() so any existing record returns its data.
+                    //
+                    // IMPORTANT: don't use the REST helper here. After sign-in
+                    // the SDK is already connected to the right project (the
+                    // field portal's login set up the auth session), and
+                    // firing a REST fetch on top of it just burns a browser
+                    // socket and can trip ERR_INSUFFICIENT_RESOURCES on
+                    // memory-tight mobile browsers. REST is reserved for the
+                    // public-scan path where the SDK might not be initialized.
                     let targetEq = loadedEq.find(e => e.firebaseKey === scanId);
                     if (!targetEq) {
-                        console.log('[emergency-equipment] auth scan: collection read denied or record missing from list; fetching direct…');
-                        // Try the QR's embedded databaseURL first (multi-tenant)
-                        // then fall back to the locally-init'd SDK.
-                        const explicitDbUrl = sanitizeDatabaseURL(new URLSearchParams(location.search).get('db'));
-                        let eqData = null;
-                        if (explicitDbUrl) {
-                            try {
-                                eqData = await restReadPublic(explicitDbUrl, `organizations/${sess.orgId}/emergencyEquipment/${scanId}`);
-                            } catch (err) {
-                                console.warn('[emergency-equipment] auth scan REST read failed:', err.message);
-                            }
-                        }
-                        if (!eqData) {
-                            eqData = await dbGet(`organizations/${sess.orgId}/emergencyEquipment/${scanId}`).catch(() => null);
-                        }
+                        console.log('[emergency-equipment] auth scan: collection read denied or record missing from list; fetching direct via SDK…');
+                        const eqData = await dbGet(`organizations/${sess.orgId}/emergencyEquipment/${scanId}`).catch((err) => {
+                            console.warn('[emergency-equipment] auth scan direct SDK read failed:', err?.message || err);
+                            return null;
+                        });
                         if (eqData) {
                             targetEq = { firebaseKey: scanId, ...eqData };
-                            console.log('[emergency-equipment] auth scan: record loaded directly');
+                            console.log('[emergency-equipment] auth scan: record loaded directly via SDK');
                         } else {
-                            console.warn('[emergency-equipment] auth scan: direct fetch returned null — record missing or rule denied');
+                            console.warn('[emergency-equipment] auth scan: direct SDK read returned null — record missing or rule denied');
                         }
                     }
                     if (targetEq) {
