@@ -20,6 +20,7 @@ import { useNavigate } from 'react-router-dom';
 import authService from '../services/auth/index.js';
 import { dbGet, dbSet } from '../services/db/index.js';
 import { firebaseConfig } from '../config/firebase.js';
+import { QRCodeSVG } from 'qrcode.react';
 import { normalizeSessionPermissions } from '../utils/permissions';
 import { SERVICE_TYPES, getMandatoryDocs } from '../utils/constants';
 import {
@@ -200,6 +201,11 @@ export default function Login() {
     // When true, the picker also renders entries with `hidden: true` so the
     // user can un-hide them. Toggled by the "Show hidden (N)" link below.
     const [showHidden, setShowHidden]           = useState(false);
+    // Multi-device share modal — when set, renders a QR + link that another
+    // phone/tablet can scan or visit to auto-import the org's Firebase
+    // config into THEIR localStorage. Solves the "I can see my orgs on my
+    // laptop but my phone is empty" problem.
+    const [shareOrg, setShareOrg]               = useState(null);
 
     const isJoinMode = authMode === 'join';
 
@@ -245,6 +251,33 @@ export default function Login() {
 
     // ── load org registry + restore pickedOrg after a DB-switch reload ──────────
     useEffect(() => {
+        // Multi-device share import — if the URL carries ?addOrg=<base64-json>,
+        // decode it, save it to the registry, then strip the param so a refresh
+        // doesn't try to re-import the same entry.
+        try {
+            const params = new URLSearchParams(window.location.search);
+            const encoded = params.get('addOrg');
+            if (encoded) {
+                try {
+                    const decoded = JSON.parse(atob(encoded));
+                    if (decoded?.orgId && decoded?.dbAdapter) {
+                        // Use the same saveOrgToRegistry path that /setup uses,
+                        // so the new entry is identical to a manually-configured
+                        // one — and existing entries with the same orgId get
+                        // merged/updated rather than duplicated.
+                        saveOrgToRegistry(decoded);
+                        // Strip the param from the URL so a refresh doesn't
+                        // re-import; the saved entry is now part of the picker.
+                        const url = new URL(window.location.href);
+                        url.searchParams.delete('addOrg');
+                        window.history.replaceState({}, '', url.pathname + (url.searchParams.toString() ? `?${url.searchParams}` : ''));
+                    }
+                } catch (err) {
+                    console.warn('[Login] addOrg import failed — bad payload', err);
+                }
+            }
+        } catch { /* no-op */ }
+
         setOrgRegistry(getOrgRegistry());
 
         // Read the orgId of any existing session so the active-indicator logic
@@ -260,6 +293,28 @@ export default function Login() {
             sessionStorage.removeItem('ohsms_picked_org');
         }
     }, []);
+
+    // Build the share URL that a SECOND device can scan/visit to auto-import
+    // an org config. The Firebase config in the entry is already client-public
+    // (it ships in every JS bundle), so encoding it into a URL doesn't expose
+    // anything new.
+    const buildShareUrl = (entry) => {
+        if (!entry) return '';
+        const payload = {
+            orgId: entry.orgId,
+            orgName: entry.orgName,
+            logoBase64: entry.logoBase64 || null,
+            dbAdapter: entry.dbAdapter,
+            firebaseConfig: entry.firebaseConfig || null,
+            restUrl: entry.restUrl || null
+        };
+        try {
+            const encoded = btoa(JSON.stringify(payload));
+            return `${window.location.origin}/login?addOrg=${encoded}`;
+        } catch {
+            return '';
+        }
+    };
 
     // ── pre-flight: verify DB is reachable on mount ────────────────────────────
     useEffect(() => {
@@ -756,6 +811,29 @@ export default function Login() {
                                                     }`}>
                                                         {isCurrent ? 'Sign In →' : 'Switch DB & Sign In →'}
                                                     </span>
+
+                                                    {/* Share to another device — opens a modal with a
+                                                        QR code + link. Scanning the QR / opening the
+                                                        link on a phone or new browser auto-imports
+                                                        this org's config into THAT device's localStorage
+                                                        so it shows up in the picker there too. */}
+                                                    <span
+                                                        role="button"
+                                                        tabIndex={0}
+                                                        aria-label={`Share ${entry.orgName} to another device`}
+                                                        title="Share to another device"
+                                                        onClick={(e) => { e.stopPropagation(); e.preventDefault(); setShareOrg(entry); }}
+                                                        onKeyDown={(e) => {
+                                                            if (e.key === 'Enter' || e.key === ' ') {
+                                                                e.stopPropagation();
+                                                                e.preventDefault();
+                                                                setShareOrg(entry);
+                                                            }
+                                                        }}
+                                                        className="absolute left-2 top-2 flex h-6 w-6 items-center justify-center rounded-full border border-slate-300 bg-white text-[10px] font-bold text-slate-400 opacity-0 transition-opacity duration-150 hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-600 group-hover:opacity-100 focus:opacity-100"
+                                                    >
+                                                        ⤴
+                                                    </span>
                                                 </button>
                                             );
                                         })}
@@ -1128,6 +1206,74 @@ export default function Login() {
                 </section>
 
             </div>
+
+            {/* Multi-device share modal — QR + link to import org config on
+                another device. Rendered at the top level so it overlays the
+                whole login screen. */}
+            {shareOrg && (() => {
+                const url = buildShareUrl(shareOrg);
+                return (
+                    <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={() => setShareOrg(null)}>
+                        <div className="relative w-full max-w-md rounded-3xl bg-white shadow-2xl border border-slate-200 overflow-hidden" onClick={(e) => e.stopPropagation()}>
+                            <div className="p-6 border-b border-slate-200 bg-gradient-to-br from-slate-50 to-orange-50/40">
+                                <button
+                                    type="button"
+                                    onClick={() => setShareOrg(null)}
+                                    className="absolute right-3 top-3 flex h-8 w-8 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                                    aria-label="Close"
+                                >
+                                    <i className="fas fa-times"></i>
+                                </button>
+                                <p className="text-[10px] font-bold uppercase tracking-widest text-emerald-600 mb-2">Share to another device</p>
+                                <h2 className="text-xl font-black text-slate-900">{shareOrg.orgName}</h2>
+                                <p className="mt-1 text-xs text-slate-600">Scan the QR or open the link on a phone, tablet, or new browser to import this workspace's database configuration. The other device will see <strong>{shareOrg.orgName}</strong> in its sign-in picker.</p>
+                            </div>
+
+                            <div className="p-6 flex flex-col items-center gap-4">
+                                {url ? (
+                                    <div className="p-4 bg-white border-4 border-slate-900 rounded-2xl">
+                                        <QRCodeSVG value={url} size={200} level="M" />
+                                    </div>
+                                ) : (
+                                    <div className="p-4 bg-red-50 border border-red-200 rounded-2xl text-xs text-red-700">
+                                        Could not generate share link for this org.
+                                    </div>
+                                )}
+
+                                <div className="w-full">
+                                    <label className="text-[9px] font-bold uppercase tracking-widest text-slate-500 block mb-1">Shareable Link</label>
+                                    <div className="flex gap-2">
+                                        <input
+                                            readOnly
+                                            value={url}
+                                            onClick={(e) => e.target.select()}
+                                            className="flex-1 px-3 py-2 text-[10px] font-mono bg-slate-50 border border-slate-200 rounded-lg text-slate-700 outline-none focus:border-emerald-500"
+                                        />
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                try {
+                                                    navigator.clipboard.writeText(url);
+                                                    alert('Share link copied to clipboard. Paste it on the other device or share via email/SMS.');
+                                                } catch {
+                                                    alert('Could not access clipboard — select the link text and copy manually.');
+                                                }
+                                            }}
+                                            className="px-3 py-2 text-[10px] font-bold uppercase tracking-widest bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg transition-colors"
+                                        >
+                                            Copy
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <div className="w-full p-3 bg-amber-50 border border-amber-200 rounded-xl text-[10px] text-amber-800 leading-relaxed">
+                                    <strong className="text-amber-900">Security note:</strong> the link contains this org's public Firebase config (apiKey, databaseURL, projectId). These values are already embedded in every page bundle and are NOT a secret — but share the link only with trusted teammates. Authentication is still required to sign in.
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                );
+            })()}
         </div>
     );
 }
