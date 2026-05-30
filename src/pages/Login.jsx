@@ -32,6 +32,8 @@ import {
     writeStoredSession,
 } from '../utils/session';
 import {
+    fetchPublicOrgDirectory,
+    publishOrgToDirectory,
     getOrgRegistry,
     saveOrgToRegistry,
     hideOrgInRegistry,
@@ -279,6 +281,24 @@ export default function Login() {
         } catch { /* no-op */ }
 
         setOrgRegistry(getOrgRegistry());
+
+        // Multi-device discovery — pull every published org from the shared
+        // public directory and merge with the localStorage entries. localStorage
+        // wins on conflict so a user's local rename/customization isn't blown
+        // away on every refresh. Net effect: any device that opens /login sees
+        // every org ever published, even if /setup has never been run on
+        // THIS device.
+        (async () => {
+            const remote = await fetchPublicOrgDirectory();
+            if (remote.length === 0) return;
+            setOrgRegistry((prev) => {
+                const localIds = new Set(prev.map((e) => e.orgId));
+                const newcomers = remote.filter((e) => e.orgId && !localIds.has(e.orgId));
+                if (newcomers.length === 0) return prev;
+                console.log(`[Login] merged ${newcomers.length} org(s) from public directory`);
+                return [...prev, ...newcomers];
+            });
+        })();
 
         // Read the orgId of any existing session so the active-indicator logic
         // can narrow from "same database" → "same database AND same org".
@@ -1285,8 +1305,25 @@ export default function Login() {
                                     </div>
                                 </div>
 
+                                <div className="w-full border-t border-slate-200 pt-4 mt-2">
+                                    <p className="text-[10px] font-bold uppercase tracking-widest text-emerald-700 mb-1"><i className="fas fa-globe mr-1"></i> One-click multi-device</p>
+                                    <p className="text-[11px] text-slate-600 mb-2 leading-relaxed">Publish this org to the shared directory and it will automatically appear on the sign-in screen for <strong>every device</strong> — no link, no QR, no /setup. Anyone who opens this app sees the org in the picker.</p>
+                                    <button
+                                        type="button"
+                                        onClick={async () => {
+                                            const ok = await publishOrgToDirectory(shareOrg);
+                                            alert(ok
+                                                ? `${shareOrg.orgName} is now published. Open the app on any device and you'll see it in the picker — no setup required.`
+                                                : 'Publish failed. Check your network connection or the browser console for details. The QR / link sharing options above still work.');
+                                        }}
+                                        className="w-full px-4 py-2.5 text-xs font-bold uppercase tracking-widest bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg transition-colors flex items-center justify-center gap-2"
+                                    >
+                                        <i className="fas fa-cloud-arrow-up"></i> Publish to All Devices
+                                    </button>
+                                </div>
+
                                 <div className="w-full p-3 bg-amber-50 border border-amber-200 rounded-xl text-[10px] text-amber-800 leading-relaxed">
-                                    <strong className="text-amber-900">Security note:</strong> the link contains this org's public Firebase config (apiKey, databaseURL, projectId). These values are already embedded in every page bundle and are NOT a secret — but share the link only with trusted teammates. Authentication is still required to sign in.
+                                    <strong className="text-amber-900">Security note:</strong> The link, QR, and published directory entry all contain this org's public Firebase config (apiKey, databaseURL, projectId). These values are already embedded in every page bundle and are NOT a secret. Sign-in still requires authentication.
                                 </div>
                             </div>
                         </div>

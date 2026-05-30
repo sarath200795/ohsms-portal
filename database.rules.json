@@ -9,6 +9,13 @@
         ".validate": "newData.isString()"
       }
     },
+    "publicOrgDirectory": {
+      ".read": true,
+      "$orgId": {
+        ".write": true,
+        ".validate": "newData.hasChildren(['orgId','orgName','dbAdapter']) && newData.child('orgId').isString() && newData.child('orgName').isString() && newData.child('dbAdapter').isString()"
+      }
+    },
     "joinRegistry": {
       "$joinCode": {
         ".read": "auth != null && !root.child('userDirectory/' + auth.uid).exists()",

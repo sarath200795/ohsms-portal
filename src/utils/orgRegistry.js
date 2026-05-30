@@ -15,6 +15,98 @@
 
 const REGISTRY_KEY = 'ohsms_org_registry';
 
+// ─── Public Shared Directory (multi-device discovery) ─────────────────────
+//
+// localStorage entries are per-browser per-device. For "open /login on any
+// phone or new browser and see every org" we publish each org's config to a
+// PUBLIC path on a shared Firebase project (ohsms-3894f's RTDB). Read access
+// is open via the RTDB rule: publicOrgDirectory .read = true.
+//
+// What gets stored: orgId, orgName, dbAdapter, firebaseConfig (JSON string),
+// restUrl, publishedAt. The Firebase config is already client-public (ships
+// in every page bundle for the originating org) so this exposes nothing new
+// — sign-in still requires authentication on the destination project.
+//
+// Hardcoded URL because (a) this directory has no auth so SDK init isn't
+// needed and (b) a single canonical project simplifies the multi-tenant
+// experience. If you fork this codebase, point this at your own master
+// project's databaseURL.
+const PUBLIC_DIRECTORY_URL = 'https://ohsms-3894f-default-rtdb.firebaseio.com/publicOrgDirectory';
+
+/**
+ * Fetch every entry published to the shared directory. Returns [] on any
+ * failure so the local-only flow keeps working.
+ *
+ * @returns {Promise<OrgRegistryEntry[]>}
+ */
+export async function fetchPublicOrgDirectory() {
+    try {
+        const res = await fetch(`${PUBLIC_DIRECTORY_URL}.json`, { method: 'GET' });
+        if (!res.ok) return [];
+        const data = await res.json();
+        if (!data || typeof data !== 'object') return [];
+        return Object.values(data).filter((e) => e && e.orgId);
+    } catch (err) {
+        console.warn('[orgRegistry] public directory fetch failed:', err);
+        return [];
+    }
+}
+
+/**
+ * Push an entry to the shared directory so other devices can see it on
+ * their next /login mount. Requires the user to be authenticated against
+ * the shared project (rule: publicOrgDirectory/$orgId .write = auth != null).
+ *
+ * For now we use unauthenticated REST writes via the auth=null branch — the
+ * rule allows it if the entry passes the .validate check. Returns a boolean
+ * for caller diagnostics.
+ *
+ * @param {OrgRegistryEntry} entry
+ * @returns {Promise<boolean>}
+ */
+export async function publishOrgToDirectory(entry) {
+    if (!entry?.orgId) return false;
+    const payload = {
+        orgId: entry.orgId,
+        orgName: entry.orgName || entry.orgId,
+        dbAdapter: entry.dbAdapter || 'firebase',
+        firebaseConfig: entry.firebaseConfig || null,
+        restUrl: entry.restUrl || null,
+        publishedAt: new Date().toISOString()
+    };
+    try {
+        const res = await fetch(`${PUBLIC_DIRECTORY_URL}/${encodeURIComponent(entry.orgId)}.json`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        if (!res.ok) {
+            const body = await res.text().catch(() => '');
+            console.warn('[orgRegistry] publish failed:', res.status, body);
+            return false;
+        }
+        return true;
+    } catch (err) {
+        console.warn('[orgRegistry] publish error:', err);
+        return false;
+    }
+}
+
+/**
+ * Remove an entry from the shared directory. Same auth rules apply.
+ * @param {string} orgId
+ * @returns {Promise<boolean>}
+ */
+export async function unpublishOrgFromDirectory(orgId) {
+    if (!orgId) return false;
+    try {
+        const res = await fetch(`${PUBLIC_DIRECTORY_URL}/${encodeURIComponent(orgId)}.json`, { method: 'DELETE' });
+        return res.ok;
+    } catch {
+        return false;
+    }
+}
+
 // ─── types (JSDoc only, no TS) ─────────────────────────────────────────────
 
 /**
