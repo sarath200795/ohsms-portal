@@ -298,12 +298,19 @@ export default function Login() {
     // an org config. The Firebase config in the entry is already client-public
     // (it ships in every JS bundle), so encoding it into a URL doesn't expose
     // anything new.
+    //
+    // IMPORTANT: we DELIBERATELY exclude logoBase64. Logos are typically
+    // 50–200 KB after base64-encoding, which alone blows past every QR code
+    // capacity tier (max ~2.3 KB alphanumeric at level L on the largest
+    // version). The receiving device will just render an initial-avatar for
+    // the org name until the user re-uploads a logo on /setup or the admin
+    // pushes one out separately. The Firebase config itself is < 500 B so
+    // the URL stays well inside QR limits.
     const buildShareUrl = (entry) => {
         if (!entry) return '';
         const payload = {
             orgId: entry.orgId,
             orgName: entry.orgName,
-            logoBase64: entry.logoBase64 || null,
             dbAdapter: entry.dbAdapter,
             firebaseConfig: entry.firebaseConfig || null,
             restUrl: entry.restUrl || null
@@ -1212,6 +1219,13 @@ export default function Login() {
                 whole login screen. */}
             {shareOrg && (() => {
                 const url = buildShareUrl(shareOrg);
+                // QR codes have a hard capacity limit (~2.3 KB at the
+                // highest version + lowest error-correction). If the URL
+                // somehow ends up larger (custom firebaseConfig with
+                // App Check site key, etc.), fall back to a copy-only
+                // modal rather than letting the QRCodeSVG component
+                // throw 'Data too long' into the error boundary.
+                const urlTooLongForQr = url.length > 2000;
                 return (
                     <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={() => setShareOrg(null)}>
                         <div className="relative w-full max-w-md rounded-3xl bg-white shadow-2xl border border-slate-200 overflow-hidden" onClick={(e) => e.stopPropagation()}>
@@ -1230,13 +1244,18 @@ export default function Login() {
                             </div>
 
                             <div className="p-6 flex flex-col items-center gap-4">
-                                {url ? (
-                                    <div className="p-4 bg-white border-4 border-slate-900 rounded-2xl">
-                                        <QRCodeSVG value={url} size={200} level="M" />
-                                    </div>
-                                ) : (
+                                {!url ? (
                                     <div className="p-4 bg-red-50 border border-red-200 rounded-2xl text-xs text-red-700">
                                         Could not generate share link for this org.
+                                    </div>
+                                ) : urlTooLongForQr ? (
+                                    <div className="p-4 bg-amber-50 border border-amber-200 rounded-2xl text-xs text-amber-800 leading-relaxed">
+                                        <p className="font-bold uppercase tracking-widest text-[10px] text-amber-900 mb-1"><i className="fas fa-info-circle mr-1"></i> QR Unavailable</p>
+                                        <p>This org's Firebase config is too large to fit in a QR code ({(url.length / 1024).toFixed(1)} KB). Use the copy-link button below to share via message, email, or any text channel — the import still works.</p>
+                                    </div>
+                                ) : (
+                                    <div className="p-4 bg-white border-4 border-slate-900 rounded-2xl">
+                                        <QRCodeSVG value={url} size={200} level="L" />
                                     </div>
                                 )}
 
