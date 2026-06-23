@@ -5,7 +5,7 @@ This repo can be deployed to Vercel as two separate frontend projects:
 - `Main App`
 - `Field Portal`
 
-The repo now also includes a first Vercel-native `Incident AI` path under [api/v1.js](C:/Users/Sarath/ohsms-enterprise/api/v1.js) and [server/incident-ai](C:/Users/Sarath/ohsms-enterprise/server/incident-ai). This is the recommended direction if you want to run the incident AI flow on Vercel instead of Render.
+The repo also includes the Vercel-native `Incident AI` path under [api/v1.js](C:/Users/Sarath/ohsms-enterprise/api/v1.js) and [server/incident-ai](C:/Users/Sarath/ohsms-enterprise/server/incident-ai). This is the only supported way to run the incident AI flow now — the previous hosted external backend has been retired.
 
 ## Recommended Domains
 
@@ -76,12 +76,13 @@ Without this step, login and password-reset flows can fail even if the frontend 
 
 ## Incident AI Backend
 
-There are now two supported approaches:
+Vercel-native deployment is the only supported path:
 
-- `Vercel-native`: leave `VITE_INCIDENT_AI_API_BASE_URL` empty and let the frontend use same-origin `/api/v1`
-- `External API`: point `VITE_INCIDENT_AI_API_BASE_URL` at a Render or other hosted backend
+- leave `VITE_INCIDENT_AI_API_BASE_URL` empty
+- the frontend uses same-origin `/api/v1`
+- if you need to self-host the backend elsewhere, set `VITE_INCIDENT_AI_API_BASE_URL` to point at it
 
-The Vercel-native path already supports:
+The Vercel-native path supports:
 - Vercel Functions for incident AI endpoints
 - Vercel Blob storage for uploaded media
 - direct browser-to-Blob uploads for larger video files

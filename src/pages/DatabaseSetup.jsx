@@ -1009,15 +1009,15 @@ VITE_FIREBASE_APP_ID=1:871919638023:web:abcdef`}</CodeBlock>
                                         {
                                             badge: '🟢',
                                             name:  'Node.js + Express + PostgreSQL',
-                                            stack: 'TypeScript · Railway / Render',
+                                            stack: 'TypeScript · Railway / Fly.io',
                                             diff:  'Easy',
                                             color: 'border-green-500/20 bg-green-950/10',
-                                            desc:  'The most popular production stack. Deploy to Railway or Render in minutes. Full SQL power with structured EHS data.',
+                                            desc:  'The most popular production stack. Deploy to Railway or Fly.io in minutes. Full SQL power with structured EHS data.',
                                         },
                                         {
                                             badge: '🟢',
                                             name:  'FastAPI + PostgreSQL',
-                                            stack: 'Python · Render / Fly.io',
+                                            stack: 'Python · Fly.io / Railway',
                                             diff:  'Easy',
                                             color: 'border-green-500/20 bg-green-950/10',
                                             desc:  'Auto-generated OpenAPI docs. Perfect for data science teams or orgs already using Python.',

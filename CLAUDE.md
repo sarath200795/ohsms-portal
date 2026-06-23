@@ -95,9 +95,9 @@ Tailwind v4 (`@import "tailwindcss"` in `src/index.css`). Light theme using CSS 
 
 ### Incident AI Backend
 
-The incident smart investigation feature has two deployment modes:
-- **Vercel-native** (default): `api/v1.js` serverless function using Vercel Blob storage + Firebase Admin for durable job state. Env vars needed: `BLOB_READ_WRITE_TOKEN`, `FIREBASE_DATABASE_URL`, `FIREBASE_SERVICE_ACCOUNT_JSON`, `OPENAI_API_KEY`.
-- **External**: point `VITE_INCIDENT_AI_API_BASE_URL` at a Render/external server running `server/incident-ai`.
+The incident smart investigation feature runs as a Vercel serverless function at `api/v1.js` (Vercel Blob storage + Firebase Admin for durable job state). Env vars needed: `BLOB_READ_WRITE_TOKEN`, `FIREBASE_DATABASE_URL`, `FIREBASE_SERVICE_ACCOUNT_JSON`, `OPENAI_API_KEY`.
+
+For self-hosted setups (running `server/incident-ai/` somewhere else), set `VITE_INCIDENT_AI_API_BASE_URL` to point at it. There is no longer a hosted-external fallback — empty + non-Vercel hostname = no incident AI backend.
 
 ### Known Tech Debt (from README)
 

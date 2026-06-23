@@ -3,25 +3,30 @@ import { readStoredSession } from '../../utils/session';
 import { auth } from '../../config/firebase';
 
 const env = typeof import.meta !== 'undefined' ? import.meta.env : {};
-const INCIDENT_AI_PRODUCTION_URL = 'https://ohsms-incident-ai-api.onrender.com/api/v1';
 
 const trimTrailingSlash = (value) => String(value || '').replace(/\/+$/, '');
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+// Resolves the Incident AI backend's base URL. The previous external
+// hosted backend has been retired — the only supported path now is the
+// Vercel-native serverless function at /api/v1 (same origin) or an env
+// var override for custom self-hosted deployments.
 const getDefaultApiBaseUrl = () => {
+    // 1. Vercel-hosted production / preview — use the bundled serverless
+    //    function at same-origin /api/v1.
     if (typeof window !== 'undefined' && /(?:^|\.)vercel\.app$/i.test(window.location.hostname || '')) {
         return `${window.location.origin}/api/v1`;
     }
 
+    // 2. Explicit env var (set by users running their own incident AI
+    //    backend somewhere other than Vercel).
     const configured = trimTrailingSlash(env.VITE_INCIDENT_AI_API_BASE_URL);
     if (configured) return configured;
+
+    // 3. Local dev — assume the backend is running on the default port.
     if (env.DEV) return 'http://localhost:4010/api/v1';
-    if (typeof window !== 'undefined' && /(?:^|\.)vercel\.app$/i.test(window.location.hostname || '')) {
-        return INCIDENT_AI_PRODUCTION_URL;
-    }
-    if (typeof window !== 'undefined' && /(?:^|\.)web\.app$/i.test(window.location.hostname || '')) {
-        return INCIDENT_AI_PRODUCTION_URL;
-    }
+
+    // No usable backend URL.
     return '';
 };
 

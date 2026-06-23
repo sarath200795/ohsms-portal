@@ -53,7 +53,7 @@ const FEATURES = [
 
 const DB_OPTIONS = [
     { emoji: '🔥', name: 'Firebase',   badge: 'Default',   desc: 'Google RTDB. Free tier, real-time, no backend needed.' },
-    { emoji: '🐘', name: 'PostgreSQL', badge: 'Via REST',  desc: 'Production-grade SQL on Railway, Render, or your own server.' },
+    { emoji: '🐘', name: 'PostgreSQL', badge: 'Via REST',  desc: 'Production-grade SQL on Railway, Fly.io, or your own server.' },
     { emoji: '🍃', name: 'MongoDB',    badge: 'Via REST',  desc: 'Flexible document store. Schema-free migration from Firebase.' },
     { emoji: '⭐', name: 'Supabase',   badge: 'Easiest',   desc: 'Free PostgreSQL + built-in REST API. Zero backend code.' },
     { emoji: '📦', name: 'PocketBase', badge: 'Self-host', desc: 'Single binary. Download, run, done. Full control on any machine.' },
