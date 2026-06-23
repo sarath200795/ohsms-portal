@@ -41,6 +41,7 @@ const VendorPortal = lazyWithRetry(() => import('./pages/VendorPortal'), 'vendor
 
 const NotFound      = lazyWithRetry(() => import('./pages/NotFound'),      'not-found');
 const DatabaseSetup = lazyWithRetry(() => import('./pages/DatabaseSetup'), 'database-setup');
+const WorkspaceManagement = lazyWithRetry(() => import('./pages/WorkspaceManagement'), 'workspace-management');
 
 const ProtectedRoute = ({ children }) => {
     let session = readStoredSession();
@@ -109,6 +110,7 @@ export default function App() {
                             <Route path="/"      element={<LandingPage />} />
                             <Route path="/login" element={<Login />} />
                             <Route path="/setup" element={<DatabaseSetup />} />
+                            <Route path="/workspaces" element={<WorkspaceManagement />} />
 
                             <Route path="/vendor-portal" element={<VendorPortal />} />
                             <Route path="/field-portal" element={<FieldPortal />} />

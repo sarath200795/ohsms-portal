@@ -967,7 +967,7 @@ export default function Login() {
                             )}
 
                             {/* Bottom row of actions */}
-                            <div className="mt-4 flex items-center justify-between gap-3">
+                            <div className="mt-4 flex items-center justify-between gap-3 flex-wrap">
                                 {orgRegistry.length > 0 && (
                                     <button
                                         type="button"
@@ -975,6 +975,16 @@ export default function Login() {
                                         className="text-[11px] text-slate-500 underline transition-colors hover:text-[var(--myth-ember)]"
                                     >
                                         + Add another organisation
+                                    </button>
+                                )}
+                                {orgRegistry.length > 0 && (
+                                    <button
+                                        type="button"
+                                        onClick={() => navigate('/workspaces')}
+                                        className="text-[11px] text-slate-500 underline transition-colors hover:text-[var(--myth-ember)] flex items-center gap-1"
+                                        title="Publish, unpublish, delete, or unlink any connected workspace"
+                                    >
+                                        <i className="fas fa-sliders text-[10px]"></i> Manage workspaces
                                     </button>
                                 )}
                                 {/* Fallback: bypass picker and log in with whatever DB is active */}
