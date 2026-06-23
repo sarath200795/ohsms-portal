@@ -977,16 +977,10 @@ export default function Login() {
                                         + Add another organisation
                                     </button>
                                 )}
-                                {orgRegistry.length > 0 && (
-                                    <button
-                                        type="button"
-                                        onClick={() => navigate('/workspaces')}
-                                        className="text-[11px] text-slate-500 underline transition-colors hover:text-[var(--myth-ember)] flex items-center gap-1"
-                                        title="Publish, unpublish, delete, or unlink any connected workspace"
-                                    >
-                                        <i className="fas fa-sliders text-[10px]"></i> Manage workspaces
-                                    </button>
-                                )}
+                                {/* /workspaces is a private admin URL — not surfaced
+                                    here so a non-admin user can't even discover the
+                                    route exists. Reach it by typing the URL plus the
+                                    passphrase. */}
                                 {/* Fallback: bypass picker and log in with whatever DB is active */}
                                 <button
                                     type="button"

@@ -44,6 +44,22 @@ import {
 } from '../utils/orgRegistry.js';
 import { readStoredSession } from '../utils/session.js';
 
+// Session-lived flag so a successful unlock survives navigation within the
+// same tab, but a tab close locks the portal again.
+const PORTAL_AUTH_KEY = 'ohsms_workspace_admin_session';
+const isPortalUnlocked = () => {
+    try { return sessionStorage.getItem(PORTAL_AUTH_KEY) === '1'; }
+    catch { return false; }
+};
+const markPortalUnlocked = () => {
+    try { sessionStorage.setItem(PORTAL_AUTH_KEY, '1'); }
+    catch { /* no-op */ }
+};
+const lockPortal = () => {
+    try { sessionStorage.removeItem(PORTAL_AUTH_KEY); }
+    catch { /* no-op */ }
+};
+
 const requireAdminPassphrase = () => {
     const required = import.meta.env.VITE_ORG_DELETE_KEY || '';
     if (!required) return true; // no env var = no gate
@@ -69,6 +85,14 @@ const removeTombstoneRest = async (orgId) => {
 
 export default function WorkspaceManagement() {
     const navigate = useNavigate();
+    const requiredKey = import.meta.env.VITE_ORG_DELETE_KEY || '';
+    // Gate the WHOLE page if the env var is set. No env var = open access
+    // (single-user / dev setups). Successful unlock survives in-tab
+    // navigation via sessionStorage but a tab close locks it again.
+    const [unlocked, setUnlocked] = useState(() => !requiredKey || isPortalUnlocked());
+    const [unlockInput, setUnlockInput] = useState('');
+    const [unlockError, setUnlockError] = useState('');
+
     const [loading, setLoading] = useState(true);
     const [busyId, setBusyId] = useState(null);
     const [local, setLocal] = useState([]);
@@ -93,8 +117,9 @@ export default function WorkspaceManagement() {
     }, []);
 
     useEffect(() => {
+        if (!unlocked) return;
         reload();
-    }, [reload]);
+    }, [reload, unlocked]);
 
     // Build the unified row set: union of local + remote keyed by orgId.
     const rows = useMemo(() => {
@@ -261,6 +286,72 @@ export default function WorkspaceManagement() {
     const session = readStoredSession();
     const adminGated = Boolean(import.meta.env.VITE_ORG_DELETE_KEY);
 
+    // ── Unlock screen — shown when the page is gated by VITE_ORG_DELETE_KEY
+    //    and the user hasn't entered it yet this session.
+    if (!unlocked) {
+        return (
+            <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6 font-['Inter']">
+                <div className="w-full max-w-sm bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden">
+                    <div className="p-6 border-b border-slate-200 bg-gradient-to-br from-slate-50 to-orange-50/40">
+                        <div className="flex justify-center mb-4">
+                            <div className="h-14 w-14 rounded-2xl bg-orange-100 border border-orange-200 flex items-center justify-center text-2xl text-orange-600">
+                                <i className="fas fa-lock"></i>
+                            </div>
+                        </div>
+                        <p className="text-[10px] font-bold uppercase tracking-widest text-orange-700 text-center mb-2">Admin Only</p>
+                        <h1 className="text-2xl font-black text-slate-900 text-center">Workspace Management</h1>
+                        <p className="mt-2 text-xs text-slate-500 text-center leading-relaxed">
+                            This portal manages every connected workspace across every device. Enter the admin passphrase to unlock.
+                        </p>
+                    </div>
+                    <form
+                        onSubmit={(e) => {
+                            e.preventDefault();
+                            if (unlockInput === requiredKey) {
+                                markPortalUnlocked();
+                                setUnlocked(true);
+                                setUnlockError('');
+                                setUnlockInput('');
+                            } else {
+                                setUnlockError('Incorrect passphrase. Try again.');
+                            }
+                        }}
+                        className="p-6 space-y-3"
+                    >
+                        <div>
+                            <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500 block mb-1">Admin passphrase</label>
+                            <input
+                                type="password"
+                                autoFocus
+                                value={unlockInput}
+                                onChange={(e) => { setUnlockInput(e.target.value); setUnlockError(''); }}
+                                className="w-full px-3 py-2.5 border border-slate-300 rounded-lg text-sm outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-100"
+                                placeholder="Enter the passphrase"
+                            />
+                            {unlockError && <p className="mt-1.5 text-[11px] text-red-600 font-medium">{unlockError}</p>}
+                        </div>
+                        <button
+                            type="submit"
+                            className="w-full px-4 py-2.5 bg-orange-500 hover:bg-orange-600 text-white text-xs font-black uppercase tracking-widest rounded-lg transition-colors flex items-center justify-center gap-2"
+                        >
+                            <i className="fas fa-key"></i> Unlock
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => navigate('/login')}
+                            className="w-full text-[11px] text-slate-500 hover:text-slate-900 transition-colors pt-1"
+                        >
+                            ← Back to sign in
+                        </button>
+                    </form>
+                    <div className="p-4 bg-slate-50 border-t border-slate-200 text-[10px] text-slate-500 leading-relaxed">
+                        <strong className="text-slate-700">Passphrase source:</strong> the <code className="bg-white border border-slate-200 rounded px-1 text-slate-700">VITE_ORG_DELETE_KEY</code> environment variable, baked at build time. Unlock survives in this tab; closing the tab locks the portal again.
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
     return (
         <div className="min-h-screen bg-slate-50 text-slate-900 font-['Inter']">
             <header className="bg-white border-b border-slate-200 sticky top-0 z-10">
@@ -294,6 +385,16 @@ export default function WorkspaceManagement() {
                         >
                             <i className="fas fa-plus"></i> Onboard New
                         </button>
+                        {requiredKey && (
+                            <button
+                                type="button"
+                                onClick={() => { lockPortal(); setUnlocked(false); }}
+                                className="text-xs font-bold uppercase tracking-widest px-3 py-1.5 rounded border border-slate-200 text-slate-700 hover:bg-slate-100 flex items-center gap-1"
+                                title="Re-lock the portal until the passphrase is entered again"
+                            >
+                                <i className="fas fa-lock"></i> Lock
+                            </button>
+                        )}
                     </div>
                 </div>
             </header>
