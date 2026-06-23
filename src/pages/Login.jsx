@@ -288,16 +288,41 @@ export default function Login() {
         // away on every refresh. Net effect: any device that opens /login sees
         // every org ever published, even if /setup has never been run on
         // THIS device.
+        //
+        // Also AUTO-PUBLISH local entries that aren't in the remote directory
+        // yet — solves the chicken-and-egg problem where users expected new
+        // devices to see their orgs automatically without clicking a manual
+        // 'Publish' button on the original device. Fire-and-forget so a slow
+        // network never blocks the picker render.
         (async () => {
+            const local = getOrgRegistry();
             const remote = await fetchPublicOrgDirectory();
-            if (remote.length === 0) return;
-            setOrgRegistry((prev) => {
-                const localIds = new Set(prev.map((e) => e.orgId));
-                const newcomers = remote.filter((e) => e.orgId && !localIds.has(e.orgId));
-                if (newcomers.length === 0) return prev;
-                console.log(`[Login] merged ${newcomers.length} org(s) from public directory`);
-                return [...prev, ...newcomers];
-            });
+
+            // Merge remote → local picker (additive only).
+            if (remote.length > 0) {
+                setOrgRegistry((prev) => {
+                    const localIds = new Set(prev.map((e) => e.orgId));
+                    const newcomers = remote.filter((e) => e.orgId && !localIds.has(e.orgId));
+                    if (newcomers.length === 0) return prev;
+                    console.log(`[Login] merged ${newcomers.length} org(s) from public directory`);
+                    return [...prev, ...newcomers];
+                });
+            }
+
+            // Auto-publish any localStorage org that isn't in the remote
+            // directory yet. Skip entries flagged hidden by the user — they
+            // chose to hide them locally, don't push them publicly.
+            const remoteIds = new Set(remote.map((e) => e.orgId));
+            const toPublish = local.filter((e) => !e.hidden && !remoteIds.has(e.orgId));
+            if (toPublish.length > 0) {
+                console.log(`[Login] auto-publishing ${toPublish.length} local org(s) to public directory…`);
+                for (const entry of toPublish) {
+                    publishOrgToDirectory(entry).then((ok) => {
+                        if (ok) console.log(`[Login] auto-published ${entry.orgName} (${entry.orgId})`);
+                        else console.warn(`[Login] auto-publish failed for ${entry.orgName} (${entry.orgId})`);
+                    });
+                }
+            }
         })();
 
         // Read the orgId of any existing session so the active-indicator logic
