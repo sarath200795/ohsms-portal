@@ -55,7 +55,7 @@
     "file-saver": "^2.0.5",
     "firebase": "^12.9.0",
     "firebase-admin": "^13.6.0",
-    "framer-motion": "^11.18.2",
+    "framer-motion": "^12.41.0",
     "html5-qrcode": "^2.3.8",
     "jspdf": "^4.2.1",
     "jspdf-autotable": "^5.0.7",
