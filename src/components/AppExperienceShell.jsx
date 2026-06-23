@@ -6,6 +6,8 @@ import { AppTransitionContext } from '../hooks/useAppTransition';
 import { FIELD_PORTAL_SESSION_KEY } from '../pages/FieldApp/portalAuth';
 import { getPageTitle, getTransitionLabel } from '../utils/appShell';
 import { canAuthenticateStatus, readStoredSession } from '../utils/session';
+import { FireMarshalProvider } from '../hooks/useFireMarshalContext.jsx';
+import FireMarshalAssistant from './FireMarshalAssistant';
 
 const STICKERS = [
     { src: '/safety-sticker-helmet.svg', alt: 'Safety helmet sticker', className: 'ambient-sticker ambient-sticker--helmet' },
@@ -257,6 +259,7 @@ export default function AppExperienceShell({ children }) {
 
     return (
         <AppTransitionContext.Provider value={playTransition}>
+          <FireMarshalProvider>
             <a href="#app-main-content" className="skip-link">
                 Skip to main content
             </a>
@@ -372,6 +375,9 @@ export default function AppExperienceShell({ children }) {
                     </div>
                 </div>
             )}
+
+            <FireMarshalAssistant />
+          </FireMarshalProvider>
         </AppTransitionContext.Provider>
     );
 }
