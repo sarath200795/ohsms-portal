@@ -14,13 +14,24 @@
 //  • Live counts come from useFireMarshalContext() rather than a FleetContext.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { Component, Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence, useReducedMotion, useMotionValue, animate } from 'framer-motion';
 
 import { answer, pageGuide, suggestedQuestions } from '../utils/fireMarshalAssistant.js';
 import { useFireMarshalContext } from '../hooks/useFireMarshalContext.jsx';
 import { readStoredSession } from '../utils/session.js';
+
+// 3D character is heavy (three.js) — load it only when Sam mounts.
+const FireMarshalCharacter3D = lazy(() => import('./FireMarshalCharacter3D.jsx'));
+
+// If WebGL/three fails to load (or throws), fall back to the 2D SVG Sam.
+class AvatarBoundary extends Component {
+    constructor(props) { super(props); this.state = { failed: false }; }
+    static getDerivedStateFromError() { return { failed: true }; }
+    componentDidCatch() { /* swallow — fallback handles it */ }
+    render() { return this.state.failed ? this.props.fallback : this.props.children; }
+}
 
 const ls = {
     get: (k) => { try { return localStorage.getItem(k); } catch { return null; } },
@@ -349,7 +360,7 @@ export default function FireMarshalAssistant() {
             style={{ x: mx, y: my, position: 'fixed', bottom: 16, left: 0, zIndex: 200, touchAction: 'none' }}
             className="select-none"
         >
-            <div className="relative" style={{ transform: `scaleX(${facing})` }}>
+            <div className="relative">
                 <button
                     type="button"
                     onClick={() => setOpen((o) => !o)}
@@ -357,7 +368,11 @@ export default function FireMarshalAssistant() {
                     className="block cursor-grab active:cursor-grabbing"
                     style={{ background: 'transparent', border: 'none', padding: 0 }}
                 >
-                    <Character mode={mode} />
+                    <AvatarBoundary fallback={<Character mode={mode} />}>
+                        <Suspense fallback={<Character mode={mode} />}>
+                            <FireMarshalCharacter3D mode={mode} facing={facing} size={78} />
+                        </Suspense>
+                    </AvatarBoundary>
                 </button>
             </div>
 
@@ -373,7 +388,6 @@ export default function FireMarshalAssistant() {
                             background: '#ffffff',
                             borderColor: 'rgba(15,23,42,0.08)',
                             color: 'var(--myth-ink, #0f172a)',
-                            transform: `scaleX(${facing})`,
                         }}
                     >
                         <div className="mb-1 flex items-start justify-between gap-2">
@@ -414,7 +428,6 @@ export default function FireMarshalAssistant() {
                             background: '#ffffff',
                             borderColor: 'rgba(15,23,42,0.08)',
                             color: 'var(--myth-ink, #0f172a)',
-                            transform: `scaleX(${facing})`,
                             maxHeight: '70vh',
                         }}
                     >

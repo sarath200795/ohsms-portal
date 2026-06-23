@@ -46,6 +46,7 @@
   },
   "dependencies": {
     "@nestjs/common": "^11.1.9",
+    "@react-three/fiber": "^9.6.1",
     "@tailwindcss/vite": "^4.2.1",
     "@vercel/blob": "^2.4.0",
     "@vercel/functions": "^2.2.13",
@@ -66,6 +67,7 @@
     "react-chartjs-2": "^5.3.1",
     "react-dom": "^19.2.0",
     "react-router-dom": "^7.13.1",
+    "three": "^0.169.0",
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
     "zustand": "^5.0.11"
   },
