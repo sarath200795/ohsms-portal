@@ -22,6 +22,8 @@ import { cert, getApps, initializeApp } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
 import { getDatabase } from 'firebase-admin/database';
 
+import { verifyAppCheck } from '../_lib/app-check.js';
+
 // ── Admin SDK — initialise once ─────────────────────────────────────────────
 
 const getAdminApp = () => {
@@ -268,6 +270,15 @@ export default {
         } catch (initErr) {
             console.error('[admin/users] Firebase Admin init failed:', initErr);
             return err('Server configuration error. Check FIREBASE_SERVICE_ACCOUNT_JSON and FIREBASE_DATABASE_URL.', 500);
+        }
+
+        // Verify App Check before doing any work — this is the chokepoint
+        // for client-attested provisioning calls.
+        try {
+            await verifyAppCheck(request, { label: 'admin/users' });
+        } catch (appCheckErr) {
+            const status = typeof appCheckErr.statusCode === 'number' ? appCheckErr.statusCode : 401;
+            return err(appCheckErr.message || 'App Check verification failed.', status);
         }
 
         let body;

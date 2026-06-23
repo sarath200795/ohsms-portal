@@ -1,0 +1,32 @@
+# Code-owner review is required on the security boundary of the application:
+# RTDB rules, Storage rules, hosting config, CI/CD workflows, and the
+# server-side admin endpoints.
+#
+# https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# Repo-wide fallback (no implicit owner — explicit listings below take precedence)
+* @sarath200795
+
+# Security boundary — require code-owner review
+/database.rules.json            @sarath200795
+/storage.rules                  @sarath200795
+/firebase.json                  @sarath200795
+/.firebaserc                    @sarath200795
+/vercel.json                    @sarath200795
+/.github/workflows/             @sarath200795
+/.github/CODEOWNERS             @sarath200795
+/.github/dependabot.yml         @sarath200795
+/.gitleaks.toml                 @sarath200795
+
+# Server-side admin endpoints (Firebase Admin SDK, custom claims, user provisioning)
+/api/admin/                     @sarath200795
+/api/v1.js                      @sarath200795
+
+# Auth + session + permission code
+/src/services/auth/             @sarath200795
+/src/services/db/               @sarath200795
+/src/utils/permissions.js       @sarath200795
+/src/utils/session.js           @sarath200795
+/src/utils/userAccess.js        @sarath200795
+/src/utils/activityLog.js       @sarath200795
+/src/utils/security.js          @sarath200795

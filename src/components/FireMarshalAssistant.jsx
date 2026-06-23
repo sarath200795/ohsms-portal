@@ -199,12 +199,44 @@ export default function FireMarshalAssistant() {
     const [asleep, setAsleep] = useState(false);
     const [pinned, setPinned] = useState(() => ls.get(`fm:guide:pinned:${uid}`) === '1');
 
+    // Restore drag position from localStorage, but clamp into the current
+    // viewport so a position saved on a wider monitor doesn't render Sam
+    // off-screen with no recovery path.
     const savedPos = useMemo(() => {
         try { return JSON.parse(ls.get(`fm:guide:pos:${uid}`) || 'null'); }
         catch { return null; }
     }, [uid]);
-    const mx = useMotionValue(savedPos?.x ?? 80);
-    const my = useMotionValue(savedPos?.y ?? 0);
+    const initialPos = useMemo(() => {
+        const vw = typeof window === 'undefined' ? 1000 : window.innerWidth;
+        const vh = typeof window === 'undefined' ? 800  : window.innerHeight;
+        // Container is position:fixed bottom:16 left:0; mx is the x translate
+        // and my is the y translate (negative = up from baseline).
+        const safeX = Math.min(Math.max(savedPos?.x ?? 80, 0), Math.max(0, vw - 96));
+        const safeY = Math.min(Math.max(savedPos?.y ?? 0, -(vh - 140)), 0);
+        return { x: safeX, y: safeY };
+    }, [savedPos]);
+    const mx = useMotionValue(initialPos.x);
+    const my = useMotionValue(initialPos.y);
+
+    // If the viewport shrinks (rotation / resize) and Sam ends up out of
+    // bounds, snap him back into view.
+    useEffect(() => {
+        if (typeof window === 'undefined') return undefined;
+        const reclamp = () => {
+            const vw = window.innerWidth;
+            const vh = window.innerHeight;
+            const clampedX = Math.min(Math.max(mx.get(), 0), Math.max(0, vw - 96));
+            const clampedY = Math.min(Math.max(my.get(), -(vh - 140)), 0);
+            if (clampedX !== mx.get()) mx.set(clampedX);
+            if (clampedY !== my.get()) my.set(clampedY);
+        };
+        window.addEventListener('resize', reclamp);
+        window.addEventListener('orientationchange', reclamp);
+        return () => {
+            window.removeEventListener('resize', reclamp);
+            window.removeEventListener('orientationchange', reclamp);
+        };
+    }, [mx, my]);
 
     const lastRef    = useRef(Date.now());
     const asleepRef  = useRef(false);
