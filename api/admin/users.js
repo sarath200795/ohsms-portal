@@ -3,46 +3,32 @@
  *
  * Vercel serverless function — server-side Firebase Auth user provisioning.
  *
- * Replaces the client-side secondary-app provisioning pattern so that
+ * Replaces the client-side secondary-app / REST provisioning pattern so that
  * creating or deleting Firebase Auth accounts never happens in the browser.
  *
  * POST   /api/admin/users  — create a new Firebase Auth account + RTDB records
  * DELETE /api/admin/users  — delete a Firebase Auth account + RTDB records
  *
- * Both endpoints require a valid Firebase ID token from an Active Global Owner
- * (or Site Owner for same-site user creation).  The token is verified server-side
- * using firebase-admin — it is never trusted on face value.
+ * Both endpoints require:
+ *   1. A valid Firebase App Check token (X-Firebase-AppCheck header — enforced
+ *      when ENFORCE_APP_CHECK=true, see api/_lib/app-check.js).
+ *   2. A valid Firebase ID token in the request body (callerIdToken) from an
+ *      Active Global Owner (or Site Owner for same-site user creation). The
+ *      token is verified server-side against the target org's project — it
+ *      is never trusted on face value.
  *
- * Env vars required (same as the incident-ai backend):
- *   FIREBASE_SERVICE_ACCOUNT_JSON   JSON string of the service-account credentials
- *   FIREBASE_DATABASE_URL           https://<project>-default-rtdb.firebaseio.com
+ * Multi-tenant: per-request, the Admin SDK app is resolved for the body's
+ * `orgId` via api/admin/_lib/firebase-admin.js. Single-project deployments
+ * fall through to the default env-var-configured app.
+ *
+ * Env vars required:
+ *   FIREBASE_SERVICE_ACCOUNT_JSON   default / control-plane SA
+ *   FIREBASE_DATABASE_URL           default / control-plane DB URL
  */
 
-import { cert, getApps, initializeApp } from 'firebase-admin/app';
-import { getAuth } from 'firebase-admin/auth';
-import { getDatabase } from 'firebase-admin/database';
-
 import { verifyAppCheck } from '../_lib/app-check.js';
-
-// ── Admin SDK — initialise once ─────────────────────────────────────────────
-
-const getAdminApp = () => {
-    const existing = getApps().find((a) => a.name === '[DEFAULT]') || getApps()[0];
-    if (existing) return existing;
-
-    const serviceAccount = (() => {
-        try {
-            return JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON || '{}');
-        } catch {
-            throw new Error('FIREBASE_SERVICE_ACCOUNT_JSON is missing or invalid JSON.');
-        }
-    })();
-
-    return initializeApp({
-        credential: cert(serviceAccount),
-        databaseURL: process.env.FIREBASE_DATABASE_URL,
-    });
-};
+import { getAuthForOrg, getDbForOrg } from './_lib/firebase-admin.js';
+import { verifyCallerToken } from './_lib/verify-caller.js';
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -62,74 +48,12 @@ const generateTemporaryPassword = () => {
     return Array.from(bytes, (b) => charset[b % charset.length]).join('');
 };
 
-/** RTDB helper — set a path */
-const dbSet = async (db, path, data) => {
-    await db.ref(path).set(data);
-};
-
-/** RTDB helper — remove a path (silently ignore missing) */
-const dbRemove = async (db, path) => {
-    await db.ref(path).remove();
-};
-
-/** RTDB helper — get a path value */
-const dbGet = async (db, path) => {
-    const snap = await db.ref(path).once('value');
-    return snap.val();
-};
-
-// ── Token verification ───────────────────────────────────────────────────────
-
-/**
- * Verify the caller's Firebase ID token and assert they are an Active
- * member of the target org with at least the required role.
- *
- * Returns { uid, orgId, role } on success; throws on failure.
- */
-const verifyCallerToken = async (adminAuth, db, idToken, targetOrgId, requiredRole = 'Global Owner') => {
-    let decoded;
-    try {
-        decoded = await adminAuth.verifyIdToken(idToken);
-    } catch {
-        throw Object.assign(new Error('Invalid or expired caller ID token.'), { statusCode: 401 });
-    }
-
-    const callerUid = decoded.uid;
-
-    // Check userDirectory mapping
-    const userDirOrgId = await dbGet(db, `userDirectory/${callerUid}/orgId`);
-    if (!userDirOrgId) {
-        throw Object.assign(new Error('Caller account is not mapped to any organization.'), { statusCode: 403 });
-    }
-    if (userDirOrgId !== targetOrgId) {
-        throw Object.assign(new Error('Caller does not belong to the target organization.'), { statusCode: 403 });
-    }
-
-    const callerRecord = await dbGet(db, `organizations/${targetOrgId}/users/${callerUid}`);
-    if (!callerRecord) {
-        throw Object.assign(new Error('Caller user record not found in organization.'), { statusCode: 403 });
-    }
-    if (callerRecord.status !== 'Active') {
-        throw Object.assign(new Error('Caller account is not Active.'), { statusCode: 403 });
-    }
-
-    const callerRole = callerRecord.role || '';
-
-    if (requiredRole === 'Global Owner' && callerRole !== 'Global Owner') {
-        throw Object.assign(new Error('This operation requires Global Owner role.'), { statusCode: 403 });
-    }
-    if (requiredRole === 'Site Owner or Global Owner') {
-        if (callerRole !== 'Global Owner' && callerRole !== 'Site Owner') {
-            throw Object.assign(new Error('This operation requires Site Owner or Global Owner role.'), { statusCode: 403 });
-        }
-    }
-
-    return { uid: callerUid, orgId: userDirOrgId, role: callerRole, assignedSite: callerRecord.assignedSite || '' };
-};
+const dbSet = async (db, path, data) => { await db.ref(path).set(data); };
+const dbRemove = async (db, path) => { await db.ref(path).remove(); };
 
 // ── POST — Create user ───────────────────────────────────────────────────────
 
-const handleCreateUser = async (body, adminAuth, db) => {
+const handleCreateUser = async (body) => {
     const {
         email,
         name,
@@ -148,8 +72,11 @@ const handleCreateUser = async (body, adminAuth, db) => {
         );
     }
 
-    // Verify the caller
-    const caller = await verifyCallerToken(adminAuth, db, callerIdToken, orgId, 'Site Owner or Global Owner');
+    // Resolve Admin SDK for the target org + verify the caller in one go.
+    const caller = await verifyCallerToken(callerIdToken, orgId, {
+        requiredRole: 'Site Owner or Global Owner',
+    });
+    const { auth: adminAuth, db } = caller;
 
     // Site Owners can only create Users for their own site
     if (caller.role === 'Site Owner') {
@@ -215,7 +142,7 @@ const handleCreateUser = async (body, adminAuth, db) => {
             passwordUpdatedAt: '',
         });
         await dbSet(db, `userDirectory/${newUid}`, { orgId });
-    } catch (dbErr) {
+    } catch {
         // Rollback: remove partial DB writes and delete the Auth account
         await dbRemove(db, `organizations/${orgId}/users/${newUid}`).catch(() => {});
         await dbRemove(db, `organizations/${orgId}/userPasswordState/${newUid}`).catch(() => {});
@@ -232,14 +159,17 @@ const handleCreateUser = async (body, adminAuth, db) => {
 
 // ── DELETE — Remove user ─────────────────────────────────────────────────────
 
-const handleDeleteUser = async (body, adminAuth, db) => {
+const handleDeleteUser = async (body) => {
     const { uid, orgId, callerIdToken } = body || {};
 
     if (!uid || !orgId || !callerIdToken) {
         throw Object.assign(new Error('uid, orgId, and callerIdToken are required.'), { statusCode: 400 });
     }
 
-    await verifyCallerToken(adminAuth, db, callerIdToken, orgId, 'Global Owner');
+    const caller = await verifyCallerToken(callerIdToken, orgId, {
+        requiredRole: 'Global Owner',
+    });
+    const { auth: adminAuth, db } = caller;
 
     // Delete from Firebase Auth (best-effort — account may already be gone)
     await adminAuth.deleteUser(uid).catch((authErr) => {
@@ -262,19 +192,14 @@ export default {
             return new Response(null, { status: 204, headers: { Allow: 'POST,DELETE,OPTIONS' } });
         }
 
-        let adminAuth, db;
+        // Verify App Check before doing any work — chokepoint for
+        // client-attested provisioning calls. (Per-org Admin SDK init
+        // happens lazily inside the handler via verifyCallerToken.)
         try {
-            const app = getAdminApp();
-            adminAuth = getAuth(app);
-            db = getDatabase(app);
-        } catch (initErr) {
-            console.error('[admin/users] Firebase Admin init failed:', initErr);
-            return err('Server configuration error. Check FIREBASE_SERVICE_ACCOUNT_JSON and FIREBASE_DATABASE_URL.', 500);
-        }
-
-        // Verify App Check before doing any work — this is the chokepoint
-        // for client-attested provisioning calls.
-        try {
+            // Touch the default Admin app once so getAppCheck has a default app
+            // to verify the token against. Cheap — cached after first call.
+            const { getControlPlaneApp } = await import('./_lib/firebase-admin.js');
+            getControlPlaneApp();
             await verifyAppCheck(request, { label: 'admin/users' });
         } catch (appCheckErr) {
             const status = typeof appCheckErr.statusCode === 'number' ? appCheckErr.statusCode : 401;
@@ -290,10 +215,10 @@ export default {
 
         try {
             if (request.method === 'POST') {
-                return await handleCreateUser(body, adminAuth, db);
+                return await handleCreateUser(body);
             }
             if (request.method === 'DELETE') {
-                return await handleDeleteUser(body, adminAuth, db);
+                return await handleDeleteUser(body);
             }
             return err('Method not allowed.', 405);
         } catch (e) {
