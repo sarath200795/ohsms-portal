@@ -112,6 +112,76 @@ export async function unpublishOrgFromDirectory(orgId) {
     }
 }
 
+/**
+ * Permanently delete an org from BOTH the shared public directory AND the
+ * local registry. Optionally writes a tombstone so re-publishing it from
+ * another device (e.g. via the auto-publish on /login mount) doesn't
+ * silently resurrect the entry on the next visit.
+ *
+ * Returns:
+ *   { directoryOk: boolean, localOk: boolean, tombstoneOk: boolean }
+ *
+ * Use this for "delete from all devices" — combined with a passphrase
+ * gate in the UI so only the admin who set up the org can wipe it.
+ *
+ * @param {string} orgId
+ */
+export async function deleteOrgEverywhere(orgId) {
+    if (!orgId) return { directoryOk: false, localOk: false, tombstoneOk: false };
+
+    // 1. Remove from the public directory.
+    const directoryOk = await unpublishOrgFromDirectory(orgId);
+
+    // 2. Write a tombstone at publicOrgDirectoryTombstones/$orgId so the
+    //    auto-publish loop on other devices can skip it. The tombstone is
+    //    just a timestamp — minimal payload, public read, public write.
+    let tombstoneOk = false;
+    try {
+        const tombstoneUrl = PUBLIC_DIRECTORY_URL.replace('publicOrgDirectory', 'publicOrgDirectoryTombstones');
+        const res = await fetch(`${tombstoneUrl}/${encodeURIComponent(orgId)}.json`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ deletedAt: new Date().toISOString() })
+        });
+        tombstoneOk = res.ok;
+    } catch (err) {
+        console.warn('[orgRegistry] tombstone write failed:', err);
+    }
+
+    // 3. Remove from local registry too so the picker on THIS device
+    //    immediately reflects the change.
+    let localOk = false;
+    try {
+        removeOrgFromRegistry(orgId);
+        localOk = true;
+    } catch (err) {
+        console.warn('[orgRegistry] local remove failed:', err);
+    }
+
+    return { directoryOk, localOk, tombstoneOk };
+}
+
+/**
+ * Fetch the tombstones set so the auto-publish loop can skip orgIds that
+ * were deliberately deleted. Returns a Set of orgIds (empty Set on any
+ * failure — safer than throwing because absence of tombstones means the
+ * loop just runs as normal).
+ *
+ * @returns {Promise<Set<string>>}
+ */
+export async function fetchOrgTombstones() {
+    try {
+        const tombstoneUrl = PUBLIC_DIRECTORY_URL.replace('publicOrgDirectory', 'publicOrgDirectoryTombstones');
+        const res = await fetch(`${tombstoneUrl}.json`, { method: 'GET' });
+        if (!res.ok) return new Set();
+        const data = await res.json();
+        if (!data || typeof data !== 'object') return new Set();
+        return new Set(Object.keys(data));
+    } catch {
+        return new Set();
+    }
+}
+
 // ─── types (JSDoc only, no TS) ─────────────────────────────────────────────
 
 /**

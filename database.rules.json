@@ -16,6 +16,13 @@
         ".validate": "newData.hasChildren(['orgId','orgName','dbAdapter']) && newData.child('orgId').isString() && newData.child('orgName').isString() && newData.child('dbAdapter').isString()"
       }
     },
+    "publicOrgDirectoryTombstones": {
+      ".read": true,
+      "$orgId": {
+        ".write": true,
+        ".validate": "!newData.exists() || (newData.hasChildren(['deletedAt']) && newData.child('deletedAt').isString())"
+      }
+    },
     "joinRegistry": {
       "$joinCode": {
         ".read": "auth != null && !root.child('userDirectory/' + auth.uid).exists()",

@@ -32,6 +32,8 @@ import {
     writeStoredSession,
 } from '../utils/session';
 import {
+    deleteOrgEverywhere,
+    fetchOrgTombstones,
     fetchPublicOrgDirectory,
     publishOrgToDirectory,
     getOrgRegistry,
@@ -316,24 +318,48 @@ export default function Login() {
         // network never blocks the picker render.
         (async () => {
             const local = getOrgRegistry();
-            const remote = await fetchPublicOrgDirectory();
+            // Fetch tombstones in parallel so directory merge + auto-publish
+            // can both skip orgIds that were permanently deleted somewhere.
+            const [remote, tombstones] = await Promise.all([
+                fetchPublicOrgDirectory(),
+                fetchOrgTombstones()
+            ]);
 
-            // Merge remote → local picker (additive only).
+            // Merge remote → local picker (additive only). Tombstoned IDs
+            // never enter the picker even if they're still present in the
+            // directory (race: someone published, someone else deleted, the
+            // directory entry hasn't been wiped yet by the delete handler).
             if (remote.length > 0) {
-                setOrgRegistry((prev) => {
-                    const localIds = new Set(prev.map((e) => e.orgId));
-                    const newcomers = remote.filter((e) => e.orgId && !localIds.has(e.orgId));
-                    if (newcomers.length === 0) return prev;
-                    console.log(`[Login] merged ${newcomers.length} org(s) from public directory`);
-                    return [...prev, ...newcomers];
-                });
+                const fresh = remote.filter((e) => !tombstones.has(e.orgId));
+                if (fresh.length > 0) {
+                    setOrgRegistry((prev) => {
+                        const localIds = new Set(prev.map((e) => e.orgId));
+                        const newcomers = fresh.filter((e) => e.orgId && !localIds.has(e.orgId));
+                        if (newcomers.length === 0) return prev;
+                        console.log(`[Login] merged ${newcomers.length} org(s) from public directory (${remote.length - fresh.length} tombstoned skipped)`);
+                        return [...prev, ...newcomers];
+                    });
+                }
+            }
+
+            // Also drop any LOCAL entries that match a tombstone — so a
+            // permanently-deleted org disappears from this device too on
+            // first /login mount after the delete propagated.
+            if (tombstones.size > 0) {
+                const surviving = local.filter((e) => !tombstones.has(e.orgId));
+                if (surviving.length !== local.length) {
+                    console.log(`[Login] removing ${local.length - surviving.length} tombstoned org(s) from local registry`);
+                    localStorage.setItem('ohsms_org_registry', JSON.stringify(surviving));
+                    setOrgRegistry(surviving);
+                }
             }
 
             // Auto-publish any localStorage org that isn't in the remote
             // directory yet. Skip entries flagged hidden by the user — they
-            // chose to hide them locally, don't push them publicly.
+            // chose to hide them locally, don't push them publicly. ALSO
+            // skip tombstones so a re-publish race doesn't undo a delete.
             const remoteIds = new Set(remote.map((e) => e.orgId));
-            const toPublish = local.filter((e) => !e.hidden && !remoteIds.has(e.orgId));
+            const toPublish = local.filter((e) => !e.hidden && !remoteIds.has(e.orgId) && !tombstones.has(e.orgId));
             if (toPublish.length > 0) {
                 console.log(`[Login] auto-publishing ${toPublish.length} local org(s) to public directory…`);
                 for (const entry of toPublish) {
@@ -1390,6 +1416,46 @@ export default function Login() {
 
                                 <div className="w-full p-3 bg-amber-50 border border-amber-200 rounded-xl text-[10px] text-amber-800 leading-relaxed">
                                     <strong className="text-amber-900">Security note:</strong> The link, QR, and published directory entry all contain this org's public Firebase config (apiKey, databaseURL, projectId). These values are already embedded in every page bundle and are NOT a secret. Sign-in still requires authentication.
+                                </div>
+
+                                {/* DANGER ZONE — permanent delete across every device.
+                                    Gated by VITE_ORG_DELETE_KEY when set (build-time
+                                    env var on the host). Without the env var the
+                                    delete is still confirmation-gated but anyone
+                                    using this device can trigger it. */}
+                                <div className="w-full border-t border-red-200 pt-4 mt-2">
+                                    <p className="text-[10px] font-bold uppercase tracking-widest text-red-700 mb-1"><i className="fas fa-skull-crossbones mr-1"></i> Danger Zone</p>
+                                    <p className="text-[11px] text-slate-600 mb-2 leading-relaxed">Permanently remove <strong>{shareOrg.orgName}</strong> from the shared directory. The org disappears from <strong>every device's picker</strong> on their next /login mount — including yours. The underlying Firebase project itself is NOT touched; just the discovery entry.</p>
+                                    <button
+                                        type="button"
+                                        onClick={async () => {
+                                            const REQUIRED_KEY = import.meta.env.VITE_ORG_DELETE_KEY || '';
+                                            if (REQUIRED_KEY) {
+                                                const entered = window.prompt(`Enter the admin delete passphrase to remove ${shareOrg.orgName} from every device:`);
+                                                if (entered == null) return; // cancelled
+                                                if (entered !== REQUIRED_KEY) {
+                                                    alert('Incorrect passphrase. Delete cancelled.');
+                                                    return;
+                                                }
+                                            }
+                                            const confirmed = window.confirm(`Are you sure you want to permanently delete "${shareOrg.orgName}" from every device's picker? This is irreversible from the UI — re-adding requires /setup.`);
+                                            if (!confirmed) return;
+
+                                            const result = await deleteOrgEverywhere(shareOrg.orgId);
+                                            // Optimistically remove from the in-memory picker
+                                            // so the UI updates without a reload.
+                                            setOrgRegistry((prev) => prev.filter((e) => e.orgId !== shareOrg.orgId));
+                                            const closing = shareOrg;
+                                            setShareOrg(null);
+                                            const ok = result.directoryOk && result.tombstoneOk;
+                                            alert(ok
+                                                ? `${closing.orgName} was deleted. It will disappear from every other device on their next /login visit (the tombstone blocks the auto-publish loop from resurrecting it).`
+                                                : 'Delete partially completed. See browser console for details. The org may still appear on other devices until the directory entry actually clears.');
+                                        }}
+                                        className="w-full px-4 py-2.5 text-xs font-bold uppercase tracking-widest bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors flex items-center justify-center gap-2"
+                                    >
+                                        <i className="fas fa-trash-alt"></i> Delete From All Devices
+                                    </button>
                                 </div>
                             </div>
                         </div>
