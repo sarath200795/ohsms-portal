@@ -1,8 +1,14 @@
 name: Deploy — Staging
 
-# Single-Firebase-project setup (per Phase 1 decision):
-#  - Staging deploys to Hosting "channel" (named `staging`) on the same site,
-#    giving a distinct URL without a separate Firebase project.
+# Multi-tenant architecture (each org runs its own Firebase project):
+#  - The SPA bundle is generic — it ships with PLACEHOLDER firebase config.
+#    Users land on the SPA, /setup (or the org picker) writes the real
+#    per-org Firebase credentials to localStorage at runtime, and the page
+#    reloads against that project. See src/config/firebase.js.
+#  - Therefore CI MUST NOT bake real VITE_FIREBASE_* values — that would
+#    lock every visitor to one org's Firebase project.
+#  - FIREBASE_PROJECT_ID below refers to the project that HOSTS the static
+#    SPA files (Firebase Hosting), NOT an org's data backend. It's singular.
 #  - Database + Storage rules are NEVER deployed from staging — they go out
 #    via deploy-production.yml only, after manual review on a signed tag.
 #  - The `staging` channel auto-expires after 30 days unless re-deployed.
@@ -45,14 +51,15 @@ jobs:
       - name: Build ${{ matrix.target }}
         run: npm run ${{ matrix.script }}
         env:
-          VITE_FIREBASE_API_KEY: ${{ vars.VITE_FIREBASE_API_KEY }}
-          VITE_FIREBASE_AUTH_DOMAIN: ${{ vars.VITE_FIREBASE_AUTH_DOMAIN }}
-          VITE_FIREBASE_DATABASE_URL: ${{ vars.VITE_FIREBASE_DATABASE_URL }}
-          VITE_FIREBASE_PROJECT_ID: ${{ vars.VITE_FIREBASE_PROJECT_ID }}
-          VITE_FIREBASE_STORAGE_BUCKET: ${{ vars.VITE_FIREBASE_STORAGE_BUCKET }}
-          VITE_FIREBASE_MESSAGING_SENDER_ID: ${{ vars.VITE_FIREBASE_MESSAGING_SENDER_ID }}
-          VITE_FIREBASE_APP_ID: ${{ vars.VITE_FIREBASE_APP_ID }}
-          VITE_FIREBASE_APP_CHECK_SITE_KEY: ${{ vars.VITE_FIREBASE_APP_CHECK_SITE_KEY }}
+          # Multi-tenant: ship placeholder Firebase config. Each org's real
+          # credentials are written to localStorage at runtime via /setup.
+          VITE_FIREBASE_API_KEY: ci-placeholder
+          VITE_FIREBASE_AUTH_DOMAIN: ci-placeholder.firebaseapp.com
+          VITE_FIREBASE_DATABASE_URL: https://ci-placeholder-default-rtdb.firebaseio.com/
+          VITE_FIREBASE_PROJECT_ID: ci-placeholder
+          VITE_FIREBASE_STORAGE_BUCKET: ci-placeholder.appspot.com
+          VITE_FIREBASE_MESSAGING_SENDER_ID: "000000000000"
+          VITE_FIREBASE_APP_ID: "1:000000000000:web:0000000000000000000000"
           # Bake a staging marker into the build so the UI can render a
           # "STAGING" banner when running on non-production channels.
           VITE_DEPLOY_ENV: staging

@@ -3,6 +3,11 @@ name: PR Preview
 # Builds both SPAs and deploys to ephemeral Firebase Hosting preview channels
 # (`pr-<number>`). Channel URL is commented back on the PR by the action.
 # Preview channels expire after 7 days unless re-deployed.
+#
+# Multi-tenant architecture: the SPA bundle ships with PLACEHOLDER firebase
+# config — reviewers visiting the preview URL will land on the org picker
+# (or /setup) and can point at any org's Firebase project. See
+# src/config/firebase.js and the deploy-staging.yml header.
 
 on:
   pull_request:
@@ -45,14 +50,15 @@ jobs:
       - name: Build ${{ matrix.target }}
         run: npm run ${{ matrix.script }}
         env:
-          VITE_FIREBASE_API_KEY: ${{ vars.VITE_FIREBASE_API_KEY }}
-          VITE_FIREBASE_AUTH_DOMAIN: ${{ vars.VITE_FIREBASE_AUTH_DOMAIN }}
-          VITE_FIREBASE_DATABASE_URL: ${{ vars.VITE_FIREBASE_DATABASE_URL }}
-          VITE_FIREBASE_PROJECT_ID: ${{ vars.VITE_FIREBASE_PROJECT_ID }}
-          VITE_FIREBASE_STORAGE_BUCKET: ${{ vars.VITE_FIREBASE_STORAGE_BUCKET }}
-          VITE_FIREBASE_MESSAGING_SENDER_ID: ${{ vars.VITE_FIREBASE_MESSAGING_SENDER_ID }}
-          VITE_FIREBASE_APP_ID: ${{ vars.VITE_FIREBASE_APP_ID }}
-          VITE_FIREBASE_APP_CHECK_SITE_KEY: ${{ vars.VITE_FIREBASE_APP_CHECK_SITE_KEY }}
+          # Multi-tenant: ship placeholder Firebase config. Each org's real
+          # credentials are written to localStorage at runtime via /setup.
+          VITE_FIREBASE_API_KEY: ci-placeholder
+          VITE_FIREBASE_AUTH_DOMAIN: ci-placeholder.firebaseapp.com
+          VITE_FIREBASE_DATABASE_URL: https://ci-placeholder-default-rtdb.firebaseio.com/
+          VITE_FIREBASE_PROJECT_ID: ci-placeholder
+          VITE_FIREBASE_STORAGE_BUCKET: ci-placeholder.appspot.com
+          VITE_FIREBASE_MESSAGING_SENDER_ID: "000000000000"
+          VITE_FIREBASE_APP_ID: "1:000000000000:web:0000000000000000000000"
           VITE_DEPLOY_ENV: preview
       - name: Deploy preview channel
         uses: FirebaseExtended/action-hosting-deploy@v0
