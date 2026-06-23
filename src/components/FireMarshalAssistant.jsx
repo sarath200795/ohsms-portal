@@ -40,6 +40,8 @@ const ls = {
 
 const loop = (d) => ({ duration: d, repeat: Infinity, ease: 'easeInOut' });
 const IDLE_SLEEP_MS = 3 * 60 * 1000;
+const POST_LOGIN_QUIET_MS = 30_000; // Sam holds position for 30s after login before wandering.
+const INITIAL_LEFT_X = 16;          // Spawn near the left edge so the callout has room to render.
 
 // ── Sam's colours (verbatim from fire-marshal) ───────────────────────────────
 const SKIN = '#e8b48f', SKIN_D = '#c98b62';
@@ -198,6 +200,11 @@ export default function FireMarshalAssistant() {
     const [facing, setFacing] = useState(-1);
     const [asleep, setAsleep] = useState(false);
     const [pinned, setPinned] = useState(() => ls.get(`fm:guide:pinned:${uid}`) === '1');
+    // bubbleSide reflects which side of Sam the callout / chat panel should
+    // anchor to so they never overflow off-screen when Sam is dragged near a
+    // viewport edge. 'right' = bubble to Sam's right (default, Sam on left);
+    // 'left'  = bubble to Sam's left (Sam dragged to the right half).
+    const [bubbleSide, setBubbleSide] = useState('right');
 
     // Restore drag position from localStorage, but clamp into the current
     // viewport so a position saved on a wider monitor doesn't render Sam
@@ -210,8 +217,10 @@ export default function FireMarshalAssistant() {
         const vw = typeof window === 'undefined' ? 1000 : window.innerWidth;
         const vh = typeof window === 'undefined' ? 800  : window.innerHeight;
         // Container is position:fixed bottom:16 left:0; mx is the x translate
-        // and my is the y translate (negative = up from baseline).
-        const safeX = Math.min(Math.max(savedPos?.x ?? 80, 0), Math.max(0, vw - 96));
+        // and my is the y translate (negative = up from baseline). For fresh
+        // sessions Sam spawns on the LEFT so the callout bubble (260px wide,
+        // anchored to his right) has room to render fully in the viewport.
+        const safeX = Math.min(Math.max(savedPos?.x ?? INITIAL_LEFT_X, 0), Math.max(0, vw - 96));
         const safeY = Math.min(Math.max(savedPos?.y ?? 0, -(vh - 140)), 0);
         return { x: safeX, y: safeY };
     }, [savedPos]);
@@ -260,19 +269,43 @@ export default function FireMarshalAssistant() {
     }, [enabled]);
 
     // Movement / pose state machine — Sam wanders unless open/tipped/pinned.
+    //
+    // After login Sam holds on the left for POST_LOGIN_QUIET_MS so the welcome
+    // callout has time to be read. The 'loginAt' timestamp is keyed per uid in
+    // sessionStorage — survives route changes within the tab, resets per fresh
+    // login.
     useEffect(() => {
         if (!enabled) return undefined;
         if (asleep)  { setMode('sleep'); return undefined; }
-        if (open || tip) {
-            if (!pinned) {
-                setFacing(-1);
-                animate(mx, Math.max(20, (window.innerWidth || 1000) - 96), { duration: 0.7, ease: 'linear' });
-                animate(my, 0, { duration: 0.4 });
-            }
-            setMode(open ? 'wave' : 'idle');
+        if (open) {
+            // Chat open: Sam waves but stays in place — don't tow him across
+            // the viewport (was causing the chat panel to render off-screen
+            // when Sam was already near the right edge).
+            setMode('wave');
+            return undefined;
+        }
+        if (tip) {
+            // Tip showing: Sam pauses where he is so the callout (anchored to
+            // his right side) stays in view. Previously he slid to the right
+            // edge here, which pushed the 260px-wide bubble off-screen.
+            setMode('idle');
             return undefined;
         }
         if (reduced || pinned) { setMode('idle'); return undefined; }
+
+        // Compute remaining post-login quiet time.
+        let loginAt = 0;
+        try {
+            const stored = sessionStorage.getItem(`fm:guide:loginAt:${uid}`);
+            loginAt = stored ? Number(stored) : 0;
+            if (!loginAt && session?.uid) {
+                loginAt = Date.now();
+                sessionStorage.setItem(`fm:guide:loginAt:${uid}`, String(loginAt));
+            }
+        } catch { /* sessionStorage unavailable — fall through with loginAt=0 */ }
+        const elapsed = loginAt ? Date.now() - loginAt : POST_LOGIN_QUIET_MS;
+        const initialDelay = Math.max(POST_LOGIN_QUIET_MS - elapsed, 1400);
+
         let alive = true;
         let timer;
         let anim;
@@ -292,22 +325,25 @@ export default function FireMarshalAssistant() {
                 timer = setTimeout(step, rand(3200, 6000));
             }, dur * 1000 + 150);
         };
-        timer = setTimeout(step, 1400);
+        timer = setTimeout(step, initialDelay);
         return () => { alive = false; clearTimeout(timer); if (anim?.stop) anim.stop(); };
-    }, [enabled, asleep, open, tip, reduced, pinned, mx, my]);
+    }, [enabled, asleep, open, tip, reduced, pinned, mx, my, uid, session?.uid]);
 
     // First-load greeting + per-page tip bubble.
+    //
+    // Greeting stays on-screen until the user dismisses it (or opens chat) —
+    // it pairs with the 30-second post-login quiet window in the movement
+    // effect, so the callout has time to actually be read.
     useEffect(() => {
         if (!enabled || open) return undefined;
         const greetKey = `fm:guide:greeted:${uid}`;
         const greeted = (() => { try { return sessionStorage.getItem(greetKey) === '1'; } catch { return false; } })();
         if (!greeted) {
             const t = setTimeout(() => {
-                setTip({ greeting: true, title: "Hi! I'm Sam 🧯", text: "Tap me anytime — I'll explain any module and tell you what needs attention." });
+                setTip({ greeting: true, title: "Hi! I'm Sam 🧯", text: "Tap me anytime — I'll explain any module and tell you what needs attention. Drag me around, pin me, or hide me." });
                 try { sessionStorage.setItem(greetKey, '1'); } catch { /* ignore */ }
             }, 1200);
-            const t2 = setTimeout(() => setTip((cur) => (cur?.greeting ? null : cur)), 8000);
-            return () => { clearTimeout(t); clearTimeout(t2); };
+            return () => clearTimeout(t);
         }
         const seenKey = `fm:guide:tip:${uid}:${guide.title}`;
         if (ls.get(seenKey) !== '1') {
@@ -317,15 +353,30 @@ export default function FireMarshalAssistant() {
         return undefined;
     }, [location.pathname, open, uid, guide, enabled]);
 
-    // Persist drag position so Sam doesn't jump back on every reload.
+    // Persist drag position so Sam doesn't jump back on every reload. Also
+    // track which half of the viewport Sam is on so the callout can flip
+    // sides to stay visible.
     useEffect(() => {
-        const unsubX = mx.on('change', save);
+        const recomputeSide = () => {
+            const vw = typeof window === 'undefined' ? 1000 : window.innerWidth;
+            // Account for bubble width (~260) + gap (~68). If Sam's right
+            // edge + bubble would overflow, flip the bubble to Sam's left.
+            const overflowsRight = mx.get() + 96 + 268 > vw;
+            setBubbleSide((cur) => (overflowsRight ? 'left' : 'right') === cur ? cur : (overflowsRight ? 'left' : 'right'));
+        };
+        const unsubX = mx.on('change', () => { save(); recomputeSide(); });
         const unsubY = my.on('change', save);
         function save() {
             try { ls.set(`fm:guide:pos:${uid}`, JSON.stringify({ x: mx.get(), y: my.get() })); }
             catch { /* ignore */ }
         }
-        return () => { unsubX(); unsubY(); };
+        recomputeSide();
+        window.addEventListener('resize', recomputeSide);
+        return () => {
+            unsubX();
+            unsubY();
+            window.removeEventListener('resize', recomputeSide);
+        };
     }, [mx, my, uid]);
 
     // Auto-scroll chat to bottom.
@@ -408,14 +459,16 @@ export default function FireMarshalAssistant() {
                 </button>
             </div>
 
-            {/* Per-page tip bubble */}
+            {/* Per-page tip bubble — flips to Sam's left when he's on the
+                right half of the viewport so the 260px-wide callout stays
+                on-screen. */}
             <AnimatePresence>
                 {tip && !open && (
                     <motion.div
                         initial={{ opacity: 0, y: 10, scale: 0.95 }}
                         animate={{ opacity: 1, y: 0, scale: 1 }}
                         exit={{ opacity: 0, y: 10, scale: 0.95 }}
-                        className="absolute bottom-[110px] left-[68px] w-[260px] rounded-2xl border p-3 text-sm shadow-xl"
+                        className={`absolute bottom-[110px] w-[260px] rounded-2xl border p-3 text-sm shadow-xl ${bubbleSide === 'right' ? 'left-[68px]' : 'right-[68px]'}`}
                         style={{
                             background: '#ffffff',
                             borderColor: 'rgba(15,23,42,0.08)',
@@ -455,7 +508,7 @@ export default function FireMarshalAssistant() {
                         initial={{ opacity: 0, y: 12, scale: 0.98 }}
                         animate={{ opacity: 1, y: 0,  scale: 1 }}
                         exit={{ opacity: 0, y: 12, scale: 0.98 }}
-                        className="absolute bottom-[110px] left-[68px] flex w-[340px] max-w-[88vw] flex-col rounded-2xl border shadow-2xl"
+                        className={`absolute bottom-[110px] flex w-[340px] max-w-[88vw] flex-col rounded-2xl border shadow-2xl ${bubbleSide === 'right' ? 'left-[68px]' : 'right-[68px]'}`}
                         style={{
                             background: '#ffffff',
                             borderColor: 'rgba(15,23,42,0.08)',
