@@ -12,12 +12,36 @@ const env = typeof import.meta !== 'undefined' ? import.meta.env : {};
 // We read that here at module-load time so the app switches databases on reload
 // without requiring a new build or environment-variable redeploy.
 //
-// Priority: localStorage → VITE_ env vars (no hardcoded fallback credentials)
+// Priority: localStorage → VITE_ env vars → placeholder
+//
+// Critical: validate that the stored config has at minimum a non-empty
+// `apiKey`. Without this guard, a localStorage entry shaped like {} or
+// { apiKey: '', ... } takes priority over the placeholder fallback and the
+// Firebase SDK throws `auth/invalid-api-key` during module load — the SPA
+// never mounts and the org picker never gets a chance to fix it. Same goes
+// for `projectId` (Firebase needs both).
 const _runtimeFirebaseConfig = (() => {
   try {
     const stored = localStorage.getItem('ohsms_firebase_config');
-    if (stored) return JSON.parse(stored);
-  } catch {}
+    if (!stored) return null;
+    const parsed = JSON.parse(stored);
+    if (
+      parsed &&
+      typeof parsed === 'object' &&
+      typeof parsed.apiKey === 'string' &&
+      parsed.apiKey.trim() &&
+      typeof parsed.projectId === 'string' &&
+      parsed.projectId.trim()
+    ) {
+      return parsed;
+    }
+    // Garbage entry — purge so the next reload doesn't trip the same trap.
+    console.warn('[OHSMS] localStorage ohsms_firebase_config is malformed (missing apiKey/projectId). Discarding so the org picker can take over.');
+    localStorage.removeItem('ohsms_firebase_config');
+  } catch (err) {
+    console.warn('[OHSMS] Failed to parse localStorage ohsms_firebase_config:', err);
+    try { localStorage.removeItem('ohsms_firebase_config'); } catch { /* no-op */ }
+  }
   return null;
 })();
 
