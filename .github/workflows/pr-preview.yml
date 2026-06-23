@@ -1,0 +1,65 @@
+name: PR Preview
+
+# Builds both SPAs and deploys to ephemeral Firebase Hosting preview channels
+# (`pr-<number>`). Channel URL is commented back on the PR by the action.
+# Preview channels expire after 7 days unless re-deployed.
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+
+permissions:
+  contents: read
+  pull-requests: write
+  checks: write
+
+concurrency:
+  group: pr-preview-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  preview:
+    name: Preview — ${{ matrix.target }}
+    runs-on: ubuntu-latest
+    # PRs from forks don't get access to repo secrets — skip preview for them.
+    # Maintainers can re-run after pulling the PR into a branch.
+    if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
+    environment: staging
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: app
+            script: build
+            artifact: dist
+          - target: fieldportal
+            script: build:field-portal
+            artifact: dist-field-portal
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Build ${{ matrix.target }}
+        run: npm run ${{ matrix.script }}
+        env:
+          VITE_FIREBASE_API_KEY: ${{ vars.VITE_FIREBASE_API_KEY }}
+          VITE_FIREBASE_AUTH_DOMAIN: ${{ vars.VITE_FIREBASE_AUTH_DOMAIN }}
+          VITE_FIREBASE_DATABASE_URL: ${{ vars.VITE_FIREBASE_DATABASE_URL }}
+          VITE_FIREBASE_PROJECT_ID: ${{ vars.VITE_FIREBASE_PROJECT_ID }}
+          VITE_FIREBASE_STORAGE_BUCKET: ${{ vars.VITE_FIREBASE_STORAGE_BUCKET }}
+          VITE_FIREBASE_MESSAGING_SENDER_ID: ${{ vars.VITE_FIREBASE_MESSAGING_SENDER_ID }}
+          VITE_FIREBASE_APP_ID: ${{ vars.VITE_FIREBASE_APP_ID }}
+          VITE_FIREBASE_APP_CHECK_SITE_KEY: ${{ vars.VITE_FIREBASE_APP_CHECK_SITE_KEY }}
+          VITE_DEPLOY_ENV: preview
+      - name: Deploy preview channel
+        uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: ${{ secrets.GITHUB_TOKEN }}
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON_STAGING }}
+          projectId: ${{ vars.FIREBASE_PROJECT_ID }}
+          target: ${{ matrix.target }}
+          channelId: pr-${{ github.event.pull_request.number }}
+          expires: 7d

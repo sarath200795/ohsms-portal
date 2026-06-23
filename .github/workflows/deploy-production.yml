@@ -1,0 +1,126 @@
+name: Deploy — Production
+
+# Production deploy. Triggered only by signed semver tags or manual dispatch.
+# Gated by the `production` GitHub Environment (configure 2 required reviewers
+# + 5-minute wait timer in Settings → Environments → production).
+#
+# Single-Firebase-project setup: this workflow is the ONLY path that pushes
+# database.rules.json and storage.rules to the live Firebase project.
+# Hosting deploys go to the `live` channel of each target.
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      deploy_rules:
+        description: 'Deploy database + storage rules?'
+        required: true
+        default: 'true'
+        type: choice
+        options: ['true', 'false']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build — ${{ matrix.target }}
+    runs-on: ubuntu-latest
+    environment: production
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - target: app
+            script: build
+            artifact: dist
+          - target: fieldportal
+            script: build:field-portal
+            artifact: dist-field-portal
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Build ${{ matrix.target }}
+        run: npm run ${{ matrix.script }}
+        env:
+          VITE_FIREBASE_API_KEY: ${{ vars.VITE_FIREBASE_API_KEY }}
+          VITE_FIREBASE_AUTH_DOMAIN: ${{ vars.VITE_FIREBASE_AUTH_DOMAIN }}
+          VITE_FIREBASE_DATABASE_URL: ${{ vars.VITE_FIREBASE_DATABASE_URL }}
+          VITE_FIREBASE_PROJECT_ID: ${{ vars.VITE_FIREBASE_PROJECT_ID }}
+          VITE_FIREBASE_STORAGE_BUCKET: ${{ vars.VITE_FIREBASE_STORAGE_BUCKET }}
+          VITE_FIREBASE_MESSAGING_SENDER_ID: ${{ vars.VITE_FIREBASE_MESSAGING_SENDER_ID }}
+          VITE_FIREBASE_APP_ID: ${{ vars.VITE_FIREBASE_APP_ID }}
+          VITE_FIREBASE_APP_CHECK_SITE_KEY: ${{ vars.VITE_FIREBASE_APP_CHECK_SITE_KEY }}
+          VITE_DEPLOY_ENV: production
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.artifact }}/
+          retention-days: 30
+
+  deploy-hosting:
+    name: Deploy Hosting — ${{ matrix.target }} (live)
+    runs-on: ubuntu-latest
+    needs: build
+    environment: production
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: app
+            artifact: dist
+          - target: fieldportal
+            artifact: dist-field-portal
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.artifact }}/
+      - name: Deploy to Hosting (live)
+        uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: ${{ secrets.GITHUB_TOKEN }}
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON_PRODUCTION }}
+          projectId: ${{ vars.FIREBASE_PROJECT_ID }}
+          target: ${{ matrix.target }}
+          channelId: live
+
+  deploy-rules:
+    name: Deploy Rules (database + storage)
+    runs-on: ubuntu-latest
+    needs: deploy-hosting
+    environment: production
+    if: ${{ github.event_name == 'push' || github.event.inputs.deploy_rules == 'true' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Validate RTDB rules JSON
+        run: node --test tests/database-rules.test.mjs
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON_PRODUCTION }}
+      - name: Deploy database + storage rules
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ steps.auth.outputs.credentials_file_path }}
+          FIREBASE_PROJECT_ID: ${{ vars.FIREBASE_PROJECT_ID }}
+        run: |
+          npx --yes firebase-tools@latest deploy \
+            --only database,storage \
+            --project "$FIREBASE_PROJECT_ID" \
+            --non-interactive
