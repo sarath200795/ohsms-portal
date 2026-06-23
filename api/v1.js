@@ -1,6 +1,8 @@
 import { handleUpload } from '@vercel/blob/client';
 import { getIncidentAiRuntime, resolveAuthContext } from '../server/incident-ai/runtime.js';
 
+import { verifyAppCheck } from './_lib/app-check.js';
+
 const json = (payload, status = 200, extraHeaders = {}) => new Response(JSON.stringify(payload), {
     status,
     headers: {
@@ -90,9 +92,13 @@ const routeRequest = async (request) => {
     const relativePath = getRelativeApiPath(request);
     const apiBaseUrl = `${new URL(request.url).origin}/api/v1`;
 
+    // Public health endpoint — no App Check (monitoring tools call it).
     if (request.method === 'GET' && relativePath === '/health/ready') {
         return json(buildHealthPayload(runtime));
     }
+
+    // Every other path requires an App Check token (when enforcement is on).
+    await verifyAppCheck(request, { label: `v1${relativePath}` });
 
     const blobClientUploadMatch = relativePath.match(/^\/incidents\/([^/]+)\/ai-evidence\/blob-client-upload$/);
     if (request.method === 'POST' && blobClientUploadMatch) {
