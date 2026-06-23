@@ -1,6 +1,7 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { SEVERITY, formatDueLabel } from '../utils/reminders';
+import { useAppTransition } from '../hooks/useAppTransition';
 
 const SEV_META = {
     [SEVERITY.OVERDUE]: {
@@ -28,7 +29,22 @@ const SEV_META = {
 
 export default function NeedsAttentionPanel({ items = [], summary, loading = false, limit = 6 }) {
     const navigate = useNavigate();
+    const playTransition = useAppTransition();
     const top = items.slice(0, limit);
+
+    // Route through the labeled transition overlay so reminders feel like
+    // every other dashboard navigation. Falls back to a raw navigate if the
+    // panel ever renders outside the AppExperienceShell context.
+    const openItem = (item) => {
+        if (typeof playTransition === 'function') {
+            playTransition({
+                label: `Opening ${item.source || item.category || 'Module'}`,
+                action: () => navigate(item.link, { state: { focusItemId: item.id } }),
+            });
+            return;
+        }
+        navigate(item.link, { state: { focusItemId: item.id } });
+    };
 
     return (
         <section
@@ -76,8 +92,8 @@ export default function NeedsAttentionPanel({ items = [], summary, loading = fal
                             >
                                 <button
                                     type="button"
-                                    onClick={() => navigate(item.link)}
-                                    className={`relative flex w-full items-center gap-3 overflow-hidden rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-left transition-all duration-200 hover:bg-white hover:shadow-[0_4px_16px_rgba(15,23,42,0.08)] ${meta.border}`}
+                                    onClick={() => openItem(item)}
+                                    className={`relative flex w-full items-center gap-3 overflow-hidden rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-left transition-colors duration-150 hover:bg-white hover:shadow-[0_4px_16px_rgba(15,23,42,0.08)] ${meta.border}`}
                                 >
                                     {/* Severity color strip on the left edge */}
                                     <span
