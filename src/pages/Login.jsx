@@ -209,6 +209,26 @@ export default function Login() {
     // laptop but my phone is empty" problem.
     const [shareOrg, setShareOrg]               = useState(null);
 
+    // ── Email → org memory (cross-org switch suggestion) ───────────────────
+    // localStorage map of `lowercased email → orgId` populated after every
+    // successful login on this device. When the user types an email on the
+    // login form, we look it up — if the email is known to belong to a
+    // DIFFERENT org than the currently-picked one, we surface a small hint:
+    // "This email is registered with <Other Org>. Switch?"
+    const EMAIL_ORG_KEY = 'ohsms_email_org_memory';
+    const readEmailOrgMemory = () => {
+        try { return JSON.parse(localStorage.getItem(EMAIL_ORG_KEY) || '{}') || {}; }
+        catch { return {}; }
+    };
+    const writeEmailOrgMemory = (emailLower, orgId) => {
+        if (!emailLower || !orgId) return;
+        try {
+            const memory = readEmailOrgMemory();
+            memory[emailLower] = orgId;
+            localStorage.setItem(EMAIL_ORG_KEY, JSON.stringify(memory));
+        } catch { /* no-op */ }
+    };
+
     const isJoinMode = authMode === 'join';
 
     const resetJoinFields = () => {
@@ -475,6 +495,10 @@ export default function Login() {
             });
 
             writeStoredSession(sessionData);
+
+            // Remember (email → orgId) so next time the user types this email
+            // on a different org's picker, we can suggest switching back.
+            writeEmailOrgMemory(String(sessionData.email || '').toLowerCase().trim(), userOrgId);
 
             // Auto-register this org in the local picker so it appears as a logo
             // card on /login for all future visits — even for orgs created before
@@ -770,7 +794,7 @@ export default function Login() {
                                     const pickerEntries   = showHidden ? orgRegistry : visibleRegistry;
                                     return (
                                 <>
-                                    <div className={`mt-4 grid gap-3 ${pickerEntries.length === 1 ? 'grid-cols-1' : 'grid-cols-2'}`}>
+                                    <div className={`mt-4 grid gap-2 ${pickerEntries.length === 1 ? 'grid-cols-1' : pickerEntries.length === 2 ? 'grid-cols-2' : 'grid-cols-3'}`}>
                                         {pickerEntries.map((entry) => {
                                             // Pass the active orgId so that when multiple orgs share
                                             // the same Firebase project only the correct one is marked.
@@ -781,7 +805,7 @@ export default function Login() {
                                                     key={entry.orgId}
                                                     type="button"
                                                     onClick={() => handleOrgPick(entry)}
-                                                    className={`group relative flex flex-col items-center gap-3 rounded-2xl border p-5 text-center transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-orange-400/30 ${
+                                                    className={`group relative flex flex-col items-center gap-1.5 rounded-xl border p-2.5 text-center transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-orange-400/30 ${
                                                         isCurrent
                                                             ? 'border-sky-300 bg-sky-50 hover:border-sky-400 hover:bg-sky-100/80'
                                                             : isHidden
@@ -820,8 +844,8 @@ export default function Login() {
                                                         </span>
                                                     )}
 
-                                                    {/* Logo or initial avatar */}
-                                                    <div className="relative h-20 w-20 flex-shrink-0 overflow-hidden rounded-2xl border border-slate-200 bg-slate-100">
+                                                    {/* Logo or initial avatar — shrunk for 3-col grid */}
+                                                    <div className="relative h-12 w-12 flex-shrink-0 overflow-hidden rounded-xl border border-slate-200 bg-slate-100">
                                                         {entry.logoBase64 ? (
                                                             <img
                                                                 src={entry.logoBase64}
@@ -829,14 +853,14 @@ export default function Login() {
                                                                 className="h-full w-full object-cover"
                                                             />
                                                         ) : (
-                                                            <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-sky-100 to-slate-100 text-3xl font-black text-sky-600">
+                                                            <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-sky-100 to-slate-100 text-lg font-black text-sky-600">
                                                                 {(entry.orgName || '?').charAt(0).toUpperCase()}
                                                             </div>
                                                         )}
                                                         {/* Green dot — currently active database */}
                                                         {isCurrent && (
                                                             <div
-                                                                className="absolute -right-1 -top-1 h-4 w-4 rounded-full border-2 border-white bg-green-400 shadow-md"
+                                                                className="absolute -right-0.5 -top-0.5 h-3 w-3 rounded-full border-2 border-white bg-green-400 shadow-md"
                                                                 title="Currently connected"
                                                             />
                                                         )}
@@ -844,25 +868,16 @@ export default function Login() {
 
                                                     {/* Org name + DB type badge */}
                                                     <div className="min-w-0 w-full">
-                                                        <p className="truncate text-sm font-bold text-white">{entry.orgName}</p>
-                                                        <p className={`mt-0.5 text-[10px] font-bold uppercase tracking-wide ${
-                                                            entry.dbAdapter === 'firebase' ? 'text-orange-400' : 'text-cyan-400'
+                                                        <p className="truncate text-[11px] font-bold leading-tight text-[var(--myth-ink)]">{entry.orgName}</p>
+                                                        <p className={`mt-0.5 text-[8px] font-bold uppercase tracking-wide ${
+                                                            entry.dbAdapter === 'firebase' ? 'text-orange-500' : 'text-cyan-600'
                                                         }`}>
-                                                            {entry.dbAdapter === 'firebase' ? '🔥 Firebase' : `🖥️ ${getDbTypeLabel(entry)}`}
+                                                            {entry.dbAdapter === 'firebase' ? '🔥 Firebase' : `🖥️ REST`}
                                                         </p>
                                                         {isCurrent && (
-                                                            <p className="mt-0.5 text-[10px] font-bold text-green-400">✓ Active</p>
+                                                            <p className="mt-0.5 text-[8px] font-bold text-green-600">✓ Active</p>
                                                         )}
                                                     </div>
-
-                                                    {/* Action label */}
-                                                    <span className={`text-[10px] font-bold uppercase tracking-widest transition-colors ${
-                                                        isCurrent
-                                                            ? 'text-cyan-500 group-hover:text-cyan-300'
-                                                            : 'text-gray-600 group-hover:text-orange-400'
-                                                    }`}>
-                                                        {isCurrent ? 'Sign In →' : 'Switch DB & Sign In →'}
-                                                    </span>
 
                                                     {/* Share to another device — opens a modal with a
                                                         QR code + link. Scanning the QR / opening the
@@ -1036,6 +1051,32 @@ export default function Login() {
                             {/* ── SIGN IN FORM ── */}
                             {!isJoinMode ? (
                                 <form onSubmit={handleLogin} className="mt-5 space-y-3">
+                                    {(() => {
+                                        // Email → org suggestion. Compute once per render.
+                                        // Cheap: localStorage lookup + array find.
+                                        const emailLower = String(email || '').toLowerCase().trim();
+                                        if (!emailLower || !pickedOrg) return null;
+                                        const memory = readEmailOrgMemory();
+                                        const knownOrgId = memory[emailLower];
+                                        if (!knownOrgId || knownOrgId === pickedOrg.orgId) return null;
+                                        const suggestion = orgRegistry.find((e) => e.orgId === knownOrgId);
+                                        if (!suggestion) return null;
+                                        return (
+                                            <div className="rounded-xl border border-amber-300 bg-amber-50 p-3 flex items-start gap-2">
+                                                <i className="fas fa-info-circle text-amber-600 mt-0.5"></i>
+                                                <div className="flex-1 min-w-0">
+                                                    <p className="text-[11px] font-bold text-amber-900 leading-snug">This email last signed in at <strong>{suggestion.orgName}</strong>, not <strong>{pickedOrg.orgName}</strong>.</p>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handleOrgPick(suggestion)}
+                                                        className="mt-1 text-[10px] font-bold uppercase tracking-widest text-amber-800 underline hover:text-amber-900"
+                                                    >
+                                                        Switch to {suggestion.orgName} →
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        );
+                                    })()}
                                     <div>
                                         <label className="legendary-title mb-1.5 block text-[10px] text-[var(--myth-ember)]">Email Address</label>
                                         <input

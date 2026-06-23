@@ -66,9 +66,14 @@ export async function fetchPublicOrgDirectory() {
  */
 export async function publishOrgToDirectory(entry) {
     if (!entry?.orgId) return false;
+    // logoBase64 IS included in the directory entry (unlike the QR/link share
+    // path where URL size is bounded). RTDB happily stores 200 KB logo
+    // strings, and showing the org's actual logo on the picker is the
+    // single biggest visual confidence cue for the user.
     const payload = {
         orgId: entry.orgId,
         orgName: entry.orgName || entry.orgId,
+        logoBase64: entry.logoBase64 || null,
         dbAdapter: entry.dbAdapter || 'firebase',
         firebaseConfig: entry.firebaseConfig || null,
         restUrl: entry.restUrl || null,
