@@ -3,7 +3,6 @@
     ".read": false,
     ".write": false,
     "controlPlane": {
-      "//": "Server-only storage for per-org Firebase service-account JSON used by the multi-tenant admin endpoints. Admin SDK writes bypass these rules; all client access is denied.",
       ".read": false,
       ".write": false,
       "orgs": {
