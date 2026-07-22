@@ -334,9 +334,27 @@ export default function FireMarshalAssistant() {
     // Greeting stays on-screen until the user dismisses it (or opens chat) —
     // it pairs with the 30-second post-login quiet window in the movement
     // effect, so the callout has time to actually be read.
+    //
+    // Both flags are keyed on `loginAt` so a fresh login always re-shows the
+    // callouts, but within a single login the user isn't nagged by tips they
+    // already dismissed. `loginAt` is set by the movement effect; if it hasn't
+    // been set yet (very first tick after mount), we set it here so the
+    // greeting still fires.
     useEffect(() => {
         if (!enabled || open) return undefined;
-        const greetKey = `fm:guide:greeted:${uid}`;
+
+        let loginAt;
+        try {
+            loginAt = sessionStorage.getItem(`fm:guide:loginAt:${uid}`);
+            if (!loginAt) {
+                loginAt = String(Date.now());
+                sessionStorage.setItem(`fm:guide:loginAt:${uid}`, loginAt);
+            }
+        } catch {
+            loginAt = 'no-storage';
+        }
+
+        const greetKey = `fm:guide:greeted:${uid}:${loginAt}`;
         const greeted = (() => { try { return sessionStorage.getItem(greetKey) === '1'; } catch { return false; } })();
         if (!greeted) {
             const t = setTimeout(() => {
@@ -345,8 +363,12 @@ export default function FireMarshalAssistant() {
             }, 1200);
             return () => clearTimeout(t);
         }
-        const seenKey = `fm:guide:tip:${uid}:${guide.title}`;
-        if (ls.get(seenKey) !== '1') {
+
+        // Per-page tip. Also keyed on loginAt so new logins re-show the guide
+        // for each page; within a single login, only shown once per page.
+        const seenKey = `fm:guide:tip:${uid}:${loginAt}:${guide.title}`;
+        const alreadySeen = (() => { try { return sessionStorage.getItem(seenKey) === '1'; } catch { return false; } })();
+        if (!alreadySeen) {
             const t = setTimeout(() => setTip({ title: guide.title, text: guide.tips[0] }), 900);
             return () => clearTimeout(t);
         }
@@ -402,8 +424,14 @@ export default function FireMarshalAssistant() {
 
     const dismissTip = () => {
         if (tip?.title) {
-            const seenKey = `fm:guide:tip:${uid}:${tip.title}`;
-            ls.set(seenKey, '1');
+            // Mirror the read side — sessionStorage keyed on loginAt so a
+            // fresh login re-shows the tip, but within the login it stays
+            // dismissed. Also stamp the legacy localStorage key so users
+            // who have never logged out don't get every per-page tip a
+            // second time before the sessionStorage key catches up.
+            let loginAt = 'no-storage';
+            try { loginAt = sessionStorage.getItem(`fm:guide:loginAt:${uid}`) || 'no-storage'; } catch { /* ignore */ }
+            try { sessionStorage.setItem(`fm:guide:tip:${uid}:${loginAt}:${tip.title}`, '1'); } catch { /* ignore */ }
         }
         setTip(null);
     };
