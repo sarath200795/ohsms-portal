@@ -200,11 +200,15 @@ export default function FireMarshalAssistant() {
     const [facing, setFacing] = useState(-1);
     const [asleep, setAsleep] = useState(false);
     const [pinned, setPinned] = useState(() => ls.get(`fm:guide:pinned:${uid}`) === '1');
-    // bubbleSide reflects which side of Sam the callout / chat panel should
-    // anchor to so they never overflow off-screen when Sam is dragged near a
-    // viewport edge. 'right' = bubble to Sam's right (default, Sam on left);
-    // 'left'  = bubble to Sam's left (Sam dragged to the right half).
+    // bubbleSide + bubbleVertical reflect which quadrant of Sam the callout /
+    // chat panel should anchor to so they never overflow off-screen when Sam
+    // is dragged near a viewport edge.
+    //   bubbleSide:     'right' = bubble to Sam's right (default, Sam on left)
+    //                   'left'  = bubble to Sam's left  (Sam dragged to right half)
+    //   bubbleVertical: 'above' = bubble above Sam (default, Sam near bottom)
+    //                   'below' = bubble below Sam (Sam dragged to top of viewport)
     const [bubbleSide, setBubbleSide] = useState('right');
+    const [bubbleVertical, setBubbleVertical] = useState('above');
 
     // Restore drag position from localStorage, but clamp into the current
     // viewport so a position saved on a wider monitor doesn't render Sam
@@ -376,28 +380,46 @@ export default function FireMarshalAssistant() {
     }, [location.pathname, open, uid, guide, enabled]);
 
     // Persist drag position so Sam doesn't jump back on every reload. Also
-    // track which half of the viewport Sam is on so the callout can flip
-    // sides to stay visible.
+    // track which QUADRANT of Sam the callout should render in so it never
+    // overflows the viewport regardless of where Sam has been dragged.
     useEffect(() => {
-        const recomputeSide = () => {
+        const SAM_WIDTH = 96;      // approx Sam avatar footprint (62–78px svg + padding)
+        const SAM_HEIGHT = 116;    // approx Sam avatar height
+        const BUBBLE_WIDTH = 268;  // 260px + 8px gap
+        const BUBBLE_HEIGHT = 160; // greeting bubble ≈ 120–150px; chat panel is capped 70vh
+        const MARGIN = 8;
+
+        const recompute = () => {
             const vw = typeof window === 'undefined' ? 1000 : window.innerWidth;
-            // Account for bubble width (~260) + gap (~68). If Sam's right
-            // edge + bubble would overflow, flip the bubble to Sam's left.
-            const overflowsRight = mx.get() + 96 + 268 > vw;
-            setBubbleSide((cur) => (overflowsRight ? 'left' : 'right') === cur ? cur : (overflowsRight ? 'left' : 'right'));
+            const vh = typeof window === 'undefined' ? 800  : window.innerHeight;
+
+            // Sam's rendered rectangle (container is position:fixed bottom:16 left:0; my=negative moves up)
+            const samLeft   = mx.get();
+            const samRight  = samLeft + SAM_WIDTH;
+            const samBottom = vh - 16 + my.get();
+            const samTop    = samBottom - SAM_HEIGHT;
+
+            // Horizontal: if placing bubble to the right of Sam would overflow, flip left.
+            const nextSide = (samRight + BUBBLE_WIDTH + MARGIN > vw) ? 'left' : 'right';
+            // Vertical: if placing bubble above Sam would push it off the top, flip below.
+            const nextVert = (samTop - BUBBLE_HEIGHT - MARGIN < 0) ? 'below' : 'above';
+
+            setBubbleSide((cur) => cur === nextSide ? cur : nextSide);
+            setBubbleVertical((cur) => cur === nextVert ? cur : nextVert);
         };
-        const unsubX = mx.on('change', () => { save(); recomputeSide(); });
-        const unsubY = my.on('change', save);
-        function save() {
+
+        const save = () => {
             try { ls.set(`fm:guide:pos:${uid}`, JSON.stringify({ x: mx.get(), y: my.get() })); }
             catch { /* ignore */ }
-        }
-        recomputeSide();
-        window.addEventListener('resize', recomputeSide);
+        };
+        const unsubX = mx.on('change', () => { save(); recompute(); });
+        const unsubY = my.on('change', () => { save(); recompute(); });
+        recompute();
+        window.addEventListener('resize', recompute);
         return () => {
             unsubX();
             unsubY();
-            window.removeEventListener('resize', recomputeSide);
+            window.removeEventListener('resize', recompute);
         };
     }, [mx, my, uid]);
 
@@ -465,42 +487,67 @@ export default function FireMarshalAssistant() {
 
     return (
         <motion.div
+            // Framer-motion drag + onTap coordinate together — no <button>
+            // wrapper (which used to intercept pointerdown and break drag
+            // on touch devices). onTap only fires when the pointer didn't
+            // move meaningfully, so a click opens the chat but a drag
+            // gesture repositions Sam.
             drag
             dragMomentum={false}
             dragElastic={0.04}
-            style={{ x: mx, y: my, position: 'fixed', bottom: 16, left: 0, zIndex: 200, touchAction: 'none' }}
+            onTap={() => setOpen((o) => !o)}
+            role="button"
+            tabIndex={0}
+            aria-label="Open Sam — safety assistant"
+            onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    setOpen((o) => !o);
+                }
+            }}
+            style={{
+                x: mx, y: my,
+                position: 'fixed', bottom: 16, left: 0,
+                zIndex: 200,
+                touchAction: 'none',
+                cursor: 'grab',
+                // Framer-motion sets cursor:grabbing during drag via whileDrag below.
+            }}
+            whileDrag={{ cursor: 'grabbing' }}
             className="select-none"
         >
-            <div className="relative">
-                <button
-                    type="button"
-                    onClick={() => setOpen((o) => !o)}
-                    aria-label="Open Sam — safety assistant"
-                    className="block cursor-grab active:cursor-grabbing"
-                    style={{ background: 'transparent', border: 'none', padding: 0 }}
-                >
-                    <AvatarBoundary fallback={<Character mode={mode} />}>
-                        <Suspense fallback={<Character mode={mode} />}>
-                            <FireMarshalCharacter3D mode={mode} facing={facing} size={78} />
-                        </Suspense>
-                    </AvatarBoundary>
-                </button>
+            <div className="relative" style={{ pointerEvents: 'none' }}>
+                {/* pointer-events:none on the character wrapper so 3D Canvas
+                    hit-testing never intercepts the drag pointerdown. */}
+                <AvatarBoundary fallback={<Character mode={mode} />}>
+                    <Suspense fallback={<Character mode={mode} />}>
+                        <FireMarshalCharacter3D mode={mode} facing={facing} size={78} />
+                    </Suspense>
+                </AvatarBoundary>
             </div>
 
             {/* Per-page tip bubble — flips to Sam's left when he's on the
-                right half of the viewport so the 260px-wide callout stays
-                on-screen. */}
+                right half of the viewport, and to below him when he's near
+                the top edge, so the 260px-wide callout always stays fully
+                on-screen. Pointer events re-enabled inside the bubble so
+                the dismiss / open buttons remain clickable. */}
             <AnimatePresence>
                 {tip && !open && (
                     <motion.div
                         initial={{ opacity: 0, y: 10, scale: 0.95 }}
                         animate={{ opacity: 1, y: 0, scale: 1 }}
                         exit={{ opacity: 0, y: 10, scale: 0.95 }}
-                        className={`absolute bottom-[110px] w-[260px] rounded-2xl border p-3 text-sm shadow-xl ${bubbleSide === 'right' ? 'left-[68px]' : 'right-[68px]'}`}
+                        // Stop pointerdown here so clicks INSIDE the bubble
+                        // never bubble up to the parent motion.div's drag/tap
+                        // handlers (otherwise clicking Dismiss would also
+                        // trigger onTap → open chat).
+                        onPointerDown={(e) => e.stopPropagation()}
+                        className={`absolute w-[260px] rounded-2xl border p-3 text-sm shadow-xl ${bubbleSide === 'right' ? 'left-[68px]' : 'right-[68px]'} ${bubbleVertical === 'above' ? 'bottom-[110px]' : 'top-[110px]'}`}
                         style={{
                             background: '#ffffff',
                             borderColor: 'rgba(15,23,42,0.08)',
                             color: 'var(--myth-ink, #0f172a)',
+                            pointerEvents: 'auto',
                         }}
                     >
                         <div className="mb-1 flex items-start justify-between gap-2">
@@ -536,12 +583,17 @@ export default function FireMarshalAssistant() {
                         initial={{ opacity: 0, y: 12, scale: 0.98 }}
                         animate={{ opacity: 1, y: 0,  scale: 1 }}
                         exit={{ opacity: 0, y: 12, scale: 0.98 }}
-                        className={`absolute bottom-[110px] flex w-[340px] max-w-[88vw] flex-col rounded-2xl border shadow-2xl ${bubbleSide === 'right' ? 'left-[68px]' : 'right-[68px]'}`}
+                        // Stop pointerdown so clicks inside the chat panel
+                        // (input focus, send button, pin/hide/close, chip
+                        // presses) don't propagate up to the drag/tap handler.
+                        onPointerDown={(e) => e.stopPropagation()}
+                        className={`absolute flex w-[340px] max-w-[88vw] flex-col rounded-2xl border shadow-2xl ${bubbleSide === 'right' ? 'left-[68px]' : 'right-[68px]'} ${bubbleVertical === 'above' ? 'bottom-[110px]' : 'top-[110px]'}`}
                         style={{
                             background: '#ffffff',
                             borderColor: 'rgba(15,23,42,0.08)',
                             color: 'var(--myth-ink, #0f172a)',
                             maxHeight: '70vh',
+                            pointerEvents: 'auto',
                         }}
                     >
                         <div className="flex items-center justify-between border-b px-3 py-2" style={{ borderColor: 'rgba(15,23,42,0.06)' }}>
