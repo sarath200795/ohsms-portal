@@ -1,0 +1,42 @@
+{
+  "name": "ohsms-enterprise",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "build:field-portal": "vite build --config vite.field-portal.config.js",
+    "build:all": "npm run build && npm run build:field-portal",
+    "test:platform": "node --test tests/permissions.test.mjs tests/session.test.mjs",
+    "test:phase1": "node --test tests/permissions.test.mjs",
+    "lint": "eslint src tests --report-unused-disable-directives --max-warnings 0",
+    "lint:full": "eslint . --report-unused-disable-directives",
+    "preview": "vite preview",
+    "preview:field-portal": "vite preview --config vite.field-portal.config.js",
+    "firebase:deploy": "firebase deploy --only database,storage,hosting:app",
+    "firebase:deploy:field-portal": "npm run build:field-portal && firebase deploy --only hosting:fieldportal",
+    "firebase:rules": "firebase deploy --only database"
+  },
+  "dependencies": {
+    "@react-three/fiber": "^9.6.1",
+    "@tailwindcss/vite": "^4.2.1",
+    "firebase": "^12.9.0",
+    "lucide-react": "^1.16.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "react-router-dom": "^7.13.1",
+    "three": "^0.169.0",
+    "zustand": "^5.0.11"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.1",
+    "@vitejs/plugin-react": "^5.1.1",
+    "eslint": "^9.0.0",
+    "eslint-plugin-react-hooks": "^7.0.1",
+    "eslint-plugin-react-refresh": "^0.4.24",
+    "globals": "^16.5.0",
+    "tailwindcss": "^4.2.1",
+    "vite": "^8.0.10"
+  }
+}

@@ -5,126 +5,137 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Commands
 
 ```bash
-npm run dev                    # Start Vite dev server (main app)
+npm run dev                    # Start Vite dev server (main app; field-portal.html also served)
 npm run build                  # Build main app → dist/
-npm run build:field-portal     # Build field portal → dist-field-portal/
+npm run build:field-portal     # Build field portal → dist-field-portal/ (entry renamed to index.html)
 npm run build:all              # Build both in sequence
 
 npm run test:platform          # Run all Node built-in unit tests (no test runner install needed)
-npm run test:phase1            # Run permissions + user-access tests only
 node --test tests/permissions.test.mjs   # Run a single test file
 
-npm run lint                   # Lint a curated subset of changed files
-npm run lint:full              # Lint the entire src tree
+npm run lint                   # Lint src + tests (zero warnings allowed)
+npm run lint:full              # Lint everything
 
 npm run firebase:deploy        # Build + deploy main app to Firebase Hosting
 npm run firebase:deploy:field-portal  # Build + deploy field portal to Firebase Hosting
 npm run firebase:rules         # Deploy RTDB security rules only (database.rules.json)
 ```
 
-Tests use the Node built-in test runner (`node --test`) — no Jest, no Vitest. E2E tests use Playwright (`npm run test:e2e`).
+Tests use the Node built-in test runner (`node --test`) — no Jest, no Vitest.
 
 ## Architecture
 
-### Two Independent Vite Builds
+Ground-up rebuild (2026). React 19 + Vite 8 + Tailwind v4 + Zustand + Firebase RTDB, with a
+react-three-fiber 3D scene on the public landing page.
 
-The repo produces two separate SPAs:
+### Two Independent Vite Builds
 
 | Build | Entry | Config | Output | Hosting target |
 |---|---|---|---|---|
-| Main enterprise app | `src/main.jsx` → `App.jsx` | `vite.config.js` | `dist/` | `app` |
-| Standalone field portal | `src/fieldPortalMain.jsx` → `FieldPortalApp.jsx` | `vite.field-portal.config.js` | `dist-field-portal/` | `fieldportal` |
+| Main enterprise app | `index.html` → `src/main.jsx` → `App.jsx` | `vite.config.js` | `dist/` | `app` |
+| Standalone field portal | `field-portal.html` → `src/fieldPortalMain.jsx` → `FieldPortalApp.jsx` | `vite.field-portal.config.js` | `dist-field-portal/` | `fieldportal` |
 
-Both are pure SPAs with `/* → /index.html` rewrites. The field portal is a lightweight subset of the main app designed for mobile field workers reached via QR codes.
+Both are SPAs with `/* → /index.html` rewrites. The field portal is a no-login incident
+reporting form for field workers reached via QR codes carrying `?org={orgId}&site={siteName}`.
+Its build renames `field-portal.html` → `index.html` via a small vite plugin so Firebase
+hosting rewrites work.
+
+### Config-Driven Module System (the key pattern)
+
+All 14 operational modules (incidents, riskAssessments, ptwRecords, lotoProcedures, auditPlans,
+capaActions, trainings, contractors, inspectionRecords, mockDrills, emergencyEquipment,
+improvements, consultations, healthCases) are **declarative configs** in
+`src/modules/registry.js` — id, collection, icon, statuses, field definitions, list columns.
+One engine, `src/components/ModulePage.jsx`, renders every module: realtime list, stat cards,
+search, status filter, validated create/edit modal, delete confirm. **To add a module, add a
+config object to the registry** (and its id to `MODULE_IDS` in `src/utils/permissions.js`);
+routes and navigation pick it up automatically.
+
+Field types supported by the form engine: `text`, `textarea`, `date`, `number`, `select`,
+`site` (site picker, auto-locked for site-scoped users), `person`.
 
 ### Database & Auth Adapter Pattern
 
-**Never import from `firebase/database` or `firebase/auth` directly in components or pages.** All data and auth calls go through the service layer:
+**Never import from `firebase/database` or `firebase/auth` directly in components or pages.**
+All data and auth calls go through the service layer:
 
 ```js
-import { dbGet, dbPush, dbUpdate, dbRemove, dbSet, dbSubscribe, orgGet } from '../../services/db/index.js';
-import authService from '../../services/auth/index.js';
+import { dbGet, dbPush, dbUpdate, dbRemove, dbSet, dbSubscribe, orgGet, orgPush, orgSubscribe, toRecords } from '../services/db/index.js';
+import authService from '../services/auth/index.js';
 ```
 
-The active adapter is selected at module-load time from `localStorage('ohsms_db_adapter')` → `VITE_DB_ADAPTER` env var → `'firebase'` (default). The two adapters are `firebase` (RTDB) and `rest` (any REST API). The `/setup` page writes the runtime config to `localStorage` so orgs can switch databases without a redeploy.
+The active adapter is selected at module-load time from `localStorage('ohsms_db_adapter')` →
+`VITE_DB_ADAPTER` env var → `'firebase'` (default). Adapters: `firebase` (RTDB realtime) and
+`rest` (RTDB-shaped JSON API; subscriptions poll every 15s). The `/setup` page writes runtime
+config to `localStorage` so orgs can switch databases without a redeploy. Auth is
+Firebase-only; the REST adapter covers data access.
 
-Convenience scoped helpers: `orgGet(orgId, 'incidents')` expands to `dbGet('organizations/${orgId}/incidents')`.
+`toRecords(value)` converts an RTDB object map into an array with `id`s sorted by `createdAt`
+descending — use it for every collection read.
 
 ### Multi-Tenancy Data Model
 
-All organisation data lives under `organizations/${orgId}/` in Firebase RTDB. The `userDirectory/${uid}/orgId` mapping links a Firebase Auth UID to its organisation. RTDB security rules enforce that a user can only read/write their own org's data and must have `status === 'Active'`.
+All org data lives under `organizations/${orgId}/` in Firebase RTDB. `userDirectory/${uid}/orgId`
+maps a Firebase Auth UID to its organization. RTDB security rules (`database.rules.json`)
+enforce org isolation and `status === 'Active'`.
 
-Collections under `organizations/${orgId}/`: `details`, `sites`, `users`, `userPasswordState`, `permissionRequests`, `accessAuditLogs`, and all module collections (`incidents`, `riskAssessments`, `ptwRecords`, `lotoProcedures`, `auditPlans`, `trainings`, `contractors`, `inspectionTemplates`, `inspectionRecords`, `mockDrills`, `emergencyEquipment`, `improvements`, `consultations`, `healthCases`, etc.).
+Collections under `organizations/${orgId}/`: `sites`, `users`, plus one collection per module
+config (`collection` key in the registry).
 
 ### RBAC and Permissions
 
-Three roles defined in `src/utils/permissions.js`:
+Three roles in `src/utils/permissions.js`:
 
-- **Global Owner** — full access to all sites and all modules including Users and Sites management
-- **Site Owner** — all modules scoped to their `assignedSite`; can manage users at their site
-- **User** — only modules explicitly listed in `accessibleModules`
+- **Global Owner** — every module including Users and Sites; site access is `All Sites`
+- **Site Owner** — every module except the global Sites registry, scoped to `assignedSite`; can manage users at their site
+- **User** — `dashboard` plus only the modules listed in `accessibleModules` (management modules can never be self-granted)
 
-`normalizeSessionPermissions()` in `permissions.js` is the authoritative function that expands role-granted modules and normalizes site access. Call it whenever building or validating a session.
+`normalizeSessionPermissions()` is the authoritative function that expands role-granted modules
+and normalizes site access — call it whenever building or validating a session.
+`scopeRecordsToSite()` filters collection reads for non-global users; records without a `site`
+field remain visible (legacy tolerance).
 
 ### Session Flow
 
-1. Login writes a normalized session object to `sessionStorage('isoSession')` via `writeStoredSession()` in `src/utils/session.js`
-2. `ProtectedRoute` in `App.jsx` reads `readStoredSession()` on every navigation — no redirect if valid
-3. `useStore` (Zustand, `src/store/useStore.js`) holds the live session and opens a `dbSubscribe` listener on `organizations/${orgId}/users/${uid}` to keep permissions fresh in real time
-4. Call `useStore.initializeSession(sess)` on every protected page load; call `useStore.clearSession()` on logout
+1. `authService.login()` signs in, resolves org + profile, writes a normalized session to `sessionStorage('isoSession')` via `writeStoredSession()` (`src/utils/session.js`)
+2. `ProtectedRoute` reads `readStoredSession()` on every navigation and enforces per-module access via its `moduleId` prop
+3. `useStore` (Zustand, `src/store/useStore.js`) holds the live session and subscribes to `organizations/${orgId}/users/${uid}` — permission edits apply in real time, deactivation logs the user out immediately
+4. The field portal uses a separate `sessionStorage('fieldPortalSession')` key (reporter name only, no auth)
 
-The field portal uses a separate session key `'fieldPortalSession'` and `portalAuth.js` handles its distinct login/bootstrap flow.
+### Design System
 
-### AppExperienceShell
+"Trust & Authority" (selected via the ui-ux-pro-max skill). Semantic tokens are defined in
+`src/index.css` under `@theme` — components use token utilities (`bg-primary`, `text-ink`,
+`text-soft`, `border-line`, `bg-canvas`, `bg-night`…), **never raw hex**. Font: Plus Jakarta
+Sans. Shared primitives (Button, Card, Badge/StatusBadge, Field, Input/Select/Textarea, Modal,
+StatCard, EmptyState, Spinner, PageHeader) live in `src/components/ui.jsx`.
 
-`src/components/AppExperienceShell.jsx` wraps all routes and provides:
-- Animated route transition overlay (respects `prefers-reduced-motion`)
-- `AppTransitionContext` — call `playTransition({ label, action })` anywhere to animate a navigation
-- Tutorial prompt system — shows a one-time video modal per module (keyed in `localStorage('ohsms:tutorial-seen:{id}')`)
-- Online/offline detection with a connectivity pill
+Dashboard chart colors: the severity palette (`#0891b2/#f59e0b/#dc2626/#7c3aed`) passed the
+dataviz skill's colorblind-safety validator; the amber slice is below 3:1 contrast so the donut
+legend always shows label + count. Keep those constraints if you change chart colors.
 
-### CSS and Theme
-
-Tailwind v4 (`@import "tailwindcss"` in `src/index.css`). Light theme using CSS custom properties:
-- `--myth-ink` `#0f172a` — primary text
-- `--myth-ember` `#f97316` — orange accent / actions
-- `--myth-muted` `#64748b` — secondary text
-- `--myth-gold` `#f2c978` — decorative accent
-
-**Cascade note**: Unlayered CSS in `index.css` (outside `@layer`) outranks `@layer utilities`. The `.hero-banner .text-white { color: #ffffff !important }` rule keeps the intentional dark hero-banner text white but propagates to white sub-cards inside the hero (stat cards, info pills). Fix white-on-white in hero sub-cards by using `text-[var(--myth-ink)]` directly in JSX rather than relying on the global override.
-
-### Incident AI Backend
-
-The incident smart investigation feature runs as a Vercel serverless function at `api/v1.js` (Vercel Blob storage + Firebase Admin for durable job state). Env vars needed: `BLOB_READ_WRITE_TOKEN`, `FIREBASE_DATABASE_URL`, `FIREBASE_SERVICE_ACCOUNT_JSON`, `OPENAI_API_KEY`.
-
-For self-hosted setups (running `server/incident-ai/` somewhere else), set `VITE_INCIDENT_AI_API_BASE_URL` to point at it. There is no longer a hosted-external fallback — empty + non-Vercel hostname = no incident AI backend.
-
-### Known Tech Debt (from README)
-
-- Attachments are stored as base64 in RTDB — should migrate to Firebase Storage with scoped rules
-- The `xlsx` package has unresolved upstream advisories
-- User provisioning (create/delete Firebase Auth accounts) currently runs client-side via a secondary Firebase app instance (`ohsms-user-provisioning`) — should move to Admin SDK on the server for stricter enterprise control
-
-## MCP Servers & Skills
-
-`.mcp.json` registers the 21st.dev component MCP server (HTTP transport). It reads the API key from the `TWENTYFIRST_API_KEY` environment variable — set it in your shell (or Claude Code environment settings) before starting a session; the key itself is never committed because this repo is public.
-
-`.claude/skills/` contains the UI/UX Pro Max skill suite (installed via `npx ui-ux-pro-max-cli init --ai claude`): `ui-ux-pro-max`, `ui-styling`, `design`, `design-system`, `brand`, `banner-design`, and `slides`.
+The landing page (`src/pages/Landing.jsx`) hosts the lazy-loaded react-three-fiber scene
+(`src/components/three/SafetyScene.jsx`); it honors `prefers-reduced-motion` (static frame,
+`frameloop='demand'`) and the `three` chunk is split in `vite.config.js`.
 
 ## Environment Variables
 
-Copy `.env.example` to `.env`. Required Firebase vars:
+Copy `.env.example` to `.env`. Required Firebase vars: `VITE_FIREBASE_API_KEY`,
+`VITE_FIREBASE_AUTH_DOMAIN`, `VITE_FIREBASE_DATABASE_URL`, `VITE_FIREBASE_PROJECT_ID`,
+`VITE_FIREBASE_STORAGE_BUCKET`, `VITE_FIREBASE_MESSAGING_SENDER_ID`, `VITE_FIREBASE_APP_ID`.
+Optional: `VITE_DB_ADAPTER` (`firebase` | `rest`), `VITE_REST_API_BASE_URL`,
+`VITE_FIELD_PORTAL_URL` (landing-page link to the deployed field portal).
 
-```
-VITE_FIREBASE_API_KEY
-VITE_FIREBASE_AUTH_DOMAIN
-VITE_FIREBASE_DATABASE_URL
-VITE_FIREBASE_PROJECT_ID
-VITE_FIREBASE_STORAGE_BUCKET
-VITE_FIREBASE_MESSAGING_SENDER_ID
-VITE_FIREBASE_APP_ID
-VITE_FIREBASE_APP_CHECK_SITE_KEY   # optional — enables App Check / reCAPTCHA v3
-VITE_DB_ADAPTER                    # optional — 'firebase' (default) or 'rest'
-```
+The `/setup` page at runtime can override all of this via `localStorage`
+(`ohsms_firebase_config`, `ohsms_db_adapter`, `ohsms_rest_config`).
 
-The `/setup` page at runtime can override all Firebase config by writing to `localStorage('ohsms_firebase_config')` and `localStorage('ohsms_db_adapter')`.
+## MCP Servers & Skills
+
+`.mcp.json` registers the 21st.dev component MCP server (HTTP transport). It reads the API key
+from the `TWENTYFIRST_API_KEY` environment variable — set it in your shell (or Claude Code
+environment settings) before starting a session; the key itself is never committed because this
+repo is public.
+
+`.claude/skills/` contains the UI/UX Pro Max skill suite (installed via
+`npx ui-ux-pro-max-cli init --ai claude`): `ui-ux-pro-max`, `ui-styling`, `design`,
+`design-system`, `brand`, `banner-design`, and `slides`.

@@ -1,63 +1,49 @@
-# OHSMS Enterprise
+# WE EHS — OHSMS Portal
 
-WE EHS Safety Tool is a multi-module EHS platform built on React, Vite, and Firebase. The repo contains:
+Enterprise occupational health & safety management system: 14 integrated HSE modules
+(incidents, risk assessments, permits to work, LOTO, audits, CAPA, training, contractors,
+inspections, mock drills, emergency equipment, improvements, consultations, occupational
+health) in one realtime, multi-tenant, site-scoped portal — plus a QR-code field portal for
+no-login incident reporting and a 3D interactive landing page.
 
-- Main enterprise app
-- Standalone field portal
-- Vendor portal
-- Module tutorial/video automation scripts
+## Stack
 
-## Core Commands
+- **React 19 + Vite 8** — two independent SPA builds (main app, field portal)
+- **Tailwind CSS v4** — semantic design tokens, "Trust & Authority" design system
+- **Firebase** — Realtime Database + Auth (swappable for any REST backend at runtime via `/setup`)
+- **Zustand** — live session store with realtime permission sync
+- **react-three-fiber** — interactive 3D hero on the landing page
+
+## Quick start
 
 ```bash
 npm install
+cp .env.example .env   # fill in your Firebase web config
 npm run dev
-npm run build
-npm run build:field-portal
-npm run test:platform
-npm run lint:full
 ```
 
-## Environment
+- `/` — public landing page
+- `/login` — portal sign-in (Firebase Auth)
+- `/setup` — runtime database configuration (no redeploy needed)
+- `/field-portal.html?org={orgId}&site={site}` — field worker reporting form (dev)
 
-Copy `.env.example` to `.env` and provide the Firebase values for the target environment.
+## Scripts
 
-Optional production hardening:
+| Script | Purpose |
+|---|---|
+| `npm run dev` | Dev server |
+| `npm run build` / `build:field-portal` / `build:all` | Production builds |
+| `npm run test:platform` | Unit tests (Node built-in runner) |
+| `npm run lint` | ESLint, zero warnings |
+| `npm run firebase:deploy` | Deploy main app + rules |
+| `npm run firebase:deploy:field-portal` | Deploy field portal |
 
-- `VITE_FIREBASE_APP_CHECK_SITE_KEY` enables Firebase App Check initialization in the browser
+## Architecture in one paragraph
 
-If environment variables are not present, the app falls back to the current Firebase project configuration embedded in the repo.
-
-## Deploy
-
-Main app:
-
-```bash
-npm run build
-npm run firebase:deploy
-```
-
-Field portal:
-
-```bash
-npm run build:field-portal
-npm run firebase:deploy:field-portal
-```
-
-More detail is available in `FIELD_PORTAL_DEPLOYMENT.md`.
-
-Vercel deployment notes for the main app plus field portal are available in `VERCEL_DEPLOYMENT.md`.
-
-## Current Security Posture
-
-- Three-role RBAC model: `Global Owner`, `Site Owner`, `User`
-- Realtime Database rules enforced and covered by platform tests
-- Forced password change supported for newly provisioned internal users and vendor portal users
-- Firebase Hosting security headers configured in `firebase.json`
-- Optional App Check bootstrap available through env configuration
-
-## Known Follow-Up Work
-
-- Migrate attachment storage from Realtime Database base64 payloads to Firebase Storage with scoped rules
-- Replace or isolate remaining `xlsx` import/export flows because the upstream package still has unresolved advisories
-- Move privileged user provisioning from client-side flows to a backend/Admin SDK path for stricter enterprise control
+Every operational module is a **declarative config** in `src/modules/registry.js`, rendered by
+a single engine (`src/components/ModulePage.jsx`) — realtime list, stats, search, filters and
+validated forms come free per module. Data access goes through an adapter layer
+(`src/services/db`) so the portal runs on Firebase RTDB or any RTDB-shaped REST API, selected
+at runtime. Three roles (Global Owner / Site Owner / User) are normalized by
+`src/utils/permissions.js` and enforced per-route, per-record-scope and in realtime via a live
+profile subscription. See `CLAUDE.md` for the full architecture guide.

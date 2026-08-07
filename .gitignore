@@ -9,6 +9,7 @@ lerna-debug.log*
 
 node_modules
 dist
+dist-field-portal
 dist-ssr
 *.local
 
@@ -44,3 +45,6 @@ COWORK_SYNC_TEST.txt
 # Claude Code local settings (personal overrides, not shared)
 .claude/settings.local.json
 .claude/videos/
+
+# Python bytecode from skill scripts
+__pycache__/
