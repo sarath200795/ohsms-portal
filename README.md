@@ -1,20 +1,24 @@
 # WE EHS Suite Launch
 
-Interactive 3D launch page for **WE EHS — OHSMS** (occupational health & safety management
-suite). A single-page React site with a full-viewport three.js scene that responds to pointer
-movement, scroll and clicks, honoring `prefers-reduced-motion`.
+The WE EHS Suite launch page, built 1:1 from the Claude Design source
+(**WE EHS Suite Launch.dc.html** — artifact "Occupation Health Safety App UI").
 
-## Stack
+A pure static site — no build step, no framework:
 
-- React 19 + Vite 8
-- Tailwind CSS v4 (semantic tokens, "Trust & Authority" palette, Plus Jakarta Sans)
-- three.js via @react-three/fiber (code-split chunk)
+- `index.html` — the full page: Modernist design system (Archivo, `#f3f2f2` ground,
+  `#ec3013` accent, sharp corners, 2px ink rules), hero, nine scroll-pinned
+  assembly scenes (Fire Marshal, HECP·LOTO, Permit to Work, HIRA, Incident·IRA,
+  Inspections, Internal Audit, HSE Committee, WE EHS Hub), modules grid, Hub
+  mock, shared-foundation strip, demo table and launch CTA.
+- `js/assembly.js` — the scroll-driven assembly animation, ported unchanged from
+  the design's script (exploded parts converge per scene, legends fade in,
+  progress bars track; honors `prefers-reduced-motion`).
+- `fonts/` — self-hosted Archivo woff2 subsets from the design bundle.
 
-## Develop
+## Run locally
+
+Any static server works:
 
 ```bash
-npm install
-npm run dev      # local dev server
-npm run build    # production build → dist/
-npm run preview  # serve the production build
+npx serve .
 ```
