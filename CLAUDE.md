@@ -105,6 +105,12 @@ For self-hosted setups (running `server/incident-ai/` somewhere else), set `VITE
 - The `xlsx` package has unresolved upstream advisories
 - User provisioning (create/delete Firebase Auth accounts) currently runs client-side via a secondary Firebase app instance (`ohsms-user-provisioning`) — should move to Admin SDK on the server for stricter enterprise control
 
+## MCP Servers & Skills
+
+`.mcp.json` registers the 21st.dev component MCP server (HTTP transport). It reads the API key from the `TWENTYFIRST_API_KEY` environment variable — set it in your shell (or Claude Code environment settings) before starting a session; the key itself is never committed because this repo is public.
+
+`.claude/skills/` contains the UI/UX Pro Max skill suite (installed via `npx ui-ux-pro-max-cli init --ai claude`): `ui-ux-pro-max`, `ui-styling`, `design`, `design-system`, `brand`, `banner-design`, and `slides`.
+
 ## Environment Variables
 
 Copy `.env.example` to `.env`. Required Firebase vars:
