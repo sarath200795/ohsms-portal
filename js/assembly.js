@@ -24,7 +24,9 @@
         if (!sc.box || !sc.box.parentElement) continue;
         const cell = sc.box.parentElement.getBoundingClientRect();
         if (!cell.width || !cell.height) continue;
-        const k = Math.min(1, (cell.width - 12) / 360, (cell.height - 12) / 620);
+        const w = parseFloat(sc.box.style.width) || 360;
+        const h = parseFloat(sc.box.style.height) || 620;
+        const k = Math.min(1.3, (cell.width - 12) / w, (cell.height - 12) / h);
         sc.box.style.transform = 'scale(' + Math.max(0.5, k) + ')';
       }
     };
