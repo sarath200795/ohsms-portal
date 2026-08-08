@@ -21,16 +21,16 @@ jobs:
           mkdir -p photo-candidates
           UA="WE-EHS-launch-page/1.0 (contact: sarath200795@gmail.com)"
           declare -A Q=(
-            [fire]="fire extinguisher red isolated white background"
-            [fire2]="fire extinguisher single portable red"
-            [hira]="risk assessment safety hazard worker clipboard construction"
-            [hira2]="job safety analysis workplace hazard identification"
-            [incident]="accident investigation scene safety mishap"
-            [incident2]="emergency response drill spill workers"
-            [committee]="safety meeting briefing workers discussion"
-            [committee2]="safety stand down briefing sailors"
-            [hub]="control room operations center monitors screens"
-            [hub2]="operations center watch monitors industrial"
+            [fire]="fire extinguisher"
+            [hira]="risk assessment"
+            [hira2]="hazard identification"
+            [hira3]="construction worker harness"
+            [incident]="incident investigation"
+            [incident2]="damage control drill"
+            [committee]="safety committee"
+            [committee2]="committee meeting table"
+            [hub]="control room"
+            [hub2]="network operations center"
           )
           echo '[]' > photo-candidates/credits.json
           for key in "${!Q[@]}"; do
@@ -38,7 +38,7 @@ jobs:
               --data-urlencode 'action=query' --data-urlencode 'format=json' \
               --data-urlencode 'generator=search' --data-urlencode 'gsrnamespace=6' \
               --data-urlencode "gsrsearch=filetype:bitmap ${Q[$key]}" \
-              --data-urlencode 'gsrlimit=8' --data-urlencode 'prop=imageinfo' \
+              --data-urlencode 'gsrlimit=20' --data-urlencode 'prop=imageinfo' \
               --data-urlencode 'iiprop=url|extmetadata|size' --data-urlencode 'iiurlwidth=1600')
             echo "$RESP" > "photo-candidates/$key-api.json"
             i=0
@@ -67,5 +67,5 @@ jobs:
           git config user.name 'photo-fetch-bot'
           git config user.email 'actions@github.com'
           git add photo-candidates
-          git commit -m 'chore: add Commons photo candidates round 4 [skip ci]'
+          git commit -m 'chore: add Commons photo candidates round 5 [skip ci]'
           git push
