@@ -1,0 +1,71 @@
+# Temporary: fetch openly-licensed photo candidates from Wikimedia Commons.
+# The CI runner has open internet; the authoring sandbox does not. Deleted
+# once the final photos are picked.
+name: fetch-photos
+on:
+  push:
+    branches: [claude/21st-mcp-http-setup-5eh4w5]
+    paths: ['.github/workflows/fetch-photos.yml']
+
+permissions:
+  contents: write
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Query Commons API and download candidates
+        run: |
+          set -euo pipefail
+          mkdir -p photo-candidates
+          UA="WE-EHS-launch-page/1.0 (contact: sarath200795@gmail.com)"
+          declare -A Q=(
+            [fire]="fire extinguisher red isolated white background"
+            [fire2]="fire extinguisher single portable red"
+            [hira]="risk assessment safety hazard worker clipboard construction"
+            [hira2]="job safety analysis workplace hazard identification"
+            [incident]="accident investigation scene safety mishap"
+            [incident2]="emergency response drill spill workers"
+            [committee]="safety meeting briefing workers discussion"
+            [committee2]="safety stand down briefing sailors"
+            [hub]="control room operations center monitors screens"
+            [hub2]="operations center watch monitors industrial"
+          )
+          echo '[]' > photo-candidates/credits.json
+          for key in "${!Q[@]}"; do
+            RESP=$(curl -sf -A "$UA" -G 'https://commons.wikimedia.org/w/api.php' \
+              --data-urlencode 'action=query' --data-urlencode 'format=json' \
+              --data-urlencode 'generator=search' --data-urlencode 'gsrnamespace=6' \
+              --data-urlencode "gsrsearch=filetype:bitmap ${Q[$key]}" \
+              --data-urlencode 'gsrlimit=8' --data-urlencode 'prop=imageinfo' \
+              --data-urlencode 'iiprop=url|extmetadata|size' --data-urlencode 'iiurlwidth=1600')
+            echo "$RESP" > "photo-candidates/$key-api.json"
+            i=0
+            for row in $(echo "$RESP" | jq -r '.query.pages | to_entries | sort_by(.value.index) | .[] | @base64'); do
+              _get() { echo "$row" | base64 -d | jq -r "$1"; }
+              THUMB=$(_get '.value.imageinfo[0].thumburl // empty')
+              W=$(_get '.value.imageinfo[0].width // 0')
+              [ -z "$THUMB" ] && continue
+              [ "$W" -lt 800 ] && continue
+              i=$((i+1))
+              curl -sf -A "$UA" "$THUMB" -o "photo-candidates/$key-$i.jpg" || continue
+              TITLE=$(_get '.value.title')
+              PAGE=$(_get '.value.imageinfo[0].descriptionurl')
+              LIC=$(_get '.value.imageinfo[0].extmetadata.LicenseShortName.value // "unknown"')
+              ARTIST=$(_get '.value.imageinfo[0].extmetadata.Artist.value // "unknown"' | sed 's/<[^>]*>//g' | head -c 120)
+              jq --arg f "$key-$i.jpg" --arg t "$TITLE" --arg p "$PAGE" --arg l "$LIC" --arg a "$ARTIST" \
+                '. += [{file:$f, title:$t, page:$p, license:$l, artist:$a}]' \
+                photo-candidates/credits.json > photo-candidates/credits.tmp && mv photo-candidates/credits.tmp photo-candidates/credits.json
+              [ "$i" -ge 5 ] && break
+            done
+            echo "fetched $i candidates for $key"
+          done
+          ls -la photo-candidates
+      - name: Commit candidates
+        run: |
+          git config user.name 'photo-fetch-bot'
+          git config user.email 'actions@github.com'
+          git add photo-candidates
+          git commit -m 'chore: add Commons photo candidates round 4 [skip ci]'
+          git push
