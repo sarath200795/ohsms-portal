@@ -1,6 +1,5 @@
 # Temporary: fetch openly-licensed photo candidates from Wikimedia Commons.
-# The CI runner has open internet; the authoring sandbox does not. Deleted
-# once the final photos are picked.
+# Round 2 — exact file titles + category enumeration instead of fuzzy search.
 name: fetch-photos
 on:
   push:
@@ -15,52 +14,59 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Query Commons API and download candidates
+      - name: Fetch candidates
         run: |
           set -euo pipefail
-          mkdir -p photo-candidates
+          rm -rf photo-candidates && mkdir -p photo-candidates
           UA="WE-EHS-launch-page/1.0 (contact: sarath200795@gmail.com)"
-          declare -A Q=(
-            [fire]="fire extinguisher mounted wall red"
-            [loto]="lockout tagout lock energy isolation"
-            [permit]="hand signing pen document form"
-            [inspections]="safety inspection worker factory helmet checking"
-            [audit]="office meeting documents paper discussion review"
-          )
+          API='https://commons.wikimedia.org/w/api.php'
           echo '[]' > photo-candidates/credits.json
-          for key in "${!Q[@]}"; do
-            RESP=$(curl -sf -A "$UA" -G 'https://commons.wikimedia.org/w/api.php' \
+
+          fetch_titles() { # subject, titles (| separated)
+            local key="$1" titles="$2" i=0
+            RESP=$(curl -sf -A "$UA" -G "$API" \
               --data-urlencode 'action=query' --data-urlencode 'format=json' \
-              --data-urlencode 'generator=search' --data-urlencode 'gsrnamespace=6' \
-              --data-urlencode "gsrsearch=filetype:bitmap ${Q[$key]}" \
-              --data-urlencode 'gsrlimit=5' --data-urlencode 'prop=imageinfo' \
+              --data-urlencode "titles=$titles" \
+              --data-urlencode 'prop=imageinfo' \
               --data-urlencode 'iiprop=url|extmetadata|size' --data-urlencode 'iiurlwidth=1600')
-            echo "$RESP" > "photo-candidates/$key-api.json"
-            i=0
-            for row in $(echo "$RESP" | jq -r '.query.pages | to_entries | sort_by(.value.index) | .[] | @base64'); do
+            for row in $(echo "$RESP" | jq -r '.query.pages | to_entries[] | .value | @base64'); do
               _get() { echo "$row" | base64 -d | jq -r "$1"; }
-              THUMB=$(_get '.value.imageinfo[0].thumburl // empty')
-              W=$(_get '.value.imageinfo[0].width // 0')
-              [ -z "$THUMB" ] && continue
-              [ "$W" -lt 800 ] && continue
+              THUMB=$(_get '.imageinfo[0].thumburl // empty'); [ -z "$THUMB" ] && continue
+              W=$(_get '.imageinfo[0].width // 0'); [ "$W" -lt 700 ] && continue
               i=$((i+1))
-              curl -sf -A "$UA" "$THUMB" -o "photo-candidates/$key-$i.jpg" || continue
-              TITLE=$(_get '.value.title')
-              PAGE=$(_get '.value.imageinfo[0].descriptionurl')
-              LIC=$(_get '.value.imageinfo[0].extmetadata.LicenseShortName.value // "unknown"')
-              ARTIST=$(_get '.value.imageinfo[0].extmetadata.Artist.value // "unknown"' | sed 's/<[^>]*>//g' | head -c 120)
-              jq --arg f "$key-$i.jpg" --arg t "$TITLE" --arg p "$PAGE" --arg l "$LIC" --arg a "$ARTIST" \
-                '. += [{file:$f, title:$t, page:$p, license:$l, artist:$a}]' \
-                photo-candidates/credits.json > photo-candidates/credits.tmp && mv photo-candidates/credits.tmp photo-candidates/credits.json
-              [ "$i" -ge 4 ] && break
+              curl -sf -A "$UA" "$THUMB" -o "photo-candidates/$key-$i.jpg" || { i=$((i-1)); continue; }
+              jq --arg f "$key-$i.jpg" --arg t "$(_get '.title')" --arg p "$(_get '.imageinfo[0].descriptionurl')" \
+                 --arg l "$(_get '.imageinfo[0].extmetadata.LicenseShortName.value // "unknown"')" \
+                 --arg a "$(_get '.imageinfo[0].extmetadata.Artist.value // "unknown"' | sed 's/<[^>]*>//g' | head -c 120)" \
+                 '. += [{file:$f, title:$t, page:$p, license:$l, artist:$a}]' \
+                 photo-candidates/credits.json > /tmp/c.json && mv /tmp/c.json photo-candidates/credits.json
             done
-            echo "fetched $i candidates for $key"
-          done
+            echo "$key: $i files"
+          }
+
+          fetch_category() { # subject-prefix, category, limit
+            local key="$1" cat="$2" limit="$3"
+            TITLES=$(curl -sf -A "$UA" -G "$API" \
+              --data-urlencode 'action=query' --data-urlencode 'format=json' \
+              --data-urlencode 'list=categorymembers' \
+              --data-urlencode "cmtitle=Category:$cat" \
+              --data-urlencode 'cmtype=file' --data-urlencode 'cmlimit=40' |
+              jq -r '.query.categorymembers[].title' | grep -iE '\.(jpe?g|png)$' | head -"$limit" | paste -sd'|')
+            [ -n "$TITLES" ] && fetch_titles "$key" "$TITLES"
+          }
+
+          fetch_titles fire 'File:Fire extinguisher in wall mount.jpg|File:Fire extinguisher 01.jpg|File:Fire Extinguisher Usage.jpg'
+          fetch_titles loto 'File:Lockout on hoist brake.JPG|File:Lockout Tagout (14853353063).jpg|File:Lockout Station at National Synchrotron Light Source II.jpg'
+          fetch_titles permit 'File:Fountain pen writing (literacy).jpg|File:Writers hand with pen.JPG|File:Pen-writing-notes-studying.jpg|File:Woman writing on a notebook with a pen.jpg'
+          fetch_titles audit 'File:Work Meeting.jpg|File:Meeting room, table and paper board.jpg|File:GC23 Business Meetings.jpg|File:Picture of the meeting.jpg'
+          fetch_category fireX 'Fire extinguishers in situ' 5
+          fetch_category inspections 'Inspections' 8
+          fetch_category lotoX 'Lockout-Tagout' 6
           ls -la photo-candidates
       - name: Commit candidates
         run: |
           git config user.name 'photo-fetch-bot'
           git config user.email 'actions@github.com'
-          git add photo-candidates
-          git commit -m 'chore: add Commons photo candidates [skip ci]'
+          git add -A photo-candidates
+          git commit -m 'chore: photo candidates round 2 [skip ci]'
           git push
