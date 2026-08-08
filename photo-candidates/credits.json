@@ -1,93 +1,23 @@
 [
   {
-    "file": "fire-1.jpg",
-    "title": "File:Fire Extinguisher Usage.jpg",
-    "page": "https://commons.wikimedia.org/wiki/File:Fire_Extinguisher_Usage.jpg",
-    "license": "CC BY-SA 4.0",
-    "artist": "GeorgesNehmatElie"
-  },
-  {
-    "file": "fire-2.jpg",
-    "title": "File:Fire extinguisher 01.jpg",
-    "page": "https://commons.wikimedia.org/wiki/File:Fire_extinguisher_01.jpg",
-    "license": "CC BY-SA 4.0",
-    "artist": "Poisl.matyas"
-  },
-  {
-    "file": "fire-3.jpg",
-    "title": "File:Fire extinguisher in wall mount.jpg",
-    "page": "https://commons.wikimedia.org/wiki/File:Fire_extinguisher_in_wall_mount.jpg",
-    "license": "CC BY 3.0",
-    "artist": "Mibrahim74"
-  },
-  {
-    "file": "loto-1.jpg",
-    "title": "File:Lockout Station at National Synchrotron Light Source II.jpg",
-    "page": "https://commons.wikimedia.org/wiki/File:Lockout_Station_at_National_Synchrotron_Light_Source_II.jpg",
-    "license": "CC BY 4.0",
-    "artist": "Henrysz"
-  },
-  {
-    "file": "loto-2.jpg",
-    "title": "File:Lockout Tagout (14853353063).jpg",
-    "page": "https://commons.wikimedia.org/wiki/File:Lockout_Tagout_(14853353063).jpg",
+    "file": "navyaudit-1.jpg",
+    "title": "File:US Navy 060621-N-0490C-001 Lt. Cmdr. David Fowler assigned to Nuclear Propulsion Mobile Training Team (NPMTT) conducts an administration inspection.jpg",
+    "page": "https://commons.wikimedia.org/wiki/File:US_Navy_060621-N-0490C-001_Lt._Cmdr._David_Fowler_assigned_to_Nuclear_Propulsion_Mobile_Training_Team_(NPMTT)_conducts_an_administration_inspection.jpg",
     "license": "Public domain",
-    "artist": "NAVFAC"
+    "artist": "U.S. Navy photo by Photographer's Mate 2nd Class Miguel A. Contreras"
   },
   {
-    "file": "loto-3.jpg",
-    "title": "File:Lockout on hoist brake.JPG",
-    "page": "https://commons.wikimedia.org/wiki/File:Lockout_on_hoist_brake.JPG",
-    "license": "CC BY-SA 4.0",
-    "artist": "Wtshymanski"
-  },
-  {
-    "file": "permit-1.jpg",
-    "title": "File:Fountain pen writing (literacy).jpg",
-    "page": "https://commons.wikimedia.org/wiki/File:Fountain_pen_writing_(literacy).jpg",
-    "license": "CC BY-SA 4.0",
-    "artist": "Petar Milošević"
-  },
-  {
-    "file": "permit-2.jpg",
-    "title": "File:Pen-writing-notes-studying.jpg",
-    "page": "https://commons.wikimedia.org/wiki/File:Pen-writing-notes-studying.jpg",
-    "license": "CC0",
-    "artist": "Tookapic"
-  },
-  {
-    "file": "permit-3.jpg",
-    "title": "File:Woman writing on a notebook with a pen.jpg",
-    "page": "https://commons.wikimedia.org/wiki/File:Woman_writing_on_a_notebook_with_a_pen.jpg",
-    "license": "CC0",
-    "artist": "Kristin Hardwick"
-  },
-  {
-    "file": "permit-4.jpg",
-    "title": "File:Writers hand with pen.JPG",
-    "page": "https://commons.wikimedia.org/wiki/File:Writers_hand_with_pen.JPG",
+    "file": "navyhose-1.jpg",
+    "title": "File:US Navy 100511-N-2259P-019 Damage Controlman 1st Class Brian Clegg inspects a fire hose aboard USS John Paul Jones (DDG 53).jpg",
+    "page": "https://commons.wikimedia.org/wiki/File:US_Navy_100511-N-2259P-019_Damage_Controlman_1st_Class_Brian_Clegg_inspects_a_fire_hose_aboard_USS_John_Paul_Jones_(DDG_53).jpg",
     "license": "Public domain",
-    "artist": "unknown"
+    "artist": "U.S. Navy photo by Mass Communication Specialist 1st Class Elena Pence"
   },
   {
-    "file": "audit-1.jpg",
-    "title": "File:GC23 Business Meetings.jpg",
-    "page": "https://commons.wikimedia.org/wiki/File:GC23_Business_Meetings.jpg",
-    "license": "CC BY-SA 4.0",
-    "artist": "Heather.utley"
-  },
-  {
-    "file": "audit-2.jpg",
-    "title": "File:Meeting room, table and paper board.jpg",
-    "page": "https://commons.wikimedia.org/wiki/File:Meeting_room,_table_and_paper_board.jpg",
-    "license": "CC BY 2.0",
-    "artist": "Luis Argerich from Buenos Aires, Argentina"
-  },
-  {
-    "file": "audit-3.jpg",
-    "title": "File:Picture of the meeting.jpg",
-    "page": "https://commons.wikimedia.org/wiki/File:Picture_of_the_meeting.jpg",
-    "license": "CC BY-SA 4.0",
-    "artist": "Nahmadzai123"
+    "file": "navyhelmet-1.jpg",
+    "title": "File:US Navy 050126-N-7405P-100 Damage Controlman Fireman Andy Nutzhorn inspects a fire fighting helmet during his daily check of Repair Locker 1A aboard Nimitz-class aircraft carrier USS Harry S. Truman (CVN 75).jpg",
+    "page": "https://commons.wikimedia.org/wiki/File:US_Navy_050126-N-7405P-100_Damage_Controlman_Fireman_Andy_Nutzhorn_inspects_a_fire_fighting_helmet_during_his_daily_check_of_Repair_Locker_1A_aboard_Nimitz-class_aircraft_carrier_USS_Harry_S._Truman_(CVN_75).jpg",
+    "license": "Public domain",
+    "artist": "U.S. Navy photo by Photographer's Mate Airman Gregory A. Pierot"
   }
 ]
