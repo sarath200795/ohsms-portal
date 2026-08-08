@@ -55,18 +55,14 @@ jobs:
             [ -n "$TITLES" ] && fetch_titles "$key" "$TITLES"
           }
 
-          fetch_titles fire 'File:Fire extinguisher in wall mount.jpg|File:Fire extinguisher 01.jpg|File:Fire Extinguisher Usage.jpg'
-          fetch_titles loto 'File:Lockout on hoist brake.JPG|File:Lockout Tagout (14853353063).jpg|File:Lockout Station at National Synchrotron Light Source II.jpg'
-          fetch_titles permit 'File:Fountain pen writing (literacy).jpg|File:Writers hand with pen.JPG|File:Pen-writing-notes-studying.jpg|File:Woman writing on a notebook with a pen.jpg'
-          fetch_titles audit 'File:Work Meeting.jpg|File:Meeting room, table and paper board.jpg|File:GC23 Business Meetings.jpg|File:Picture of the meeting.jpg'
-          fetch_category fireX 'Fire extinguishers in situ' 5
-          fetch_category inspections 'Inspections' 8
-          fetch_category lotoX 'Lockout-Tagout' 6
+          fetch_titles navyaudit 'File:US Navy 060621-N-0490C-001 Lt. Cmdr. David Fowler assigned to Nuclear Propulsion Mobile Training Team (NPMTT) conducts an administration inspection.jpg'
+          fetch_titles navyhose 'File:US Navy 100511-N-2259P-019 Damage Controlman 1st Class Brian Clegg inspects a fire hose aboard USS John Paul Jones (DDG 53).jpg'
+          fetch_titles navyhelmet 'File:US Navy 050126-N-7405P-100 Damage Controlman Fireman Andy Nutzhorn inspects a fire fighting helmet during his daily check of Repair Locker 1A aboard Nimitz-class aircraft carrier USS Harry S. Truman (CVN 75).jpg'
           ls -la photo-candidates
       - name: Commit candidates
         run: |
           git config user.name 'photo-fetch-bot'
           git config user.email 'actions@github.com'
           git add -A photo-candidates
-          git commit -m 'chore: photo candidates round 2 [skip ci]'
+          git commit -m 'chore: photo candidates round 3 [skip ci]'
           git push
