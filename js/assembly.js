@@ -16,6 +16,7 @@
       cals: [...s.querySelectorAll('[data-cal]')],
       prog: s.querySelector('[data-prog]'),
       box: s.querySelector('[data-art]'),
+      vid: s.querySelector('video[data-scenevid]'),
     }));
 
     const fit = () => {
@@ -63,6 +64,8 @@
           c.style.transform = 'translateX(' + (1 - k) * 14 + 'px)';
         });
         if (sc.prog) sc.prog.style.transform = 'scaleX(' + e + ')';
+        // Cinematic drift: footage settles from 1.1 to 1.02 as the record assembles.
+        if (sc.vid) sc.vid.style.transform = 'scale(' + (1.1 - 0.08 * e) + ')';
       }
       return moving;
     };
@@ -81,10 +84,57 @@
         sc.parts.forEach((p) => { p.el.style.transform = 'none'; p.el.style.opacity = 1; });
         sc.cals.forEach((c) => { c.style.opacity = 1; c.style.transform = 'none'; });
         if (sc.prog) sc.prog.style.transform = 'scaleX(1)';
+        // Reduced motion: show the still poster only, never autoplay footage.
+        if (sc.vid) { sc.vid.style.opacity = 1; sc.vid.style.transform = 'none'; }
       }
       window.addEventListener('resize', fit);
       fit();
       return;
+    }
+
+    // Footage lifecycle: lazy-load a scene's clip as it approaches, fade it in
+    // once playing, and pause it off-screen so only the visible scene decodes.
+    if ('IntersectionObserver' in window) {
+      const io = new IntersectionObserver(
+        (entries) => {
+          for (const entry of entries) {
+            const sc = scenes.find((s) => s.el === entry.target);
+            if (!sc || !sc.vid) continue;
+            const vid = sc.vid;
+            if (entry.isIntersecting) {
+              if (!vid.dataset.loaded) {
+                vid.dataset.loaded = '1';
+                for (const [attr, type] of [['webm', 'video/webm'], ['mp4', 'video/mp4']]) {
+                  if (!vid.dataset[attr]) continue;
+                  const source = document.createElement('source');
+                  source.src = vid.dataset[attr];
+                  source.type = type;
+                  vid.appendChild(source);
+                }
+                vid.load();
+              }
+              vid.play().then(() => { vid.style.opacity = 1; }).catch(() => {
+                vid.style.opacity = 1; // poster remains if autoplay is refused
+              });
+            } else if (vid.dataset.loaded) {
+              vid.pause();
+            }
+          }
+        },
+        { rootMargin: '25% 0px' },
+      );
+      for (const sc of scenes) if (sc.vid) io.observe(sc.el);
+    } else {
+      for (const sc of scenes) {
+        if (!sc.vid) continue;
+        const source = document.createElement('source');
+        source.src = sc.vid.dataset.mp4;
+        source.type = 'video/mp4';
+        sc.vid.appendChild(source);
+        sc.vid.load();
+        sc.vid.play().catch(() => {});
+        sc.vid.style.opacity = 1;
+      }
     }
 
     window.addEventListener('scroll', tick, { passive: true });
